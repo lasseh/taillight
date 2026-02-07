@@ -117,11 +117,15 @@ func runLoadgenSyslog() error {
 		return fmt.Errorf("unsupported protocol %q: use udp or tcp", loadgenProtocol)
 	}
 
+	// Use udp4/tcp4 to avoid IPv6 issues on macOS where Docker
+	// maps ports on 0.0.0.0 but Go's dialer prefers [::1].
+	network := loadgenProtocol + "4"
+
 	fmt.Printf("connecting to %s://%s...\n", loadgenProtocol, loadgenSyslog)
 
 	ctx := context.Background()
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, loadgenProtocol, loadgenSyslog)
+	conn, err := d.DialContext(ctx, network, loadgenSyslog)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", loadgenSyslog, err)
 	}

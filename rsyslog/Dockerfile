@@ -25,6 +25,9 @@ RUN sed -i '/^# ruleset(name="output_pgsql")/,/^# }/s/^# //' /etc/rsyslog.d/conf
 # Uncomment the call to output_pgsql in the ruleset
 RUN sed -i 's/^    # call output_pgsql/    call output_pgsql/' /etc/rsyslog.d/conf.d/20-ruleset.conf
 
+# Disable librenms output (not available in Docker)
+RUN sed -i 's/^    call output_librenms/    # call output_librenms/' /etc/rsyslog.d/conf.d/20-ruleset.conf
+
 # Create spool and log directories
 RUN mkdir -p /var/spool/rsyslog /var/log/network
 

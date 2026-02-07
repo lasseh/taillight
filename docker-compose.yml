@@ -37,8 +37,8 @@ services:
   rsyslog:
     build: ./rsyslog
     ports:
-      - "514:514/udp"
-      - "514:514/tcp"
+      - "1514:514/udp"
+      - "1514:514/tcp"
     depends_on:
       postgres:
         condition: service_healthy
