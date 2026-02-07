@@ -47,7 +47,37 @@ rsyslog (ompgsql) -> PostgreSQL -> LISTEN/NOTIFY -> Go SSE backend -> browser Ev
 docker compose up -d
 ```
 
-This starts PostgreSQL (TimescaleDB), the API, and the frontend. The frontend is available at `http://localhost:3000`, the API at `http://localhost:8080`.
+This starts PostgreSQL (TimescaleDB), the API, rsyslog (with ompgsql), and the frontend. The frontend is available at `http://localhost:3000`, the API at `http://localhost:8080`.
+
+### Create a user
+
+```sh
+docker compose exec api /app useradd --username admin --password admin
+```
+
+### Generate test data
+
+The built-in load generators are the easiest way to populate the database:
+
+```sh
+# Generate syslog events (writes directly to PostgreSQL, triggers LISTEN/NOTIFY → SSE)
+docker compose exec api /app loadgen -n 100 --delay 100ms --jitter 200ms
+
+# Generate app log events (via HTTP ingest API)
+docker compose exec api /app applog-loadgen -n 100 --batch 50 --endpoint http://localhost:8080/api/v1/applog/ingest
+```
+
+### Send syslog messages
+
+The rsyslog container listens on UDP/TCP 514. Send messages in RFC 3164 format (what most network devices use):
+
+```sh
+# Single test message
+echo '<14>Feb  7 12:00:00 router01 rpd[1234]: BGP peer 10.0.0.1 state changed to Established' | nc -u -w1 localhost 514
+
+# Using logger (handles formatting automatically)
+logger -n localhost -P 514 -d -p local7.warning -t rpd "BGP peer 10.0.0.1 state changed to Established"
+```
 
 ### Local development
 
