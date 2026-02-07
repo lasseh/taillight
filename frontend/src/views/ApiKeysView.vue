@@ -26,6 +26,7 @@ const expirationOptions = [
 
 // Revocation state
 const confirmRevoke = ref<string | null>(null)
+const revokeError = ref('')
 
 const activeKeys = computed(() =>
   keys.value.filter((k) => !k.revoked_at && (!k.expires_at || new Date(k.expires_at) > new Date())),
@@ -128,9 +129,13 @@ async function createKey() {
   }
 }
 
-function copyKey() {
-  navigator.clipboard.writeText(createdKey.value)
-  copied.value = true
+async function copyKey() {
+  try {
+    await navigator.clipboard.writeText(createdKey.value)
+    copied.value = true
+  } catch {
+    copied.value = false
+  }
 }
 
 function dismissCreated() {
@@ -140,11 +145,12 @@ function dismissCreated() {
 }
 
 async function revokeKey(id: string) {
+  revokeError.value = ''
   try {
     await api.revokeKey(id)
     await fetchKeys()
   } catch (e) {
-    console.error('revoke failed', e)
+    revokeError.value = e instanceof ApiError ? e.message : 'Failed to revoke key'
   }
   confirmRevoke.value = null
 }
@@ -253,6 +259,9 @@ onMounted(fetchKeys)
               </div>
             </div>
           </Transition>
+
+          <!-- Revoke error -->
+          <div v-if="revokeError" class="text-t-red text-sm px-5 py-2">{{ revokeError }}</div>
 
           <!-- Active keys -->
           <div class="bg-t-bg-dark border-t-border rounded border">
