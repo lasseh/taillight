@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import type { FilterOption } from '@/types/syslog'
+
 defineProps<{
   label: string
-  options: { value: string; label: string }[]
+  options: FilterOption[]
 }>()
 
 const model = defineModel<string>({ required: true })

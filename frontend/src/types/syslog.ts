@@ -52,3 +52,9 @@ export interface SyslogFilters {
   severity_max: string
   search: string
 }
+
+/** Option entry for filter dropdowns. */
+export interface FilterOption {
+  value: string
+  label: string
+}

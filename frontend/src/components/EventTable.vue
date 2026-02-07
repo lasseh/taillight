@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends { id: number }">
 import { ref, watch, nextTick, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useScrollStore } from '@/stores/scroll'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
@@ -6,7 +6,7 @@ import ErrorDisplay from '@/components/ErrorDisplay.vue'
 
 const props = defineProps<{
   routeName: string
-  events: { id: number }[]
+  events: T[]
   loading: boolean
   error: string | null
   hasMore: boolean

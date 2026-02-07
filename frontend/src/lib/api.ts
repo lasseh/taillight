@@ -4,6 +4,14 @@ import type { VolumeResponse, SyslogSummaryResponse, AppLogSummaryResponse } fro
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse } from '@/types/auth'
 import { config } from './config'
 
+/** Shape of the JSON error body returned by the API. */
+interface ApiErrorBody {
+  error?: {
+    code?: string
+    message?: string
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -17,7 +25,7 @@ export class ApiError extends Error {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const body = await res.json().catch(() => null)
+    const body: ApiErrorBody | null = await res.json().catch(() => null)
     const code = body?.error?.code ?? 'unknown'
     const message = body?.error?.message ?? `HTTP ${res.status}`
     throw new ApiError(res.status, code, message)

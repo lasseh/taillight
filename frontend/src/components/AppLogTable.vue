@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { AppLogEvent } from '@/types/applog'
 import { useAppLogEventStore } from '@/stores/applog-events'
 import EventTable from '@/components/EventTable.vue'
 import AppLogRow from '@/components/AppLogRow.vue'
@@ -17,7 +16,7 @@ const events = useAppLogEventStore()
     :load-history="events.loadHistory"
   >
     <template #default="{ item }">
-      <AppLogRow :event="(item as AppLogEvent)" />
+      <AppLogRow :event="item" />
     </template>
   </EventTable>
 </template>

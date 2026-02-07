@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { SyslogEvent } from '@/types/syslog'
 import { useSyslogEventStore } from '@/stores/syslog-events'
 import EventTable from '@/components/EventTable.vue'
 import SyslogRow from '@/components/SyslogRow.vue'
@@ -17,7 +16,7 @@ const events = useSyslogEventStore()
     :load-history="events.loadHistory"
   >
     <template #default="{ item }">
-      <SyslogRow :event="(item as SyslogEvent)" />
+      <SyslogRow :event="item" />
     </template>
   </EventTable>
 </template>
