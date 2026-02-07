@@ -1,3 +1,6 @@
+# Reference data (download separately)
+*.xlsx
+
 # Go binaries and build artifacts
 api/taillight
 api/taillight-linux-amd64
