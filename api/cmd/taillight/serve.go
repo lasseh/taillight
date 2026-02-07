@@ -316,6 +316,7 @@ func setupRouter(
 	syslogMetaHandler := handler.NewSyslogMetaHandler(store)
 	statsHandler := handler.NewStatsHandler(store)
 	juniperHandler := handler.NewJuniperHandler(store)
+	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
 	syslogSSEHandler := handler.NewSyslogSSEHandler(syslogBroker, store, logger)
 
 	// Applog handlers.
@@ -389,6 +390,11 @@ func setupRouter(
 
 			r.Route("/juniper", func(r chi.Router) {
 				r.Get("/lookup", juniperHandler.Lookup)
+			})
+
+			r.Route("/rsyslog/stats", func(r chi.Router) {
+				r.Get("/summary", rsyslogStatsHandler.Summary)
+				r.Get("/volume", rsyslogStatsHandler.Volume)
 			})
 		})
 

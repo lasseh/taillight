@@ -1,6 +1,7 @@
 import type { SyslogListResponse, JuniperSyslogRef, MetaResponse, SingleSyslogResponse } from '@/types/syslog'
 import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
 import type { VolumeResponse, SyslogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
+import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse } from '@/types/auth'
 import { config } from './config'
 
@@ -176,5 +177,15 @@ export const api = {
   getAppLogSummary(range?: string): Promise<AppLogSummaryResponse> {
     const q = range ? `?range=${encodeURIComponent(range)}` : ''
     return fetchAPI(`/api/v1/applog/stats/summary${q}`)
+  },
+
+  // Rsyslog stats
+  getRsyslogStatsSummary(range?: string): Promise<RsyslogStatsSummaryResponse> {
+    const q = range ? `?range=${encodeURIComponent(range)}` : ''
+    return fetchAPI(`/api/v1/rsyslog/stats/summary${q}`)
+  },
+
+  getRsyslogStatsVolume(params: URLSearchParams): Promise<RsyslogStatsVolumeResponse> {
+    return fetchAPI(`/api/v1/rsyslog/stats/volume?${params}`)
   },
 }

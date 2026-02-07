@@ -22,6 +22,14 @@ RUN sed -i '/^# ruleset(name="output_pgsql")/,/^# }/s/^# //' /etc/rsyslog.d/conf
     sed -i 's/server="127.0.0.1"/server="postgres"/' /etc/rsyslog.d/conf.d/02-outputs.conf && \
     sed -i 's/pwd="changeme"/pwd="taillight"/' /etc/rsyslog.d/conf.d/02-outputs.conf
 
+# Uncomment PgSQLStatsInsert template
+RUN sed -i '/^# template(name="PgSQLStatsInsert"/,/^# }/s/^# //' /etc/rsyslog.d/conf.d/01-templates.conf
+
+# Uncomment stats ompgsql action and configure for Docker
+RUN sed -i '/^    # action(type="ompgsql"/,/^    # )/s/^    # /    /' /etc/rsyslog.d/conf.d/03-operational-logging.conf && \
+    sed -i '/stats_to_pgsql/,/action.resumeInterval/s/server="127.0.0.1"/server="postgres"/' /etc/rsyslog.d/conf.d/03-operational-logging.conf && \
+    sed -i '/stats_to_pgsql/,/action.resumeInterval/s/pwd="changeme"/pwd="taillight"/' /etc/rsyslog.d/conf.d/03-operational-logging.conf
+
 # Uncomment the call to output_pgsql in the ruleset
 RUN sed -i 's/^    # call output_pgsql/    call output_pgsql/' /etc/rsyslog.d/conf.d/20-ruleset.conf
 
