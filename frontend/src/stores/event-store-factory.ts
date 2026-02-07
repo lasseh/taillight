@@ -1,4 +1,4 @@
-import { ref, shallowRef, computed, watch, type Ref } from 'vue'
+import { ref, shallowRef, computed, watch, onScopeDispose, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useRoute } from 'vue-router'
 
@@ -46,7 +46,7 @@ export function createEventStore<TEvent extends { id: number }>(
     // Wrap the Pinia-unwrapped activeFilters in a computed for reactivity.
     const activeFilters = computed(() => filterStore.activeFilters)
 
-    stream.subscribe((event) => {
+    const _unsubscribe = stream.subscribe((event) => {
       if (!_initialLoadComplete.value) return
       if (_knownIds.has(event.id)) return
       if (!config.matchesFilters(event, activeFilters.value)) return
@@ -116,7 +116,7 @@ export function createEventStore<TEvent extends { id: number }>(
     }
 
     // Reconnect / refetch when filters change.
-    watch(
+    const _stopFilterWatch = watch(
       activeFilters,
       () => {
         if (route.name === config.routeName) {
@@ -125,6 +125,11 @@ export function createEventStore<TEvent extends { id: number }>(
       },
       { deep: true },
     )
+
+    onScopeDispose(() => {
+      _unsubscribe()
+      _stopFilterWatch()
+    })
 
     return {
       events,
