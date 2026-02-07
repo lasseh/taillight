@@ -1,6 +1,23 @@
 # taillight
 
-Real-time syslog event viewer. Streams filtered syslog events from PostgreSQL to browser clients via Server-Sent Events.
+[![CI](https://github.com/lasseh/taillight/actions/workflows/ci.yml/badge.svg)](https://github.com/lasseh/taillight/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go)](https://go.dev)
+
+Real-time syslog and application log viewer. Streams filtered log events from TimescaleDB to browser clients via Server-Sent Events.
+
+## Features
+
+- **Real-time streaming** — syslog and app log events pushed to the browser via SSE
+- **Advanced filtering** — filter by host, facility, severity, program, and full-text search
+- **Dual log sources** — syslog (via rsyslog/ompgsql) and application logs (via HTTP ingest API)
+- **TimescaleDB backend** — hypertables with compression and retention policies for efficient storage
+- **Dashboard** — aggregated views with continuous aggregates for fast analytics
+- **User authentication** — session-based auth with API key support for ingest
+- **Juniper reference data** — import syslog message definitions from Juniper XLSX files
+- **Load generators** — built-in tools for generating test syslog and app log events
+- **Prometheus metrics** — `/metrics` endpoint for monitoring
+- **Docker Compose** — one-command deployment of the full stack
 
 ## Architecture
 
@@ -221,6 +238,10 @@ pg_restore -U taillight -d taillight taillight.dump
 
 For production, consider `timescaledb-backup` or WAL archiving for point-in-time recovery.
 
+## Reference Data
+
+Juniper syslog XLSX files are not included in the repository. Download them from Juniper's documentation site and place them in the `api/` directory before running the import command.
+
 ## Documentation
 
 - [SSE Backend Design](docs/sse-backend-design.md) -- architecture, data flow, component details
@@ -229,3 +250,11 @@ For production, consider `timescaledb-backup` or WAL archiving for point-in-time
 - [rsyslog Juniper Research](docs/rsyslog-juniper-research.md) -- filter reference and design guide
 - [rsyslog README](rsyslog/README.md) -- rsyslog configuration and deployment
 - [API Reference](api/API.md) -- HTTP endpoints
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commit conventions, and PR guidelines.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for details.
