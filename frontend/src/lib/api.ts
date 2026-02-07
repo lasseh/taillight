@@ -1,0 +1,172 @@
+import type { SyslogListResponse, JuniperSyslogRef, MetaResponse, SingleSyslogResponse } from '@/types/syslog'
+import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
+import type { VolumeResponse, SyslogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
+import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse } from '@/types/auth'
+import { config } from './config'
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+async function handleResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    const code = body?.error?.code ?? 'unknown'
+    const message = body?.error?.message ?? `HTTP ${res.status}`
+    throw new ApiError(res.status, code, message)
+  }
+  return res.json()
+}
+
+async function fetchAPI<T>(path: string): Promise<T> {
+  const url = `${config.apiUrl}${path}`
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
+    credentials: 'include',
+  })
+  return handleResponse(res)
+}
+
+async function postAPI<T>(path: string, body: unknown): Promise<T> {
+  const url = `${config.apiUrl}${path}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+    credentials: 'include',
+  })
+  return handleResponse(res)
+}
+
+async function deleteAPI<T>(path: string): Promise<T> {
+  const url = `${config.apiUrl}${path}`
+  const res = await fetch(url, {
+    method: 'DELETE',
+    signal: AbortSignal.timeout(15000),
+    credentials: 'include',
+  })
+  return handleResponse(res)
+}
+
+async function patchAPI<T>(path: string, body: unknown): Promise<T> {
+  const url = `${config.apiUrl}${path}`
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+    credentials: 'include',
+  })
+  return handleResponse(res)
+}
+
+export const api = {
+  // Auth
+  login(username: string, password: string): Promise<LoginResponse> {
+    return postAPI('/api/v1/auth/login', { username, password })
+  },
+
+  logout(): Promise<{ status: string }> {
+    return postAPI('/api/v1/auth/logout', {})
+  },
+
+  getMe(): Promise<MeResponse> {
+    return fetchAPI('/api/v1/auth/me')
+  },
+
+  listKeys(): Promise<ListKeysResponse> {
+    return fetchAPI('/api/v1/auth/keys')
+  },
+
+  createKey(req: CreateKeyRequest): Promise<CreateKeyResponse> {
+    return postAPI('/api/v1/auth/keys', req)
+  },
+
+  revokeKey(id: string): Promise<{ status: string }> {
+    return deleteAPI(`/api/v1/auth/keys/${id}`)
+  },
+
+  updatePassword(id: string, password: string): Promise<{ status: string }> {
+    return patchAPI(`/api/v1/auth/users/${id}/password`, { password })
+  },
+
+  updateEmail(email: string): Promise<MeResponse> {
+    return patchAPI('/api/v1/auth/me/email', { email })
+  },
+
+  // Syslog
+  getSyslogs(params: URLSearchParams): Promise<SyslogListResponse> {
+    return fetchAPI(`/api/v1/syslog?${params}`)
+  },
+
+  getSyslog(id: number): Promise<SingleSyslogResponse> {
+    return fetchAPI(`/api/v1/syslog/${id}`)
+  },
+
+  getHosts(): Promise<MetaResponse<string>> {
+    return fetchAPI('/api/v1/meta/hosts')
+  },
+
+  getPrograms(): Promise<MetaResponse<string>> {
+    return fetchAPI('/api/v1/meta/programs')
+  },
+
+  getFacilities(): Promise<MetaResponse<number>> {
+    return fetchAPI('/api/v1/meta/facilities')
+  },
+
+  getTags(): Promise<MetaResponse<string>> {
+    return fetchAPI('/api/v1/meta/tags')
+  },
+
+  getVolume(params: URLSearchParams): Promise<VolumeResponse> {
+    return fetchAPI(`/api/v1/stats/volume?${params}`)
+  },
+
+  getJuniperLookup(name: string): Promise<MetaResponse<JuniperSyslogRef>> {
+    return fetchAPI(`/api/v1/juniper/lookup?name=${encodeURIComponent(name)}`)
+  },
+
+  // App log
+  getAppLogs(params: URLSearchParams): Promise<AppLogListResponse> {
+    return fetchAPI(`/api/v1/applog?${params}`)
+  },
+
+  getAppLog(id: number): Promise<SingleAppLogResponse> {
+    return fetchAPI(`/api/v1/applog/${id}`)
+  },
+
+  getAppLogServices(): Promise<MetaResponse<string>> {
+    return fetchAPI('/api/v1/applog/meta/services')
+  },
+
+  getAppLogComponents(): Promise<MetaResponse<string>> {
+    return fetchAPI('/api/v1/applog/meta/components')
+  },
+
+  getAppLogHosts(): Promise<MetaResponse<string>> {
+    return fetchAPI('/api/v1/applog/meta/hosts')
+  },
+
+  getAppLogVolume(params: URLSearchParams): Promise<VolumeResponse> {
+    return fetchAPI(`/api/v1/applog/stats/volume?${params}`)
+  },
+
+  getSyslogSummary(range?: string): Promise<SyslogSummaryResponse> {
+    const q = range ? `?range=${encodeURIComponent(range)}` : ''
+    return fetchAPI(`/api/v1/stats/summary${q}`)
+  },
+
+  getAppLogSummary(range?: string): Promise<AppLogSummaryResponse> {
+    const q = range ? `?range=${encodeURIComponent(range)}` : ''
+    return fetchAPI(`/api/v1/applog/stats/summary${q}`)
+  },
+}

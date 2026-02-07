@@ -1,0 +1,290 @@
+-- Syslog events hypertable for rsyslog ompgsql output + Go SSE backend.
+-- Requires: TimescaleDB extension and pg_trgm extension.
+
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+CREATE TABLE IF NOT EXISTS syslog_events (
+    id              BIGINT GENERATED ALWAYS AS IDENTITY,
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reported_at     TIMESTAMPTZ NOT NULL,
+    hostname        TEXT        NOT NULL,
+    fromhost_ip     INET        NOT NULL,
+    programname     TEXT        NOT NULL DEFAULT '',
+    msgid           TEXT        NOT NULL DEFAULT '',
+    severity        SMALLINT    NOT NULL,
+    facility        SMALLINT    NOT NULL,
+    syslogtag       TEXT        NOT NULL DEFAULT '',
+    structured_data TEXT,
+    message         TEXT        NOT NULL,
+    raw_message     TEXT
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'received_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.create_default_indexes = false,
+    tsdb.segmentby = 'hostname',
+    tsdb.orderby = 'received_at DESC'
+);
+
+-- Cursor pagination index (main access pattern).
+CREATE INDEX IF NOT EXISTS idx_syslog_received_id
+    ON syslog_events (received_at DESC, id DESC);
+
+-- Single event lookup by ID (scans all chunks, acceptable for rare lookups).
+CREATE INDEX IF NOT EXISTS idx_syslog_id
+    ON syslog_events (id);
+
+-- Filter indexes.
+CREATE INDEX IF NOT EXISTS idx_syslog_host_received
+    ON syslog_events (hostname, received_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_syslog_severity_received
+    ON syslog_events (severity, received_at DESC, id DESC)
+    WHERE severity <= 3;
+
+CREATE INDEX IF NOT EXISTS idx_syslog_programname
+    ON syslog_events (programname);
+
+CREATE INDEX IF NOT EXISTS idx_syslog_facility
+    ON syslog_events (facility);
+
+CREATE INDEX IF NOT EXISTS idx_syslog_fromhost_ip
+    ON syslog_events (fromhost_ip);
+
+CREATE INDEX IF NOT EXISTS idx_syslog_syslogtag
+    ON syslog_events (syslogtag);
+
+-- Trigram index for ILIKE substring search on message.
+CREATE INDEX IF NOT EXISTS idx_syslog_message_trgm
+    ON syslog_events USING GIN (message gin_trgm_ops);
+
+-- Notify trigger for LISTEN/NOTIFY push to SSE broker.
+-- Sends the row ID so the Go backend can fetch the full event by ID.
+CREATE OR REPLACE FUNCTION notify_syslog_insert()
+RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('syslog_ingest', NEW.id::text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_syslog_notify ON syslog_events;
+CREATE TRIGGER trg_syslog_notify
+    AFTER INSERT ON syslog_events
+    FOR EACH ROW EXECUTE FUNCTION notify_syslog_insert();
+
+-- Compression: convert chunks older than 1 day to columnstore.
+-- Syslog data is append-only; compressed chunks are transparent to queries.
+-- The hypertable auto-creates a default 7-day policy; replace it with 1 day.
+CALL remove_columnstore_policy('syslog_events');
+CALL add_columnstore_policy('syslog_events', after => INTERVAL '1 day');
+
+-- Retention policy: automatically drop chunks older than 90 days.
+SELECT add_retention_policy('syslog_events', INTERVAL '90 days', if_not_exists => true);
+
+-- Tune autovacuum for high-insert workload.
+-- Default thresholds (20% dead tuples / 10% for analyze) are too lazy
+-- for a table receiving millions of inserts per day.
+ALTER TABLE syslog_events SET (
+    autovacuum_vacuum_scale_factor = 0.05,
+    autovacuum_analyze_scale_factor = 0.02
+);
+
+-------------------------------------------------------------------------------
+-- Juniper syslog reference table
+-------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS juniper_syslog_ref (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name        TEXT NOT NULL,
+    message     TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    type        TEXT NOT NULL DEFAULT '',
+    severity    TEXT NOT NULL DEFAULT '',
+    cause       TEXT NOT NULL DEFAULT '',
+    action      TEXT NOT NULL DEFAULT '',
+    os          TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_juniper_ref_name_os ON juniper_syslog_ref (name, os);
+CREATE INDEX IF NOT EXISTS idx_juniper_ref_name ON juniper_syslog_ref (name);
+
+-------------------------------------------------------------------------------
+-- Application log events hypertable
+-------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS applog_events (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    timestamp   TIMESTAMPTZ NOT NULL,
+    level       TEXT        NOT NULL,
+    service     TEXT        NOT NULL,
+    component   TEXT        NOT NULL DEFAULT '',
+    host        TEXT        NOT NULL DEFAULT '',
+    msg         TEXT        NOT NULL,
+    source      TEXT        NOT NULL DEFAULT '',
+    attrs       JSONB,
+    search_vector tsvector GENERATED ALWAYS AS (
+        to_tsvector('simple', coalesce(service,'') || ' ' ||
+                              coalesce(component,'') || ' ' ||
+                              coalesce(host,'') || ' ' ||
+                              coalesce(msg,''))
+    ) STORED
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column     = 'received_at',
+    tsdb.chunk_interval       = '1 day',
+    tsdb.columnstore          = true,
+    tsdb.segmentby            = 'service',
+    tsdb.orderby              = 'received_at DESC, id DESC'
+);
+
+-- Cursor pagination (keyset: received_at DESC, id DESC)
+CREATE INDEX IF NOT EXISTS idx_applog_received_id ON applog_events (received_at DESC, id DESC);
+-- Filter indexes
+CREATE INDEX IF NOT EXISTS idx_applog_service_received ON applog_events (service, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_applog_level_received ON applog_events (level, received_at DESC);
+-- JSONB attribute queries
+CREATE INDEX IF NOT EXISTS idx_applog_attrs ON applog_events USING GIN (attrs jsonb_path_ops);
+-- Full-text search
+CREATE INDEX IF NOT EXISTS idx_applog_search ON applog_events USING GIN (search_vector);
+
+-- Notify trigger for LISTEN/NOTIFY push to SSE broker.
+CREATE OR REPLACE FUNCTION notify_applog_insert()
+RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('applog_ingest', NEW.id::text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_applog_notify ON applog_events;
+CREATE TRIGGER trg_applog_notify
+    AFTER INSERT ON applog_events
+    FOR EACH ROW EXECUTE FUNCTION notify_applog_insert();
+
+-- Override default 7-day columnstore policy: compress chunks older than 1 day
+CALL remove_columnstore_policy('applog_events');
+CALL add_columnstore_policy('applog_events', after => INTERVAL '1 day');
+
+-- Drop chunks older than 90 days (match syslog_events retention)
+SELECT add_retention_policy('applog_events', INTERVAL '90 days', if_not_exists => true);
+
+-------------------------------------------------------------------------------
+-- Meta cache tables: populated by triggers on every INSERT.
+-- Avoids expensive DISTINCT queries on large hypertables.
+-------------------------------------------------------------------------------
+
+-- Syslog meta cache
+CREATE TABLE IF NOT EXISTS syslog_meta_cache (
+    column_name TEXT NOT NULL,
+    value       TEXT NOT NULL,
+    PRIMARY KEY (column_name, value)
+);
+
+CREATE OR REPLACE FUNCTION cache_syslog_meta()
+RETURNS trigger AS $$
+BEGIN
+    INSERT INTO syslog_meta_cache (column_name, value)
+    VALUES
+        ('hostname', NEW.hostname),
+        ('programname', NEW.programname),
+        ('syslogtag', NEW.syslogtag)
+    ON CONFLICT DO NOTHING;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_syslog_meta_cache ON syslog_events;
+CREATE TRIGGER trg_syslog_meta_cache
+    AFTER INSERT ON syslog_events
+    FOR EACH ROW EXECUTE FUNCTION cache_syslog_meta();
+
+-- Syslog facility cache
+CREATE TABLE IF NOT EXISTS syslog_facility_cache (
+    facility SMALLINT PRIMARY KEY
+);
+
+CREATE OR REPLACE FUNCTION cache_syslog_facility()
+RETURNS trigger AS $$
+BEGIN
+    INSERT INTO syslog_facility_cache (facility)
+    VALUES (NEW.facility)
+    ON CONFLICT DO NOTHING;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_syslog_facility_cache ON syslog_events;
+CREATE TRIGGER trg_syslog_facility_cache
+    AFTER INSERT ON syslog_events
+    FOR EACH ROW EXECUTE FUNCTION cache_syslog_facility();
+
+-- Applog meta cache
+CREATE TABLE IF NOT EXISTS applog_meta_cache (
+    column_name TEXT NOT NULL,
+    value       TEXT NOT NULL,
+    PRIMARY KEY (column_name, value)
+);
+
+CREATE OR REPLACE FUNCTION cache_applog_meta()
+RETURNS trigger AS $$
+BEGIN
+    INSERT INTO applog_meta_cache (column_name, value)
+    VALUES
+        ('service', NEW.service),
+        ('component', NEW.component),
+        ('host', NEW.host)
+    ON CONFLICT DO NOTHING;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_applog_meta_cache ON applog_events;
+CREATE TRIGGER trg_applog_meta_cache
+    AFTER INSERT ON applog_events
+    FOR EACH ROW EXECUTE FUNCTION cache_applog_meta();
+
+-------------------------------------------------------------------------------
+-- Authentication: users, sessions, API keys
+-------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS users (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username      TEXT NOT NULL CHECK (length(username) BETWEEN 1 AND 255),
+    password_hash TEXT NOT NULL,
+    is_active     BOOLEAN NOT NULL DEFAULT true,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX idx_users_username ON users (LOWER(username));
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash   TEXT PRIMARY KEY,
+    user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ip_address   INET,
+    user_agent   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_sessions_expires ON sessions (expires_at);
+CREATE INDEX idx_sessions_user ON sessions (user_id);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
+    key_hash     TEXT NOT NULL,
+    key_prefix   TEXT NOT NULL DEFAULT '',
+    expires_at   TIMESTAMPTZ,
+    revoked_at   TIMESTAMPTZ,
+    last_used_at TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX idx_api_keys_hash ON api_keys (key_hash) WHERE revoked_at IS NULL;
+CREATE INDEX idx_api_keys_user ON api_keys (user_id);

@@ -1,0 +1,50 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: github.com/
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - gocritic
+    - revive
+    - errname
+    - errorlint
+    - exhaustive
+    - goconst
+    - godot
+    - misspell
+    - noctx
+    - prealloc
+    - unconvert
+    - unparam
+    - wastedassign
+
+linters-settings:
+  revive:
+    rules:
+      - name: unexported-return
+        disabled: true
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+  exhaustive:
+    default-signifies-exhaustive: true
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0

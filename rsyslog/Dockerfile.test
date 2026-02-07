@@ -1,0 +1,25 @@
+# Dockerfile.test
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y \
+    rsyslog \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY rsyslog.conf /etc/rsyslog.conf
+COPY conf.d/ /etc/rsyslog.d/conf.d/
+COPY filters/ /etc/rsyslog.d/filters/
+COPY tests/ /etc/rsyslog.d/tests/
+
+# Validate config on build
+RUN rsyslogd -N1 -f /etc/rsyslog.conf
+
+# Create log and spool directories
+RUN mkdir -p /var/log/network /var/spool/rsyslog
+
+# Run tests
+RUN bash /etc/rsyslog.d/tests/test-filters.sh
+
+EXPOSE 514/udp 514/tcp 1514/udp
+
+CMD ["rsyslogd", "-n", "-f", "/etc/rsyslog.conf"]

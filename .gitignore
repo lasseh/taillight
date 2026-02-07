@@ -1,0 +1,40 @@
+# Go binaries and build artifacts
+api/taillight
+api/taillight-linux-amd64
+api/taillight-shipper
+api/taillight-shipper-linux-amd64
+api/coverage.*
+
+# API config (real credentials)
+api/config.yaml
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+# Playwright MCP screenshots
+.playwright-mcp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+frontend/.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude/agent local settings
+.claude/
+api/.claude/
+frontend/.claude/
+
+# Agent skills (auto-generated, not project code)
+**/.agents/

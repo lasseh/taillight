@@ -1,0 +1,54 @@
+database_url: "postgres://user:password@localhost:5432/taillight"
+listen_addr: ":8080"
+log_level: "info"
+
+# API keys for JSON log ingest authentication.
+# Leave empty to allow unauthenticated ingest.
+api_keys:
+  # - "changeme"
+
+# Enable authentication (login, sessions, API keys).
+# Set to false for deployments behind a firewall where all users should have access.
+auth_enabled: true
+
+# Require authentication on read endpoints (syslog, applog, meta, stats, SSE).
+# Only takes effect when auth_enabled is true.
+auth_read_endpoints: false
+
+# CORS allowed origins. Defaults to localhost dev origins when empty.
+# For production, specify the allowed origins explicitly.
+cors_allowed_origins:
+  # - "https://taillight.example.com"
+  # - "https://admin.example.com"
+
+# Serve /metrics on a separate listener (e.g. ":9090").
+# Empty disables the metrics endpoint entirely — safe default for public-facing deploys.
+metrics_addr: ""
+
+# Database connection pool settings.
+db_max_conns: 10
+db_min_conns: 2
+
+# Channel buffer for Postgres LISTEN/NOTIFY notifications.
+# Increase if you see "notification channel near capacity" warnings.
+notification_buffer_size: 8192
+
+# Ship the API's own logs to its applog ingest endpoint.
+# Logs remain on stdout regardless; this adds a second destination.
+logshipper:
+  enabled: false
+  service: "taillight"
+  component: "api"
+  # host: ""             # Override hostname (defaults to os.Hostname()).
+  min_level: "warn"      # Only ship warn and above to avoid feedback loops (debug, info, warn, error).
+  # api_key: "changeme"  # Must match an entry in api_keys if auth is enabled.
+
+# AI-powered daily syslog analysis using a local Ollama instance.
+# Produces a morning ops briefing covering incidents, anomalies, and correlations.
+analysis:
+  enabled: false
+  ollama_url: "http://localhost:11434"
+  model: "llama3.1:8b"          # Also try: mixtral:8x7b, llama3.1:70b
+  schedule_at: "06:00"          # Daily run time in UTC (HH:MM).
+  temperature: 0.3              # Low temperature for factual/deterministic output.
+  num_ctx: 8192                 # Context window size in tokens.

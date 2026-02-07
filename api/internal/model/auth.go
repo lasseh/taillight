@@ -1,0 +1,43 @@
+package model
+
+import (
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+// User represents a row from the users table.
+type User struct {
+	ID           pgtype.UUID        `json:"id"`
+	Username     string             `json:"username"`
+	Email        *string            `json:"email,omitempty"`
+	PasswordHash string             `json:"-"`
+	IsActive     bool               `json:"is_active"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	LastLoginAt  pgtype.Timestamptz `json:"last_login_at,omitempty"`
+}
+
+// Session represents a row from the sessions table.
+type Session struct {
+	TokenHash  string      `json:"-"`
+	UserID     pgtype.UUID `json:"user_id"`
+	CreatedAt  time.Time   `json:"created_at"`
+	ExpiresAt  time.Time   `json:"expires_at"`
+	LastSeenAt time.Time   `json:"last_seen_at"`
+	IPAddress  *string     `json:"ip_address,omitempty"`
+	UserAgent  string      `json:"user_agent"`
+}
+
+// APIKeyRow represents a row from the api_keys table.
+type APIKeyRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	UserID     pgtype.UUID        `json:"user_id"`
+	Name       string             `json:"name"`
+	KeyHash    string             `json:"-"`
+	KeyPrefix  string             `json:"key_prefix"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at,omitempty"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at,omitempty"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at,omitempty"`
+	CreatedAt  time.Time          `json:"created_at"`
+}

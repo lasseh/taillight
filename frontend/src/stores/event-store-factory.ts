@@ -1,0 +1,139 @@
+import { ref, shallowRef, computed, watch, type Ref } from 'vue'
+import { defineStore } from 'pinia'
+import { useRoute } from 'vue-router'
+
+interface EventStoreConfig<TEvent extends { id: number }> {
+  /** Pinia store identifier. */
+  id: string
+  /** Route name to watch for filter changes. */
+  routeName: string
+  /** Fetch a page of events from the API. */
+  fetchEvents: (params: URLSearchParams) => Promise<{ data: TEvent[]; cursor?: string; has_more: boolean }>
+  /** Get the SSE stream composable. */
+  useStream: () => { connected: Ref<boolean>; subscribe: (cb: (event: TEvent) => void) => () => void }
+  /** Get the filter store — must return an object with activeFilters (unwrapped by Pinia). */
+  useFilterStore: () => { activeFilters: Record<string, string> }
+  /** Client-side filter for SSE events. */
+  matchesFilters: (event: TEvent, filters: Record<string, string>) => boolean
+}
+
+/**
+ * Creates a Pinia event store with SSE subscription, deduplication, and cursor-based pagination.
+ */
+export function createEventStore<TEvent extends { id: number }>(
+  config: EventStoreConfig<TEvent>,
+) {
+  return defineStore(config.id, () => {
+    const route = useRoute()
+
+    const events = shallowRef<TEvent[]>([])
+    const loading = ref(false)
+    const error = ref<string | null>(null)
+
+    // History pagination.
+    const cursor = ref<string | null>(null)
+    const hasMore = ref(false)
+
+    // SSE deduplication.
+    const _knownIds = new Set<number>()
+    const _initialLoadComplete = ref(false)
+
+    // Subscribe to the global SSE stream.
+    const stream = config.useStream()
+
+    const filterStore = config.useFilterStore()
+
+    // Wrap the Pinia-unwrapped activeFilters in a computed for reactivity.
+    const activeFilters = computed(() => filterStore.activeFilters)
+
+    stream.subscribe((event) => {
+      if (!_initialLoadComplete.value) return
+      if (_knownIds.has(event.id)) return
+      if (!config.matchesFilters(event, activeFilters.value)) return
+      _knownIds.add(event.id)
+      events.value = [...events.value, event]
+    })
+
+    async function loadHistory(reset = false, wrapMerge?: (mutate: () => void) => void) {
+      if (loading.value) return
+      if (!reset && !hasMore.value) return
+
+      loading.value = true
+      error.value = null
+
+      if (reset) {
+        events.value = []
+        cursor.value = null
+        _knownIds.clear()
+      }
+
+      try {
+        const params = new URLSearchParams(activeFilters.value)
+        params.set('limit', '100')
+        if (cursor.value) {
+          params.set('cursor', cursor.value)
+        }
+
+        const res = await config.fetchEvents(params)
+        const reversed = [...res.data].reverse()
+
+        for (const e of reversed) {
+          _knownIds.add(e.id)
+        }
+
+        if (reset) {
+          events.value = reversed
+        } else {
+          const merge = () => {
+            events.value = [...reversed, ...events.value]
+          }
+          if (wrapMerge) {
+            wrapMerge(merge)
+          } else {
+            merge()
+          }
+        }
+
+        cursor.value = res.cursor ?? null
+        hasMore.value = res.has_more
+      } catch (e) {
+        error.value = e instanceof Error ? e.message : 'failed to load events'
+      } finally {
+        loading.value = false
+      }
+    }
+
+    /** Called when the list view activates for the first time. */
+    async function enter() {
+      events.value = []
+      cursor.value = null
+      hasMore.value = false
+      _knownIds.clear()
+      _initialLoadComplete.value = false
+
+      await loadHistory(true)
+      _initialLoadComplete.value = true
+    }
+
+    // Reconnect / refetch when filters change.
+    watch(
+      activeFilters,
+      () => {
+        if (route.name === config.routeName) {
+          enter()
+        }
+      },
+      { deep: true },
+    )
+
+    return {
+      events,
+      loading,
+      error,
+      hasMore,
+      connected: stream.connected,
+      enter,
+      loadHistory,
+    }
+  })
+}

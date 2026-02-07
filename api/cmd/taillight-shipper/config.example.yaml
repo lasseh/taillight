@@ -1,0 +1,38 @@
+# taillight-shipper configuration
+#
+# Modes:
+#   stdin pipe:   ./app | taillight-shipper -c config.yaml
+#   file follow:  taillight-shipper -c config.yaml
+#   both:         ./app | taillight-shipper -c config.yaml -t
+
+# Ingest endpoint URL.
+endpoint: http://localhost:8080/api/v1/applog/ingest
+
+# Bearer token for authentication (optional).
+api_key: ""
+
+# Default service name used for stdin and as fallback for files.
+service: my-app
+
+# Default component (optional).
+component: ""
+
+# Flush when batch reaches this many entries.
+batch_size: 100
+
+# Flush at least this often (Go duration string).
+flush_period: 1s
+
+# Buffered channel capacity per handler.
+buffer_size: 1024
+
+# Files to tail (optional). Each file gets its own handler.
+# If service/component is omitted, the top-level defaults are used.
+files:
+  - path: /var/log/myapp/api.log
+    service: myapp-api
+    component: http
+
+  - path: /var/log/myapp/worker.log
+    service: myapp-worker
+    component: jobs

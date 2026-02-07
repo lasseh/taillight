@@ -1,0 +1,58 @@
+# Separate subdomain deployment
+# Frontend: www.taillight.example.com (or just taillight.example.com)
+# API: api.taillight.example.com
+#
+# Usage: docker compose -f docker-compose.separate.yml up -d
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg18
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb,pg_stat_statements"]
+    environment:
+      POSTGRES_DB: taillight
+      POSTGRES_USER: taillight
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taillight}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./api/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taillight"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: ./api
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://taillight:${POSTGRES_PASSWORD:-taillight}@postgres:5432/taillight?sslmode=disable
+      LISTEN_ADDR: ":8080"
+      # CORS: allow requests from the frontend subdomain
+      CORS_ALLOWED_ORIGINS: "https://taillight.example.com,https://www.taillight.example.com"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      # API_URL: Frontend calls API subdomain directly (no proxy)
+      API_URL: "https://api.taillight.example.com"
+    volumes:
+      # Override nginx config to use standalone mode (no proxy)
+      - ./frontend/nginx-standalone.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  pgdata:

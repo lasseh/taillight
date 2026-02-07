@@ -1,0 +1,160 @@
+// Command taillight-shipper reads log lines from stdin and/or tails log files,
+// shipping them to a taillight ingest endpoint using pkg/logshipper.
+//
+// Usage:
+//
+//	./log-producing-api | taillight-shipper -c config.yml
+//	taillight-shipper -c config.yml           # file-follow mode only
+//	./log-producing-api | taillight-shipper -c config.yml -t  # both + tee
+package main
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/lasseh/taillight/pkg/logshipper"
+)
+
+var (
+	configPath string
+	tee        bool
+)
+
+var rootCmd = &cobra.Command{
+	Use:          "taillight-shipper",
+	Short:        "Ship log lines from stdin and/or log files to a taillight endpoint",
+	SilenceUsage: true,
+	RunE:         run,
+}
+
+func init() {
+	rootCmd.Flags().StringVarP(&configPath, "config", "c", "", "path to config file")
+	rootCmd.Flags().BoolVarP(&tee, "tee", "t", false, "tee mode: echo each stdin line to stdout")
+	cobra.CheckErr(rootCmd.MarkFlagRequired("config"))
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func run(_ *cobra.Command, _ []string) error {
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	flushPeriod, err := parseFlushPeriod(cfg.FlushPeriod)
+	if err != nil {
+		return fmt.Errorf("parse flush_period: %w", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	piped := isStdinPiped()
+	hasFiles := len(cfg.Files) > 0
+
+	if !piped && !hasFiles {
+		return fmt.Errorf("no input source — pipe stdin or configure files")
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// handlers tracks every Handler so we can shut them all down.
+	var handlers []*logshipper.Handler
+
+	newHandler := func(service, component string) *logshipper.Handler {
+		h := logshipper.New(logshipper.Config{
+			Endpoint:    cfg.Endpoint,
+			APIKey:      cfg.APIKey,
+			Service:     service,
+			Component:   component,
+			BatchSize:   cfg.BatchSize,
+			FlushPeriod: flushPeriod,
+			BufferSize:  cfg.BufferSize,
+		})
+		handlers = append(handlers, h)
+		return h
+	}
+
+	var wg sync.WaitGroup
+
+	// Stdin reader.
+	if piped {
+		stdinHandler := newHandler(cfg.Service, cfg.Component)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			readStdin(ctx, stdinHandler, tee)
+		}()
+		logger.Info("reading from stdin", "service", cfg.Service)
+	}
+
+	// File tailers.
+	for _, fc := range cfg.Files {
+		h := newHandler(fc.resolvedService(cfg.Service), fc.resolvedComponent(cfg.Component))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tailFile(ctx, fc.Path, h, logger)
+		}()
+	}
+
+	wg.Wait()
+	shutdown(handlers, logger)
+	return nil
+}
+
+// readStdin scans lines from stdin until EOF or ctx cancellation.
+func readStdin(ctx context.Context, handler *logshipper.Handler, tee bool) {
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1 MB line buffer.
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		line := scanner.Text()
+		if tee {
+			fmt.Println(line)
+		}
+
+		record := parseLine(line)
+		if err := handler.Handle(context.Background(), record); err != nil {
+			fmt.Fprintf(os.Stderr, "error: handle log entry: %v\n", err)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: reading stdin: %v\n", err)
+	}
+}
+
+// shutdown flushes all handlers and reports any dropped entries.
+func shutdown(handlers []*logshipper.Handler, logger *slog.Logger) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for _, h := range handlers {
+		if err := h.Shutdown(shutdownCtx); err != nil {
+			logger.Error("shutdown error", "error", err)
+		}
+		if dropped := h.Dropped(); dropped > 0 {
+			logger.Warn("dropped log entries", "count", dropped)
+		}
+	}
+}

@@ -1,0 +1,13 @@
+services:
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "8081:80"
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      - API_BACKEND=http://127.0.0.1:8080
+    extra_hosts:
+      - "backend:host-gateway"
+    restart: unless-stopped
