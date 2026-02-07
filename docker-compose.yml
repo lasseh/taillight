@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: taillight
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taillight}
     ports:
-      - "5432:5432"
+      - "35432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./api/migrations:/migrations:ro
