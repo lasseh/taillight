@@ -43,34 +43,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	consoleHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
-
-	var shipper *logshipper.Handler
-	var logHandler slog.Handler = consoleHandler
-	if cfg.LogShipper.Enabled {
-		addr := cfg.ListenAddr
-		if strings.HasPrefix(addr, ":") {
-			addr = "127.0.0.1" + addr
-		}
-		host := cfg.LogShipper.Host
-		if host == "" {
-			host, _ = os.Hostname()
-		}
-		shipper = logshipper.New(logshipper.Config{
-			Endpoint:    "http://" + addr + "/api/v1/applog/ingest",
-			APIKey:      cfg.LogShipper.APIKey,
-			Service:     cfg.LogShipper.Service,
-			Component:   cfg.LogShipper.Component,
-			Host:        host,
-			MinLevel:    cfg.LogShipper.MinLevel,
-			BatchSize:   cfg.LogShipper.BatchSize,
-			FlushPeriod: cfg.LogShipper.FlushPeriod,
-			BufferSize:  cfg.LogShipper.BufferSize,
-		})
-		logHandler = logshipper.MultiHandler(consoleHandler, shipper)
-	}
-
-	logger := slog.New(logHandler)
+	logger, shipper := setupLogger(cfg)
 	slog.SetDefault(logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -101,9 +74,116 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	// SSE brokers.
-	b := broker.NewSyslogBroker(logger)
+	syslogBroker := broker.NewSyslogBroker(logger)
 	applogBroker := broker.NewApplogBroker(logger)
 
+	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, syslogBroker, applogBroker)
+
+	// Analysis (optional).
+	var analysisHandler *handler.AnalysisHandler
+	if cfg.Analysis.Enabled {
+		analysisHandler = setupAnalysis(ctx, cfg, store, logger)
+	}
+
+	r := setupRouter(cfg, logger, store, authStore, syslogBroker, applogBroker, analysisHandler)
+
+	srv := &http.Server{
+		Addr:              cfg.ListenAddr,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	go func() {
+		logger.Info("starting server", "addr", cfg.ListenAddr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("server error", "err", err)
+			cancel()
+		}
+	}()
+
+	// Separate metrics server when configured.
+	var metricsSrv *http.Server
+	if cfg.MetricsAddr != "" {
+		metricsSrv = startMetricsServer(cfg.MetricsAddr, logger)
+	}
+
+	<-ctx.Done()
+	logger.Info("shutting down")
+
+	// Close SSE brokers first so clients disconnect cleanly.
+	syslogBroker.Shutdown()
+	applogBroker.Shutdown()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	// Shutdown metrics server.
+	if metricsSrv != nil {
+		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("metrics server shutdown error", "err", err)
+		}
+	}
+
+	// Shutdown listener to close the LISTEN connection.
+	if err := listener.Shutdown(shutdownCtx); err != nil {
+		logger.Warn("listener shutdown error", "err", err)
+	}
+
+	// Flush remaining logs while the HTTP server is still accepting.
+	if shipper != nil {
+		if err := shipper.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("logshipper shutdown error", "err", err)
+		}
+	}
+
+	return srv.Shutdown(shutdownCtx)
+}
+
+// setupLogger creates the application logger with optional log shipping.
+func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler) {
+	consoleHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
+
+	var shipper *logshipper.Handler
+	var logHandler slog.Handler = consoleHandler
+	if cfg.LogShipper.Enabled {
+		addr := cfg.ListenAddr
+		if strings.HasPrefix(addr, ":") {
+			addr = "127.0.0.1" + addr
+		}
+		host := cfg.LogShipper.Host
+		if host == "" {
+			host, _ = os.Hostname()
+		}
+		shipper = logshipper.New(logshipper.Config{
+			Endpoint:    "http://" + addr + "/api/v1/applog/ingest",
+			APIKey:      cfg.LogShipper.APIKey,
+			Service:     cfg.LogShipper.Service,
+			Component:   cfg.LogShipper.Component,
+			Host:        host,
+			MinLevel:    cfg.LogShipper.MinLevel,
+			BatchSize:   cfg.LogShipper.BatchSize,
+			FlushPeriod: cfg.LogShipper.FlushPeriod,
+			BufferSize:  cfg.LogShipper.BufferSize,
+		})
+		logHandler = logshipper.MultiHandler(consoleHandler, shipper)
+	}
+
+	return slog.New(logHandler), shipper
+}
+
+// startBackgroundWorkers launches goroutines for notification bridging,
+// DB pool metric collection, and expired session cleanup.
+func startBackgroundWorkers(
+	ctx context.Context,
+	logger *slog.Logger,
+	store *postgres.Store,
+	authStore *postgres.AuthStore,
+	pool *pgxpool.Pool,
+	notifications <-chan postgres.Notification,
+	syslogBroker *broker.SyslogBroker,
+	applogBroker *broker.ApplogBroker,
+) {
 	// Bridge: fetch each notified row by ID and broadcast to SSE clients.
 	go func() {
 		for n := range notifications {
@@ -115,7 +195,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 					logger.Warn("fetch syslog event for broadcast", "id", n.ID, "err", err)
 					continue
 				}
-				b.Broadcast(event)
+				syslogBroker.Broadcast(event)
 			case "applog_ingest":
 				event, err := store.GetAppLog(ctx, n.ID)
 				if err != nil {
@@ -162,27 +242,36 @@ func runServe(_ *cobra.Command, _ []string) error {
 			}
 		}
 	}()
+}
 
-	// Analysis (optional).
-	var analysisHandler *handler.AnalysisHandler
-	if cfg.Analysis.Enabled {
-		ollamaClient := ollama.New(cfg.Analysis.OllamaURL)
-		a := analyzer.New(store, ollamaClient, analyzer.Config{
-			Model:       cfg.Analysis.Model,
-			Temperature: cfg.Analysis.Temperature,
-			NumCtx:      cfg.Analysis.NumCtx,
-		}, logger)
+// setupAnalysis initializes the LLM analysis subsystem and starts the scheduler.
+func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store, logger *slog.Logger) *handler.AnalysisHandler {
+	ollamaClient := ollama.New(cfg.Analysis.OllamaURL)
+	a := analyzer.New(store, ollamaClient, analyzer.Config{
+		Model:       cfg.Analysis.Model,
+		Temperature: cfg.Analysis.Temperature,
+		NumCtx:      cfg.Analysis.NumCtx,
+	}, logger)
 
-		analysisHandler = handler.NewAnalysisHandler(store, a)
+	sched := scheduler.New(a, scheduler.Config{
+		Enabled:    cfg.Analysis.Enabled,
+		ScheduleAt: cfg.Analysis.ScheduleAt,
+	}, logger)
+	go sched.Start(ctx)
 
-		sched := scheduler.New(a, scheduler.Config{
-			Enabled:    cfg.Analysis.Enabled,
-			ScheduleAt: cfg.Analysis.ScheduleAt,
-		}, logger)
-		go sched.Start(ctx)
-	}
+	return handler.NewAnalysisHandler(store, a)
+}
 
-	// HTTP server.
+// setupRouter builds the chi router with all middleware and route registrations.
+func setupRouter(
+	cfg config.Config,
+	logger *slog.Logger,
+	store *postgres.Store,
+	authStore *postgres.AuthStore,
+	syslogBroker *broker.SyslogBroker,
+	applogBroker *broker.ApplogBroker,
+	analysisHandler *handler.AnalysisHandler,
+) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -227,7 +316,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	syslogMetaHandler := handler.NewSyslogMetaHandler(store)
 	statsHandler := handler.NewStatsHandler(store)
 	juniperHandler := handler.NewJuniperHandler(store)
-	syslogSSEHandler := handler.NewSyslogSSEHandler(b, store, logger)
+	syslogSSEHandler := handler.NewSyslogSSEHandler(syslogBroker, store, logger)
 
 	// Applog handlers.
 	applogIngestHandler := handler.NewAppLogIngestHandler(store, applogBroker, logger)
@@ -360,68 +449,24 @@ func runServe(_ *cobra.Command, _ []string) error {
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"}) //nolint:errcheck
 	})
 
-	srv := &http.Server{
-		Addr:              cfg.ListenAddr,
-		Handler:           r,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
+	return r
+}
 
+// startMetricsServer starts a dedicated HTTP server for Prometheus metrics.
+func startMetricsServer(addr string, logger *slog.Logger) *http.Server {
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           metricsMux,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
 	go func() {
-		logger.Info("starting server", "addr", cfg.ListenAddr)
+		logger.Info("starting metrics server", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "err", err)
-			cancel()
+			logger.Error("metrics server error", "err", err)
 		}
 	}()
-
-	// Separate metrics server when configured.
-	var metricsSrv *http.Server
-	if cfg.MetricsAddr != "" {
-		metricsMux := http.NewServeMux()
-		metricsMux.Handle("/metrics", promhttp.Handler())
-		metricsSrv = &http.Server{
-			Addr:              cfg.MetricsAddr,
-			Handler:           metricsMux,
-			ReadHeaderTimeout: 10 * time.Second,
-			IdleTimeout:       30 * time.Second,
-		}
-		go func() {
-			logger.Info("starting metrics server", "addr", cfg.MetricsAddr)
-			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Error("metrics server error", "err", err)
-			}
-		}()
-	}
-
-	<-ctx.Done()
-	logger.Info("shutting down")
-
-	// Close SSE brokers first so clients disconnect cleanly.
-	b.Shutdown()
-	applogBroker.Shutdown()
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-
-	// Shutdown metrics server.
-	if metricsSrv != nil {
-		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-			logger.Warn("metrics server shutdown error", "err", err)
-		}
-	}
-
-	// Shutdown listener to close the LISTEN connection.
-	if err := listener.Shutdown(shutdownCtx); err != nil {
-		logger.Warn("listener shutdown error", "err", err)
-	}
-
-	// Flush remaining logs while the HTTP server is still accepting.
-	if shipper != nil {
-		if err := shipper.Shutdown(shutdownCtx); err != nil {
-			logger.Warn("logshipper shutdown error", "err", err)
-		}
-	}
-
-	return srv.Shutdown(shutdownCtx)
+	return srv
 }
