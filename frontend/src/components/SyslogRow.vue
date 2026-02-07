@@ -36,9 +36,15 @@ const highlightedMessage = computed(() =>
 <template>
   <div ref="rowEl" class="group">
     <div
+      role="button"
+      tabindex="0"
+      :aria-expanded="expanded"
+      :aria-label="`${event.severity_label} event from ${event.hostname}: ${event.message.slice(0, 80)}`"
       class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug"
       :class="sevBgClass"
       @click="toggle"
+      @keydown.enter="toggle"
+      @keydown.space.prevent="toggle"
     >
       <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.received_at) }}</span>
       <span class="w-[8ch] shrink-0 uppercase" :class="sevClass">{{ event.severity_label }}</span>

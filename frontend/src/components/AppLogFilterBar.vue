@@ -41,6 +41,7 @@ const searchInput = computed({
         v-model="searchInput"
         type="text"
         placeholder="message…"
+        aria-label="Search app log messages"
         class="bg-t-bg-dark border-t-border text-t-fg placeholder:text-t-fg-gutter hover:border-t-terminal focus:border-t-blue w-64 border px-2 py-0.5 text-xs outline-none"
       />
     </label>
@@ -48,6 +49,7 @@ const searchInput = computed({
     <button
       v-if="filterStore.hasActiveFilters"
       class="text-t-red text-xs"
+      aria-label="Clear all filters"
       @click="filterStore.clearAll()"
     >
       clear

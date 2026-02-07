@@ -31,9 +31,15 @@ const hasAttrs = computed(() => event.value.attrs && Object.keys(event.value.att
 <template>
   <div ref="rowEl" class="group">
     <div
+      role="button"
+      tabindex="0"
+      :aria-expanded="expanded"
+      :aria-label="`${event.level} event from ${event.service}: ${event.msg.slice(0, 80)}`"
       class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug"
       :class="bgClass"
       @click="toggle"
+      @keydown.enter="toggle"
+      @keydown.space.prevent="toggle"
     >
       <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.timestamp) }}</span>
       <span class="w-[8ch] shrink-0 uppercase" :class="lvlClass">{{ event.level }}</span>

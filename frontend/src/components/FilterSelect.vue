@@ -14,6 +14,7 @@ const model = defineModel<string>({ required: true })
     <span class="text-t-fg-dark text-xs">{{ label }}</span>
     <select
       v-model="model"
+      :aria-label="`Filter by ${label}`"
       class="bg-t-bg-dark border-t-border text-t-fg hover:border-t-terminal focus:border-t-blue cursor-pointer appearance-none border px-2 py-0.5 text-xs outline-none"
     >
       <option value="">all</option>

@@ -139,6 +139,9 @@ watch(
       <div
         v-if="events.length > 0"
         ref="scrollEl"
+        role="log"
+        aria-live="polite"
+        aria-label="Live event stream"
         class="h-full overflow-y-auto [overflow-anchor:none]"
         @scroll="onScroll"
       >
