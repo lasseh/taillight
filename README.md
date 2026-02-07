@@ -60,8 +60,11 @@ docker compose exec api /app useradd --username admin --password admin
 The built-in load generators are the easiest way to populate the database:
 
 ```sh
-# Generate syslog events (writes directly to PostgreSQL, triggers LISTEN/NOTIFY → SSE)
+# Generate syslog events (direct SQL insert, bypasses rsyslog)
 docker compose exec api /app loadgen -n 100 --delay 100ms --jitter 200ms
+
+# Generate syslog events via rsyslog (full pipeline: UDP → rsyslog → ompgsql → PostgreSQL)
+docker compose exec api /app loadgen -n 100 --syslog rsyslog:514 --delay 100ms
 
 # Generate app log events (via HTTP ingest API)
 docker compose exec api /app applog-loadgen -n 100 --batch 50 --endpoint http://localhost:8080/api/v1/applog/ingest
@@ -69,14 +72,14 @@ docker compose exec api /app applog-loadgen -n 100 --batch 50 --endpoint http://
 
 ### Send syslog messages
 
-The rsyslog container listens on UDP/TCP 514. Send messages in RFC 3164 format (what most network devices use):
+The rsyslog container listens on UDP/TCP 514. Send RFC 5424 messages from your host:
 
 ```sh
-# Single test message
-echo '<14>Feb  7 12:00:00 router01 rpd[1234]: BGP peer 10.0.0.1 state changed to Established' | nc -u -w1 localhost 514
+# Single RFC 5424 test message
+echo '<14>1 2025-02-07T12:00:00Z router01 rpd 1234 RPD_BGP_NEIGHBOR_STATE_CHANGED - BGP peer 10.0.0.1 state changed to Established' | nc -u -w1 localhost 514
 
-# Using logger (handles formatting automatically)
-logger -n localhost -P 514 -d -p local7.warning -t rpd "BGP peer 10.0.0.1 state changed to Established"
+# Using logger with RFC 5424 format
+logger -n localhost -P 514 -d --rfc5424 -p local7.warning -t rpd "BGP peer 10.0.0.1 state changed to Established"
 ```
 
 ### Local development
@@ -102,8 +105,11 @@ make lint
 ./taillight migrate down --steps 1  # Roll back one migration
 ./taillight migrate version         # Show current version
 
-# Generate random syslog events (writes directly to PostgreSQL)
+# Generate syslog events (direct SQL insert)
 ./taillight loadgen -n 1000 --delay 100ms --jitter 200ms
+
+# Generate syslog events via rsyslog (RFC 5424 over UDP)
+./taillight loadgen -n 1000 --syslog localhost:514 --delay 100ms
 
 # Generate random app log events (via HTTP ingest API)
 ./taillight applog-loadgen -n 1000 --batch 50 --endpoint http://localhost:8080/api/v1/applog/ingest
