@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +23,10 @@ var allowedStatsFields = map[string]struct{}{
 	"discarded.nf":   {},
 	"maxqsize":       {},
 }
+
+// workerRe matches rsyslog worker thread names like "imudp(w0)" or "w0/imtcp".
+// These duplicate the listener-level stats and must be excluded from totals.
+var workerRe = regexp.MustCompile(`\(w\d+\)|^w\d+/`)
 
 // innerStatsExpr is the SQL expression that extracts the inner JSON object.
 // ompgsql stores impstats as {"msg": "{ ... }"} — the actual stats are a
@@ -93,10 +98,13 @@ func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Durati
 			Stats:  statsJSON,
 		}
 
-		// Aggregate KPI totals.
+		// Aggregate KPI totals. Skip worker threads to avoid double-counting
+		// (listener-level and worker-level stats report the same messages).
 		switch origin {
 		case "imudp", "imtcp", "imptcp":
-			summary.TotalSubmitted += submitted
+			if !workerRe.MatchString(name) {
+				summary.TotalSubmitted += submitted
+			}
 		}
 
 		// Use the ompgsql syslog action as the canonical "processed" count.
