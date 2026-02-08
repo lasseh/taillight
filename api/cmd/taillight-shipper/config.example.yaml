@@ -17,6 +17,9 @@ service: my-app
 # Default component (optional).
 component: ""
 
+# Host identifier (optional, defaults to os.Hostname()).
+# host: ""
+
 # Flush when batch reaches this many entries.
 batch_size: 100
 
@@ -27,7 +30,7 @@ flush_period: 1s
 buffer_size: 1024
 
 # Files to tail (optional). Each file gets its own handler.
-# If service/component is omitted, the top-level defaults are used.
+# If service/component/host is omitted, the top-level defaults are used.
 files:
   - path: /var/log/myapp/api.log
     service: myapp-api

@@ -38,6 +38,7 @@ endpoint: http://localhost:8080/api/v1/applog/ingest
 api_key: ""
 service: my-app
 component: ""
+host: ""
 batch_size: 100
 flush_period: 1s
 buffer_size: 1024
@@ -46,6 +47,7 @@ files:
   - path: /var/log/myapp/api.log
     service: myapp-api
     component: http
+    host: api-prod-1
   - path: /var/log/myapp/worker.log
     service: myapp-worker
     component: jobs
@@ -57,12 +59,13 @@ files:
 | `api_key` | `""` | Bearer token for authentication |
 | `service` | — | Default service name (used for stdin, fallback for files) |
 | `component` | `""` | Default component name |
+| `host` | `os.Hostname()` | Host identifier (falls back to system hostname) |
 | `batch_size` | `100` | Flush when batch reaches this size |
 | `flush_period` | `1s` | Flush at least this often (Go duration) |
 | `buffer_size` | `1024` | Buffered channel capacity per handler |
 | `files` | `[]` | List of files to tail |
 
-Each file entry can override `service` and `component`. If omitted, the top-level values are used as defaults.
+Each file entry can override `service`, `component`, and `host`. If omitted, the top-level values are used as defaults.
 
 ## Line Parsing
 
