@@ -27,22 +27,30 @@ var allowedStatsFields = map[string]struct{}{
 // JSON string inside the "msg" key. This expression parses it back to JSONB.
 const innerStatsExpr = `(stats ->> 'msg')::jsonb`
 
-// GetRsyslogStatsSummary returns aggregated KPIs from the latest snapshot per component.
+// GetRsyslogStatsSummary returns aggregated KPIs from all snapshots in the range.
+// Because impstats uses resetCounters=on, each snapshot contains deltas for
+// that interval — we SUM across all snapshots to get cumulative totals.
+// Queue size/maxqsize are gauges, so we take the latest snapshot for those.
 func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Duration) (model.RsyslogStatsSummary, error) {
 	since := time.Now().UTC().Add(-rangeDur)
 
-	// Extract origin/name from the inner JSON since ompgsql doesn't populate
-	// the origin/name columns. Use DISTINCT ON to get the latest per component.
+	// SUM all counter fields per component across the range.
+	// For "msgs.received" (inputs) we coalesce it into the submitted slot.
 	query := fmt.Sprintf(
-		`SELECT DISTINCT ON (inner_origin, inner_name)
-		        collected_at,
-		        COALESCE((%s ->> 'origin'), origin) AS inner_origin,
-		        COALESCE((%s ->> 'name'), name) AS inner_name,
-		        %s AS inner_stats
+		`SELECT COALESCE((%[1]s ->> 'origin'), origin) AS comp_origin,
+		        COALESCE((%[1]s ->> 'name'), name)     AS comp_name,
+		        COALESCE(SUM((%[1]s ->> 'submitted')::numeric), 0)
+		          + COALESCE(SUM((%[1]s #>> '{msgs.received}')::numeric), 0) AS sum_submitted,
+		        COALESCE(SUM((%[1]s ->> 'processed')::numeric), 0)      AS sum_processed,
+		        COALESCE(SUM((%[1]s ->> 'failed')::numeric), 0)         AS sum_failed,
+		        COALESCE(SUM((%[1]s ->> 'suspended')::numeric), 0)      AS sum_suspended,
+		        COALESCE(SUM((%[1]s #>> '{discarded.full}')::numeric), 0)
+		          + COALESCE(SUM((%[1]s #>> '{discarded.nf}')::numeric), 0) AS sum_discarded,
+		        COALESCE(MAX((%[1]s ->> 'maxqsize')::numeric), 0)        AS max_qsize
 		 FROM rsyslog_stats
 		 WHERE collected_at >= $1
-		 ORDER BY inner_origin, inner_name, collected_at DESC`,
-		innerStatsExpr, innerStatsExpr, innerStatsExpr)
+		 GROUP BY comp_origin, comp_name
+		 ORDER BY comp_origin, comp_name`, innerStatsExpr)
 
 	rows, err := s.pool.Query(ctx, query, since)
 	if err != nil {
@@ -54,50 +62,51 @@ func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Durati
 	summary.Components = make([]model.RsyslogStatsComponent, 0)
 
 	for rows.Next() {
-		var comp model.RsyslogStatsComponent
-		if err := rows.Scan(&comp.CollectedAt, &comp.Origin, &comp.Name, &comp.Stats); err != nil {
-			return model.RsyslogStatsSummary{}, fmt.Errorf("scan rsyslog stats component: %w", err)
+		var (
+			origin    string
+			name      string
+			submitted int64
+			processed int64
+			failed    int64
+			suspended int64
+			discarded int64
+			maxqsize  int64
+		)
+		if err := rows.Scan(&origin, &name, &submitted, &processed, &failed, &suspended, &discarded, &maxqsize); err != nil {
+			return model.RsyslogStatsSummary{}, fmt.Errorf("scan rsyslog stats summary: %w", err)
 		}
 
-		// Parse the JSONB stats to extract numeric fields.
-		var fields map[string]json.Number
-		if err := json.Unmarshal(comp.Stats, &fields); err != nil {
-			summary.Components = append(summary.Components, comp)
-			continue
+		// Build per-component stats JSON for the frontend.
+		statsMap := map[string]int64{
+			"submitted": submitted,
+			"processed": processed,
+			"failed":    failed,
+			"suspended": suspended,
+			"maxqsize":  maxqsize,
+		}
+		statsJSON, _ := json.Marshal(statsMap)
+
+		comp := model.RsyslogStatsComponent{
+			Origin: origin,
+			Name:   name,
+			Stats:  statsJSON,
 		}
 
-		submitted := jsonNumberToInt64(fields["submitted"])
-		processed := jsonNumberToInt64(fields["processed"])
-		failed := jsonNumberToInt64(fields["failed"])
-		suspended := jsonNumberToInt64(fields["suspended"])
-		discardedFull := jsonNumberToInt64(fields["discarded.full"])
-		discardedNF := jsonNumberToInt64(fields["discarded.nf"])
-		size := jsonNumberToInt64(fields["size"])
-		maxqsize := jsonNumberToInt64(fields["maxqsize"])
-
-		// Input modules report "msgs.received" instead of "submitted".
-		if submitted == 0 {
-			submitted = jsonNumberToInt64(fields["msgs.received"])
-		}
-
-		// Aggregate by origin type.
-		switch comp.Origin {
+		// Aggregate KPI totals.
+		switch origin {
 		case "imudp", "imtcp", "imptcp":
 			summary.TotalSubmitted += submitted
 		}
 
-		// Actions have "processed" and "failed" fields.
 		if processed > 0 || failed > 0 {
 			summary.TotalProcessed += processed
 			summary.TotalFailed += failed
 			summary.TotalSuspended += suspended
 		}
 
-		// Queue metrics from "main Q".
-		if comp.Name == "main Q" {
-			summary.MainQueueSize = size
+		if name == "main Q" {
 			summary.MainQueueMaxSize = maxqsize
-			summary.TotalDiscarded += discardedFull + discardedNF
+			summary.TotalDiscarded += discarded
 		}
 
 		summary.Components = append(summary.Components, comp)
@@ -106,9 +115,24 @@ func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Durati
 		return model.RsyslogStatsSummary{}, fmt.Errorf("rsyslog stats rows: %w", err)
 	}
 
-	// Compute rates.
+	// Queue size is a gauge — get the latest value.
+	sizeQuery := fmt.Sprintf(
+		`SELECT COALESCE((%[1]s ->> 'size')::bigint, 0)
+		 FROM rsyslog_stats
+		 WHERE collected_at >= $1
+		   AND COALESCE((%[1]s ->> 'name'), name) = 'main Q'
+		 ORDER BY collected_at DESC
+		 LIMIT 1`, innerStatsExpr)
+
+	_ = s.pool.QueryRow(ctx, sizeQuery, since).Scan(&summary.MainQueueSize)
+
+	// Compute rates. Clamp filter rate to [0,100] — processed can exceed
+	// submitted when internal actions (impstats pipeline) are counted.
 	if summary.TotalSubmitted > 0 {
 		summary.FilterRate = float64(summary.TotalSubmitted-summary.TotalProcessed) / float64(summary.TotalSubmitted) * 100
+		if summary.FilterRate < 0 {
+			summary.FilterRate = 0
+		}
 	}
 	if summary.TotalProcessed > 0 {
 		summary.FailureRate = float64(summary.TotalFailed) / float64(summary.TotalProcessed) * 100
@@ -176,12 +200,4 @@ func (s *Store) GetRsyslogStatsTimeSeries(ctx context.Context, field string, int
 	}
 
 	return series, nil
-}
-
-func jsonNumberToInt64(n json.Number) int64 {
-	if n == "" {
-		return 0
-	}
-	v, _ := n.Int64()
-	return v
 }
