@@ -57,7 +57,7 @@ export const useRsyslogStatsStore = defineStore('rsyslog-stats', () => {
 
       const [summaryRes, submittedRes, processedRes, queueRes] = await Promise.all([
         api.getRsyslogStatsSummary(range_.value),
-        api.getRsyslogStatsVolume(new URLSearchParams([...params, ['field', 'submitted']])),
+        api.getRsyslogStatsVolume(new URLSearchParams([...params, ['field', 'enqueued']])),
         api.getRsyslogStatsVolume(new URLSearchParams([...params, ['field', 'processed']])),
         api.getRsyslogStatsVolume(new URLSearchParams([...params, ['field', 'size']])),
       ])

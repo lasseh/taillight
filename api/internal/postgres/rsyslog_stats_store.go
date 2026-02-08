@@ -207,6 +207,10 @@ func (s *Store) GetRsyslogStatsTimeSeries(ctx context.Context, field string, int
 		extraWhere = fmt.Sprintf(
 			` AND (%[1]s = 'syslog_to_pgsql' OR (%[1]s LIKE '%%ompgsql%%' AND %[1]s != 'stats_to_pgsql'))`,
 			nameExpr)
+	case "enqueued", "size", "maxqsize":
+		// Only the main queue — other queues (action queues, disk-assisted)
+		// would inflate the totals.
+		extraWhere = fmt.Sprintf(` AND %s = 'main Q'`, nameExpr)
 	}
 
 	query := fmt.Sprintf(
