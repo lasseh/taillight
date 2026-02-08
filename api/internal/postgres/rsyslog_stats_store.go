@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lasseh/taillight/internal/model"
@@ -99,9 +100,11 @@ func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Durati
 		}
 
 		// Use the ompgsql syslog action as the canonical "processed" count.
-		// Other actions (omfile, omprog) also have processed counters but
-		// we only care about what reached the database for filter rate.
-		if name == "syslog_to_pgsql" {
+		// Match by explicit name or auto-generated pattern (action-N-builtin:ompgsql),
+		// but exclude the stats writer action.
+		isSyslogPgsql := name == "syslog_to_pgsql" ||
+			(strings.Contains(name, "ompgsql") && name != "stats_to_pgsql")
+		if isSyslogPgsql {
 			summary.TotalProcessed += processed
 			summary.TotalFailed += failed
 			summary.TotalSuspended += suspended
