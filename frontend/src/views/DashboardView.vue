@@ -191,6 +191,23 @@ function singleServiceTracker(service: string) { return makeSingleTracker(hovere
 const lineX = (d: SimplePoint) => d.x
 const lineY = (d: SimplePoint) => d.y
 
+function rsMessagesTooltip(d: SimplePoint) {
+  const submitted = rsyslogStats.submittedLine.find(p => p.x === d.x)
+  const processed = rsyslogStats.processedLine.find(p => p.x === d.x)
+  return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
+    <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Submitted: <b>${(submitted?.y ?? 0).toFixed(1)}</b></div>
+    <div><span style="color:${accentColors.value[1]}">●</span> Processed: <b>${(processed?.y ?? 0).toFixed(1)}</b></div>
+  </div>`
+}
+
+function rsQueueTooltip(d: SimplePoint) {
+  return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
+    <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
+    <div><span style="color:${accentColors.value[2]}">●</span> Queue: <b>${d.y.toFixed(1)}</b></div>
+  </div>`
+}
+
 // Taillight line chart accessors
 const tlLineX = (d: TaillightPoint) => d.x
 const tlLineY = (d: TaillightPoint) => d.y
@@ -597,7 +614,7 @@ onUnmounted(() => {
             <VisLine :data="rsyslogStats.processedLine" :x="lineX" :y="lineY" :color="accentColors[1]" :curveType="'monotoneX'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
-            <VisCrosshair />
+            <VisCrosshair :template="rsMessagesTooltip" />
             <VisTooltip />
           </VisXYContainer>
         </div>
@@ -621,7 +638,7 @@ onUnmounted(() => {
             <VisLine :x="lineX" :y="lineY" :color="accentColors[2]" :curveType="'monotoneX'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
-            <VisCrosshair />
+            <VisCrosshair :template="rsQueueTooltip" />
             <VisTooltip />
           </VisXYContainer>
         </div>
