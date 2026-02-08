@@ -8,7 +8,7 @@ interface EventStoreConfig<TEvent extends { id: number }> {
   /** Route name to watch for filter changes. */
   routeName: string
   /** Fetch a page of events from the API. */
-  fetchEvents: (params: URLSearchParams) => Promise<{ data: TEvent[]; cursor?: string; has_more: boolean }>
+  fetchEvents: (params: URLSearchParams, signal?: AbortSignal) => Promise<{ data: TEvent[]; cursor?: string; has_more: boolean }>
   /** Get the SSE stream composable. */
   useStream: () => { connected: Ref<boolean>; subscribe: (cb: (event: TEvent) => void) => () => void }
   /** Get the filter store — must return an object with activeFilters (unwrapped by Pinia). */
@@ -51,12 +51,26 @@ export function createEventStore<TEvent extends { id: number }>(
       if (_knownIds.has(event.id)) return
       if (!config.matchesFilters(event, activeFilters.value)) return
       _knownIds.add(event.id)
+      if (_knownIds.size > 10000) {
+        const iter = _knownIds.values()
+        for (let i = 0; i < 5000; i++) {
+          _knownIds.delete(iter.next().value!)
+        }
+      }
       events.value = [...events.value, event]
     })
+
+    let _abortController: AbortController | null = null
 
     async function loadHistory(reset = false, wrapMerge?: (mutate: () => void) => void) {
       if (loading.value) return
       if (!reset && !hasMore.value) return
+
+      if (_abortController) {
+        _abortController.abort()
+      }
+      _abortController = new AbortController()
+      const signal = _abortController.signal
 
       loading.value = true
       error.value = null
@@ -74,7 +88,7 @@ export function createEventStore<TEvent extends { id: number }>(
           params.set('cursor', cursor.value)
         }
 
-        const res = await config.fetchEvents(params)
+        const res = await config.fetchEvents(params, signal)
         const reversed = [...res.data].reverse()
 
         for (const e of reversed) {
@@ -97,6 +111,7 @@ export function createEventStore<TEvent extends { id: number }>(
         cursor.value = res.cursor ?? null
         hasMore.value = res.has_more
       } catch (e) {
+        if (signal.aborted) return
         error.value = e instanceof Error ? e.message : 'failed to load events'
       } finally {
         loading.value = false

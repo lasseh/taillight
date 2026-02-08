@@ -70,7 +70,7 @@ async function handleSubmit() {
         </div>
 
         <Transition name="err">
-          <p v-if="error" class="error">{{ error }}</p>
+          <p v-if="error" class="error" role="alert">{{ error }}</p>
         </Transition>
 
         <button type="submit" class="btn" :disabled="loading">

@@ -34,10 +34,10 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json()
 }
 
-async function fetchAPI<T>(path: string): Promise<T> {
+async function fetchAPI<T>(path: string, signal?: AbortSignal): Promise<T> {
   const url = `${config.apiUrl}${path}`
   const res = await fetch(url, {
-    signal: AbortSignal.timeout(15000),
+    signal: signal ?? AbortSignal.timeout(15000),
     credentials: 'include',
   })
   return handleResponse(res)
@@ -112,8 +112,8 @@ export const api = {
   },
 
   // Syslog
-  getSyslogs(params: URLSearchParams): Promise<SyslogListResponse> {
-    return fetchAPI(`/api/v1/syslog?${params}`)
+  getSyslogs(params: URLSearchParams, signal?: AbortSignal): Promise<SyslogListResponse> {
+    return fetchAPI(`/api/v1/syslog?${params}`, signal)
   },
 
   getSyslog(id: number): Promise<SingleSyslogResponse> {
@@ -145,8 +145,8 @@ export const api = {
   },
 
   // App log
-  getAppLogs(params: URLSearchParams): Promise<AppLogListResponse> {
-    return fetchAPI(`/api/v1/applog?${params}`)
+  getAppLogs(params: URLSearchParams, signal?: AbortSignal): Promise<AppLogListResponse> {
+    return fetchAPI(`/api/v1/applog?${params}`, signal)
   },
 
   getAppLog(id: number): Promise<SingleAppLogResponse> {

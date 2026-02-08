@@ -34,6 +34,8 @@ type mockAuthStore struct {
 	createKey   model.APIKeyRow
 	createErr   error
 	revokeErr   error
+	keyByID     model.APIKeyRow
+	keyByIDErr  error
 	activeErr   error
 	delSessErr  error
 	updatePwErr error
@@ -42,7 +44,7 @@ type mockAuthStore struct {
 	refetchErr  error
 }
 
-func (m *mockAuthStore) CreateUser(_ context.Context, _, _ string) (model.User, error) {
+func (m *mockAuthStore) CreateUser(_ context.Context, _, _ string, _ bool) (model.User, error) {
 	return m.user, m.userErr
 }
 
@@ -115,6 +117,10 @@ func (m *mockAuthStore) ListAPIKeysByUser(_ context.Context, _ [16]byte) ([]mode
 
 func (m *mockAuthStore) RevokeAPIKey(_ context.Context, _ [16]byte) error {
 	return m.revokeErr
+}
+
+func (m *mockAuthStore) GetAPIKeyByID(_ context.Context, _ [16]byte) (model.APIKeyRow, error) {
+	return m.keyByID, m.keyByIDErr
 }
 
 func testUser(t *testing.T) model.User {
@@ -459,6 +465,10 @@ func TestListKeys(t *testing.T) {
 
 func TestRevokeKey(t *testing.T) {
 	user := &model.User{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, Username: "testuser"}
+	ownedKey := model.APIKeyRow{
+		ID:     pgtype.UUID{Bytes: [16]byte{2}, Valid: true},
+		UserID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, // matches user
+	}
 
 	tests := []struct {
 		name       string
@@ -471,7 +481,7 @@ func TestRevokeKey(t *testing.T) {
 			name:       "success",
 			user:       user,
 			keyID:      "00000001-0000-0000-0000-000000000000",
-			store:      &mockAuthStore{},
+			store:      &mockAuthStore{keyByID: ownedKey},
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -489,10 +499,27 @@ func TestRevokeKey(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:       "key not found",
+			user:       user,
+			keyID:      "00000001-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{keyByIDErr: pgx.ErrNoRows},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:  "other users key forbidden",
+			user:  user,
+			keyID: "00000001-0000-0000-0000-000000000000",
+			store: &mockAuthStore{keyByID: model.APIKeyRow{
+				ID:     pgtype.UUID{Bytes: [16]byte{2}, Valid: true},
+				UserID: pgtype.UUID{Bytes: [16]byte{99}, Valid: true}, // different user
+			}},
+			wantStatus: http.StatusForbidden,
+		},
+		{
 			name:       "store error",
 			user:       user,
 			keyID:      "00000001-0000-0000-0000-000000000000",
-			store:      &mockAuthStore{revokeErr: errors.New("db error")},
+			store:      &mockAuthStore{keyByID: ownedKey, revokeErr: errors.New("db error")},
 			wantStatus: http.StatusInternalServerError,
 		},
 	}

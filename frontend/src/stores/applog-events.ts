@@ -22,7 +22,7 @@ function matchesFilters(event: AppLogEvent, filters: Record<string, string>): bo
 export const useAppLogEventStore = createEventStore({
   id: 'applog-events',
   routeName: 'applog',
-  fetchEvents: (params) => api.getAppLogs(params),
+  fetchEvents: (params, signal) => api.getAppLogs(params, signal),
   useStream: useAppLogStream,
   useFilterStore: useAppLogFilterStore,
   matchesFilters,

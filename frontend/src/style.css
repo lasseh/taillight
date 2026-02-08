@@ -164,14 +164,14 @@ select {
   --color-t-purple: #7847bd;
   --color-t-magenta: #9854f1;
   --color-t-border: #b4b5b9;
-  --color-sev-emerg: #ff007c;
-  --color-sev-alert: #c026d3;
-  --color-sev-crit: #f7768e;
-  --color-sev-err: #ff9e64;
-  --color-sev-warning: #e0af68;
-  --color-sev-notice: #9ece6a;
-  --color-sev-info: #2ac3de;
-  --color-sev-debug: #565f89;
+  --color-sev-emerg: #a8004e;
+  --color-sev-alert: #8b1ba8;
+  --color-sev-crit: #c4314b;
+  --color-sev-err: #b85900;
+  --color-sev-warning: #8a6914;
+  --color-sev-notice: #3d7a1c;
+  --color-sev-info: #0b7a8e;
+  --color-sev-debug: #5a5f78;
   --color-sev-bg-alert: #c026d314;
   --color-sev-bg-crit: #b15c0012;
 }
@@ -324,14 +324,14 @@ select {
   --color-t-purple: #8839ef;
   --color-t-magenta: #ea76cb;
   --color-t-border: #bcc0cc;
-  --color-sev-emerg: #ff007c;
-  --color-sev-alert: #c026d3;
-  --color-sev-crit: #f7768e;
-  --color-sev-err: #ff9e64;
-  --color-sev-warning: #e0af68;
-  --color-sev-notice: #9ece6a;
-  --color-sev-info: #2ac3de;
-  --color-sev-debug: #565f89;
+  --color-sev-emerg: #a8004e;
+  --color-sev-alert: #8b1ba8;
+  --color-sev-crit: #c4314b;
+  --color-sev-err: #b85900;
+  --color-sev-warning: #8a6914;
+  --color-sev-notice: #3d7a1c;
+  --color-sev-info: #0b7a8e;
+  --color-sev-debug: #5a5f78;
   --color-sev-bg-alert: #c026d314;
   --color-sev-bg-crit: #fe640b12;
 }
@@ -548,14 +548,14 @@ select {
   --color-t-purple: #8250df;
   --color-t-magenta: #bf3989;
   --color-t-border: #d0d7de;
-  --color-sev-emerg: #ff007c;
-  --color-sev-alert: #c026d3;
-  --color-sev-crit: #f7768e;
-  --color-sev-err: #ff9e64;
-  --color-sev-warning: #e0af68;
-  --color-sev-notice: #9ece6a;
-  --color-sev-info: #2ac3de;
-  --color-sev-debug: #565f89;
+  --color-sev-emerg: #a8004e;
+  --color-sev-alert: #8b1ba8;
+  --color-sev-crit: #c4314b;
+  --color-sev-err: #b85900;
+  --color-sev-warning: #8a6914;
+  --color-sev-notice: #3d7a1c;
+  --color-sev-info: #0b7a8e;
+  --color-sev-debug: #5a5f78;
   --color-sev-bg-alert: #c026d314;
   --color-sev-bg-crit: #bc4c0012;
 }
@@ -602,6 +602,14 @@ select {
   --color-t-purple: #a626a4;
   --color-t-magenta: #ca1243;
   --color-t-border: #dbdbdc;
+  --color-sev-emerg: #a8004e;
+  --color-sev-alert: #8b1ba8;
+  --color-sev-crit: #c4314b;
+  --color-sev-err: #b85900;
+  --color-sev-warning: #8a6914;
+  --color-sev-notice: #3d7a1c;
+  --color-sev-info: #0b7a8e;
+  --color-sev-debug: #5a5f78;
   --color-sev-bg-alert: #c026d314;
   --color-sev-bg-crit: #e4564912;
 }
@@ -625,6 +633,14 @@ select {
   --color-t-purple: #7c2cbd;
   --color-t-magenta: #dc3eb7;
   --color-t-border: #e3e3e3;
+  --color-sev-emerg: #a8004e;
+  --color-sev-alert: #8b1ba8;
+  --color-sev-crit: #c4314b;
+  --color-sev-err: #b85900;
+  --color-sev-warning: #8a6914;
+  --color-sev-notice: #3d7a1c;
+  --color-sev-info: #0b7a8e;
+  --color-sev-debug: #5a5f78;
   --color-sev-bg-alert: #c026d314;
   --color-sev-bg-crit: #ef535012;
 }

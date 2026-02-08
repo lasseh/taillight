@@ -29,7 +29,7 @@ const (
 
 // AuthStore defines the data access interface for auth operations.
 type AuthStore interface {
-	CreateUser(ctx context.Context, username, passwordHash string) (model.User, error)
+	CreateUser(ctx context.Context, username, passwordHash string, isAdmin bool) (model.User, error)
 	GetUserByUsername(ctx context.Context, username string) (model.User, error)
 	GetUserByID(ctx context.Context, id [16]byte) (model.User, error)
 	UpdateLastLogin(ctx context.Context, id [16]byte) error
@@ -47,6 +47,7 @@ type AuthStore interface {
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (postgres.APIKeyWithUser, error)
 	ListAPIKeysByUser(ctx context.Context, userID [16]byte) ([]model.APIKeyRow, error)
 	RevokeAPIKey(ctx context.Context, id [16]byte) error
+	GetAPIKeyByID(ctx context.Context, id [16]byte) (model.APIKeyRow, error)
 }
 
 // AuthHandler handles authentication endpoints.
@@ -72,6 +73,7 @@ type userInfo struct {
 	ID          string  `json:"id"`
 	Username    string  `json:"username"`
 	Email       *string `json:"email,omitempty"`
+	IsAdmin     bool    `json:"is_admin"`
 	GravatarURL string  `json:"gravatar_url"`
 	CreatedAt   string  `json:"created_at"`
 	LastLoginAt *string `json:"last_login_at,omitempty"`
@@ -83,6 +85,7 @@ func buildUserInfo(u model.User) userInfo {
 		ID:          formatUUID(u.ID.Bytes),
 		Username:    u.Username,
 		Email:       u.Email,
+		IsAdmin:     u.IsAdmin,
 		GravatarURL: gravatarURL(u.Email),
 		CreatedAt:   u.CreatedAt.Format(time.RFC3339),
 	}
@@ -102,6 +105,15 @@ func gravatarURL(email *string) string {
 	}
 	h := md5.Sum([]byte(input)) //nolint:gosec
 	return fmt.Sprintf("https://www.gravatar.com/avatar/%x?d=mp&s=160", h)
+}
+
+// requireAdmin returns false and writes a 403 response if the user is not an admin.
+func requireAdmin(w http.ResponseWriter, user *model.User) bool {
+	if !user.IsAdmin {
+		writeError(w, http.StatusForbidden, "forbidden", "admin access required")
+		return false
+	}
+	return true
 }
 
 // Login handles POST /api/v1/auth/login.
@@ -351,6 +363,16 @@ func (h *AuthHandler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	key, err := h.store.GetAPIKeyByID(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "key not found")
+		return
+	}
+	if key.UserID.Bytes != user.ID.Bytes && !user.IsAdmin {
+		writeError(w, http.StatusForbidden, "forbidden", "cannot revoke another user's key")
+		return
+	}
+
 	if err := h.store.RevokeAPIKey(r.Context(), id); err != nil {
 		LoggerFromContext(r.Context()).Error("revoke key", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to revoke key")
@@ -367,6 +389,10 @@ func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	if !requireAdmin(w, user) {
 		return
 	}
 
@@ -389,6 +415,10 @@ func (h *AuthHandler) SetUserActive(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	if !requireAdmin(w, user) {
 		return
 	}
 
@@ -453,8 +483,8 @@ func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.Password == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "password is required")
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "password must be at least 8 characters")
 		return
 	}
 

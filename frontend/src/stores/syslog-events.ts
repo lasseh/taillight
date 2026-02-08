@@ -17,7 +17,7 @@ function matchesFilters(event: SyslogEvent, filters: Record<string, string>): bo
 export const useSyslogEventStore = createEventStore({
   id: 'syslog-events',
   routeName: 'syslog',
-  fetchEvents: (params) => api.getSyslogs(params),
+  fetchEvents: (params, signal) => api.getSyslogs(params, signal),
   useStream: useSyslogStream,
   useFilterStore: useSyslogFilterStore,
   matchesFilters,

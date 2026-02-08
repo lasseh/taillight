@@ -182,27 +182,19 @@ func startBackgroundWorkers(
 	pool *pgxpool.Pool,
 	notifications <-chan postgres.Notification,
 	syslogBroker *broker.SyslogBroker,
-	applogBroker *broker.ApplogBroker,
+	_ *broker.ApplogBroker,
 ) {
 	// Bridge: fetch each notified row by ID and broadcast to SSE clients.
 	go func() {
 		for n := range notifications {
 			metrics.NotificationsReceivedTotal.WithLabelValues(n.Channel).Inc()
-			switch n.Channel {
-			case "syslog_ingest":
+			if n.Channel == "syslog_ingest" {
 				event, err := store.GetSyslog(ctx, n.ID)
 				if err != nil {
 					logger.Warn("fetch syslog event for broadcast", "id", n.ID, "err", err)
 					continue
 				}
 				syslogBroker.Broadcast(event)
-			case "applog_ingest":
-				event, err := store.GetAppLog(ctx, n.ID)
-				if err != nil {
-					logger.Warn("fetch applog event for broadcast", "id", n.ID, "err", err)
-					continue
-				}
-				applogBroker.Broadcast(event)
 			}
 		}
 	}()

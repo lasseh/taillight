@@ -18,6 +18,7 @@ import (
 var (
 	useraddUsername string
 	useraddPassword string
+	useraddAdmin    bool
 )
 
 var useraddCmd = &cobra.Command{
@@ -30,6 +31,7 @@ var useraddCmd = &cobra.Command{
 func init() {
 	useraddCmd.Flags().StringVar(&useraddUsername, "username", "", "username for the new account (required)")
 	useraddCmd.Flags().StringVar(&useraddPassword, "password", "", "password for the new account (required)")
+	useraddCmd.Flags().BoolVar(&useraddAdmin, "admin", false, "grant admin privileges")
 	_ = useraddCmd.MarkFlagRequired("username")
 	_ = useraddCmd.MarkFlagRequired("password")
 }
@@ -51,13 +53,17 @@ func runUseradd(_ *cobra.Command, _ []string) error {
 	}
 	defer pool.Close()
 
+	if len(useraddPassword) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
+	}
+
 	passwordHash, err := auth.HashPassword(useraddPassword)
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
 	}
 
 	store := postgres.NewAuthStore(pool)
-	user, err := store.CreateUser(ctx, useraddUsername, passwordHash)
+	user, err := store.CreateUser(ctx, useraddUsername, passwordHash, useraddAdmin)
 	if err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}

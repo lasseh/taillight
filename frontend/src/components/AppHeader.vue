@@ -239,6 +239,8 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
       <!-- Mobile: hamburger button -->
       <button
+        aria-label="Toggle menu"
+        :aria-expanded="mobileMenuOpen"
         class="text-t-fg-dark hover:text-t-fg p-1 md:hidden"
         @click="mobileMenuOpen = !mobileMenuOpen"
       >
