@@ -193,14 +193,20 @@ func (s *Store) GetRsyslogStatsTimeSeries(ctx context.Context, field string, int
 	// Also extract the name from the inner JSON for grouping.
 	nameExpr := fmt.Sprintf(`COALESCE((%s ->> 'name'), name)`, innerStatsExpr)
 
-	// For submitted, filter to input origins and exclude worker threads
-	// to match the summary logic and avoid double-counting.
+	// Filter to match the summary logic and avoid inflated totals.
 	var extraWhere string
-	if field == "submitted" {
+	switch field {
+	case "submitted":
+		// Only input origins, exclude worker threads to avoid double-counting.
 		originExpr := fmt.Sprintf(`COALESCE((%s ->> 'origin'), origin)`, innerStatsExpr)
 		extraWhere = fmt.Sprintf(
 			` AND %s IN ('imudp', 'imtcp', 'imptcp') AND NOT (%[2]s ~ '\(w\d+\)' OR %[2]s ~ '^w\d+/')`,
 			originExpr, nameExpr)
+	case "processed", "failed", "suspended":
+		// Only the syslog-to-DB action, matching the summary KPI filter.
+		extraWhere = fmt.Sprintf(
+			` AND (%[1]s = 'syslog_to_pgsql' OR (%[1]s LIKE '%%ompgsql%%' AND %[1]s != 'stats_to_pgsql'))`,
+			nameExpr)
 	}
 
 	query := fmt.Sprintf(

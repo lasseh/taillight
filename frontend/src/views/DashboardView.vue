@@ -191,7 +191,7 @@ function singleServiceTracker(service: string) { return makeSingleTracker(hovere
 // on child VisLine components, the second series can fall outside the visible
 // range. Merging into one record array ensures the y-axis covers all values.
 
-type RsMsgRecord = { x: number; submitted: number; processed: number }
+type RsMsgRecord = { x: number; received: number; written: number }
 
 function mergeTwoLines(a: SimplePoint[], b: SimplePoint[]): Map<number, [number, number]> {
   const m = new Map<number, [number, number]>()
@@ -207,19 +207,19 @@ function mergeTwoLines(a: SimplePoint[], b: SimplePoint[]): Map<number, [number,
 const rsMessagesData = computed<RsMsgRecord[]>(() => {
   const m = mergeTwoLines(rsyslogStats.submittedLine, rsyslogStats.processedLine)
   return [...m.entries()]
-    .map(([x, [submitted, processed]]) => ({ x, submitted, processed }))
+    .map(([x, [received, written]]) => ({ x, received, written }))
     .sort((a, b) => a.x - b.x)
 })
 
 const rsMessagesX = (d: RsMsgRecord) => d.x
-const rsSubmittedY = (d: RsMsgRecord) => d.submitted
-const rsProcessedY = (d: RsMsgRecord) => d.processed
+const rsReceivedY = (d: RsMsgRecord) => d.received
+const rsWrittenY = (d: RsMsgRecord) => d.written
 
 function rsMessagesTooltip(d: RsMsgRecord) {
   return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
     <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
-    <div><span style="color:${accentColors.value[0]}">●</span> Submitted: <b>${d.submitted.toFixed(1)}</b></div>
-    <div><span style="color:${accentColors.value[1]}">●</span> Processed: <b>${d.processed.toFixed(1)}</b></div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Received: <b>${d.received.toFixed(1)}</b></div>
+    <div><span style="color:${accentColors.value[1]}">●</span> Written: <b>${d.written.toFixed(1)}</b></div>
   </div>`
 }
 
@@ -666,13 +666,13 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Submitted vs Processed -->
+      <!-- Received vs Written -->
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Messages Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="rsMessagesData" :height="220" :padding="{ top: 8, right: 8 }">
-            <VisLine :x="rsMessagesX" :y="rsSubmittedY" :color="accentColors[0]" :curveType="'monotoneX'" />
-            <VisLine :x="rsMessagesX" :y="rsProcessedY" :color="accentColors[1]" :curveType="'monotoneX'" />
+            <VisLine :x="rsMessagesX" :y="rsReceivedY" :color="accentColors[0]" :curveType="'monotoneX'" />
+            <VisLine :x="rsMessagesX" :y="rsWrittenY" :color="accentColors[1]" :curveType="'monotoneX'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
             <VisCrosshair :template="rsMessagesTooltip" />
@@ -682,11 +682,11 @@ onUnmounted(() => {
         <div class="mt-2 flex gap-4">
           <span class="flex items-center gap-1 text-xs">
             <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
-            <span class="text-t-fg-dark">Submitted</span>
+            <span class="text-t-fg-dark">Received</span>
           </span>
           <span class="flex items-center gap-1 text-xs">
             <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
-            <span class="text-t-fg-dark">Processed</span>
+            <span class="text-t-fg-dark">Written to DB</span>
           </span>
         </div>
       </div>
