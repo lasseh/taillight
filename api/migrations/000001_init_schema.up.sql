@@ -329,10 +329,14 @@ CREATE TABLE IF NOT EXISTS taillight_metrics (
     applog_ingest_total     BIGINT NOT NULL DEFAULT 0,
     applog_ingest_errors    BIGINT NOT NULL DEFAULT 0,
     listener_reconnects     BIGINT NOT NULL DEFAULT 0
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'collected_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.columnstore = true,
+    tsdb.orderby = 'collected_at DESC'
 );
 
-SELECT create_hypertable('taillight_metrics', 'collected_at');
-
--- Columnstore after 1 day, retain 30 days.
+CALL remove_columnstore_policy('taillight_metrics');
 CALL add_columnstore_policy('taillight_metrics', after => INTERVAL '1 day');
 SELECT add_retention_policy('taillight_metrics', INTERVAL '30 days', if_not_exists => true);
