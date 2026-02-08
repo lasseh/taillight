@@ -4,17 +4,21 @@ import { api } from '@/lib/api'
 import type {
   RsyslogStatsSummary,
   RsyslogStatsTimeSeries,
-  RsyslogStatsDataRecord,
 } from '@/types/rsyslog-stats'
 
 const REFRESH_INTERVAL = 60_000 // 60 seconds
 
+/** Simple {x, y} point for line charts. */
+export interface SimplePoint {
+  x: number
+  y: number
+}
+
 export const useRsyslogStatsStore = defineStore('rsyslog-stats', () => {
   const summary = ref<RsyslogStatsSummary | null>(null)
-  const ingestSeries = ref<RsyslogStatsTimeSeries[]>([])
-  const queueSeries = ref<RsyslogStatsTimeSeries[]>([])
+  const submittedSeries = ref<RsyslogStatsTimeSeries[]>([])
   const processedSeries = ref<RsyslogStatsTimeSeries[]>([])
-  const failedSeries = ref<RsyslogStatsTimeSeries[]>([])
+  const queueSeries = ref<RsyslogStatsTimeSeries[]>([])
 
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -24,39 +28,20 @@ export const useRsyslogStatsStore = defineStore('rsyslog-stats', () => {
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
-  /** Convert raw time-series into flat records grouped by name for Unovis. */
-  function toChartData(series: RsyslogStatsTimeSeries[]): RsyslogStatsDataRecord[] {
-    const bucketMap = new Map<string, RsyslogStatsDataRecord>()
+  /** Aggregate time-series across all components into simple totals per bucket. */
+  function toSimpleLine(series: RsyslogStatsTimeSeries[]): SimplePoint[] {
+    const bucketMap = new Map<string, number>()
     for (const point of series) {
-      const key = point.time
-      let rec = bucketMap.get(key)
-      if (!rec) {
-        rec = { x: new Date(point.time).getTime() }
-        bucketMap.set(key, rec)
-      }
-      rec[point.name] = (rec[point.name] ?? 0) + point.value
+      bucketMap.set(point.time, (bucketMap.get(point.time) ?? 0) + point.value)
     }
-    return [...bucketMap.values()].sort((a, b) => a.x - b.x)
+    return [...bucketMap.entries()]
+      .map(([time, val]) => ({ x: new Date(time).getTime(), y: val }))
+      .sort((a, b) => a.x - b.x)
   }
 
-  /** Extract unique series names from time-series data. */
-  function seriesNames(series: RsyslogStatsTimeSeries[]): string[] {
-    const set = new Set<string>()
-    for (const point of series) {
-      set.add(point.name)
-    }
-    return [...set].sort()
-  }
-
-  const ingestChartData = computed(() => toChartData(ingestSeries.value))
-  const queueChartData = computed(() => toChartData(queueSeries.value))
-  const processedChartData = computed(() => toChartData(processedSeries.value))
-  const failedChartData = computed(() => toChartData(failedSeries.value))
-
-  const ingestNames = computed(() => seriesNames(ingestSeries.value))
-  const queueNames = computed(() => seriesNames(queueSeries.value))
-  const processedNames = computed(() => seriesNames(processedSeries.value))
-  const failedNames = computed(() => seriesNames(failedSeries.value))
+  const submittedLine = computed(() => toSimpleLine(submittedSeries.value))
+  const processedLine = computed(() => toSimpleLine(processedSeries.value))
+  const queueLine = computed(() => toSimpleLine(queueSeries.value))
 
   async function fetchAll() {
     if (!summary.value) {
@@ -70,19 +55,17 @@ export const useRsyslogStatsStore = defineStore('rsyslog-stats', () => {
         range: range_.value,
       })
 
-      const [summaryRes, ingestRes, queueRes, processedRes, failedRes] = await Promise.all([
+      const [summaryRes, submittedRes, processedRes, queueRes] = await Promise.all([
         api.getRsyslogStatsSummary(range_.value),
         api.getRsyslogStatsVolume(new URLSearchParams([...params, ['field', 'submitted']])),
-        api.getRsyslogStatsVolume(new URLSearchParams([...params, ['field', 'size']])),
         api.getRsyslogStatsVolume(new URLSearchParams([...params, ['field', 'processed']])),
-        api.getRsyslogStatsVolume(new URLSearchParams([...params, ['field', 'failed']])),
+        api.getRsyslogStatsVolume(new URLSearchParams([...params, ['field', 'size']])),
       ])
 
       summary.value = summaryRes.data
-      ingestSeries.value = ingestRes.data
-      queueSeries.value = queueRes.data
+      submittedSeries.value = submittedRes.data
       processedSeries.value = processedRes.data
-      failedSeries.value = failedRes.data
+      queueSeries.value = queueRes.data
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'failed to load rsyslog stats'
     } finally {
@@ -111,18 +94,9 @@ export const useRsyslogStatsStore = defineStore('rsyslog-stats', () => {
 
   return {
     summary,
-    ingestSeries,
-    queueSeries,
-    processedSeries,
-    failedSeries,
-    ingestChartData,
-    queueChartData,
-    processedChartData,
-    failedChartData,
-    ingestNames,
-    queueNames,
-    processedNames,
-    failedNames,
+    submittedLine,
+    processedLine,
+    queueLine,
     loading,
     error,
     range: range_,

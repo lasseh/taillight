@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { VisXYContainer, VisStackedBar, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
+import { VisXYContainer, VisStackedBar, VisLine, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 import { useDashboardStore } from '@/stores/dashboard'
 import { useAppLogDashboardStore } from '@/stores/applog-dashboard'
 import { useRsyslogStatsStore } from '@/stores/rsyslog-stats'
 import { useTheme } from '@/composables/useTheme'
 import type { VolumeDataRecord } from '@/types/stats'
-import type { RsyslogStatsDataRecord } from '@/types/rsyslog-stats'
+import type { SimplePoint } from '@/stores/rsyslog-stats'
 
 const route = useRoute()
 const router = useRouter()
@@ -165,35 +165,9 @@ function serviceTemplate(d: VolumeDataRecord) { return makeTemplate(applogDashbo
 function singleServiceYAccessor(service: string) { return makeSingleYAccessor(service) }
 function singleServiceTracker(service: string) { return makeSingleTracker(hoveredService, service) }
 
-// Rsyslog-specific chart helpers (uses RsyslogStatsDataRecord but same shape).
-const rsyslogXAccessor = (d: RsyslogStatsDataRecord) => d.x
-
-function rsyslogMakeYAccessors(keys: string[]) {
-  return keys.map((k) => (d: RsyslogStatsDataRecord) => (d[k] as number) ?? 0)
-}
-
-function rsyslogColorAccessor(_d: RsyslogStatsDataRecord, i: number) {
-  return accentColors.value[i % accentColors.value.length]
-}
-
-function rsyslogMakeTemplate(keys: string[]) {
-  return (d: RsyslogStatsDataRecord) => {
-    const date = new Date(d.x)
-    const lines = keys
-      .map((k, i) => {
-        const v = (d[k] as number) ?? 0
-        if (v === 0) return ''
-        const color = accentColors.value[i % accentColors.value.length]
-        return `<div><span style="color:${color}">●</span> ${escapeHtml(k)}: <b>${v}</b></div>`
-      })
-      .filter(Boolean)
-      .join('')
-    return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
-      <div style="color:var(--color-t-fg-dark)">${date.toLocaleString()}</div>
-      ${lines}
-    </div>`
-  }
-}
+// Rsyslog line chart accessors
+const lineX = (d: SimplePoint) => d.x
+const lineY = (d: SimplePoint) => d.y
 
 // KPI formatting for rsyslog tab
 function formatRate(v: number): string {
@@ -508,152 +482,42 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Charts: 2x2 grid -->
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <!-- Ingest Volume -->
-        <div>
-          <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Ingest Volume</h3>
-          <div class="bg-t-bg-dark border-t-border rounded border p-3">
-            <VisXYContainer :data="rsyslogStats.ingestChartData" :height="200" :padding="{ top: 8, right: 8 }">
-              <VisStackedBar
-                :x="rsyslogXAccessor"
-                :y="rsyslogMakeYAccessors(rsyslogStats.ingestNames)"
-                :color="rsyslogColorAccessor"
-                :barPadding="0.6"
-                :roundedCorners="2"
-                :dataStep="dataStep"
-              />
-              <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
-              <VisAxis type="y" :gridLine="true" :tickLine="false" />
-              <VisCrosshair :template="rsyslogMakeTemplate(rsyslogStats.ingestNames)" />
-              <VisTooltip />
-            </VisXYContainer>
-          </div>
-          <div class="mt-2 flex flex-wrap gap-3">
-            <span v-for="(name, i) in rsyslogStats.ingestNames" :key="name" class="flex items-center gap-1 text-xs">
-              <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[i % accentColors.length] }" />
-              <span class="text-t-fg-dark">{{ name }}</span>
-            </span>
-          </div>
+      <!-- Submitted vs Processed -->
+      <div>
+        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Messages Over Time</h3>
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <VisXYContainer :data="rsyslogStats.submittedLine" :height="220" :padding="{ top: 8, right: 8 }">
+            <VisLine :x="lineX" :y="lineY" :color="accentColors[0]" :curveType="'monotoneX'" />
+            <VisLine :data="rsyslogStats.processedLine" :x="lineX" :y="lineY" :color="accentColors[1]" :curveType="'monotoneX'" />
+            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
+            <VisAxis type="y" :gridLine="true" :tickLine="false" />
+            <VisCrosshair />
+            <VisTooltip />
+          </VisXYContainer>
         </div>
-
-        <!-- Queue Depth -->
-        <div>
-          <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Queue Depth</h3>
-          <div class="bg-t-bg-dark border-t-border rounded border p-3">
-            <VisXYContainer :data="rsyslogStats.queueChartData" :height="200" :padding="{ top: 8, right: 8 }">
-              <VisStackedBar
-                :x="rsyslogXAccessor"
-                :y="rsyslogMakeYAccessors(rsyslogStats.queueNames)"
-                :color="rsyslogColorAccessor"
-                :barPadding="0.6"
-                :roundedCorners="2"
-                :dataStep="dataStep"
-              />
-              <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
-              <VisAxis type="y" :gridLine="true" :tickLine="false" />
-              <VisCrosshair :template="rsyslogMakeTemplate(rsyslogStats.queueNames)" />
-              <VisTooltip />
-            </VisXYContainer>
-          </div>
-          <div class="mt-2 flex flex-wrap gap-3">
-            <span v-for="(name, i) in rsyslogStats.queueNames" :key="name" class="flex items-center gap-1 text-xs">
-              <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[i % accentColors.length] }" />
-              <span class="text-t-fg-dark">{{ name }}</span>
-            </span>
-          </div>
-        </div>
-
-        <!-- Action Throughput -->
-        <div>
-          <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Action Throughput</h3>
-          <div class="bg-t-bg-dark border-t-border rounded border p-3">
-            <VisXYContainer :data="rsyslogStats.processedChartData" :height="200" :padding="{ top: 8, right: 8 }">
-              <VisStackedBar
-                :x="rsyslogXAccessor"
-                :y="rsyslogMakeYAccessors(rsyslogStats.processedNames)"
-                :color="rsyslogColorAccessor"
-                :barPadding="0.6"
-                :roundedCorners="2"
-                :dataStep="dataStep"
-              />
-              <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
-              <VisAxis type="y" :gridLine="true" :tickLine="false" />
-              <VisCrosshair :template="rsyslogMakeTemplate(rsyslogStats.processedNames)" />
-              <VisTooltip />
-            </VisXYContainer>
-          </div>
-          <div class="mt-2 flex flex-wrap gap-3">
-            <span v-for="(name, i) in rsyslogStats.processedNames" :key="name" class="flex items-center gap-1 text-xs">
-              <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[i % accentColors.length] }" />
-              <span class="text-t-fg-dark">{{ name }}</span>
-            </span>
-          </div>
-        </div>
-
-        <!-- Failures & Suspensions -->
-        <div>
-          <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Failures &amp; Suspensions</h3>
-          <div class="bg-t-bg-dark border-t-border rounded border p-3">
-            <VisXYContainer :data="rsyslogStats.failedChartData" :height="200" :padding="{ top: 8, right: 8 }">
-              <VisStackedBar
-                :x="rsyslogXAccessor"
-                :y="rsyslogMakeYAccessors(rsyslogStats.failedNames)"
-                :color="rsyslogColorAccessor"
-                :barPadding="0.6"
-                :roundedCorners="2"
-                :dataStep="dataStep"
-              />
-              <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
-              <VisAxis type="y" :gridLine="true" :tickLine="false" />
-              <VisCrosshair :template="rsyslogMakeTemplate(rsyslogStats.failedNames)" />
-              <VisTooltip />
-            </VisXYContainer>
-          </div>
-          <div class="mt-2 flex flex-wrap gap-3">
-            <span v-for="(name, i) in rsyslogStats.failedNames" :key="name" class="flex items-center gap-1 text-xs">
-              <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[i % accentColors.length] }" />
-              <span class="text-t-fg-dark">{{ name }}</span>
-            </span>
-          </div>
+        <div class="mt-2 flex gap-4">
+          <span class="flex items-center gap-1 text-xs">
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
+            <span class="text-t-fg-dark">Submitted</span>
+          </span>
+          <span class="flex items-center gap-1 text-xs">
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
+            <span class="text-t-fg-dark">Processed</span>
+          </span>
         </div>
       </div>
 
-      <!-- Component Table -->
-      <div v-if="rsyslogStats.summary && rsyslogStats.summary.components.length > 0">
-        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Components</h3>
-        <div class="bg-t-bg-dark border-t-border overflow-x-auto rounded border">
-          <table class="w-full text-left text-xs">
-            <thead>
-              <tr class="border-t-border border-b">
-                <th class="text-t-fg-dark px-3 py-2 font-semibold">Origin</th>
-                <th class="text-t-fg-dark px-3 py-2 font-semibold">Name</th>
-                <th class="text-t-fg-dark px-3 py-2 font-semibold text-right">Submitted</th>
-                <th class="text-t-fg-dark px-3 py-2 font-semibold text-right">Processed</th>
-                <th class="text-t-fg-dark px-3 py-2 font-semibold text-right">Failed</th>
-                <th class="text-t-fg-dark px-3 py-2 font-semibold text-right">Size</th>
-                <th class="text-t-fg-dark px-3 py-2 font-semibold text-right">Max Q</th>
-                <th class="text-t-fg-dark px-3 py-2 font-semibold">Last Collected</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(comp, idx) in rsyslogStats.summary.components"
-                :key="`${comp.origin}-${comp.name}`"
-                class="border-t-border transition-colors hover:bg-white/[0.02]"
-                :class="idx < rsyslogStats.summary.components.length - 1 ? 'border-b' : ''"
-              >
-                <td class="text-t-orange px-3 py-1.5">{{ comp.origin }}</td>
-                <td class="text-t-fg px-3 py-1.5">{{ comp.name }}</td>
-                <td class="text-t-fg-dark px-3 py-1.5 text-right font-mono">{{ comp.stats.submitted ?? '-' }}</td>
-                <td class="text-t-fg-dark px-3 py-1.5 text-right font-mono">{{ comp.stats.processed ?? '-' }}</td>
-                <td class="px-3 py-1.5 text-right font-mono" :class="(comp.stats.failed ?? 0) > 0 ? 'text-t-red' : 'text-t-fg-dark'">{{ comp.stats.failed ?? '-' }}</td>
-                <td class="text-t-fg-dark px-3 py-1.5 text-right font-mono">{{ comp.stats.size ?? '-' }}</td>
-                <td class="text-t-fg-dark px-3 py-1.5 text-right font-mono">{{ comp.stats.maxqsize ?? '-' }}</td>
-                <td class="text-t-fg-dark px-3 py-1.5">{{ new Date(comp.collected_at).toLocaleTimeString() }}</td>
-              </tr>
-            </tbody>
-          </table>
+      <!-- Queue Depth -->
+      <div>
+        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Queue Depth</h3>
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <VisXYContainer :data="rsyslogStats.queueLine" :height="160" :padding="{ top: 8, right: 8 }">
+            <VisLine :x="lineX" :y="lineY" :color="accentColors[2]" :curveType="'monotoneX'" />
+            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
+            <VisAxis type="y" :gridLine="true" :tickLine="false" />
+            <VisCrosshair />
+            <VisTooltip />
+          </VisXYContainer>
         </div>
       </div>
     </template>
