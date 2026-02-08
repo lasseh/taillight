@@ -22,15 +22,27 @@ var allowedStatsFields = map[string]struct{}{
 	"maxqsize":       {},
 }
 
+// innerStatsExpr is the SQL expression that extracts the inner JSON object.
+// ompgsql stores impstats as {"msg": "{ ... }"} — the actual stats are a
+// JSON string inside the "msg" key. This expression parses it back to JSONB.
+const innerStatsExpr = `(stats ->> 'msg')::jsonb`
+
 // GetRsyslogStatsSummary returns aggregated KPIs from the latest snapshot per component.
 func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Duration) (model.RsyslogStatsSummary, error) {
 	since := time.Now().UTC().Add(-rangeDur)
 
-	// Get latest snapshot per component within the range.
-	query := `SELECT DISTINCT ON (origin, name) collected_at, origin, name, stats
-	          FROM rsyslog_stats
-	          WHERE collected_at >= $1
-	          ORDER BY origin, name, collected_at DESC`
+	// Extract origin/name from the inner JSON since ompgsql doesn't populate
+	// the origin/name columns. Use DISTINCT ON to get the latest per component.
+	query := fmt.Sprintf(
+		`SELECT DISTINCT ON (inner_origin, inner_name)
+		        collected_at,
+		        COALESCE((%s ->> 'origin'), origin) AS inner_origin,
+		        COALESCE((%s ->> 'name'), name) AS inner_name,
+		        %s AS inner_stats
+		 FROM rsyslog_stats
+		 WHERE collected_at >= $1
+		 ORDER BY inner_origin, inner_name, collected_at DESC`,
+		innerStatsExpr, innerStatsExpr, innerStatsExpr)
 
 	rows, err := s.pool.Query(ctx, query, since)
 	if err != nil {
@@ -62,6 +74,11 @@ func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Durati
 		discardedNF := jsonNumberToInt64(fields["discarded.nf"])
 		size := jsonNumberToInt64(fields["size"])
 		maxqsize := jsonNumberToInt64(fields["maxqsize"])
+
+		// Input modules report "msgs.received" instead of "submitted".
+		if submitted == 0 {
+			submitted = jsonNumberToInt64(fields["msgs.received"])
+		}
 
 		// Aggregate by origin type.
 		switch comp.Origin {
@@ -117,26 +134,28 @@ func (s *Store) GetRsyslogStatsTimeSeries(ctx context.Context, field string, int
 
 	since := time.Now().UTC().Add(-rangeDur)
 
-	// Use JSONB ->> to extract the field, cast to numeric, bucket by time.
-	// For nested fields like "discarded.full", use #>> with path array.
+	// Extract the field from the inner JSON (stats->'msg' parsed as JSONB).
 	var fieldExpr string
 	switch field {
 	case "discarded.full":
-		fieldExpr = `(stats #>> '{discarded.full}')::numeric`
+		fieldExpr = fmt.Sprintf(`(%s #>> '{discarded.full}')::numeric`, innerStatsExpr)
 	case "discarded.nf":
-		fieldExpr = `(stats #>> '{discarded.nf}')::numeric`
+		fieldExpr = fmt.Sprintf(`(%s #>> '{discarded.nf}')::numeric`, innerStatsExpr)
 	default:
-		fieldExpr = fmt.Sprintf(`(stats ->> '%s')::numeric`, field)
+		fieldExpr = fmt.Sprintf(`(%s ->> '%s')::numeric`, innerStatsExpr, field)
 	}
+
+	// Also extract the name from the inner JSON for grouping.
+	nameExpr := fmt.Sprintf(`COALESCE((%s ->> 'name'), name)`, innerStatsExpr)
 
 	query := fmt.Sprintf(
 		`SELECT time_bucket($1::interval, collected_at) AS bucket,
-		        name,
+		        %s AS comp_name,
 		        SUM(COALESCE(%s, 0)) AS val
 		 FROM rsyslog_stats
 		 WHERE collected_at >= $2
-		 GROUP BY bucket, name
-		 ORDER BY bucket ASC, name`, fieldExpr)
+		 GROUP BY bucket, comp_name
+		 ORDER BY bucket ASC, comp_name`, nameExpr, fieldExpr)
 
 	rows, err := s.pool.Query(ctx, query, interval.String(), since)
 	if err != nil {
