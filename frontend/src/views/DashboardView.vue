@@ -497,10 +497,7 @@ onUnmounted(() => {
           </template>
           <template v-else>
             <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Output Health</div>
-            <div class="text-t-fg mt-1 text-xl font-bold">
-              {{ formatCount(rsyslogStats.summary.total_processed) }}
-            </div>
-            <div class="text-t-green text-xs">all ok</div>
+            <div class="text-t-green mt-1 text-xl font-bold">all ok</div>
           </template>
         </div>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
