@@ -31,7 +31,7 @@ var applogLevelWeights = []applogLevelWeight{
 	{"DEBUG", 200},
 	{"WARN", 150},
 	{"ERROR", 100},
-	{"FATAL", 105},
+	{"FATAL", 5},
 }
 
 var services = []serviceProfile{
