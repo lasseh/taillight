@@ -9,7 +9,6 @@ import { useTaillightMetricsStore } from '@/stores/taillight-metrics'
 import { useTheme } from '@/composables/useTheme'
 import type { VolumeDataRecord } from '@/types/stats'
 import type { SimplePoint } from '@/stores/rsyslog-stats'
-import type { SimplePoint as TaillightPoint } from '@/stores/taillight-metrics'
 
 const route = useRoute()
 const router = useRouter()
@@ -187,19 +186,46 @@ function serviceTemplate(d: VolumeDataRecord) { return makeTemplate(applogDashbo
 function singleServiceYAccessor(service: string) { return makeSingleYAccessor(service) }
 function singleServiceTracker(service: string) { return makeSingleTracker(hoveredService, service) }
 
-// Rsyslog line chart accessors
-const lineX = (d: SimplePoint) => d.x
-const lineY = (d: SimplePoint) => d.y
+// --- Rsyslog merged line chart data ---
+// Unovis scales the y-axis from the container :data only. With separate :data
+// on child VisLine components, the second series can fall outside the visible
+// range. Merging into one record array ensures the y-axis covers all values.
 
-function rsMessagesTooltip(d: SimplePoint) {
-  const submitted = rsyslogStats.submittedLine.find(p => p.x === d.x)
-  const processed = rsyslogStats.processedLine.find(p => p.x === d.x)
+type RsMsgRecord = { x: number; submitted: number; processed: number }
+
+function mergeTwoLines(a: SimplePoint[], b: SimplePoint[]): Map<number, [number, number]> {
+  const m = new Map<number, [number, number]>()
+  for (const p of a) m.set(p.x, [p.y, 0])
+  for (const p of b) {
+    const e = m.get(p.x)
+    if (e) e[1] = p.y
+    else m.set(p.x, [0, p.y])
+  }
+  return m
+}
+
+const rsMessagesData = computed<RsMsgRecord[]>(() => {
+  const m = mergeTwoLines(rsyslogStats.submittedLine, rsyslogStats.processedLine)
+  return [...m.entries()]
+    .map(([x, [submitted, processed]]) => ({ x, submitted, processed }))
+    .sort((a, b) => a.x - b.x)
+})
+
+const rsMessagesX = (d: RsMsgRecord) => d.x
+const rsSubmittedY = (d: RsMsgRecord) => d.submitted
+const rsProcessedY = (d: RsMsgRecord) => d.processed
+
+function rsMessagesTooltip(d: RsMsgRecord) {
   return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
     <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
-    <div><span style="color:${accentColors.value[0]}">●</span> Submitted: <b>${(submitted?.y ?? 0).toFixed(1)}</b></div>
-    <div><span style="color:${accentColors.value[1]}">●</span> Processed: <b>${(processed?.y ?? 0).toFixed(1)}</b></div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Submitted: <b>${d.submitted.toFixed(1)}</b></div>
+    <div><span style="color:${accentColors.value[1]}">●</span> Processed: <b>${d.processed.toFixed(1)}</b></div>
   </div>`
 }
+
+// Queue depth (single line, keep SimplePoint)
+const lineX = (d: SimplePoint) => d.x
+const lineY = (d: SimplePoint) => d.y
 
 function rsQueueTooltip(d: SimplePoint) {
   return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
@@ -208,39 +234,74 @@ function rsQueueTooltip(d: SimplePoint) {
   </div>`
 }
 
-// Taillight line chart accessors
-const tlLineX = (d: TaillightPoint) => d.x
-const tlLineY = (d: TaillightPoint) => d.y
+// --- Taillight merged line chart data ---
 
-function tlEventsTooltip(d: TaillightPoint) {
-  const syslog = taillightMetrics.eventsBroadcastLine.find(p => p.x === d.x)
-  const applog = taillightMetrics.applogBroadcastLine.find(p => p.x === d.x)
+type TlDualRecord = { x: number; syslog: number; applog: number }
+type TlPoolRecord = { x: number; active: number; idle: number; total: number }
+
+const tlEventsData = computed<TlDualRecord[]>(() => {
+  const m = mergeTwoLines(taillightMetrics.eventsBroadcastLine, taillightMetrics.applogBroadcastLine)
+  return [...m.entries()]
+    .map(([x, [syslog, applog]]) => ({ x, syslog, applog }))
+    .sort((a, b) => a.x - b.x)
+})
+
+const tlSseData = computed<TlDualRecord[]>(() => {
+  const m = mergeTwoLines(taillightMetrics.sseClientsSyslogLine, taillightMetrics.sseClientsApplogLine)
+  return [...m.entries()]
+    .map(([x, [syslog, applog]]) => ({ x, syslog, applog }))
+    .sort((a, b) => a.x - b.x)
+})
+
+const tlPoolData = computed<TlPoolRecord[]>(() => {
+  const active = taillightMetrics.dbPoolActiveLine
+  const idle = taillightMetrics.dbPoolIdleLine
+  const total = taillightMetrics.dbPoolTotalLine
+  const m = new Map<number, TlPoolRecord>()
+  for (const p of active) m.set(p.x, { x: p.x, active: p.y, idle: 0, total: 0 })
+  for (const p of idle) {
+    const e = m.get(p.x)
+    if (e) e.idle = p.y
+    else m.set(p.x, { x: p.x, active: 0, idle: p.y, total: 0 })
+  }
+  for (const p of total) {
+    const e = m.get(p.x)
+    if (e) e.total = p.y
+    else m.set(p.x, { x: p.x, active: 0, idle: 0, total: p.y })
+  }
+  return [...m.values()].sort((a, b) => a.x - b.x)
+})
+
+const tlDualX = (d: TlDualRecord) => d.x
+const tlSyslogY = (d: TlDualRecord) => d.syslog
+const tlApplogY = (d: TlDualRecord) => d.applog
+const tlPoolX = (d: TlPoolRecord) => d.x
+const tlActiveY = (d: TlPoolRecord) => d.active
+const tlIdleY = (d: TlPoolRecord) => d.idle
+const tlTotalY = (d: TlPoolRecord) => d.total
+
+function tlEventsTooltip(d: TlDualRecord) {
   return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
     <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
-    <div><span style="color:${accentColors.value[0]}">●</span> Syslog: <b>${(syslog?.y ?? 0).toFixed(1)}</b></div>
-    <div><span style="color:${accentColors.value[1]}">●</span> Applog: <b>${(applog?.y ?? 0).toFixed(1)}</b></div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Syslog: <b>${d.syslog.toFixed(1)}</b></div>
+    <div><span style="color:${accentColors.value[1]}">●</span> Applog: <b>${d.applog.toFixed(1)}</b></div>
   </div>`
 }
 
-function tlSseTooltip(d: TaillightPoint) {
-  const syslog = taillightMetrics.sseClientsSyslogLine.find(p => p.x === d.x)
-  const applog = taillightMetrics.sseClientsApplogLine.find(p => p.x === d.x)
+function tlSseTooltip(d: TlDualRecord) {
   return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
     <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
-    <div><span style="color:${accentColors.value[0]}">●</span> Syslog: <b>${syslog?.y ?? 0}</b></div>
-    <div><span style="color:${accentColors.value[1]}">●</span> Applog: <b>${applog?.y ?? 0}</b></div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Syslog: <b>${d.syslog}</b></div>
+    <div><span style="color:${accentColors.value[1]}">●</span> Applog: <b>${d.applog}</b></div>
   </div>`
 }
 
-function tlPoolTooltip(d: TaillightPoint) {
-  const active = taillightMetrics.dbPoolActiveLine.find(p => p.x === d.x)
-  const idle = taillightMetrics.dbPoolIdleLine.find(p => p.x === d.x)
-  const total = taillightMetrics.dbPoolTotalLine.find(p => p.x === d.x)
+function tlPoolTooltip(d: TlPoolRecord) {
   return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
     <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
-    <div><span style="color:${accentColors.value[0]}">●</span> Active: <b>${active?.y ?? 0}</b></div>
-    <div><span style="color:${accentColors.value[1]}">●</span> Idle: <b>${idle?.y ?? 0}</b></div>
-    <div><span style="color:${accentColors.value[2]}">●</span> Total: <b>${total?.y ?? 0}</b></div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Active: <b>${d.active}</b></div>
+    <div><span style="color:${accentColors.value[1]}">●</span> Idle: <b>${d.idle}</b></div>
+    <div><span style="color:${accentColors.value[2]}">●</span> Total: <b>${d.total}</b></div>
   </div>`
 }
 
@@ -609,9 +670,9 @@ onUnmounted(() => {
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Messages Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="rsyslogStats.submittedLine" :height="220" :padding="{ top: 8, right: 8 }">
-            <VisLine :x="lineX" :y="lineY" :color="accentColors[0]" :curveType="'monotoneX'" />
-            <VisLine :data="rsyslogStats.processedLine" :x="lineX" :y="lineY" :color="accentColors[1]" :curveType="'monotoneX'" />
+          <VisXYContainer :data="rsMessagesData" :height="220" :padding="{ top: 8, right: 8 }">
+            <VisLine :x="rsMessagesX" :y="rsSubmittedY" :color="accentColors[0]" :curveType="'monotoneX'" />
+            <VisLine :x="rsMessagesX" :y="rsProcessedY" :color="accentColors[1]" :curveType="'monotoneX'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
             <VisCrosshair :template="rsMessagesTooltip" />
@@ -749,9 +810,9 @@ onUnmounted(() => {
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Events Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="taillightMetrics.eventsBroadcastLine" :height="220" :padding="{ top: 8, right: 8 }">
-            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
-            <VisLine :data="taillightMetrics.applogBroadcastLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
+          <VisXYContainer :data="tlEventsData" :height="220" :padding="{ top: 8, right: 8 }">
+            <VisLine :x="tlDualX" :y="tlSyslogY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
+            <VisLine :x="tlDualX" :y="tlApplogY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
             <VisCrosshair :template="tlEventsTooltip" />
@@ -774,9 +835,9 @@ onUnmounted(() => {
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">SSE Clients Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="taillightMetrics.sseClientsSyslogLine" :height="160" :padding="{ top: 8, right: 8 }">
-            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
-            <VisLine :data="taillightMetrics.sseClientsApplogLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
+          <VisXYContainer :data="tlSseData" :height="160" :padding="{ top: 8, right: 8 }">
+            <VisLine :x="tlDualX" :y="tlSyslogY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
+            <VisLine :x="tlDualX" :y="tlApplogY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
             <VisCrosshair :template="tlSseTooltip" />
@@ -799,10 +860,10 @@ onUnmounted(() => {
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">DB Pool Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="taillightMetrics.dbPoolActiveLine" :height="160" :padding="{ top: 8, right: 8 }">
-            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" />
-            <VisLine :data="taillightMetrics.dbPoolIdleLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" />
-            <VisLine :data="taillightMetrics.dbPoolTotalLine" :x="tlLineX" :y="tlLineY" :color="accentColors[2]" :curveType="'monotoneX'" />
+          <VisXYContainer :data="tlPoolData" :height="160" :padding="{ top: 8, right: 8 }">
+            <VisLine :x="tlPoolX" :y="tlActiveY" :color="accentColors[0]" :curveType="'monotoneX'" />
+            <VisLine :x="tlPoolX" :y="tlIdleY" :color="accentColors[1]" :curveType="'monotoneX'" />
+            <VisLine :x="tlPoolX" :y="tlTotalY" :color="accentColors[2]" :curveType="'monotoneX'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
             <VisCrosshair :template="tlPoolTooltip" />
