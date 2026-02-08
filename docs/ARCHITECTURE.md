@@ -401,6 +401,16 @@ Browser EventSource -> Pinia store -> reactive UI
 
 ### Applog Pipeline (detail)
 
+Applications can send logs to the ingest endpoint directly, or use the provided
+integration tools:
+
+- **Go apps** -- use the [`logshipper`](../api/pkg/logshipper/README.md)
+  package, a drop-in `slog.Handler` that batches and ships logs in the
+  background.
+- **Non-Go apps / log files** -- use the `taillight-shipper` CLI
+  (`api/cmd/taillight-shipper/`) to tail files or pipe stdin.
+- **Direct HTTP** -- POST JSON batches to the ingest endpoint from any language.
+
 ```text
 HTTP Application
     |

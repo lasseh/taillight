@@ -790,9 +790,14 @@ Reports are stored in the `analysis_reports` table with metadata:
 
 **Source:** `api/pkg/logshipper/handler.go`, `api/pkg/logshipper/multi.go`
 
-The log shipper is a built-in `slog.Handler` that ships Taillight's own
-application logs to the applog ingest endpoint. This enables the "eat your own
-dog food" pattern -- Taillight's logs appear in its own UI.
+> **Using logshipper in your own Go app?** See
+> [`api/pkg/logshipper/README.md`](../api/pkg/logshipper/README.md) for install,
+> quick-start, `MultiHandler`, and config reference.
+
+The log shipper is a standard `slog.Handler` that batches and ships log entries
+to Taillight's applog ingest endpoint. It can be embedded in any Go application
+that uses `log/slog`. Taillight itself uses it in "eat your own dog food" mode
+-- its own logs appear in its own UI.
 
 ### Architecture
 

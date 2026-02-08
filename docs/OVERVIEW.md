@@ -6,7 +6,7 @@ Taillight is a real-time syslog and application log viewer. It streams filtered 
 
 **Real-time streaming** -- SSE pushes new log events to all connected browsers the moment they arrive. PostgreSQL LISTEN/NOTIFY triggers the broadcast, so there is no polling delay.
 
-**Dual log sources** -- Taillight ingests both traditional syslog (via rsyslog with ompgsql) and structured application logs (via an HTTP JSON ingest API). Each source has its own SSE stream, query endpoints, and dashboard.
+**Dual log sources** -- Taillight ingests both traditional syslog (via rsyslog with ompgsql) and structured application logs (via an HTTP JSON ingest API). Each source has its own SSE stream, query endpoints, and dashboard. The [`logshipper`](../api/pkg/logshipper/README.md) package provides a drop-in `slog.Handler` for shipping application logs from any Go service, and the `taillight-shipper` CLI can tail log files or pipe stdin for non-Go apps.
 
 **Advanced filtering** -- Filter by host, facility, severity, program, syslog tag, message ID, and source IP. Full-text substring search uses PostgreSQL trigram indexes for fast ILIKE queries. Filters apply to both the live stream and historical queries.
 
@@ -139,6 +139,7 @@ db_min_conns: 2
 notification_buffer_size: 8192
 
 # Ship the API's own logs to the applog ingest endpoint.
+# See api/pkg/logshipper/README.md for using this as a library in other Go apps.
 logshipper:
   enabled: false
   service: "taillight"
