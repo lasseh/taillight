@@ -283,12 +283,11 @@ Juniper syslog XLSX files are not included in the repository. Download them from
 
 ## Documentation
 
-- [SSE Backend Design](docs/sse-backend-design.md) -- architecture, data flow, component details
-- [Dashboard Aggregates](docs/dashboard-aggregates.md) -- TimescaleDB continuous aggregates for Grafana
-- [Batch Inserter Design](docs/batch-inserter-design.md) -- future omprog batch inserter proposal
-- [rsyslog Juniper Research](docs/rsyslog-juniper-research.md) -- filter reference and design guide
-- [rsyslog README](rsyslog/README.md) -- rsyslog configuration and deployment
+- [Overview](docs/OVERVIEW.md) -- features, quickstart, configuration, CLI reference
+- [Architecture](docs/ARCHITECTURE.md) -- system design, data flow diagrams, deployment topology
+- [Internals](docs/INTERNALS.md) -- deep dive into SSE brokers, LISTEN/NOTIFY, schema, auth, frontend stores
 - [API Reference](api/API.md) -- HTTP endpoints
+- [rsyslog README](rsyslog/README.md) -- rsyslog configuration and deployment
 
 ## Contributing
 
