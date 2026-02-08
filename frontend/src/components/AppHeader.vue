@@ -137,17 +137,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         >
           DASHBOARD
         </router-link>
-        <router-link
-          to="/rsyslog"
-          class="px-2 py-0.5 text-xs transition-colors"
-          :class="
-            route.name === 'rsyslog-stats'
-              ? 'bg-t-bg-highlight text-t-orange'
-              : 'text-t-fg-dark hover:text-t-orange'
-          "
-        >
-          RSYSLOG
-        </router-link>
       </div>
 
       <!-- Desktop: settings menu -->
@@ -320,18 +309,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             @click="closeMobileMenu"
           >
             DASHBOARD
-          </router-link>
-          <router-link
-            to="/rsyslog"
-            class="px-2 py-1.5 text-xs transition-colors"
-            :class="
-              route.name === 'rsyslog-stats'
-                ? 'bg-t-bg-highlight text-t-orange'
-                : 'text-t-fg-dark hover:text-t-orange'
-            "
-            @click="closeMobileMenu"
-          >
-            RSYSLOG
           </router-link>
         </div>
 

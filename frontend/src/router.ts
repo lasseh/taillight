@@ -37,11 +37,6 @@ const router = createRouter({
       props: true,
     },
     {
-      path: '/rsyslog',
-      name: 'rsyslog-stats',
-      component: () => import('@/views/RsyslogStatsView.vue'),
-    },
-    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),
