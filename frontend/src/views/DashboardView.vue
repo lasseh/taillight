@@ -173,6 +173,7 @@ const lineY = (d: SimplePoint) => d.y
 const rsyslogInputs = computed(() =>
   (rsyslogStats.summary?.components ?? [])
     .filter((c) => ['imudp', 'imtcp', 'imptcp'].includes(c.origin))
+    .filter((c) => !/\(w\d+\)/.test(c.name) && !/^w\d+\//.test(c.name))
     .map((c) => ({ name: c.name, received: c.stats['submitted'] ?? c.stats['msgs.received'] ?? 0 })),
 )
 const rsyslogOutputs = computed(() =>
