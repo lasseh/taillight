@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, watch, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, watch, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useMetaStore } from '@/stores/meta'
 import { useSyslogFilterStore } from '@/stores/syslog-filters'
@@ -17,12 +17,19 @@ import AppLogFilterBar from '@/components/AppLogFilterBar.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 const meta = useMetaStore()
 const filters = useSyslogFilterStore()
 const appLogFilters = useAppLogFilterStore()
 const appLogMeta = useAppLogMetaStore()
 const scrollStore = useScrollStore()
+
+// Wait for initial navigation to complete before rendering the layout.
+// This prevents a race where auth resolves (triggering layout render)
+// before the router confirms the route (leaving <router-view> empty).
+const routerReady = ref(false)
+router.isReady().then(() => { routerReady.value = true })
 
 const isLoginRoute = computed(() => route.name === 'login')
 const isLogRoute = computed(() => route.name === 'syslog' || route.name === 'applog')
@@ -72,6 +79,7 @@ watch(
       stopStreams()
     }
   },
+  { immediate: true },
 )
 
 onUnmounted(() => {
@@ -81,7 +89,7 @@ onUnmounted(() => {
 
 <template>
   <router-view v-if="isLoginRoute" />
-  <div v-else-if="auth.ready && auth.user" class="flex h-screen flex-col">
+  <div v-else-if="routerReady && auth.user" class="flex h-screen flex-col">
     <AppHeader />
     <FilterBar v-if="route.name === 'syslog'" />
     <AppLogFilterBar v-if="route.name === 'applog'" />
