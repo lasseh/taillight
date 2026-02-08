@@ -701,8 +701,8 @@ onUnmounted(() => {
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Events Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="taillightMetrics.eventsBroadcastLine" :height="220" :padding="{ top: 8, right: 8 }">
-            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" />
-            <VisLine :data="taillightMetrics.applogBroadcastLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" />
+            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
+            <VisLine :data="taillightMetrics.applogBroadcastLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" :lineDashArray="'6 3'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
             <VisCrosshair />
@@ -711,11 +711,11 @@ onUnmounted(() => {
         </div>
         <div class="mt-2 flex gap-4">
           <span class="flex items-center gap-1 text-xs">
-            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
+            <span class="inline-block h-0.5 w-4" :style="{ backgroundColor: accentColors[0] }" />
             <span class="text-t-fg-dark">Syslog Broadcast</span>
           </span>
           <span class="flex items-center gap-1 text-xs">
-            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
+            <span class="inline-block h-0.5 w-4" :style="{ backgroundImage: `repeating-linear-gradient(90deg, ${accentColors[1]} 0 4px, transparent 4px 7px)` }" />
             <span class="text-t-fg-dark">Applog Broadcast</span>
           </span>
         </div>
@@ -726,8 +726,8 @@ onUnmounted(() => {
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">SSE Clients Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="taillightMetrics.sseClientsSyslogLine" :height="160" :padding="{ top: 8, right: 8 }">
-            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" />
-            <VisLine :data="taillightMetrics.sseClientsApplogLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" />
+            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
+            <VisLine :data="taillightMetrics.sseClientsApplogLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" :lineDashArray="'6 3'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
             <VisCrosshair />
@@ -736,11 +736,11 @@ onUnmounted(() => {
         </div>
         <div class="mt-2 flex gap-4">
           <span class="flex items-center gap-1 text-xs">
-            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
+            <span class="inline-block h-0.5 w-4" :style="{ backgroundColor: accentColors[0] }" />
             <span class="text-t-fg-dark">Syslog Clients</span>
           </span>
           <span class="flex items-center gap-1 text-xs">
-            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
+            <span class="inline-block h-0.5 w-4" :style="{ backgroundImage: `repeating-linear-gradient(90deg, ${accentColors[1]} 0 4px, transparent 4px 7px)` }" />
             <span class="text-t-fg-dark">Applog Clients</span>
           </span>
         </div>
