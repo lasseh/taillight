@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_syslog_received_id
 CREATE INDEX IF NOT EXISTS idx_syslog_id
     ON syslog_events (id);
 
--- Filter indexes.
+-- Filter indexes (compound with received_at for sort elimination).
 CREATE INDEX IF NOT EXISTS idx_syslog_host_received
     ON syslog_events (hostname, received_at DESC);
 
@@ -45,16 +45,16 @@ CREATE INDEX IF NOT EXISTS idx_syslog_severity_received
     WHERE severity <= 3;
 
 CREATE INDEX IF NOT EXISTS idx_syslog_programname
-    ON syslog_events (programname);
+    ON syslog_events (programname, received_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_syslog_facility
-    ON syslog_events (facility);
+    ON syslog_events (facility, received_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_syslog_fromhost_ip
-    ON syslog_events (fromhost_ip);
+    ON syslog_events (fromhost_ip, received_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_syslog_syslogtag
-    ON syslog_events (syslogtag);
+    ON syslog_events (syslogtag, received_at DESC);
 
 -- Trigram index for ILIKE substring search on message.
 CREATE INDEX IF NOT EXISTS idx_syslog_message_trgm
@@ -114,6 +114,8 @@ CREATE INDEX IF NOT EXISTS idx_juniper_ref_name ON juniper_syslog_ref (name);
 
 -------------------------------------------------------------------------------
 -- Application log events hypertable
+-- Note: applog does NOT use LISTEN/NOTIFY — the ingest handler broadcasts
+-- directly via SSE broker, so a trigger would cause duplicate broadcasts.
 -------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS applog_events (
@@ -147,24 +149,8 @@ CREATE INDEX IF NOT EXISTS idx_applog_received_id ON applog_events (received_at 
 -- Filter indexes
 CREATE INDEX IF NOT EXISTS idx_applog_service_received ON applog_events (service, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_applog_level_received ON applog_events (level, received_at DESC);
--- JSONB attribute queries
-CREATE INDEX IF NOT EXISTS idx_applog_attrs ON applog_events USING GIN (attrs jsonb_path_ops);
 -- Full-text search
 CREATE INDEX IF NOT EXISTS idx_applog_search ON applog_events USING GIN (search_vector);
-
--- Notify trigger for LISTEN/NOTIFY push to SSE broker.
-CREATE OR REPLACE FUNCTION notify_applog_insert()
-RETURNS trigger AS $$
-BEGIN
-    PERFORM pg_notify('applog_ingest', NEW.id::text);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_applog_notify ON applog_events;
-CREATE TRIGGER trg_applog_notify
-    AFTER INSERT ON applog_events
-    FOR EACH ROW EXECUTE FUNCTION notify_applog_insert();
 
 -- Override default 7-day columnstore policy: compress chunks older than 1 day
 CALL remove_columnstore_policy('applog_events');
@@ -172,6 +158,12 @@ CALL add_columnstore_policy('applog_events', after => INTERVAL '1 day');
 
 -- Drop chunks older than 90 days (match syslog_events retention)
 SELECT add_retention_policy('applog_events', INTERVAL '90 days', if_not_exists => true);
+
+-- Tune autovacuum for high-insert workload (match syslog_events).
+ALTER TABLE applog_events SET (
+    autovacuum_vacuum_scale_factor = 0.05,
+    autovacuum_analyze_scale_factor = 0.02
+);
 
 -------------------------------------------------------------------------------
 -- Meta cache tables: populated by triggers on every INSERT.
@@ -258,6 +250,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     email         TEXT,
     is_active     BOOLEAN NOT NULL DEFAULT true,
+    is_admin      BOOLEAN NOT NULL DEFAULT false,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_login_at TIMESTAMPTZ
@@ -315,3 +308,31 @@ SELECT add_retention_policy('rsyslog_stats', INTERVAL '30 days', if_not_exists =
 
 CREATE INDEX IF NOT EXISTS idx_rsyslog_stats_origin_time ON rsyslog_stats (origin, collected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rsyslog_stats_name_time   ON rsyslog_stats (name, collected_at DESC);
+
+-------------------------------------------------------------------------------
+-- Taillight application metrics
+-------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS taillight_metrics (
+    collected_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Gauges (point-in-time values)
+    sse_clients_syslog      INTEGER NOT NULL DEFAULT 0,
+    sse_clients_applog      INTEGER NOT NULL DEFAULT 0,
+    db_pool_active          INTEGER NOT NULL DEFAULT 0,
+    db_pool_idle            INTEGER NOT NULL DEFAULT 0,
+    db_pool_total           INTEGER NOT NULL DEFAULT 0,
+    -- Counters (cumulative — compute deltas in SQL)
+    events_broadcast        BIGINT NOT NULL DEFAULT 0,
+    events_dropped          BIGINT NOT NULL DEFAULT 0,
+    applog_events_broadcast BIGINT NOT NULL DEFAULT 0,
+    applog_events_dropped   BIGINT NOT NULL DEFAULT 0,
+    applog_ingest_total     BIGINT NOT NULL DEFAULT 0,
+    applog_ingest_errors    BIGINT NOT NULL DEFAULT 0,
+    listener_reconnects     BIGINT NOT NULL DEFAULT 0
+);
+
+SELECT create_hypertable('taillight_metrics', 'collected_at');
+
+-- Columnstore after 1 day, retain 30 days.
+CALL add_columnstore_policy('taillight_metrics', after => INTERVAL '1 day');
+SELECT add_retention_policy('taillight_metrics', INTERVAL '30 days', if_not_exists => true);

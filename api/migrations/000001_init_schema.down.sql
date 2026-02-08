@@ -1,5 +1,9 @@
 -- Reverse migration: drop all tables, triggers, functions, and policies.
 
+-- Drop taillight metrics.
+SELECT remove_retention_policy('taillight_metrics', if_exists => true);
+DROP TABLE IF EXISTS taillight_metrics;
+
 -- Drop rsyslog stats.
 SELECT remove_retention_policy('rsyslog_stats', if_exists => true);
 DROP TABLE IF EXISTS rsyslog_stats;
@@ -15,7 +19,6 @@ SELECT remove_retention_policy('syslog_events', if_exists => true);
 
 -- Drop triggers.
 DROP TRIGGER IF EXISTS trg_applog_meta_cache ON applog_events;
-DROP TRIGGER IF EXISTS trg_applog_notify ON applog_events;
 DROP TRIGGER IF EXISTS trg_syslog_facility_cache ON syslog_events;
 DROP TRIGGER IF EXISTS trg_syslog_meta_cache ON syslog_events;
 DROP TRIGGER IF EXISTS trg_syslog_notify ON syslog_events;
@@ -24,7 +27,6 @@ DROP TRIGGER IF EXISTS trg_syslog_notify ON syslog_events;
 DROP FUNCTION IF EXISTS cache_applog_meta();
 DROP FUNCTION IF EXISTS cache_syslog_facility();
 DROP FUNCTION IF EXISTS cache_syslog_meta();
-DROP FUNCTION IF EXISTS notify_applog_insert();
 DROP FUNCTION IF EXISTS notify_syslog_insert();
 
 -- Drop cache tables.
