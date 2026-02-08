@@ -2,6 +2,7 @@ import type { SyslogListResponse, JuniperSyslogRef, MetaResponse, SingleSyslogRe
 import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
 import type { VolumeResponse, SyslogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
 import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
+import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } from '@/types/taillight-metrics'
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse } from '@/types/auth'
 import { config } from './config'
 
@@ -187,5 +188,15 @@ export const api = {
 
   getRsyslogStatsVolume(params: URLSearchParams): Promise<RsyslogStatsVolumeResponse> {
     return fetchAPI(`/api/v1/rsyslog/stats/volume?${params}`)
+  },
+
+  // Taillight metrics
+  getTaillightMetricsSummary(range?: string): Promise<TaillightMetricsSummaryResponse> {
+    const q = range ? `?range=${encodeURIComponent(range)}` : ''
+    return fetchAPI(`/api/v1/metrics/summary${q}`)
+  },
+
+  getTaillightMetricsVolume(params: URLSearchParams): Promise<TaillightMetricsVolumeResponse> {
+    return fetchAPI(`/api/v1/metrics/volume?${params}`)
   },
 }

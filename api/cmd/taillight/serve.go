@@ -199,19 +199,27 @@ func startBackgroundWorkers(
 		}
 	}()
 
-	// Periodically update DB pool metrics.
+	// Periodically collect application metrics: update Prometheus gauges
+	// and insert a snapshot into the taillight_metrics hypertable.
 	go func() {
-		ticker := time.NewTicker(15 * time.Second)
+		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				// Update DB pool gauges from pgxpool stats.
 				stat := pool.Stat()
 				metrics.DBPoolActiveConns.Set(float64(stat.AcquiredConns()))
 				metrics.DBPoolIdleConns.Set(float64(stat.IdleConns()))
 				metrics.DBPoolTotalConns.Set(float64(stat.TotalConns()))
+
+				// Snapshot all metrics and persist.
+				snap := metrics.Snapshot()
+				if err := store.InsertMetricsSnapshot(ctx, snap); err != nil {
+					logger.Warn("insert metrics snapshot", "err", err)
+				}
 			}
 		}
 	}()
@@ -309,6 +317,7 @@ func setupRouter(
 	statsHandler := handler.NewStatsHandler(store)
 	juniperHandler := handler.NewJuniperHandler(store)
 	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
+	taillightMetricsHandler := handler.NewTaillightMetricsHandler(store)
 	syslogSSEHandler := handler.NewSyslogSSEHandler(syslogBroker, store, logger)
 
 	// Applog handlers.
@@ -387,6 +396,11 @@ func setupRouter(
 			r.Route("/rsyslog", func(r chi.Router) {
 				r.Get("/stats/summary", rsyslogStatsHandler.Summary)
 				r.Get("/stats/volume", rsyslogStatsHandler.Volume)
+			})
+
+			r.Route("/metrics", func(r chi.Router) {
+				r.Get("/summary", taillightMetricsHandler.Summary)
+				r.Get("/volume", taillightMetricsHandler.Volume)
 			})
 		})
 

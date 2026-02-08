@@ -5,22 +5,25 @@ import { VisXYContainer, VisStackedBar, VisLine, VisAxis, VisCrosshair, VisToolt
 import { useDashboardStore } from '@/stores/dashboard'
 import { useAppLogDashboardStore } from '@/stores/applog-dashboard'
 import { useRsyslogStatsStore } from '@/stores/rsyslog-stats'
+import { useTaillightMetricsStore } from '@/stores/taillight-metrics'
 import { useTheme } from '@/composables/useTheme'
 import type { VolumeDataRecord } from '@/types/stats'
 import type { SimplePoint } from '@/stores/rsyslog-stats'
+import type { SimplePoint as TaillightPoint } from '@/stores/taillight-metrics'
 
 const route = useRoute()
 const router = useRouter()
 const dashboard = useDashboardStore()
 const applogDashboard = useAppLogDashboardStore()
 const rsyslogStats = useRsyslogStatsStore()
+const taillightMetrics = useTaillightMetricsStore()
 const { current: theme } = useTheme()
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
-type Tab = 'syslog' | 'applog' | 'rsyslog'
+type Tab = 'syslog' | 'applog' | 'rsyslog' | 'taillight'
 const activeTab = ref<Tab>((route.query.tab as Tab) || 'syslog')
 
 const accentColors = computed(() => theme.value.chartColors)
@@ -40,7 +43,18 @@ const rsyslogPresets: { label: string; range: string; interval: string }[] = [
   { label: '7d', range: '7d', interval: '1h' },
 ]
 
-const activePresets = computed(() => activeTab.value === 'rsyslog' ? rsyslogPresets : volumePresets)
+const taillightPresets: { label: string; range: string; interval: string }[] = [
+  { label: '1h', range: '1h', interval: '1m' },
+  { label: '6h', range: '6h', interval: '5m' },
+  { label: '24h', range: '24h', interval: '15m' },
+  { label: '7d', range: '7d', interval: '1h' },
+]
+
+const activePresets = computed(() => {
+  if (activeTab.value === 'rsyslog') return rsyslogPresets
+  if (activeTab.value === 'taillight') return taillightPresets
+  return volumePresets
+})
 
 const intervalMs: Record<string, number> = {
   '1m': 60_000,
@@ -52,22 +66,26 @@ const intervalMs: Record<string, number> = {
 }
 
 const dataStep = computed(() => {
+  if (activeTab.value === 'taillight') return intervalMs[taillightMetrics.interval] ?? 60_000
   if (activeTab.value === 'rsyslog') return intervalMs[rsyslogStats.interval] ?? 60_000
   if (activeTab.value === 'applog') return intervalMs[applogDashboard.interval] ?? 60_000
   return intervalMs[dashboard.interval] ?? 60_000
 })
 
 const activeRange = computed(() => {
+  if (activeTab.value === 'taillight') return taillightMetrics.range
   if (activeTab.value === 'rsyslog') return rsyslogStats.range
   if (activeTab.value === 'applog') return applogDashboard.range
   return dashboard.range
 })
 const activeLoading = computed(() => {
+  if (activeTab.value === 'taillight') return taillightMetrics.loading
   if (activeTab.value === 'rsyslog') return rsyslogStats.loading
   if (activeTab.value === 'applog') return applogDashboard.loading
   return dashboard.loading
 })
 const activeError = computed(() => {
+  if (activeTab.value === 'taillight') return taillightMetrics.error
   if (activeTab.value === 'rsyslog') return rsyslogStats.error
   if (activeTab.value === 'applog') return applogDashboard.error
   return dashboard.error
@@ -82,11 +100,15 @@ function switchTab(tab: Tab) {
     applogDashboard.fetchVolume()
   } else if (tab === 'rsyslog' && !rsyslogStats.summary) {
     rsyslogStats.startRefresh()
+  } else if (tab === 'taillight' && !taillightMetrics.summary) {
+    taillightMetrics.startRefresh()
   }
 }
 
 function selectPreset(range: string, interval: string) {
-  if (activeTab.value === 'rsyslog') {
+  if (activeTab.value === 'taillight') {
+    taillightMetrics.setPreset(range, interval)
+  } else if (activeTab.value === 'rsyslog') {
     rsyslogStats.setPreset(range, interval)
   } else if (activeTab.value === 'applog') {
     applogDashboard.setPreset(range, interval)
@@ -169,6 +191,10 @@ function singleServiceTracker(service: string) { return makeSingleTracker(hovere
 const lineX = (d: SimplePoint) => d.x
 const lineY = (d: SimplePoint) => d.y
 
+// Taillight line chart accessors
+const tlLineX = (d: TaillightPoint) => d.x
+const tlLineY = (d: TaillightPoint) => d.y
+
 // Rsyslog component grouping
 const rsyslogInputs = computed(() =>
   (rsyslogStats.summary?.components ?? [])
@@ -217,10 +243,17 @@ onMounted(() => {
   const tab = route.query.tab as Tab | undefined
   if (tab === 'applog') activeTab.value = 'applog'
   else if (tab === 'rsyslog') activeTab.value = 'rsyslog'
+  else if (tab === 'taillight') activeTab.value = 'taillight'
 
   const r = route.query.range as string | undefined
 
-  if (activeTab.value === 'rsyslog') {
+  if (activeTab.value === 'taillight') {
+    const preset = r ? taillightPresets.find((p) => p.range === r) : undefined
+    if (preset) {
+      taillightMetrics.setPreset(preset.range, preset.interval)
+    }
+    taillightMetrics.startRefresh()
+  } else if (activeTab.value === 'rsyslog') {
     const preset = r ? rsyslogPresets.find((p) => p.range === r) : undefined
     if (preset) {
       rsyslogStats.setPreset(preset.range, preset.interval)
@@ -239,6 +272,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   rsyslogStats.stopRefresh()
+  taillightMetrics.stopRefresh()
 })
 </script>
 
@@ -279,6 +313,17 @@ onUnmounted(() => {
           @click="switchTab('rsyslog')"
         >
           RSYSLOG
+        </button>
+        <button
+          class="px-2 py-0.5 text-xs transition-colors"
+          :class="
+            activeTab === 'taillight'
+              ? 'bg-t-bg-highlight text-t-purple'
+              : 'text-t-fg-dark hover:text-t-fg'
+          "
+          @click="switchTab('taillight')"
+        >
+          TAILLIGHT
         </button>
       </div>
 
@@ -580,6 +625,154 @@ onUnmounted(() => {
               </template>
             </span>
           </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ═══════════════ TAILLIGHT TAB ═══════════════ -->
+    <template v-if="activeTab === 'taillight'">
+      <!-- KPI Cards -->
+      <div v-if="taillightMetrics.summary" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">SSE Clients</div>
+          <div class="text-t-fg mt-1 text-xl font-bold">
+            {{ taillightMetrics.summary.sse_clients_syslog + taillightMetrics.summary.sse_clients_applog }}
+          </div>
+          <div class="text-t-fg-dark text-xs">
+            {{ taillightMetrics.summary.sse_clients_syslog }} syslog &middot;
+            {{ taillightMetrics.summary.sse_clients_applog }} applog
+          </div>
+        </div>
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">DB Pool</div>
+          <div class="text-t-fg mt-1 text-xl font-bold">
+            {{ taillightMetrics.summary.db_pool_active }} / {{ taillightMetrics.summary.db_pool_total }}
+          </div>
+          <div class="text-t-fg-dark text-xs">
+            active / total &middot; {{ taillightMetrics.summary.db_pool_idle }} idle
+          </div>
+        </div>
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Events Rate</div>
+          <div class="text-t-fg mt-1 text-xl font-bold">{{ formatRate(taillightMetrics.summary.events_rate) }}</div>
+          <div class="text-t-fg-dark text-xs">
+            broadcast/min
+            <template v-if="taillightMetrics.summary.events_dropped > 0">
+              &middot; <span class="text-t-red">{{ formatCount(taillightMetrics.summary.events_dropped) }} dropped</span>
+            </template>
+          </div>
+        </div>
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Ingest Rate</div>
+          <div class="text-t-fg mt-1 text-xl font-bold">{{ formatRate(taillightMetrics.summary.ingest_rate) }}</div>
+          <div class="text-t-fg-dark text-xs">
+            applog/min
+            <template v-if="taillightMetrics.summary.applog_ingest_errors > 0">
+              &middot; <span class="text-t-red">{{ formatCount(taillightMetrics.summary.applog_ingest_errors) }} errors</span>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Health Warnings -->
+      <div
+        v-if="taillightMetrics.summary && (taillightMetrics.summary.events_dropped > 0 || taillightMetrics.summary.applog_ingest_errors > 0 || taillightMetrics.summary.listener_reconnects > 0)"
+        class="bg-t-bg-dark border-t-border rounded border p-3"
+      >
+        <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider mb-2">Warnings</div>
+        <div class="flex flex-wrap gap-3 text-xs">
+          <span v-if="taillightMetrics.summary.events_dropped > 0" class="text-t-yellow">
+            {{ formatCount(taillightMetrics.summary.events_dropped) }} syslog events dropped (slow SSE clients)
+          </span>
+          <span v-if="taillightMetrics.summary.applog_events_dropped > 0" class="text-t-yellow">
+            {{ formatCount(taillightMetrics.summary.applog_events_dropped) }} applog events dropped (slow SSE clients)
+          </span>
+          <span v-if="taillightMetrics.summary.applog_ingest_errors > 0" class="text-t-red">
+            {{ formatCount(taillightMetrics.summary.applog_ingest_errors) }} applog ingest errors
+          </span>
+          <span v-if="taillightMetrics.summary.listener_reconnects > 0" class="text-t-yellow">
+            {{ formatCount(taillightMetrics.summary.listener_reconnects) }} listener reconnects
+          </span>
+        </div>
+      </div>
+
+      <!-- Events Over Time -->
+      <div>
+        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Events Over Time</h3>
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <VisXYContainer :data="taillightMetrics.eventsBroadcastLine" :height="220" :padding="{ top: 8, right: 8 }">
+            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" />
+            <VisLine :data="taillightMetrics.applogBroadcastLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" />
+            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
+            <VisAxis type="y" :gridLine="true" :tickLine="false" />
+            <VisCrosshair />
+            <VisTooltip />
+          </VisXYContainer>
+        </div>
+        <div class="mt-2 flex gap-4">
+          <span class="flex items-center gap-1 text-xs">
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
+            <span class="text-t-fg-dark">Syslog Broadcast</span>
+          </span>
+          <span class="flex items-center gap-1 text-xs">
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
+            <span class="text-t-fg-dark">Applog Broadcast</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- SSE Clients Over Time -->
+      <div>
+        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">SSE Clients Over Time</h3>
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <VisXYContainer :data="taillightMetrics.sseClientsSyslogLine" :height="160" :padding="{ top: 8, right: 8 }">
+            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" />
+            <VisLine :data="taillightMetrics.sseClientsApplogLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" />
+            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
+            <VisAxis type="y" :gridLine="true" :tickLine="false" />
+            <VisCrosshair />
+            <VisTooltip />
+          </VisXYContainer>
+        </div>
+        <div class="mt-2 flex gap-4">
+          <span class="flex items-center gap-1 text-xs">
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
+            <span class="text-t-fg-dark">Syslog Clients</span>
+          </span>
+          <span class="flex items-center gap-1 text-xs">
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
+            <span class="text-t-fg-dark">Applog Clients</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- DB Pool Over Time -->
+      <div>
+        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">DB Pool Over Time</h3>
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <VisXYContainer :data="taillightMetrics.dbPoolActiveLine" :height="160" :padding="{ top: 8, right: 8 }">
+            <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" />
+            <VisLine :data="taillightMetrics.dbPoolIdleLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" />
+            <VisLine :data="taillightMetrics.dbPoolTotalLine" :x="tlLineX" :y="tlLineY" :color="accentColors[2]" :curveType="'monotoneX'" />
+            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
+            <VisAxis type="y" :gridLine="true" :tickLine="false" />
+            <VisCrosshair />
+            <VisTooltip />
+          </VisXYContainer>
+        </div>
+        <div class="mt-2 flex gap-4">
+          <span class="flex items-center gap-1 text-xs">
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
+            <span class="text-t-fg-dark">Active</span>
+          </span>
+          <span class="flex items-center gap-1 text-xs">
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
+            <span class="text-t-fg-dark">Idle</span>
+          </span>
+          <span class="flex items-center gap-1 text-xs">
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[2] }" />
+            <span class="text-t-fg-dark">Total</span>
+          </span>
         </div>
       </div>
     </template>
