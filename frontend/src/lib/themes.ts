@@ -126,19 +126,20 @@ export const themes: Theme[] = [
     ],
   },
   {
-    id: 'light',
-    name: 'GitHub Light',
-    chartColors: [
-      '#0550ae', '#116329', '#bc4c00', '#cf222e', '#0969da',
-      '#8250df', '#9a6700', '#bf3989', '#1b7c83', '#6639ba',
-    ],
-  },
-  {
     id: 'synthwave84',
     name: 'SynthWave 84',
     chartColors: [
       '#36f9f6', '#72f1b8', '#ff8b39', '#fe4450', '#03edf9',
       '#ff7edb', '#fede5d', '#f97e72', '#2ee2fa', '#b893ce',
+    ],
+  },
+  // Light themes (standalone, not part of a family).
+  {
+    id: 'light',
+    name: 'GitHub Light',
+    chartColors: [
+      '#0550ae', '#116329', '#bc4c00', '#cf222e', '#0969da',
+      '#8250df', '#9a6700', '#bf3989', '#1b7c83', '#6639ba',
     ],
   },
   {
