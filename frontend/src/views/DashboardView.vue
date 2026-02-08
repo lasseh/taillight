@@ -195,6 +195,38 @@ const lineY = (d: SimplePoint) => d.y
 const tlLineX = (d: TaillightPoint) => d.x
 const tlLineY = (d: TaillightPoint) => d.y
 
+function tlEventsTooltip(d: TaillightPoint) {
+  const syslog = taillightMetrics.eventsBroadcastLine.find(p => p.x === d.x)
+  const applog = taillightMetrics.applogBroadcastLine.find(p => p.x === d.x)
+  return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
+    <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Syslog: <b>${(syslog?.y ?? 0).toFixed(1)}</b></div>
+    <div><span style="color:${accentColors.value[1]}">●</span> Applog: <b>${(applog?.y ?? 0).toFixed(1)}</b></div>
+  </div>`
+}
+
+function tlSseTooltip(d: TaillightPoint) {
+  const syslog = taillightMetrics.sseClientsSyslogLine.find(p => p.x === d.x)
+  const applog = taillightMetrics.sseClientsApplogLine.find(p => p.x === d.x)
+  return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
+    <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Syslog: <b>${syslog?.y ?? 0}</b></div>
+    <div><span style="color:${accentColors.value[1]}">●</span> Applog: <b>${applog?.y ?? 0}</b></div>
+  </div>`
+}
+
+function tlPoolTooltip(d: TaillightPoint) {
+  const active = taillightMetrics.dbPoolActiveLine.find(p => p.x === d.x)
+  const idle = taillightMetrics.dbPoolIdleLine.find(p => p.x === d.x)
+  const total = taillightMetrics.dbPoolTotalLine.find(p => p.x === d.x)
+  return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
+    <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Active: <b>${active?.y ?? 0}</b></div>
+    <div><span style="color:${accentColors.value[1]}">●</span> Idle: <b>${idle?.y ?? 0}</b></div>
+    <div><span style="color:${accentColors.value[2]}">●</span> Total: <b>${total?.y ?? 0}</b></div>
+  </div>`
+}
+
 // Rsyslog component grouping
 const rsyslogInputs = computed(() =>
   (rsyslogStats.summary?.components ?? [])
@@ -702,20 +734,20 @@ onUnmounted(() => {
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="taillightMetrics.eventsBroadcastLine" :height="220" :padding="{ top: 8, right: 8 }">
             <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
-            <VisLine :data="taillightMetrics.applogBroadcastLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" :lineDashArray="[6, 3]" />
+            <VisLine :data="taillightMetrics.applogBroadcastLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
-            <VisCrosshair />
+            <VisCrosshair :template="tlEventsTooltip" />
             <VisTooltip />
           </VisXYContainer>
         </div>
         <div class="mt-2 flex gap-4">
           <span class="flex items-center gap-1 text-xs">
-            <span class="inline-block h-0.5 w-4" :style="{ backgroundColor: accentColors[0] }" />
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
             <span class="text-t-fg-dark">Syslog Broadcast</span>
           </span>
           <span class="flex items-center gap-1 text-xs">
-            <span class="inline-block h-0.5 w-4" :style="{ backgroundImage: `repeating-linear-gradient(90deg, ${accentColors[1]} 0 4px, transparent 4px 7px)` }" />
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
             <span class="text-t-fg-dark">Applog Broadcast</span>
           </span>
         </div>
@@ -727,20 +759,20 @@ onUnmounted(() => {
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="taillightMetrics.sseClientsSyslogLine" :height="160" :padding="{ top: 8, right: 8 }">
             <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
-            <VisLine :data="taillightMetrics.sseClientsApplogLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" :lineDashArray="[6, 3]" />
+            <VisLine :data="taillightMetrics.sseClientsApplogLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
-            <VisCrosshair />
+            <VisCrosshair :template="tlSseTooltip" />
             <VisTooltip />
           </VisXYContainer>
         </div>
         <div class="mt-2 flex gap-4">
           <span class="flex items-center gap-1 text-xs">
-            <span class="inline-block h-0.5 w-4" :style="{ backgroundColor: accentColors[0] }" />
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
             <span class="text-t-fg-dark">Syslog Clients</span>
           </span>
           <span class="flex items-center gap-1 text-xs">
-            <span class="inline-block h-0.5 w-4" :style="{ backgroundImage: `repeating-linear-gradient(90deg, ${accentColors[1]} 0 4px, transparent 4px 7px)` }" />
+            <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
             <span class="text-t-fg-dark">Applog Clients</span>
           </span>
         </div>
@@ -756,7 +788,7 @@ onUnmounted(() => {
             <VisLine :data="taillightMetrics.dbPoolTotalLine" :x="tlLineX" :y="tlLineY" :color="accentColors[2]" :curveType="'monotoneX'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
-            <VisCrosshair />
+            <VisCrosshair :template="tlPoolTooltip" />
             <VisTooltip />
           </VisXYContainer>
         </div>
