@@ -175,6 +175,13 @@ func (s *Store) GetRsyslogStatsTimeSeries(ctx context.Context, field string, int
 	// Extract the field from the inner JSON (stats->'msg' parsed as JSONB).
 	var fieldExpr string
 	switch field {
+	case "submitted":
+		// Input modules report msgs.received, not submitted — combine both
+		// to match the summary logic. Exclude worker threads to avoid
+		// double-counting (e.g. imudp(w0), w0/imtcp).
+		fieldExpr = fmt.Sprintf(
+			`COALESCE((%[1]s ->> 'submitted')::numeric, 0) + COALESCE((%[1]s #>> '{msgs.received}')::numeric, 0)`,
+			innerStatsExpr)
 	case "discarded.full":
 		fieldExpr = fmt.Sprintf(`(%s #>> '{discarded.full}')::numeric`, innerStatsExpr)
 	case "discarded.nf":
@@ -186,14 +193,24 @@ func (s *Store) GetRsyslogStatsTimeSeries(ctx context.Context, field string, int
 	// Also extract the name from the inner JSON for grouping.
 	nameExpr := fmt.Sprintf(`COALESCE((%s ->> 'name'), name)`, innerStatsExpr)
 
+	// For submitted, filter to input origins and exclude worker threads
+	// to match the summary logic and avoid double-counting.
+	var extraWhere string
+	if field == "submitted" {
+		originExpr := fmt.Sprintf(`COALESCE((%s ->> 'origin'), origin)`, innerStatsExpr)
+		extraWhere = fmt.Sprintf(
+			` AND %s IN ('imudp', 'imtcp', 'imptcp') AND NOT (%[2]s ~ '\(w\d+\)' OR %[2]s ~ '^w\d+/')`,
+			originExpr, nameExpr)
+	}
+
 	query := fmt.Sprintf(
 		`SELECT time_bucket($1::interval, collected_at) AS bucket,
 		        %s AS comp_name,
 		        SUM(COALESCE(%s, 0)) AS val
 		 FROM rsyslog_stats
-		 WHERE collected_at >= $2
+		 WHERE collected_at >= $2%s
 		 GROUP BY bucket, comp_name
-		 ORDER BY bucket ASC, comp_name`, nameExpr, fieldExpr)
+		 ORDER BY bucket ASC, comp_name`, nameExpr, fieldExpr, extraWhere)
 
 	rows, err := s.pool.Query(ctx, query, interval.String(), since)
 	if err != nil {
