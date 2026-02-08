@@ -486,13 +486,22 @@ onUnmounted(() => {
           <div class="text-t-fg-dark text-xs">submitted not processed</div>
         </div>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Failures</div>
-          <div class="mt-1 text-xl font-bold" :class="rsyslogStats.summary.total_failed > 0 ? 'text-t-red' : 'text-t-fg'">
-            {{ formatCount(rsyslogStats.summary.total_failed) }}
-          </div>
-          <div class="text-t-fg-dark text-xs">
-            {{ formatCount(rsyslogStats.summary.total_suspended) }} suspended
-          </div>
+          <template v-if="rsyslogStats.summary.total_failed > 0 || rsyslogStats.summary.total_suspended > 0">
+            <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Failures</div>
+            <div class="text-t-red mt-1 text-xl font-bold">
+              {{ formatCount(rsyslogStats.summary.total_failed) }}
+            </div>
+            <div class="text-t-fg-dark text-xs">
+              {{ formatCount(rsyslogStats.summary.total_suspended) }} suspended
+            </div>
+          </template>
+          <template v-else>
+            <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Output Health</div>
+            <div class="text-t-fg mt-1 text-xl font-bold">
+              {{ formatCount(rsyslogStats.summary.total_processed) }}
+            </div>
+            <div class="text-t-green text-xs">all ok</div>
+          </template>
         </div>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Queue Health</div>
