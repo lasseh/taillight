@@ -283,10 +283,10 @@ function getSeverityBgClass(level: string): string {
         </template>
       </section>
 
-      <!-- ═══════════════════════════ APP LOG SECTION ═══════════════════════════ -->
+      <!-- ═══════════════════════════ APPLOG SECTION ═══════════════════════════ -->
       <section>
         <h2 class="text-t-magenta mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
-          <span class="bg-t-magenta/20 rounded px-2 py-0.5">App Log</span>
+          <span class="bg-t-magenta/20 rounded px-2 py-0.5">Applog</span>
           <span class="bg-t-border h-px flex-1"></span>
           <span class="flex items-center gap-1">
             <button

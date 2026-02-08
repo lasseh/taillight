@@ -29,7 +29,7 @@ onMounted(async () => {
   const numId = Number(props.id)
   if (!Number.isInteger(numId) || numId <= 0) {
     errorStatus.value = 404
-    error.value = `app log #${props.id} does not exist`
+    error.value = `applog #${props.id} does not exist`
     loading.value = false
     return
   }
@@ -63,20 +63,20 @@ onMounted(async () => {
       <ErrorDisplay
         v-else-if="error && errorStatus === 404"
         :code="404"
-        title="app log not found"
-        :message="`app log #${props.id} does not exist`"
+        title="applog not found"
+        :message="`applog #${props.id} does not exist`"
         :show-back="false"
         list-route="applog"
-        list-label="go to app logs"
+        list-label="go to applogs"
       />
       <ErrorDisplay
         v-else-if="error && errorStatus"
         :code="errorStatus"
-        title="failed to load app log"
+        title="failed to load applog"
         :message="error"
         :show-back="false"
         list-route="applog"
-        list-label="go to app logs"
+        list-label="go to applogs"
       />
       <ErrorDisplay
         v-else-if="error"
@@ -84,7 +84,7 @@ onMounted(async () => {
         message="the api isn't responding — it's probably down, restarting, or out getting coffee"
         :show-back="false"
         list-route="applog"
-        list-label="go to app logs"
+        list-label="go to applogs"
       />
 
       <div v-else-if="event" class="mx-auto max-w-4xl space-y-4">

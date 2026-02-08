@@ -41,7 +41,7 @@ const searchInput = computed({
         v-model="searchInput"
         type="text"
         placeholder="message…"
-        aria-label="Search app log messages"
+        aria-label="Search applog messages"
         class="bg-t-bg-dark border-t-border text-t-fg placeholder:text-t-fg-gutter hover:border-t-terminal focus:border-t-blue w-64 border px-2 py-0.5 text-xs outline-none"
       />
     </label>

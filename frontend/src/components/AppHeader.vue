@@ -124,7 +124,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           "
           @click="navigateToLog('applog')"
         >
-          APP LOG
+          APPLOG
         </button>
         <router-link
           :to="{ path: '/dashboard', query: { tab: String(route.name).startsWith('applog') ? 'applog' : 'syslog' } }"
@@ -298,7 +298,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             "
             @click="mobileNavigateToLog('applog')"
           >
-            APP LOG
+            APPLOG
           </button>
           <router-link
             :to="{ path: '/dashboard', query: { tab: String(route.name).startsWith('applog') ? 'applog' : 'syslog' } }"

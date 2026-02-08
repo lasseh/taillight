@@ -267,7 +267,7 @@ onUnmounted(() => {
           "
           @click="switchTab('applog')"
         >
-          APP LOG
+          APPLOG
         </button>
         <button
           class="px-2 py-0.5 text-xs transition-colors"
@@ -386,7 +386,7 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <!-- ═══════════════ APP LOG TAB ═══════════════ -->
+    <!-- ═══════════════ APPLOG TAB ═══════════════ -->
     <template v-if="activeTab === 'applog'">
       <!-- Chart 1: Total volume (stacked bar by service) -->
       <div>
