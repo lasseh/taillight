@@ -15,6 +15,7 @@ type applogMsg struct {
 type serviceProfile struct {
 	weight  int // relative probability weight
 	service string
+	hosts   []string
 	msgs    []applogMsg
 }
 
@@ -48,6 +49,7 @@ var services = []serviceProfile{
 var authService = serviceProfile{
 	weight:  25,
 	service: "auth-service",
+	hosts:   []string{"auth-01.prod", "auth-02.prod"},
 	msgs: []applogMsg{
 		// INFO
 		{level: "INFO", component: "authenticator", msg: "user authenticated successfully", source: "auth.go:87", attrs: j(`{"user_id":"usr_8f3a","method":"oauth2","provider":"github","duration_ms":142}`)},
@@ -83,6 +85,7 @@ var authService = serviceProfile{
 var orderService = serviceProfile{
 	weight:  25,
 	service: "order-service",
+	hosts:   []string{"order-01.prod", "order-02.prod", "order-03.prod"},
 	msgs: []applogMsg{
 		// INFO
 		{level: "INFO", component: "handler", msg: "order created", source: "order_handler.go:45", attrs: j(`{"order_id":"ord_9f2a","user_id":"usr_8f3a","items":3,"total_cents":15990}`)},
@@ -117,6 +120,7 @@ var orderService = serviceProfile{
 var paymentService = serviceProfile{
 	weight:  20,
 	service: "payment-service",
+	hosts:   []string{"payment-01.prod", "payment-02.prod"},
 	msgs: []applogMsg{
 		// INFO
 		{level: "INFO", component: "processor", msg: "payment processed successfully", source: "processor.go:78", attrs: j(`{"payment_id":"pay_x1y2","amount_cents":15990,"currency":"USD","method":"card","last4":"4242"}`)},
@@ -149,6 +153,7 @@ var paymentService = serviceProfile{
 var notificationService = serviceProfile{
 	weight:  10,
 	service: "notification-service",
+	hosts:   []string{"notify-01.prod"},
 	msgs: []applogMsg{
 		// INFO
 		{level: "INFO", component: "email", msg: "email sent", source: "email.go:45", attrs: j(`{"to":"user@example.com","template":"order_confirmation","message_id":"msg_e001"}`)},
@@ -177,6 +182,7 @@ var notificationService = serviceProfile{
 var gatewayService = serviceProfile{
 	weight:  15,
 	service: "api-gateway",
+	hosts:   []string{"gw-01.prod", "gw-02.prod", "gw-03.prod"},
 	msgs: []applogMsg{
 		// INFO
 		{level: "INFO", component: "router", msg: "request handled", source: "router.go:112", attrs: j(`{"method":"GET","path":"/api/v1/orders","status":200,"duration_ms":45,"bytes":2048}`)},
@@ -208,6 +214,7 @@ var gatewayService = serviceProfile{
 var inventoryService = serviceProfile{
 	weight:  5,
 	service: "inventory-service",
+	hosts:   []string{"inventory-01.prod"},
 	msgs: []applogMsg{
 		// INFO
 		{level: "INFO", component: "stock", msg: "stock level updated", source: "stock.go:45", attrs: j(`{"sku":"SKU-1234","warehouse":"wh-east-01","previous":150,"current":147}`)},

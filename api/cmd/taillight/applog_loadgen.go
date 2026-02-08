@@ -104,6 +104,7 @@ type ingestEntry struct {
 	Timestamp time.Time       `json:"timestamp"`
 	Level     string          `json:"level"`
 	Msg       string          `json:"msg"`
+	Host      string          `json:"host"`
 	Service   string          `json:"service"`
 	Component string          `json:"component,omitempty"`
 	Source    string          `json:"source,omitempty"`
@@ -175,6 +176,7 @@ func runApplogLoadgen(cmd *cobra.Command, _ []string) error {
 			Timestamp: time.Now(),
 			Level:     level,
 			Msg:       msg.msg,
+			Host:      svc.hosts[rand.IntN(len(svc.hosts))],
 			Service:   svc.service,
 			Component: msg.component,
 			Source:    msg.source,
