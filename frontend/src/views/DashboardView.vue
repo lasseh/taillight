@@ -300,7 +300,6 @@ onUnmounted(() => {
       </button>
       <span v-if="activeLoading" class="text-t-fg-dark ml-2 text-xs">loading...</span>
       <span v-if="activeError" class="text-t-red ml-2 text-xs">{{ activeError }}</span>
-      <span v-if="activeTab === 'rsyslog'" class="text-t-fg-dark ml-auto text-xs opacity-50">auto-refresh: 60s</span>
     </div>
 
     <!-- ═══════════════ SYSLOG TAB ═══════════════ -->
