@@ -36,6 +36,9 @@ RUN sed -i 's/^    # call output_pgsql/    call output_pgsql/' /etc/rsyslog.d/co
 # Disable librenms output (not available in Docker)
 RUN sed -i 's/^    call output_librenms/    # call output_librenms/' /etc/rsyslog.d/conf.d/20-ruleset.conf
 
+# Disable commit trigger filter (resin + oxidized not available in Docker)
+RUN rm -f /etc/rsyslog.d/filters/06-ui-commit-trigger.conf
+
 # Create spool and log directories
 RUN mkdir -p /var/spool/rsyslog /var/log/network
 
