@@ -61,6 +61,12 @@ func run(_ *cobra.Command, _ []string) error {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
+	// Resolve host: config value takes priority, fall back to os.Hostname().
+	host := cfg.Host
+	if host == "" {
+		host, _ = os.Hostname()
+	}
+
 	piped := isStdinPiped()
 	hasFiles := len(cfg.Files) > 0
 
@@ -74,12 +80,13 @@ func run(_ *cobra.Command, _ []string) error {
 	// handlers tracks every Handler so we can shut them all down.
 	var handlers []*logshipper.Handler
 
-	newHandler := func(service, component string) *logshipper.Handler {
+	newHandler := func(service, component, hostOverride string) *logshipper.Handler {
 		h := logshipper.New(logshipper.Config{
 			Endpoint:    cfg.Endpoint,
 			APIKey:      cfg.APIKey,
 			Service:     service,
 			Component:   component,
+			Host:        hostOverride,
 			BatchSize:   cfg.BatchSize,
 			FlushPeriod: flushPeriod,
 			BufferSize:  cfg.BufferSize,
@@ -92,7 +99,7 @@ func run(_ *cobra.Command, _ []string) error {
 
 	// Stdin reader.
 	if piped {
-		stdinHandler := newHandler(cfg.Service, cfg.Component)
+		stdinHandler := newHandler(cfg.Service, cfg.Component, host)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -103,7 +110,7 @@ func run(_ *cobra.Command, _ []string) error {
 
 	// File tailers.
 	for _, fc := range cfg.Files {
-		h := newHandler(fc.resolvedService(cfg.Service), fc.resolvedComponent(cfg.Component))
+		h := newHandler(fc.resolvedService(cfg.Service), fc.resolvedComponent(cfg.Component), fc.resolvedHost(host))
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

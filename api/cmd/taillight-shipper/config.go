@@ -14,6 +14,7 @@ type config struct {
 	APIKey      string       `yaml:"api_key"`
 	Service     string       `yaml:"service"`
 	Component   string       `yaml:"component"`
+	Host        string       `yaml:"host"`
 	BatchSize   int          `yaml:"batch_size"`
 	FlushPeriod string       `yaml:"flush_period"`
 	BufferSize  int          `yaml:"buffer_size"`
@@ -25,6 +26,7 @@ type fileConfig struct {
 	Path      string `yaml:"path"`
 	Service   string `yaml:"service"`
 	Component string `yaml:"component"`
+	Host      string `yaml:"host"`
 }
 
 // resolvedService returns the file-level service if set, otherwise the
@@ -41,6 +43,15 @@ func (f fileConfig) resolvedService(fallback string) string {
 func (f fileConfig) resolvedComponent(fallback string) string {
 	if f.Component != "" {
 		return f.Component
+	}
+	return fallback
+}
+
+// resolvedHost returns the file-level host if set, otherwise the top-level
+// default.
+func (f fileConfig) resolvedHost(fallback string) string {
+	if f.Host != "" {
+		return f.Host
 	}
 	return fallback
 }

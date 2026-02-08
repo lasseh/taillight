@@ -73,14 +73,14 @@ type Handler struct {
 }
 
 type logEntry struct {
-	Timestamp time.Time      `json:"timestamp"`
-	Level     string         `json:"level"`
-	Msg       string         `json:"msg"`
-	Service   string         `json:"service"`
-	Component string         `json:"component,omitempty"`
-	Host      string         `json:"host,omitempty"`
-	Source    string         `json:"source,omitempty"`
-	Attrs     map[string]any `json:"attrs,omitempty"`
+	Timestamp time.Time       `json:"timestamp"`
+	Level     string          `json:"level"`
+	Msg       string          `json:"msg"`
+	Service   string          `json:"service"`
+	Component string          `json:"component,omitempty"`
+	Host      string          `json:"host,omitempty"`
+	Source    string          `json:"source,omitempty"`
+	Attrs     json.RawMessage `json:"attrs,omitempty"`
 }
 
 type ingestRequest struct {
@@ -144,7 +144,11 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	}
 
 	if len(attrs) > 0 {
-		entry.Attrs = attrs
+		raw, err := json.Marshal(attrs)
+		if err != nil {
+			return fmt.Errorf("marshal attrs: %w", err)
+		}
+		entry.Attrs = raw
 	}
 
 	select {

@@ -201,11 +201,15 @@ func TestHandler_WithAttrs(t *testing.T) {
 	}
 
 	entry := received[0].Logs[0]
-	if entry.Attrs["request_id"] != "abc-123" {
-		t.Errorf("request_id = %v, want %q", entry.Attrs["request_id"], "abc-123")
+	var attrs map[string]any
+	if err := json.Unmarshal(entry.Attrs, &attrs); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
 	}
-	if entry.Attrs["extra"] != "value" {
-		t.Errorf("extra = %v, want %q", entry.Attrs["extra"], "value")
+	if attrs["request_id"] != "abc-123" {
+		t.Errorf("request_id = %v, want %q", attrs["request_id"], "abc-123")
+	}
+	if attrs["extra"] != "value" {
+		t.Errorf("extra = %v, want %q", attrs["extra"], "value")
 	}
 }
 
