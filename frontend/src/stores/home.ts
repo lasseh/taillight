@@ -18,6 +18,7 @@ export const useHomeStore = defineStore('home', () => {
   const recentSyslogEvents = ref<SyslogEvent[]>([])
   const recentApplogEvents = ref<AppLogEvent[]>([])
   const loading = ref(false)
+  const loaded = ref(false)
   const error = ref<string | null>(null)
   const lastUpdated = ref<Date | null>(null)
   const range_ = ref('24h')
@@ -46,40 +47,52 @@ export const useHomeStore = defineStore('home', () => {
   }
 
   async function fetchSummaries() {
-    // Only show loading on initial load
-    if (!syslogSummary.value) {
+    if (!loaded.value) {
       loading.value = true
     }
-    error.value = null
+
+    const errors: string[] = []
+
+    // Fetch independently so one failure doesn't block the other.
+    try {
+      const res = await api.getSyslogSummary(range_.value)
+      syslogSummary.value = res.data
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : 'failed to load syslog summary')
+    }
 
     try {
-      const [syslogRes, applogRes] = await Promise.all([
-        api.getSyslogSummary(range_.value),
-        api.getAppLogSummary(range_.value),
-      ])
-
-      syslogSummary.value = syslogRes.data
-      applogSummary.value = applogRes.data
+      const res = await api.getAppLogSummary(range_.value)
+      applogSummary.value = res.data
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'failed to load home data'
-    } finally {
-      loading.value = false
+      errors.push(e instanceof Error ? e.message : 'failed to load applog summary')
     }
+
+    error.value = errors.length > 0 ? errors.join('; ') : null
+    loading.value = false
+    loaded.value = true
   }
 
   async function fetchInitialEvents() {
     try {
-      const [syslogEventsRes, applogEventsRes] = await Promise.all([
-        api.getSyslogs(new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS) })),
-        api.getAppLogs(new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS) })),
-      ])
-
-      recentSyslogEvents.value = syslogEventsRes.data.slice(-MAX_RECENT_EVENTS)
-      recentApplogEvents.value = applogEventsRes.data.slice(-MAX_RECENT_EVENTS)
-      lastUpdated.value = new Date()
+      const syslogEventsRes = await api.getSyslogs(
+        new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS) }),
+      )
+      recentSyslogEvents.value = (syslogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
     } catch {
       // Non-critical, SSE will populate
     }
+
+    try {
+      const applogEventsRes = await api.getAppLogs(
+        new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS) }),
+      )
+      recentApplogEvents.value = (applogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+    } catch {
+      // Non-critical, SSE will populate
+    }
+
+    lastUpdated.value = new Date()
   }
 
   function startRefresh() {
@@ -123,6 +136,7 @@ export const useHomeStore = defineStore('home', () => {
     recentSyslogEvents,
     recentApplogEvents,
     loading,
+    loaded,
     error,
     lastUpdated,
     range: range_,

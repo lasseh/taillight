@@ -353,6 +353,7 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 
 	var summary model.SyslogSummary
 	summary.SeverityBreakdown = make([]model.SeverityCount, 0)
+	summary.TopHosts = make([]model.TopSource, 0)
 
 	for rows.Next() {
 		var sev int
@@ -454,6 +455,7 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 
 	var summary model.AppLogSummary
 	summary.LevelBreakdown = make([]model.LevelCount, 0)
+	summary.TopServices = make([]model.TopSource, 0)
 
 	for rows.Next() {
 		var level string
