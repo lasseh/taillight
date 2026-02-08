@@ -256,6 +256,7 @@ CREATE TABLE IF NOT EXISTS users (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username      TEXT NOT NULL CHECK (length(username) BETWEEN 1 AND 255),
     password_hash TEXT NOT NULL,
+    email         TEXT,
     is_active     BOOLEAN NOT NULL DEFAULT true,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -288,3 +289,29 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 CREATE UNIQUE INDEX idx_api_keys_hash ON api_keys (key_hash) WHERE revoked_at IS NULL;
 CREATE INDEX idx_api_keys_user ON api_keys (user_id);
+
+-------------------------------------------------------------------------------
+-- rsyslog impstats telemetry
+-------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS rsyslog_stats (
+    collected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    origin       TEXT        NOT NULL,
+    name         TEXT        NOT NULL,
+    stats        JSONB       NOT NULL
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'collected_at',
+    tsdb.chunk_interval = '1 day',
+    tsdb.columnstore = true,
+    tsdb.segmentby = 'origin',
+    tsdb.orderby = 'collected_at DESC'
+);
+
+CALL remove_columnstore_policy('rsyslog_stats');
+CALL add_columnstore_policy('rsyslog_stats', after => INTERVAL '1 day');
+
+SELECT add_retention_policy('rsyslog_stats', INTERVAL '30 days', if_not_exists => true);
+
+CREATE INDEX IF NOT EXISTS idx_rsyslog_stats_origin_time ON rsyslog_stats (origin, collected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rsyslog_stats_name_time   ON rsyslog_stats (name, collected_at DESC);

@@ -1,5 +1,9 @@
 -- Reverse migration: drop all tables, triggers, functions, and policies.
 
+-- Drop rsyslog stats.
+SELECT remove_retention_policy('rsyslog_stats', if_exists => true);
+DROP TABLE IF EXISTS rsyslog_stats;
+
 -- Drop auth tables (order matters: foreign keys).
 DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS sessions;
