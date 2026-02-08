@@ -25,6 +25,8 @@ services:
     environment:
       DATABASE_URL: postgres://taillight:${POSTGRES_PASSWORD:-taillight}@postgres:5432/taillight?sslmode=disable
       LISTEN_ADDR: ":8080"
+    volumes:
+      - ./api/config.yaml:/config.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy
