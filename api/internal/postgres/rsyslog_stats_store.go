@@ -98,7 +98,10 @@ func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Durati
 			summary.TotalSubmitted += submitted
 		}
 
-		if processed > 0 || failed > 0 {
+		// Use the ompgsql syslog action as the canonical "processed" count.
+		// Other actions (omfile, omprog) also have processed counters but
+		// we only care about what reached the database for filter rate.
+		if name == "syslog_to_pgsql" {
 			summary.TotalProcessed += processed
 			summary.TotalFailed += failed
 			summary.TotalSuspended += suspended
