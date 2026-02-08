@@ -73,13 +73,15 @@ func extractLevel(m map[string]any) slog.Level {
 	}
 
 	switch strings.ToUpper(s) {
-	case "DEBUG":
+	case "TRACE", "DEBUG":
 		return slog.LevelDebug
 	case "INFO":
 		return slog.LevelInfo
 	case "WARN", "WARNING":
 		return slog.LevelWarn
 	case "ERROR":
+		return slog.LevelError
+	case "FATAL", "CRITICAL", "PANIC":
 		return slog.LevelError
 	default:
 		return slog.LevelInfo

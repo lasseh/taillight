@@ -27,11 +27,10 @@ func tailFile(ctx context.Context, path string, handler *logshipper.Handler, log
 		return
 	}
 
-	logger.Info("tailing file", "path", path)
-
 	for {
 		select {
 		case <-ctx.Done():
+			_ = t.Stop()
 			t.Cleanup()
 			return
 		case line, ok := <-t.Lines:
@@ -43,7 +42,7 @@ func tailFile(ctx context.Context, path string, handler *logshipper.Handler, log
 				continue
 			}
 			record := parseLine(line.Text)
-			if err := handler.Handle(context.Background(), record); err != nil {
+			if err := handler.Handle(ctx, record); err != nil {
 				logger.Warn("handle log entry failed", "path", path, "error", err)
 			}
 		}

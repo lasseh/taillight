@@ -102,6 +102,10 @@ func run(_ *cobra.Command, _ []string) error {
 		stdinHandler := newHandler(cfg.Service, cfg.Component, host)
 		wg.Add(1)
 		go func() {
+			<-ctx.Done()
+			_ = os.Stdin.Close()
+		}()
+		go func() {
 			defer wg.Done()
 			readStdin(ctx, stdinHandler, tee)
 		}()
@@ -111,6 +115,7 @@ func run(_ *cobra.Command, _ []string) error {
 	// File tailers.
 	for _, fc := range cfg.Files {
 		h := newHandler(fc.resolvedService(cfg.Service), fc.resolvedComponent(cfg.Component), fc.resolvedHost(host))
+		logger.Info("tailing file", "path", fc.Path, "service", fc.resolvedService(cfg.Service))
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -141,7 +146,7 @@ func readStdin(ctx context.Context, handler *logshipper.Handler, tee bool) {
 		}
 
 		record := parseLine(line)
-		if err := handler.Handle(context.Background(), record); err != nil {
+		if err := handler.Handle(ctx, record); err != nil {
 			fmt.Fprintf(os.Stderr, "error: handle log entry: %v\n", err)
 		}
 	}
@@ -153,13 +158,12 @@ func readStdin(ctx context.Context, handler *logshipper.Handler, tee bool) {
 
 // shutdown flushes all handlers and reports any dropped entries.
 func shutdown(handlers []*logshipper.Handler, logger *slog.Logger) {
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	for _, h := range handlers {
-		if err := h.Shutdown(shutdownCtx); err != nil {
+		hCtx, hCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if err := h.Shutdown(hCtx); err != nil {
 			logger.Error("shutdown error", "error", err)
 		}
+		hCancel()
 		if dropped := h.Dropped(); dropped > 0 {
 			logger.Warn("dropped log entries", "count", dropped)
 		}
