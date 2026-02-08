@@ -545,47 +545,34 @@ onUnmounted(() => {
       </div>
 
       <!-- Pipeline Overview -->
-      <div v-if="rsyslogStats.summary" class="bg-t-bg-dark border-t-border rounded border">
-        <h3 class="text-t-fg-dark border-t-border border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">Pipeline Overview</h3>
-
+      <div v-if="rsyslogStats.summary" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <!-- Inputs -->
-        <div v-if="rsyslogInputs.length" class="border-t-border border-b px-3 py-2">
-          <div class="text-t-fg-dark mb-1.5 text-[10px] font-semibold uppercase tracking-wider">Inputs</div>
-          <div class="flex flex-col gap-1">
-            <div v-for="inp in rsyslogInputs" :key="inp.name" class="flex items-center justify-between text-xs">
-              <span class="text-t-fg">{{ inp.name }}</span>
-              <span class="text-t-fg-dark font-mono">{{ formatCount(inp.received) }} <span class="opacity-50">received</span></span>
-            </div>
+        <div class="bg-t-bg-dark border-t-border rounded border">
+          <h3 class="text-t-fg-dark border-t-border border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">Inputs</h3>
+          <div v-for="inp in rsyslogInputs" :key="inp.name" class="border-t-border flex items-center justify-between border-b px-3 py-1.5 text-xs last:border-b-0 transition-colors hover:bg-white/[0.03]">
+            <span class="text-t-fg">{{ inp.name }}</span>
+            <span class="text-t-fg-dark font-mono">{{ formatCount(inp.received) }} <span class="opacity-50">received</span></span>
           </div>
-        </div>
-
-        <!-- Filtered -->
-        <div class="border-t-border border-b px-3 py-2">
-          <div class="flex items-center justify-between text-xs">
-            <div>
-              <span class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Filtered</span>
-              <span class="text-t-fg-dark ml-2 text-[10px] opacity-50">submitted but not processed</span>
-            </div>
+          <div class="border-t-border flex items-center justify-between border-t px-3 py-1.5 text-xs transition-colors hover:bg-white/[0.03]">
+            <span class="text-t-fg-dark font-semibold">Filtered</span>
             <span class="font-mono" :class="rsyslogFiltered > 0 ? 'text-t-yellow' : 'text-t-fg-dark'">{{ formatCount(rsyslogFiltered) }}</span>
           </div>
         </div>
 
         <!-- Outputs -->
-        <div v-if="rsyslogOutputs.length" class="px-3 py-2">
-          <div class="text-t-fg-dark mb-1.5 text-[10px] font-semibold uppercase tracking-wider">Outputs</div>
-          <div class="flex flex-col gap-1">
-            <div v-for="out in rsyslogOutputs" :key="out.name" class="flex items-center justify-between text-xs">
-              <span class="text-t-fg">{{ out.name }}</span>
-              <span class="text-t-fg-dark font-mono">
-                {{ formatCount(out.processed) }} <span class="opacity-50">ok</span>
-                <template v-if="out.failed > 0">
-                  &middot; <span class="text-t-red">{{ formatCount(out.failed) }} failed</span>
-                </template>
-                <template v-if="out.suspended > 0">
-                  &middot; <span class="text-t-yellow">{{ formatCount(out.suspended) }} suspended</span>
-                </template>
-              </span>
-            </div>
+        <div class="bg-t-bg-dark border-t-border rounded border">
+          <h3 class="text-t-fg-dark border-t-border border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">Outputs</h3>
+          <div v-for="out in rsyslogOutputs" :key="out.name" class="border-t-border flex items-center justify-between border-b px-3 py-1.5 text-xs last:border-b-0 transition-colors hover:bg-white/[0.03]">
+            <span class="text-t-fg">{{ out.name }}</span>
+            <span class="text-t-fg-dark font-mono">
+              {{ formatCount(out.processed) }} <span class="opacity-50">ok</span>
+              <template v-if="out.failed > 0">
+                &middot; <span class="text-t-red">{{ formatCount(out.failed) }} failed</span>
+              </template>
+              <template v-if="out.suspended > 0">
+                &middot; <span class="text-t-yellow">{{ formatCount(out.suspended) }} suspended</span>
+              </template>
+            </span>
           </div>
         </div>
       </div>
