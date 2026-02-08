@@ -40,6 +40,33 @@ var vendors = []vendorProfile{
 	juniperProfile,
 	ciscoProfile,
 	aristaProfile,
+	noiseProfile,
+}
+
+// --- Noise: messages that rsyslog filters will drop (weight 10) ---
+
+var noiseProfile = vendorProfile{
+	weight:   10,
+	ipPrefix: "10.0.1",
+	hostnames: []string{
+		"core-rtr01.lab", "core-rtr02.lab", "edge-rtr01.lab",
+		"dist-sw01.lab", "cat-sw01.lab",
+	},
+	programs: []string{
+		"cron", "ntpd", "mib2d", "sshd",
+	},
+	facilities: []int{1, 9, 15}, // user, cron, local0
+	messages: []syslogMsg{
+		{"CRON", "CMD (/usr/sbin/ntpdate -s time.nist.gov)"},
+		{"CRON", "CMD (/usr/lib/sa/sa1 1 1)"},
+		{"CRON", "CMD (run-parts /etc/cron.hourly)"},
+		{"", "NTP peer 10.0.0.254 reachable, offset -0.003ms"},
+		{"", "NTP synchronized to 10.0.0.254, stratum 2"},
+		{"", "SNMP get response: sysUpTime.0 = 1234567"},
+		{"", "Accepted publickey for admin from 10.0.0.5 port 22 ssh2"},
+		{"", "session opened for user admin by (uid=0)"},
+		{"", "session closed for user admin"},
+	},
 }
 
 // --- Juniper (weight 60) ---
