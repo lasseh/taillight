@@ -169,6 +169,29 @@ function singleServiceTracker(service: string) { return makeSingleTracker(hovere
 const lineX = (d: SimplePoint) => d.x
 const lineY = (d: SimplePoint) => d.y
 
+// Rsyslog component grouping
+const rsyslogInputs = computed(() =>
+  (rsyslogStats.summary?.components ?? [])
+    .filter((c) => ['imudp', 'imtcp', 'imptcp'].includes(c.origin))
+    .map((c) => ({ name: c.name, received: c.stats['submitted'] ?? c.stats['msgs.received'] ?? 0 })),
+)
+const rsyslogOutputs = computed(() =>
+  (rsyslogStats.summary?.components ?? [])
+    .filter((c) => (c.stats.processed ?? 0) > 0 || (c.stats.failed ?? 0) > 0)
+    .filter((c) => !['imudp', 'imtcp', 'imptcp'].includes(c.origin))
+    .map((c) => ({
+      name: c.name,
+      processed: c.stats.processed ?? 0,
+      failed: c.stats.failed ?? 0,
+      suspended: c.stats.suspended ?? 0,
+    })),
+)
+const rsyslogFiltered = computed(() => {
+  const s = rsyslogStats.summary
+  if (!s) return 0
+  return Math.max(0, s.total_submitted - s.total_processed)
+})
+
 // KPI formatting for rsyslog tab
 function formatRate(v: number): string {
   return v.toFixed(1)
@@ -518,6 +541,52 @@ onUnmounted(() => {
             <VisCrosshair />
             <VisTooltip />
           </VisXYContainer>
+        </div>
+      </div>
+
+      <!-- Pipeline Overview -->
+      <div v-if="rsyslogStats.summary" class="bg-t-bg-dark border-t-border rounded border">
+        <h3 class="text-t-fg-dark border-t-border border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">Pipeline Overview</h3>
+
+        <!-- Inputs -->
+        <div v-if="rsyslogInputs.length" class="border-t-border border-b px-3 py-2">
+          <div class="text-t-fg-dark mb-1.5 text-[10px] font-semibold uppercase tracking-wider">Inputs</div>
+          <div class="flex flex-col gap-1">
+            <div v-for="inp in rsyslogInputs" :key="inp.name" class="flex items-center justify-between text-xs">
+              <span class="text-t-fg">{{ inp.name }}</span>
+              <span class="text-t-fg-dark font-mono">{{ formatCount(inp.received) }} <span class="opacity-50">received</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filtered -->
+        <div class="border-t-border border-b px-3 py-2">
+          <div class="flex items-center justify-between text-xs">
+            <div>
+              <span class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Filtered</span>
+              <span class="text-t-fg-dark ml-2 text-[10px] opacity-50">submitted but not processed</span>
+            </div>
+            <span class="font-mono" :class="rsyslogFiltered > 0 ? 'text-t-yellow' : 'text-t-fg-dark'">{{ formatCount(rsyslogFiltered) }}</span>
+          </div>
+        </div>
+
+        <!-- Outputs -->
+        <div v-if="rsyslogOutputs.length" class="px-3 py-2">
+          <div class="text-t-fg-dark mb-1.5 text-[10px] font-semibold uppercase tracking-wider">Outputs</div>
+          <div class="flex flex-col gap-1">
+            <div v-for="out in rsyslogOutputs" :key="out.name" class="flex items-center justify-between text-xs">
+              <span class="text-t-fg">{{ out.name }}</span>
+              <span class="text-t-fg-dark font-mono">
+                {{ formatCount(out.processed) }} <span class="opacity-50">ok</span>
+                <template v-if="out.failed > 0">
+                  &middot; <span class="text-t-red">{{ formatCount(out.failed) }} failed</span>
+                </template>
+                <template v-if="out.suspended > 0">
+                  &middot; <span class="text-t-yellow">{{ formatCount(out.suspended) }} suspended</span>
+                </template>
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </template>
