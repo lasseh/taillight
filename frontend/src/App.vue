@@ -35,7 +35,7 @@ const syslogStream = useSyslogStream()
 const applogStream = useAppLogStream()
 const { notifySyslog, notifyApplog } = useNotifications()
 
-const connected = computed(() => syslogStream.connected.value && applogStream.connected.value)
+const connected = computed(() => syslogStream.connected.value || applogStream.connected.value)
 
 useFavicon(connected)
 
