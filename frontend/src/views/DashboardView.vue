@@ -702,7 +702,7 @@ onUnmounted(() => {
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="taillightMetrics.eventsBroadcastLine" :height="220" :padding="{ top: 8, right: 8 }">
             <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
-            <VisLine :data="taillightMetrics.applogBroadcastLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" :lineDashArray="'6 3'" />
+            <VisLine :data="taillightMetrics.applogBroadcastLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" :lineDashArray="[6, 3]" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
             <VisCrosshair />
@@ -727,7 +727,7 @@ onUnmounted(() => {
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="taillightMetrics.sseClientsSyslogLine" :height="160" :padding="{ top: 8, right: 8 }">
             <VisLine :x="tlLineX" :y="tlLineY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
-            <VisLine :data="taillightMetrics.sseClientsApplogLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" :lineDashArray="'6 3'" />
+            <VisLine :data="taillightMetrics.sseClientsApplogLine" :x="tlLineX" :y="tlLineY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" :lineDashArray="[6, 3]" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
             <VisCrosshair />
