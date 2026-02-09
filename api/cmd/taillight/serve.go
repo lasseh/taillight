@@ -19,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
+	"github.com/lasseh/taillight/docs"
 	"github.com/lasseh/taillight/internal/analyzer"
 	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/broker"
@@ -450,6 +451,10 @@ func setupRouter(
 			})
 		})
 	})
+
+	// API docs.
+	r.Get("/api/v1/openapi.yaml", docs.SpecHandler())
+	r.Get("/docs", docs.ScalarHandler())
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
