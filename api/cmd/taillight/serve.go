@@ -78,7 +78,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	syslogBroker := broker.NewSyslogBroker(logger)
 	applogBroker := broker.NewApplogBroker(logger)
 
-	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, syslogBroker, applogBroker)
+	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, syslogBroker)
 
 	// Analysis (optional).
 	var analysisHandler *handler.AnalysisHandler
@@ -183,7 +183,6 @@ func startBackgroundWorkers(
 	pool *pgxpool.Pool,
 	notifications <-chan postgres.Notification,
 	syslogBroker *broker.SyslogBroker,
-	_ *broker.ApplogBroker,
 ) {
 	// Bridge: fetch each notified row by ID and broadcast to SSE clients.
 	go func() {
