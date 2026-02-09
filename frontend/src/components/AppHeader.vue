@@ -78,6 +78,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
       <button
         v-if="supported && permission !== 'granted'"
         class="text-t-yellow hidden text-xs md:inline"
+        :title="permission === 'denied' ? 'Reset in browser site settings' : undefined"
         @click="requestPermission()"
       >
         {{ permission === 'denied' ? 'notifications blocked' : 'enable alerts' }}

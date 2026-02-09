@@ -1,4 +1,4 @@
-import { reactive, watch, onUnmounted } from 'vue'
+import { reactive, watch, onScopeDispose } from 'vue'
 import type { Ref } from 'vue'
 
 const FLASH_DURATION = 1000
@@ -37,7 +37,7 @@ export function useNewFlash<T extends { id: number }>(source: Ref<T[]> | (() => 
     },
   )
 
-  onUnmounted(() => {
+  onScopeDispose(() => {
     Object.values(timers).forEach(clearTimeout)
     timers = {}
     if (readyTimer) clearTimeout(readyTimer)

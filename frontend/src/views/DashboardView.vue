@@ -8,7 +8,7 @@ import { useRsyslogStatsStore } from '@/stores/rsyslog-stats'
 import { useTaillightMetricsStore } from '@/stores/taillight-metrics'
 import { useTheme } from '@/composables/useTheme'
 import type { VolumeDataRecord } from '@/types/stats'
-import type { SimplePoint } from '@/stores/rsyslog-stats'
+import type { SimplePoint } from '@/types/chart'
 
 const route = useRoute()
 const router = useRouter()

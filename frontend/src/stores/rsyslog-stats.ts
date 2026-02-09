@@ -5,14 +5,9 @@ import type {
   RsyslogStatsSummary,
   RsyslogStatsTimeSeries,
 } from '@/types/rsyslog-stats'
+import type { SimplePoint } from '@/types/chart'
 
 const REFRESH_INTERVAL = 60_000 // 60 seconds
-
-/** Simple {x, y} point for line charts. */
-export interface SimplePoint {
-  x: number
-  y: number
-}
 
 export const useRsyslogStatsStore = defineStore('rsyslog-stats', () => {
   const summary = ref<RsyslogStatsSummary | null>(null)
