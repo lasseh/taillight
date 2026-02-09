@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -80,7 +81,7 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Logs) > applogMaxBatchSize {
 		metrics.ApplogIngestErrorsTotal.Inc()
-		writeError(w, http.StatusBadRequest, "batch_too_large", "max batch size is 1000 entries")
+		writeError(w, http.StatusBadRequest, "batch_too_large", fmt.Sprintf("max batch size is %d entries", applogMaxBatchSize))
 		return
 	}
 
