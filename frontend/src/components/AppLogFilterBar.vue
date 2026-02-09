@@ -10,15 +10,15 @@ const filterStore = useAppLogFilterStore()
 const meta = useAppLogMetaStore()
 
 const serviceOptions = computed(() =>
-  meta.services.map((s) => ({ value: s, label: s })),
+  meta.services.map((s) => ({ value: s, label: s, colorClass: 'text-t-purple' })),
 )
 
 const componentOptions = computed(() =>
-  meta.components.map((c) => ({ value: c, label: c })),
+  meta.components.map((c) => ({ value: c, label: c, colorClass: 'text-t-yellow' })),
 )
 
 const hostOptions = computed(() =>
-  meta.hosts.map((h) => ({ value: h, label: h })),
+  meta.hosts.map((h) => ({ value: h, label: h, colorClass: 'text-t-teal' })),
 )
 
 const searchInput = computed({

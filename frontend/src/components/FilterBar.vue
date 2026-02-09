@@ -10,11 +10,11 @@ const filterStore = useSyslogFilterStore()
 const meta = useMetaStore()
 
 const hostOptions = computed(() =>
-  meta.hosts.map((h) => ({ value: h, label: h })),
+  meta.hosts.map((h) => ({ value: h, label: h, colorClass: 'text-t-teal' })),
 )
 
 const programOptions = computed(() =>
-  meta.programs.map((p) => ({ value: p, label: p })),
+  meta.programs.map((p) => ({ value: p, label: p, colorClass: 'text-t-purple' })),
 )
 
 const facilityOptions = computed(() =>
