@@ -8,6 +8,9 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
+// defaultRsyslogStatsField is the default time-series field for rsyslog stats volume queries.
+const defaultRsyslogStatsField = "submitted"
+
 // RsyslogStatsStore defines the rsyslog stats data access interface.
 type RsyslogStatsStore interface {
 	GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Duration) (model.RsyslogStatsSummary, error)
@@ -52,7 +55,7 @@ func (h *RsyslogStatsHandler) Volume(w http.ResponseWriter, r *http.Request) {
 
 	field := r.URL.Query().Get("field")
 	if field == "" {
-		field = "submitted"
+		field = defaultRsyslogStatsField
 	}
 
 	series, err := h.store.GetRsyslogStatsTimeSeries(r.Context(), field, params.Interval, params.RangeDur)

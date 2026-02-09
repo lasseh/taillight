@@ -8,6 +8,9 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
+// defaultMetricsField is the default time-series field for metrics volume queries.
+const defaultMetricsField = "events_broadcast"
+
 // TaillightMetricsStore defines the taillight metrics data access interface.
 type TaillightMetricsStore interface {
 	GetMetricsSummary(ctx context.Context, rangeDur time.Duration) (model.MetricsSummary, error)
@@ -52,7 +55,7 @@ func (h *TaillightMetricsHandler) Volume(w http.ResponseWriter, r *http.Request)
 
 	field := r.URL.Query().Get("field")
 	if field == "" {
-		field = "events_broadcast"
+		field = defaultMetricsField
 	}
 
 	series, err := h.store.GetMetricsTimeSeries(r.Context(), field, params.Interval, params.RangeDur)
