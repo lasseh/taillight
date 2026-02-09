@@ -57,4 +57,5 @@ export interface SyslogFilters {
 export interface FilterOption {
   value: string
   label: string
+  colorClass?: string
 }

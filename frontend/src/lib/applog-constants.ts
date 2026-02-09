@@ -43,9 +43,9 @@ export const levelBgClass: Record<string, string> = {
 
 /** Level options for the filter dropdown (minimum level). */
 export const levelOptions = [
-  { value: 'FATAL', label: 'FATAL' },
-  { value: 'ERROR', label: 'ERROR' },
-  { value: 'WARN', label: 'WARN' },
-  { value: 'INFO', label: 'INFO' },
-  { value: 'DEBUG', label: 'DEBUG' },
+  { value: 'FATAL', label: 'FATAL', colorClass: 'text-sev-emerg' },
+  { value: 'ERROR', label: 'ERROR', colorClass: 'text-sev-alert' },
+  { value: 'WARN', label: 'WARN', colorClass: 'text-sev-crit' },
+  { value: 'INFO', label: 'INFO', colorClass: 'text-sev-notice' },
+  { value: 'DEBUG', label: 'DEBUG', colorClass: 'text-sev-debug' },
 ]

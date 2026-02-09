@@ -94,12 +94,12 @@ export const severityBgClassByLabel: Record<string, string> = {
 
 /** Severity options for the filter dropdown (severity_max). */
 export const severityOptions = [
-  { value: '0', label: 'EMERG' },
-  { value: '1', label: 'ALERT' },
-  { value: '2', label: 'CRIT' },
-  { value: '3', label: 'ERR' },
-  { value: '4', label: 'WARNING' },
-  { value: '5', label: 'NOTICE' },
-  { value: '6', label: 'INFO' },
-  { value: '7', label: 'DEBUG' },
+  { value: '0', label: 'EMERG', colorClass: 'text-sev-emerg' },
+  { value: '1', label: 'ALERT', colorClass: 'text-sev-alert' },
+  { value: '2', label: 'CRIT', colorClass: 'text-sev-crit' },
+  { value: '3', label: 'ERR', colorClass: 'text-sev-err' },
+  { value: '4', label: 'WARNING', colorClass: 'text-sev-warning' },
+  { value: '5', label: 'NOTICE', colorClass: 'text-sev-notice' },
+  { value: '6', label: 'INFO', colorClass: 'text-sev-info' },
+  { value: '7', label: 'DEBUG', colorClass: 'text-sev-debug' },
 ]
