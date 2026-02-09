@@ -41,3 +41,5 @@ frontend/.claude/
 
 # Agent skills (auto-generated, not project code)
 **/.agents/
+
+/research/
