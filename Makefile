@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps help api-test api-lint frontend-dev rsyslog-test
+.PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test
 
 ##@ General
 help: ## Show this help
@@ -19,6 +19,14 @@ logs: ## Tail logs from all services
 
 ps: ## Show running services
 	docker compose ps
+
+##@ Quality
+test: ## Run all tests
+	$(MAKE) -C api test
+
+lint: ## Lint all components
+	$(MAKE) -C api lint
+	$(MAKE) -C frontend lint
 
 ##@ Components
 api-test: ## Run API tests

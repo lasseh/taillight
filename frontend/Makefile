@@ -19,7 +19,7 @@ build: ## Build for production
 	npm run build
 
 ##@ Quality
-lint: ## Type-check
+lint: ## Lint (type-check)
 	npm run type-check
 
 ##@ Utility
