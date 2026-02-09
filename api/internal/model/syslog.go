@@ -116,11 +116,53 @@ type SyslogFilter struct {
 	To          *time.Time
 }
 
+// MatchWildcard reports whether value matches a glob pattern where * matches
+// any sequence of characters. The comparison is case-insensitive.
+// If pattern contains no *, it falls back to a plain case-insensitive equal.
+func MatchWildcard(value, pattern string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if !strings.Contains(pattern, "*") {
+		return strings.EqualFold(value, pattern)
+	}
+	lower := strings.ToLower(value)
+	parts := strings.Split(strings.ToLower(pattern), "*")
+	pos := 0
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		idx := strings.Index(lower[pos:], part)
+		if idx < 0 {
+			return false
+		}
+		// First segment must anchor at start.
+		if i == 0 && idx != 0 {
+			return false
+		}
+		pos += idx + len(part)
+	}
+	// Last segment must anchor at end.
+	if last := parts[len(parts)-1]; last != "" && !strings.HasSuffix(lower, last) {
+		return false
+	}
+	return true
+}
+
+// matchField compares value to pattern using wildcard if pattern contains *.
+func matchField(value, pattern string) bool {
+	if strings.Contains(pattern, "*") {
+		return MatchWildcard(value, pattern)
+	}
+	return value == pattern
+}
+
 // Matches returns true if the event satisfies all non-zero filter fields.
 // Time filters (From/To) are intentionally not checked here — live SSE
 // clients should not filter by time range since they receive future events.
 func (f SyslogFilter) Matches(e SyslogEvent) bool {
-	if f.Hostname != "" && e.Hostname != f.Hostname {
+	if f.Hostname != "" && !matchField(e.Hostname, f.Hostname) {
 		return false
 	}
 	if f.FromhostIP != "" && e.FromhostIP != f.FromhostIP {

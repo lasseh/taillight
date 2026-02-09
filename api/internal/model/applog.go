@@ -82,7 +82,7 @@ func (f AppLogFilter) Matches(e AppLogEvent) bool {
 	if f.Component != "" && e.Component != f.Component {
 		return false
 	}
-	if f.Host != "" && e.Host != f.Host {
+	if f.Host != "" && !matchField(e.Host, f.Host) {
 		return false
 	}
 	if f.Level != "" {

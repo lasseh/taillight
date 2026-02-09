@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -321,6 +322,98 @@ func TestParseSyslogFilter_Invalid(t *testing.T) {
 			_, err := ParseSyslogFilter(r)
 			if err == nil {
 				t.Error("ParseSyslogFilter() expected error, got nil")
+			}
+		})
+	}
+}
+
+func TestMatchWildcard(t *testing.T) {
+	tests := []struct {
+		value   string
+		pattern string
+		want    bool
+	}{
+		// Prefix glob.
+		{"c-lab-sw01", "c-lab-*", true},
+		{"c-lab-rtr02", "c-lab-*", true},
+		{"d-lab-sw01", "c-lab-*", false},
+		// Suffix glob.
+		{"core-sw01", "*-sw01", true},
+		{"edge-sw01", "*-sw01", true},
+		{"core-rtr01", "*-sw01", false},
+		// Middle glob.
+		{"c-lab-sw01", "c-*-sw01", true},
+		{"c-prod-sw01", "c-*-sw01", true},
+		{"c-lab-rtr01", "c-*-sw01", false},
+		// No wildcard — exact match.
+		{"router1", "router1", true},
+		{"router2", "router1", false},
+		// Case-insensitive.
+		{"Router1", "router1", true},
+		{"ROUTER1", "router*", true},
+		// Match-all.
+		{"anything", "*", true},
+		{"", "*", true},
+		// Multiple wildcards.
+		{"a-b-c-d", "a-*-*-d", true},
+		{"a-x-y-d", "a-*-*-d", true},
+		{"a-x-y-e", "a-*-*-d", false},
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("%s~%s", tt.value, tt.pattern)
+		t.Run(name, func(t *testing.T) {
+			got := MatchWildcard(tt.value, tt.pattern)
+			if got != tt.want {
+				t.Errorf("MatchWildcard(%q, %q) = %v, want %v", tt.value, tt.pattern, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSyslogFilter_Matches_Wildcard(t *testing.T) {
+	base := SyslogEvent{
+		Hostname: "c-lab-sw01",
+		Severity: 3,
+		Message:  "test",
+	}
+	tests := []struct {
+		name   string
+		filter SyslogFilter
+		want   bool
+	}{
+		{"wildcard hostname match", SyslogFilter{Hostname: "c-lab-*"}, true},
+		{"wildcard hostname mismatch", SyslogFilter{Hostname: "d-lab-*"}, false},
+		{"exact hostname still works", SyslogFilter{Hostname: "c-lab-sw01"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.filter.Matches(base); got != tt.want {
+				t.Errorf("Matches() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAppLogFilter_Matches_Wildcard(t *testing.T) {
+	base := AppLogEvent{
+		Host:    "c-lab-sw01",
+		Level:   "INFO",
+		Service: "myapp",
+		Msg:     "test",
+	}
+	tests := []struct {
+		name   string
+		filter AppLogFilter
+		want   bool
+	}{
+		{"wildcard host match", AppLogFilter{Host: "c-lab-*"}, true},
+		{"wildcard host mismatch", AppLogFilter{Host: "d-lab-*"}, false},
+		{"exact host still works", AppLogFilter{Host: "c-lab-sw01"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.filter.Matches(base); got != tt.want {
+				t.Errorf("Matches() = %v, want %v", got, tt.want)
 			}
 		})
 	}

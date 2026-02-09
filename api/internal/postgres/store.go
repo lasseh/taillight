@@ -191,7 +191,12 @@ func (s *Store) listDistinctStrings(ctx context.Context, column string) ([]strin
 
 func applySyslogFilter(qb sq.SelectBuilder, f model.SyslogFilter) sq.SelectBuilder {
 	if f.Hostname != "" {
-		qb = qb.Where(sq.Eq{"hostname": f.Hostname})
+		if strings.Contains(f.Hostname, "*") {
+			pattern := strings.ReplaceAll(escapeLike(f.Hostname), "*", "%")
+			qb = qb.Where("hostname ILIKE ?", pattern)
+		} else {
+			qb = qb.Where(sq.Eq{"hostname": f.Hostname})
+		}
 	}
 	if f.FromhostIP != "" {
 		qb = qb.Where("fromhost_ip = ?::inet", f.FromhostIP)

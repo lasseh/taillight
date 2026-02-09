@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
@@ -200,7 +201,12 @@ func applyAppLogFilter(qb sq.SelectBuilder, f model.AppLogFilter) sq.SelectBuild
 		qb = qb.Where(sq.Eq{"component": f.Component})
 	}
 	if f.Host != "" {
-		qb = qb.Where(sq.Eq{"host": f.Host})
+		if strings.Contains(f.Host, "*") {
+			pattern := strings.ReplaceAll(escapeLike(f.Host), "*", "%")
+			qb = qb.Where("host ILIKE ?", pattern)
+		} else {
+			qb = qb.Where(sq.Eq{"host": f.Host})
+		}
 	}
 	if f.Level != "" {
 		// Level filter means "at or above this level".

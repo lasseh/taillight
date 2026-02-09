@@ -32,7 +32,7 @@ const searchInput = computed({
 <template>
   <div class="border-t-border bg-t-bg-dark flex flex-wrap items-center gap-3 border-b px-4 py-1.5">
     <FilterSelect v-model="filterStore.filters.level" label="level" :options="levelOptions" />
-    <FilterSelect v-model="filterStore.filters.host" label="host" :options="hostOptions" />
+    <FilterSelect v-model="filterStore.filters.host" label="host" :options="hostOptions" searchable />
     <FilterSelect v-model="filterStore.filters.service" label="service" :options="serviceOptions" />
     <FilterSelect v-model="filterStore.filters.component" label="component" :options="componentOptions" />
     <label class="flex items-center gap-1">

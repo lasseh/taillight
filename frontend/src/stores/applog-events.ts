@@ -4,11 +4,14 @@ import { useAppLogStream } from '@/composables/useAppLogStream'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
 import { createEventStore } from '@/stores/event-store-factory'
 import { LEVEL_RANK } from '@/lib/applog-constants'
+import { wildcardMatch } from '@/lib/wildcard'
 
 function matchesFilters(event: AppLogEvent, filters: Record<string, string>): boolean {
   if (filters.service && event.service !== filters.service) return false
   if (filters.component && event.component !== filters.component) return false
-  if (filters.host && event.host !== filters.host) return false
+  if (filters.host) {
+    if (filters.host.includes('*') ? !wildcardMatch(event.host, filters.host) : event.host !== filters.host) return false
+  }
   // Level filter: include events at or above the selected level (lower rank = more severe).
   if (filters.level) {
     const filterRank = LEVEL_RANK[filters.level] ?? 99
