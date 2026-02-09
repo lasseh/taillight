@@ -233,11 +233,13 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, since time.Time, limit int
 // GetNewMsgIDs returns msgids seen in the current period but not in the baseline period.
 func (s *Store) GetNewMsgIDs(ctx context.Context, since, baselineSince time.Time) ([]string, error) {
 	query := `
-		SELECT DISTINCT msgid FROM syslog_events
-		WHERE received_at >= $1 AND msgid != ''
-		  AND msgid NOT IN (
-		    SELECT DISTINCT msgid FROM syslog_events
-		    WHERE received_at >= $2 AND received_at < $1 AND msgid != ''
+		SELECT DISTINCT msgid FROM syslog_events curr
+		WHERE curr.received_at >= $1 AND curr.msgid != ''
+		  AND NOT EXISTS (
+		    SELECT 1 FROM syslog_events base
+		    WHERE base.msgid = curr.msgid
+		      AND base.received_at >= $2 AND base.received_at < $1
+		      AND base.msgid != ''
 		  )
 		ORDER BY msgid`
 
@@ -260,8 +262,8 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, since, baselineSince time.Time
 
 // GetEventClusters returns time windows where events from multiple hosts overlap.
 func (s *Store) GetEventClusters(ctx context.Context, since time.Time, windowMinutes int) ([]model.EventCluster, error) {
-	query := fmt.Sprintf(`
-		SELECT time_bucket('%d minutes'::interval, received_at) AS bucket,
+	query := `
+		SELECT time_bucket($2::interval, received_at) AS bucket,
 		       array_agg(DISTINCT hostname) AS hosts,
 		       array_agg(DISTINCT msgid) FILTER (WHERE msgid != '') AS msgids,
 		       count(*) AS total
@@ -270,9 +272,10 @@ func (s *Store) GetEventClusters(ctx context.Context, since time.Time, windowMin
 		GROUP BY bucket
 		HAVING count(DISTINCT hostname) > 1
 		ORDER BY total DESC
-		LIMIT 20`, windowMinutes)
+		LIMIT 20`
 
-	rows, err := s.pool.Query(ctx, query, since)
+	interval := fmt.Sprintf("%d minutes", windowMinutes)
+	rows, err := s.pool.Query(ctx, query, since, interval)
 	if err != nil {
 		return nil, fmt.Errorf("event clusters query: %w", err)
 	}
