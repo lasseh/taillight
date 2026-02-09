@@ -40,9 +40,45 @@ const scalarHTML = `<!DOCTYPE html>
   <title>Taillight API</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin: 0; }
+    .tl-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.5rem 1rem;
+      background: #16161e;
+      border-bottom: 1px solid #292e42;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.75rem;
+    }
+    .tl-logo {
+      font-weight: 600;
+      background: linear-gradient(to right, #ff007c, #c026d3);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      text-decoration: none;
+    }
+    .tl-logo:hover span { text-decoration: underline; }
+    .tl-back {
+      color: #565f89;
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .tl-back:hover { color: #7aa2f7; }
+  </style>
 </head>
 <body>
-  <script id="api-reference" data-url="/api/v1/openapi.yaml"></script>
+  <div class="tl-header">
+    <a href="/" class="tl-logo">[<span>Taillight</span>]</a>
+    <a href="/" class="tl-back">&#8592; back to app</a>
+  </div>
+  <script
+    id="api-reference"
+    data-url="/api/v1/openapi.yaml"
+    data-configuration='{"darkMode":true,"hideDarkModeToggle":true}'
+  ></script>
   <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
 </body>
 </html>`
