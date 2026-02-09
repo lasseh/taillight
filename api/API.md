@@ -1,6 +1,6 @@
-# Syslog SSE Backend — API Reference
+# Taillight — API Reference
 
-API documentation for building a Vue frontend against the syslog SSE backend.
+API documentation for the Taillight log aggregation API.
 
 ## Overview
 
@@ -8,10 +8,10 @@ API documentation for building a Vue frontend against the syslog SSE backend.
 |----------------|--------------------------------------|
 | Base URL       | `http://<host>:<port>`               |
 | API prefix     | `/api/v1`                            |
-| Auth           | API key (Bearer token) on ingest endpoint; none on others |
+| Auth           | Session cookie or API key (Bearer token). Auth can be enabled for all endpoints via config. |
 | Content type   | `application/json` (REST endpoints)  |
 | Streaming      | `text/event-stream` (SSE endpoints)  |
-| CORS           | Configurable via `cors_allowed_origins` (defaults to `*` in dev) |
+| CORS           | Configurable via `cors_allowed_origins` (defaults to `localhost:5173, localhost:3000`) |
 
 All timestamps use **RFC 3339** format (`2026-02-01T15:23:00Z`).
 
@@ -250,8 +250,8 @@ data: {"id":12345,"received_at":"2026-02-01T15:23:00Z",...}
 
 | Scenario                          | Behavior                                                         |
 |-----------------------------------|------------------------------------------------------------------|
-| No `Last-Event-ID` header         | Sends up to **50** most recent matching events, oldest first     |
-| `Last-Event-ID` present           | Sends up to **50** events with `id > Last-Event-ID`, oldest first |
+| No `Last-Event-ID` header         | Sends up to **100** most recent matching events, oldest first     |
+| `Last-Event-ID` present           | Sends up to **100** events with `id > Last-Event-ID`, oldest first |
 | After backfill                    | Subscribes to live events via broker, pushed as they arrive      |
 
 The backfill always delivers events in **chronological order** (oldest first) so the frontend can append them to the list in sequence.
@@ -601,7 +601,7 @@ export function useSyslogStream(filters: () => Record<string, string>) {
 
 1. On disconnect, the browser waits ~3 seconds, then reconnects.
 2. On reconnect, it sends the `Last-Event-ID` header with the `id` of the last received event.
-3. The server backfills up to 50 events that occurred since that ID.
+3. The server backfills up to 100 events that occurred since that ID.
 4. Live streaming resumes after the backfill.
 
 No custom reconnection logic is needed. The browser handles it natively.
@@ -694,16 +694,16 @@ Returns event counts bucketed by time interval.
 
 | Param      | Type     | Default    | Description                                      |
 |------------|----------|------------|--------------------------------------------------|
-| `interval` | `string` | `1 minute` | Bucket interval: `1 minute`, `5 minutes`, `15 minutes`, `30 minutes`, `1 hour`, `6 hours`, `1 day` |
-| `range`    | `string` | `1h`       | Time range to query: `1h`, `6h`, `24h`, `7d`, `30d` |
+| `interval` | `string` | `1h` | Bucket interval: `1m`, `5m`, `15m`, `30m`, `1h`, `6h`, `1d` |
+| `range`    | `string` | `24h`      | Time range to query: `1h`, `6h`, `12h`, `24h`, `7d`, `30d` |
 
 #### Response (200)
 
 ```json
 {
   "data": [
-    { "bucket": "2026-02-01T15:00:00Z", "count": 1234 },
-    { "bucket": "2026-02-01T15:01:00Z", "count": 987 }
+    { "time": "2026-02-01T15:00:00Z", "total": 1234, "by_host": { "web-01": 800, "web-02": 434 } },
+    { "time": "2026-02-01T16:00:00Z", "total": 987, "by_host": { "web-01": 600, "web-02": 387 } }
   ]
 }
 ```
@@ -865,30 +865,31 @@ Authorization: Bearer <api-key>
 | `timestamp` | `string` | Yes      | RFC 3339 timestamp             |
 | `level`     | `string` | Yes      | Log level                      |
 | `msg`       | `string` | Yes      | Log message                    |
-| `service`   | `string` | Yes      | Service name                   |
-| `component` | `string` | No       | Component name                 |
-| `source`    | `string` | No       | Source file:line               |
-| `attrs`     | `object` | No       | Additional attributes          |
+| `service`   | `string` | Yes      | Service name (max 128 chars)   |
+| `component` | `string` | No       | Component name (max 128 chars) |
+| `host`      | `string` | Yes      | Hostname (max 256 chars)       |
+| `source`    | `string` | No       | Source file:line (max 256 chars) |
+| `attrs`     | `object` | No       | Additional attributes (max 64 KB) |
 
 #### Response (202 Accepted)
 
 ```json
 {
-  "data": {
-    "accepted": 5,
-    "events": [ /* array of inserted AppLogEvent with IDs */ ]
-  }
+  "accepted": 5
 }
 ```
 
 #### Errors
 
-| Status | Code             | Message                    |
-|--------|------------------|----------------------------|
-| 400    | `invalid_body`   | Invalid JSON body          |
-| 400    | `invalid_logs`   | Empty or invalid logs array|
-| 401    | `unauthorized`   | Missing or invalid API key |
-| 500    | `insert_failed`  | Database insert error      |
+| Status | Code                | Message                           |
+|--------|---------------------|-----------------------------------|
+| 400    | `invalid_json`      | Malformed JSON body               |
+| 400    | `empty_batch`       | Logs array is empty               |
+| 400    | `batch_too_large`   | Max batch size is 1000 entries    |
+| 400    | `validation_failed` | Field validation errors (details in message) |
+| 401    | `unauthorized`      | Missing or invalid API key        |
+| 413    | `body_too_large`    | Request body exceeds 5 MB limit   |
+| 500    | `insert_failed`     | Database insert error             |
 
 ### Meta: List Services
 
