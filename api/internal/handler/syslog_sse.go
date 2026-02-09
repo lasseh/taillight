@@ -49,7 +49,11 @@ func (h *SyslogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 
 	// Subscribe BEFORE backfill to avoid a race: events arriving between
 	// the backfill query and the subscribe call would otherwise be lost.
-	sub := h.broker.Subscribe(filter)
+	sub, err := h.broker.Subscribe(filter)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "too_many_connections", err.Error())
+		return
+	}
 	defer h.broker.Unsubscribe(sub)
 
 	// Backfill: catch up from Last-Event-ID or send recent events.

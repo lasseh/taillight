@@ -42,17 +42,22 @@ func NewApplogBroker(logger *slog.Logger) *ApplogBroker {
 }
 
 // Subscribe registers a new client with the given filter and returns its subscription.
-func (b *ApplogBroker) Subscribe(filter model.AppLogFilter) *ApplogSubscription {
+// Returns ErrTooManySubscribers if the broker has reached its connection limit.
+func (b *ApplogBroker) Subscribe(filter model.AppLogFilter) (*ApplogSubscription, error) {
 	sub := &ApplogSubscription{
 		ch:     make(chan ApplogMessage, subscriptionBufferSize),
 		filter: filter,
 	}
 	b.mu.Lock()
+	if len(b.subscribers) >= maxSubscribers {
+		b.mu.Unlock()
+		return nil, ErrTooManySubscribers
+	}
 	b.subscribers[sub] = struct{}{}
 	b.mu.Unlock()
 	metrics.ApplogSSEClientsActive.Inc()
 	b.logger.Debug("applog client subscribed", "total", b.Len())
-	return sub
+	return sub, nil
 }
 
 // Unsubscribe removes a client and closes its channel.

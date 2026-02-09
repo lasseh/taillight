@@ -56,8 +56,8 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.AuthEnabled {
 		t.Error("AuthEnabled should be true by default")
 	}
-	if cfg.AuthReadEndpoints {
-		t.Error("AuthReadEndpoints should be false by default")
+	if !cfg.AuthReadEndpoints {
+		t.Error("AuthReadEndpoints should be true by default")
 	}
 	if cfg.NotificationBufferSize != 1024 {
 		t.Errorf("NotificationBufferSize = %d, want %d", cfg.NotificationBufferSize, 1024)

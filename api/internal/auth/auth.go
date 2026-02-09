@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	bcryptCost   = 10
+	bcryptCost   = 12
 	apiKeyPrefix = "tl_"
 	// base62Chars is the alphabet for API key generation.
 	base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"

@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -14,6 +15,15 @@ func newTestApplogBroker() *ApplogBroker {
 	return NewApplogBroker(logger)
 }
 
+func mustApplogSubscribe(t *testing.T, b *ApplogBroker, filter model.AppLogFilter) *ApplogSubscription {
+	t.Helper()
+	sub, err := b.Subscribe(filter)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	return sub
+}
+
 func TestApplogSubscribeUnsubscribe(t *testing.T) {
 	b := newTestApplogBroker()
 
@@ -21,12 +31,12 @@ func TestApplogSubscribeUnsubscribe(t *testing.T) {
 		t.Fatalf("Len() = %d, want 0", b.Len())
 	}
 
-	sub1 := b.Subscribe(model.AppLogFilter{})
+	sub1 := mustApplogSubscribe(t, b, model.AppLogFilter{})
 	if b.Len() != 1 {
 		t.Fatalf("Len() = %d, want 1", b.Len())
 	}
 
-	sub2 := b.Subscribe(model.AppLogFilter{Service: "api"})
+	sub2 := mustApplogSubscribe(t, b, model.AppLogFilter{Service: "api"})
 	if b.Len() != 2 {
 		t.Fatalf("Len() = %d, want 2", b.Len())
 	}
@@ -52,7 +62,7 @@ func TestApplogBroadcast_NoSubscribers(_ *testing.T) {
 func TestApplogBroadcast_AllReceive(t *testing.T) {
 	b := newTestApplogBroker()
 
-	sub := b.Subscribe(model.AppLogFilter{})
+	sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
 	defer b.Unsubscribe(sub)
 
 	event := model.AppLogEvent{
@@ -81,7 +91,7 @@ func TestApplogBroadcast_FilteredOut(t *testing.T) {
 	b := newTestApplogBroker()
 
 	// Subscribe with service filter.
-	sub := b.Subscribe(model.AppLogFilter{Service: "worker"})
+	sub := mustApplogSubscribe(t, b, model.AppLogFilter{Service: "worker"})
 	defer b.Unsubscribe(sub)
 
 	// Broadcast event for different service — should not reach subscriber.
@@ -98,7 +108,7 @@ func TestApplogBroadcast_FilteredOut(t *testing.T) {
 func TestApplogBroadcast_FilterMatch(t *testing.T) {
 	b := newTestApplogBroker()
 
-	sub := b.Subscribe(model.AppLogFilter{Service: "api", Level: "WARN"})
+	sub := mustApplogSubscribe(t, b, model.AppLogFilter{Service: "api", Level: "WARN"})
 	defer b.Unsubscribe(sub)
 
 	// Matching event (ERROR >= WARN).
@@ -127,7 +137,7 @@ func TestApplogBroadcast_FilterMatch(t *testing.T) {
 func TestApplogBroadcast_SlowClient(t *testing.T) {
 	b := newTestApplogBroker()
 
-	sub := b.Subscribe(model.AppLogFilter{})
+	sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
 	defer b.Unsubscribe(sub)
 
 	// Fill the channel (capacity 64).
@@ -154,7 +164,7 @@ done:
 func TestApplogUnsubscribe_ClosesChannel(t *testing.T) {
 	b := newTestApplogBroker()
 
-	sub := b.Subscribe(model.AppLogFilter{})
+	sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
 	b.Unsubscribe(sub)
 
 	// Channel should be closed.
@@ -167,8 +177,8 @@ func TestApplogUnsubscribe_ClosesChannel(t *testing.T) {
 func TestApplogShutdown(t *testing.T) {
 	b := newTestApplogBroker()
 
-	sub1 := b.Subscribe(model.AppLogFilter{})
-	sub2 := b.Subscribe(model.AppLogFilter{Service: "worker"})
+	sub1 := mustApplogSubscribe(t, b, model.AppLogFilter{})
+	sub2 := mustApplogSubscribe(t, b, model.AppLogFilter{Service: "worker"})
 
 	b.Shutdown()
 
@@ -188,12 +198,42 @@ func TestApplogShutdown(t *testing.T) {
 func TestApplogUnsubscribe_DoubleUnsubscribe(t *testing.T) {
 	b := newTestApplogBroker()
 
-	sub := b.Subscribe(model.AppLogFilter{})
+	sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
 	b.Unsubscribe(sub)
 	// Second unsubscribe should be a no-op (not panic).
 	b.Unsubscribe(sub)
 
 	if b.Len() != 0 {
 		t.Errorf("Len() = %d, want 0", b.Len())
+	}
+}
+
+func TestApplogSubscribe_MaxSubscribers(t *testing.T) {
+	b := newTestApplogBroker()
+
+	// Fill to max.
+	subs := make([]*ApplogSubscription, 0, maxSubscribers)
+	for range maxSubscribers {
+		sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
+		subs = append(subs, sub)
+	}
+
+	// Next subscribe should fail.
+	_, err := b.Subscribe(model.AppLogFilter{})
+	if !errors.Is(err, ErrTooManySubscribers) {
+		t.Fatalf("Subscribe() error = %v, want ErrTooManySubscribers", err)
+	}
+
+	// After unsubscribing one, subscribe should work again.
+	b.Unsubscribe(subs[0])
+	sub, err := b.Subscribe(model.AppLogFilter{})
+	if err != nil {
+		t.Fatalf("Subscribe() after unsubscribe error = %v", err)
+	}
+	b.Unsubscribe(sub)
+
+	// Clean up.
+	for _, s := range subs[1:] {
+		b.Unsubscribe(s)
 	}
 }

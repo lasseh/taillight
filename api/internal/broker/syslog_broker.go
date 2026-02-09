@@ -3,6 +3,7 @@ package broker
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -10,9 +11,18 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-// subscriptionBufferSize is the channel buffer size for each SSE client subscription.
-// A larger buffer allows clients to briefly fall behind without dropping events.
-const subscriptionBufferSize = 64
+const (
+	// subscriptionBufferSize is the channel buffer size for each SSE client subscription.
+	// A larger buffer allows clients to briefly fall behind without dropping events.
+	subscriptionBufferSize = 64
+
+	// maxSubscribers is the maximum number of concurrent SSE clients per broker.
+	// Prevents memory exhaustion from too many open connections.
+	maxSubscribers = 1000
+)
+
+// ErrTooManySubscribers is returned when the broker has reached its connection limit.
+var ErrTooManySubscribers = fmt.Errorf("too many SSE subscribers (max %d)", maxSubscribers)
 
 // SyslogMessage carries a pre-marshaled event with its ID for SSE id: field support.
 type SyslogMessage struct {
@@ -47,17 +57,22 @@ func NewSyslogBroker(logger *slog.Logger) *SyslogBroker {
 }
 
 // Subscribe registers a new client with the given filter and returns its subscription.
-func (b *SyslogBroker) Subscribe(filter model.SyslogFilter) *SyslogSubscription {
+// Returns ErrTooManySubscribers if the broker has reached its connection limit.
+func (b *SyslogBroker) Subscribe(filter model.SyslogFilter) (*SyslogSubscription, error) {
 	sub := &SyslogSubscription{
 		ch:     make(chan SyslogMessage, subscriptionBufferSize),
 		filter: filter,
 	}
 	b.mu.Lock()
+	if len(b.subscribers) >= maxSubscribers {
+		b.mu.Unlock()
+		return nil, ErrTooManySubscribers
+	}
 	b.subscribers[sub] = struct{}{}
 	b.mu.Unlock()
 	metrics.SSEClientsActive.Inc()
 	b.logger.Debug("client subscribed", "total", b.Len())
-	return sub
+	return sub, nil
 }
 
 // Unsubscribe removes a client and closes its channel.

@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -14,6 +15,15 @@ func newTestBroker() *SyslogBroker {
 	return NewSyslogBroker(logger)
 }
 
+func mustSubscribe(t *testing.T, b *SyslogBroker, filter model.SyslogFilter) *SyslogSubscription {
+	t.Helper()
+	sub, err := b.Subscribe(filter)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	return sub
+}
+
 func TestSubscribeUnsubscribe(t *testing.T) {
 	b := newTestBroker()
 
@@ -21,12 +31,12 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 		t.Fatalf("Len() = %d, want 0", b.Len())
 	}
 
-	sub1 := b.Subscribe(model.SyslogFilter{})
+	sub1 := mustSubscribe(t, b, model.SyslogFilter{})
 	if b.Len() != 1 {
 		t.Fatalf("Len() = %d, want 1", b.Len())
 	}
 
-	sub2 := b.Subscribe(model.SyslogFilter{Hostname: "router1"})
+	sub2 := mustSubscribe(t, b, model.SyslogFilter{Hostname: "router1"})
 	if b.Len() != 2 {
 		t.Fatalf("Len() = %d, want 2", b.Len())
 	}
@@ -52,7 +62,7 @@ func TestBroadcast_NoSubscribers(_ *testing.T) {
 func TestBroadcast_AllReceive(t *testing.T) {
 	b := newTestBroker()
 
-	sub := b.Subscribe(model.SyslogFilter{})
+	sub := mustSubscribe(t, b, model.SyslogFilter{})
 	defer b.Unsubscribe(sub)
 
 	event := model.SyslogEvent{
@@ -85,7 +95,7 @@ func TestBroadcast_FilteredOut(t *testing.T) {
 	b := newTestBroker()
 
 	// Subscribe with hostname filter.
-	sub := b.Subscribe(model.SyslogFilter{Hostname: "router2"})
+	sub := mustSubscribe(t, b, model.SyslogFilter{Hostname: "router2"})
 	defer b.Unsubscribe(sub)
 
 	// Broadcast event for router1 — should not reach subscriber.
@@ -102,7 +112,7 @@ func TestBroadcast_FilteredOut(t *testing.T) {
 func TestBroadcast_FilterMatch(t *testing.T) {
 	b := newTestBroker()
 
-	sub := b.Subscribe(model.SyslogFilter{Hostname: "router1", Severity: intPtr(3)})
+	sub := mustSubscribe(t, b, model.SyslogFilter{Hostname: "router1", Severity: intPtr(3)})
 	defer b.Unsubscribe(sub)
 
 	// Matching event.
@@ -131,7 +141,7 @@ func TestBroadcast_FilterMatch(t *testing.T) {
 func TestBroadcast_SlowClient(t *testing.T) {
 	b := newTestBroker()
 
-	sub := b.Subscribe(model.SyslogFilter{})
+	sub := mustSubscribe(t, b, model.SyslogFilter{})
 	defer b.Unsubscribe(sub)
 
 	// Fill the channel (capacity 64).
@@ -158,13 +168,43 @@ done:
 func TestUnsubscribe_ClosesChannel(t *testing.T) {
 	b := newTestBroker()
 
-	sub := b.Subscribe(model.SyslogFilter{})
+	sub := mustSubscribe(t, b, model.SyslogFilter{})
 	b.Unsubscribe(sub)
 
 	// Channel should be closed.
 	_, ok := <-sub.Chan()
 	if ok {
 		t.Error("expected channel to be closed after Unsubscribe")
+	}
+}
+
+func TestSubscribe_MaxSubscribers(t *testing.T) {
+	b := newTestBroker()
+
+	// Fill to max.
+	subs := make([]*SyslogSubscription, 0, maxSubscribers)
+	for range maxSubscribers {
+		sub := mustSubscribe(t, b, model.SyslogFilter{})
+		subs = append(subs, sub)
+	}
+
+	// Next subscribe should fail.
+	_, err := b.Subscribe(model.SyslogFilter{})
+	if !errors.Is(err, ErrTooManySubscribers) {
+		t.Fatalf("Subscribe() error = %v, want ErrTooManySubscribers", err)
+	}
+
+	// After unsubscribing one, subscribe should work again.
+	b.Unsubscribe(subs[0])
+	sub, err := b.Subscribe(model.SyslogFilter{})
+	if err != nil {
+		t.Fatalf("Subscribe() after unsubscribe error = %v", err)
+	}
+	b.Unsubscribe(sub)
+
+	// Clean up.
+	for _, s := range subs[1:] {
+		b.Unsubscribe(s)
 	}
 }
 

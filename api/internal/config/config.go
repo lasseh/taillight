@@ -66,7 +66,7 @@ func Load() (Config, error) {
 	v.SetDefault("db_min_conns", 2)
 	v.SetDefault("cors_allowed_origins", []string{})
 	v.SetDefault("auth_enabled", true)
-	v.SetDefault("auth_read_endpoints", false)
+	v.SetDefault("auth_read_endpoints", true)
 	v.SetDefault("notification_buffer_size", 1024)
 	v.SetDefault("metrics_addr", "")
 	v.SetDefault("logshipper.enabled", false)
