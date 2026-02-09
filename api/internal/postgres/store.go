@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"sort"
 	"strings"
 	"time"
 
@@ -18,8 +17,12 @@ import (
 
 var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
-// metaLimit caps the number of distinct values returned by meta queries.
-const metaLimit = 10000
+const (
+	// metaLimit caps the number of distinct values returned by meta queries.
+	metaLimit = 10000
+	// topSourcesLimit caps the number of top hosts/services returned in summaries.
+	topSourcesLimit = 20
+)
 
 var syslogColumns = []string{
 	"id", "received_at", "reported_at", "hostname", "fromhost_ip",
@@ -315,10 +318,6 @@ func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval 
 		return nil, fmt.Errorf("%s volume rows: %w", table, err)
 	}
 
-	sort.Slice(buckets, func(i, j int) bool {
-		return buckets[i].Time.Before(buckets[j].Time)
-	})
-
 	return buckets, nil
 }
 
@@ -400,9 +399,9 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 	              WHERE received_at >= $1
 	              GROUP BY hostname
 	              ORDER BY cnt DESC
-	              LIMIT 20`
+	              LIMIT $2`
 
-	hostRows, err := s.pool.Query(ctx, hostQuery, since)
+	hostRows, err := s.pool.Query(ctx, hostQuery, since, topSourcesLimit)
 	if err != nil {
 		return model.SyslogSummary{}, fmt.Errorf("top hosts query: %w", err)
 	}
@@ -502,9 +501,9 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 	             WHERE received_at >= $1
 	             GROUP BY service
 	             ORDER BY cnt DESC
-	             LIMIT 20`
+	             LIMIT $2`
 
-	svcRows, err := s.pool.Query(ctx, svcQuery, since)
+	svcRows, err := s.pool.Query(ctx, svcQuery, since, topSourcesLimit)
 	if err != nil {
 		return model.AppLogSummary{}, fmt.Errorf("top services query: %w", err)
 	}

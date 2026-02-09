@@ -256,16 +256,12 @@ func collectAppLogs(rows pgx.Rows) ([]model.AppLogEvent, error) {
 
 func scanAppLog(row pgx.Row, e *model.AppLogEvent) error {
 	var attrs []byte
-	var host *string
 	err := row.Scan(
 		&e.ID, &e.ReceivedAt, &e.Timestamp, &e.Level, &e.Service,
-		&e.Component, &host, &e.Msg, &e.Source, &attrs,
+		&e.Component, &e.Host, &e.Msg, &e.Source, &attrs,
 	)
 	if err != nil {
 		return err
-	}
-	if host != nil {
-		e.Host = *host
 	}
 	if attrs != nil {
 		e.Attrs = json.RawMessage(attrs)
