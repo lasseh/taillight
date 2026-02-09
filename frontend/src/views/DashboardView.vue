@@ -507,14 +507,12 @@ onUnmounted(() => {
             />
             {{ host }}
             <template v-if="hoveredHost[host]">
-              <span class="ml-auto font-normal normal-case tracking-normal opacity-60">
-                {{ formatHoverTime(hoveredHost[host]!.x) }}
-              </span>
-              <span
-                class="font-bold normal-case tracking-normal"
-                :style="{ color: accentColors[i % accentColors.length] }"
-              >
-                {{ (hoveredHost[host]![host] as number) ?? 0 }}
+              <span class="ml-auto font-normal normal-case tracking-normal">
+                <span
+                  class="font-bold"
+                  :style="{ color: accentColors[i % accentColors.length] }"
+                >{{ (hoveredHost[host]![host] as number) ?? 0 }}</span>
+                <span class="opacity-60"> - {{ formatHoverTime(hoveredHost[host]!.x) }}</span>
               </span>
             </template>
           </h3>
@@ -591,14 +589,12 @@ onUnmounted(() => {
             />
             {{ service }}
             <template v-if="hoveredService[service]">
-              <span class="ml-auto font-normal normal-case tracking-normal opacity-60">
-                {{ formatHoverTime(hoveredService[service]!.x) }}
-              </span>
-              <span
-                class="font-bold normal-case tracking-normal"
-                :style="{ color: accentColors[i % accentColors.length] }"
-              >
-                {{ (hoveredService[service]![service] as number) ?? 0 }}
+              <span class="ml-auto font-normal normal-case tracking-normal">
+                <span
+                  class="font-bold"
+                  :style="{ color: accentColors[i % accentColors.length] }"
+                >{{ (hoveredService[service]![service] as number) ?? 0 }}</span>
+                <span class="opacity-60"> - {{ formatHoverTime(hoveredService[service]!.x) }}</span>
               </span>
             </template>
           </h3>
