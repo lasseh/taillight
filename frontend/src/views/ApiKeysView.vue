@@ -167,7 +167,7 @@ onMounted(fetchKeys)
         <div class="flex items-center justify-between">
           <div>
             <h2 class="text-t-fg text-base font-semibold">API Keys</h2>
-            <p class="text-t-fg-dark mt-1 text-sm">manage keys used to authenticate with the api</p>
+            <p class="text-t-fg-dark mt-1 text-sm">manage keys used to authenticate with the api — <a href="/api/docs" target="_blank" class="text-t-blue hover:brightness-125">api docs</a></p>
           </div>
           <button
             v-if="!showCreate"
