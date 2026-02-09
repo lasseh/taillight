@@ -97,13 +97,13 @@ const { height: servicesListHeight } = useElementSize(servicesListEl)
 
 const visibleHosts = computed(() => {
   if (!home.syslogSummary) return []
-  const count = Math.max(1, Math.floor(hostsListHeight.value / ITEM_HEIGHT))
+  const count = Math.max(5, Math.floor(hostsListHeight.value / ITEM_HEIGHT))
   return (home.syslogSummary.top_hosts ?? []).slice(0, count)
 })
 
 const visibleServices = computed(() => {
   if (!home.applogSummary) return []
-  const count = Math.max(1, Math.floor(servicesListHeight.value / ITEM_HEIGHT))
+  const count = Math.max(5, Math.floor(servicesListHeight.value / ITEM_HEIGHT))
   return (home.applogSummary.top_services ?? []).slice(0, count)
 })
 
@@ -237,7 +237,7 @@ function getSeverityBgClass(level: string): string {
             <!-- Top Hosts -->
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
               <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Hosts</h3>
-              <div ref="hostsListEl" class="flex-1 space-y-2 overflow-hidden">
+              <div ref="hostsListEl" class="min-h-[120px] flex-1 space-y-2 overflow-hidden">
                 <div
                   v-for="(host, idx) in visibleHosts"
                   :key="host.name"
@@ -375,7 +375,7 @@ function getSeverityBgClass(level: string): string {
             <!-- Top Services -->
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
               <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Services</h3>
-              <div ref="servicesListEl" class="flex-1 space-y-2 overflow-hidden">
+              <div ref="servicesListEl" class="min-h-[120px] flex-1 space-y-2 overflow-hidden">
                 <div
                   v-for="(service, idx) in visibleServices"
                   :key="service.name"
