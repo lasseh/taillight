@@ -1,4 +1,4 @@
-CREATE TABLE analysis_reports (
+CREATE TABLE IF NOT EXISTS analysis_reports (
     id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     generated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     model             TEXT NOT NULL,
@@ -11,4 +11,4 @@ CREATE TABLE analysis_reports (
     status            TEXT NOT NULL DEFAULT 'completed'
 );
 
-CREATE INDEX idx_analysis_reports_generated ON analysis_reports (generated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analysis_reports_generated ON analysis_reports (generated_at DESC);

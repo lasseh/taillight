@@ -255,7 +255,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_login_at TIMESTAMPTZ
 );
-CREATE UNIQUE INDEX idx_users_username ON users (LOWER(username));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (LOWER(username));
 
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash   TEXT PRIMARY KEY,
