@@ -114,7 +114,7 @@ function onKeydown(e: KeyboardEvent) {
             @keydown="onSearchKeydown"
           />
         </div>
-        <div class="overflow-y-auto py-1" style="max-height: 20rem">
+        <div class="overflow-y-auto py-1">
           <button
             type="button"
             role="option"
