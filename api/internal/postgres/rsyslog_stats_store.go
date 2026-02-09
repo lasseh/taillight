@@ -3,10 +3,13 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/lasseh/taillight/internal/model"
 )
@@ -90,7 +93,10 @@ func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Durati
 			"suspended": suspended,
 			"maxqsize":  maxqsize,
 		}
-		statsJSON, _ := json.Marshal(statsMap)
+		statsJSON, err := json.Marshal(statsMap)
+		if err != nil {
+			return model.RsyslogStatsSummary{}, fmt.Errorf("marshal component stats: %w", err)
+		}
 
 		comp := model.RsyslogStatsComponent{
 			Origin: origin,
@@ -138,7 +144,9 @@ func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Durati
 		 ORDER BY collected_at DESC
 		 LIMIT 1`, innerStatsExpr)
 
-	_ = s.pool.QueryRow(ctx, sizeQuery, since).Scan(&summary.MainQueueSize)
+	if err := s.pool.QueryRow(ctx, sizeQuery, since).Scan(&summary.MainQueueSize); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return model.RsyslogStatsSummary{}, fmt.Errorf("rsyslog main queue size: %w", err)
+	}
 
 	// Compute rates. Clamp filter rate to [0,100] — processed can exceed
 	// submitted when internal actions (impstats pipeline) are counted.
