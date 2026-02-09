@@ -76,7 +76,7 @@ function onKeydown(e: KeyboardEvent) {
             :class="
               !model
                 ? 'bg-t-bg-highlight text-t-fg'
-                : 'text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg'
+                : 'text-t-fg hover:bg-t-bg-hover'
             "
             @click="select('')"
           >
@@ -93,7 +93,7 @@ function onKeydown(e: KeyboardEvent) {
             :class="
               model === opt.value
                 ? 'bg-t-bg-highlight text-t-fg'
-                : 'text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg'
+                : 'text-t-fg hover:bg-t-bg-hover'
             "
             @click="select(opt.value)"
           >
