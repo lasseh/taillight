@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/lasseh/taillight/actions/workflows/ci.yml/badge.svg)](https://github.com/lasseh/taillight/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev)
 
 Real-time syslog and application log viewer. Streams filtered log events from TimescaleDB to browser clients via Server-Sent Events.
 
