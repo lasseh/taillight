@@ -30,6 +30,20 @@ rsyslog (ompgsql) -> PostgreSQL -> LISTEN/NOTIFY -> Go SSE backend -> browser Ev
 3. The Go backend holds a persistent `LISTEN` connection and fans out events to SSE clients
 4. The Vue frontend connects via `EventSource` for live updates and queries the API for history
 
+## Screenshots
+
+**Home** — at-a-glance severity stats, top hosts, and recent high-severity events for both syslog and applog
+
+![Home](docs/screenshots/home.png)
+
+**Syslog stream** — real-time filtered event stream with severity, host, program, and full-text search
+
+![Syslog stream](docs/screenshots/syslog-stream.png)
+
+**Dashboard** — per-host volume charts with selectable time ranges
+
+![Dashboard](docs/screenshots/dashboard.png)
+
 ## Components
 
 | Directory | Description |
