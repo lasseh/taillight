@@ -16,15 +16,6 @@ If you discover a security vulnerability in Taillight, please report it responsi
 2. Click "Report a vulnerability"
 3. Fill out the form with details about the vulnerability
 
-### Via Email
-
-Send an email to the maintainer with:
-
-- A description of the vulnerability
-- Steps to reproduce the issue
-- The potential impact
-- Any suggested fixes (optional)
-
 ### What to Expect
 
 - **Acknowledgment** within 48 hours of your report
