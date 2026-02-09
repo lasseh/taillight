@@ -274,6 +274,7 @@ set system syslog host 10.0.0.50 any notice
 set system syslog host 10.0.0.50 port 514
 set system syslog host 10.0.0.50 source-address 10.0.1.1
 set system syslog host 10.0.0.50 structured-data
+set system syslog host 10.0.0.50 allow-duplicates
 ```
 
 Replace `10.0.0.50` with the rsyslog collector IP and `10.0.1.1` with the device's loopback/management address.
