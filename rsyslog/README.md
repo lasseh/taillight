@@ -263,9 +263,40 @@ The Go backend calls `LISTEN syslog_ingest`, receives each ID, fetches the row, 
 | 500 k    | 512 B   | 244 MB | 7.2 GB  | ~720 MB              |
 | 1 M      | 512 B   | 488 MB | 14.3 GB | ~1.4 GB              |
 
+## Juniper device configuration
+
+All Juniper devices must send RFC 5424 structured-data syslog for the filters to work. Without `structured-data`, the `$msgid`, `$app-name`, and `$structured-data` fields are empty and all msgid-based filters silently match nothing.
+
+**Remote syslog host (required):**
+
+```
+set system syslog host 10.0.0.50 any notice
+set system syslog host 10.0.0.50 port 514
+set system syslog host 10.0.0.50 source-address 10.0.1.1
+set system syslog host 10.0.0.50 structured-data
+```
+
+Replace `10.0.0.50` with the rsyslog collector IP and `10.0.1.1` with the device's loopback/management address.
+
+**Why `any notice`?** Sends severity 0-5 (emergency through notice), dropping info/debug chatter that rsyslog would filter out anyway. This covers BGP state changes, interface up/down, UI_COMMIT, hardware alarms, OSPF/IS-IS adjacency changes, and authentication failures. Use `any info` per-device when debugging.
+
+**Optional: suppress trailing English text:**
+
+```
+set system syslog host 10.0.0.50 structured-data brief
+```
+
+`brief` saves bandwidth but removes the English message text that exception keyword filters (`$msg contains "error"`) match against. Start without `brief` until all filters use `$msgid`-only matching.
+
+**Notes:**
+
+- When `structured-data` is set, `explicit-priority` and `time-format` statements are ignored (structured format includes priority, year, and milliseconds by default)
+- Starting in Junos 19.2R1, you cannot combine `structured-data` with other format statements on the same host (commit error)
+- `structured-data` applies per-host, so you can enable it for the rsyslog collector while keeping a different format on console/local files
+
 ## Requirements
 
 - rsyslog 8.x with `mmpstrucdata` module (`rsyslog-mmpstrucdata` package)
-- Juniper devices sending RFC 5424 format syslog
+- Juniper devices sending RFC 5424 structured-data syslog (see above)
 - PostgreSQL and `rsyslog-pgsql` package (optional, for live log viewer SSE backend)
 - Docker (optional, for isolated testing)
