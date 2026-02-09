@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -167,8 +168,10 @@ func (s *AuthStore) GetSession(ctx context.Context, tokenHash string) (SessionWi
 
 	// Touch last_seen asynchronously — fire and forget.
 	go func() {
-		_, _ = s.pool.Exec(context.Background(),
-			`UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`, tokenHash)
+		if _, err := s.pool.Exec(context.Background(),
+			`UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`, tokenHash); err != nil {
+			slog.Warn("touch session last_seen", "err", err)
+		}
 	}()
 
 	return sw, nil
@@ -271,8 +274,10 @@ func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey
 
 	// Touch last_used asynchronously.
 	go func() {
-		_, _ = s.pool.Exec(context.Background(),
-			`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, kw.Key.ID)
+		if _, err := s.pool.Exec(context.Background(),
+			`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, kw.Key.ID); err != nil {
+			slog.Warn("touch api key last_used", "err", err)
+		}
 	}()
 
 	return kw, nil

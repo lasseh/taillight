@@ -58,7 +58,7 @@ func NewAppLogIngestHandler(store AppLogStore, b *broker.ApplogBroker, l *slog.L
 // Ingest handles POST /api/v1/applog/ingest.
 func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, applogMaxBodySize)
-	defer func() { _ = body.Close() }()
+	defer body.Close() //nolint:errcheck // MaxBytesReader close error is not actionable.
 
 	data, err := io.ReadAll(body)
 	if err != nil {
