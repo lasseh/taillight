@@ -85,7 +85,7 @@ func (h *SyslogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			if msg.ID <= lastBackfilledID {
 				continue
 			}
-			if err := writeSSE(w, msg.ID, msg.Data); err != nil {
+			if err := writeSSEEvent(w, msg.ID, "syslog", msg.Data); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -117,7 +117,7 @@ func (h *SyslogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 			if !ok {
 				continue
 			}
-			if err := writeSSE(w, events[i].ID, data); err != nil {
+			if err := writeSSEEvent(w, events[i].ID, "syslog", data); err != nil {
 				return lastID
 			}
 		}
@@ -140,7 +140,7 @@ func (h *SyslogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 		if !ok {
 			continue
 		}
-		if err := writeSSE(w, recent[i].ID, data); err != nil {
+		if err := writeSSEEvent(w, recent[i].ID, "syslog", data); err != nil {
 			return 0
 		}
 	}
@@ -167,7 +167,7 @@ func parseLastEventID(r *http.Request) int64 {
 	return id
 }
 
-func writeSSE(w http.ResponseWriter, id int64, data []byte) error {
-	_, err := fmt.Fprintf(w, "id: %d\nevent: syslog\ndata: %s\n\n", id, data)
+func writeSSEEvent(w http.ResponseWriter, id int64, event string, data []byte) error {
+	_, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", id, event, data)
 	return err
 }

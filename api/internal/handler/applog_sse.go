@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/lasseh/taillight/internal/broker"
@@ -84,7 +83,7 @@ func (h *AppLogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			if msg.ID <= lastBackfilledID {
 				continue
 			}
-			if err := applogWriteSSE(w, msg.ID, msg.Data); err != nil {
+			if err := writeSSEEvent(w, msg.ID, "applog", msg.Data); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -103,7 +102,7 @@ func (h *AppLogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 // highest event ID sent, so the caller can skip duplicates from the live channel.
 func (h *AppLogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filter model.AppLogFilter, flusher http.Flusher) int64 {
 	logger := LoggerFromContext(r.Context())
-	if lastID := applogParseLastEventID(r); lastID > 0 {
+	if lastID := parseLastEventID(r); lastID > 0 {
 		// Resume from where the client left off.
 		events, err := h.store.ListAppLogsSince(r.Context(), filter, lastID, applogSSEBackfillLimit)
 		if err != nil {
@@ -116,7 +115,7 @@ func (h *AppLogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 			if !ok {
 				continue
 			}
-			if err := applogWriteSSE(w, events[i].ID, data); err != nil {
+			if err := writeSSEEvent(w, events[i].ID, "applog", data); err != nil {
 				return lastID
 			}
 		}
@@ -139,7 +138,7 @@ func (h *AppLogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 		if !ok {
 			continue
 		}
-		if err := applogWriteSSE(w, recent[i].ID, data); err != nil {
+		if err := writeSSEEvent(w, recent[i].ID, "applog", data); err != nil {
 			return 0
 		}
 	}
@@ -149,24 +148,4 @@ func (h *AppLogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 		return recent[0].ID
 	}
 	return 0
-}
-
-func applogParseLastEventID(r *http.Request) int64 {
-	v := r.Header.Get("Last-Event-ID")
-	if v == "" {
-		v = r.URL.Query().Get("lastEventId")
-	}
-	if v == "" {
-		return 0
-	}
-	id, err := strconv.ParseInt(v, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return id
-}
-
-func applogWriteSSE(w http.ResponseWriter, id int64, data []byte) error {
-	_, err := fmt.Fprintf(w, "id: %d\nevent: applog\ndata: %s\n\n", id, data)
-	return err
 }
