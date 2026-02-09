@@ -2,6 +2,8 @@ import { ref, shallowRef, computed, watch, onScopeDispose, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useRoute } from 'vue-router'
 
+const MAX_EVENTS = 2000
+
 interface EventStoreConfig<TEvent extends { id: number }> {
   /** Pinia store identifier. */
   id: string
@@ -57,7 +59,8 @@ export function createEventStore<TEvent extends { id: number }>(
           _knownIds.delete(iter.next().value!)
         }
       }
-      events.value = [...events.value, event]
+      const next = [...events.value, event]
+      events.value = next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
     })
 
     let _abortController: AbortController | null = null
