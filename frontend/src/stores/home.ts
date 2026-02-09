@@ -58,14 +58,14 @@ export const useHomeStore = defineStore('home', () => {
       const res = await api.getSyslogSummary(range_.value)
       syslogSummary.value = res.data
     } catch (e) {
-      errors.push(e instanceof Error ? e.message : 'failed to load syslog summary')
+      errors.push(`syslog summary: ${e instanceof Error ? e.message : 'unknown error'}`)
     }
 
     try {
       const res = await api.getAppLogSummary(range_.value)
       applogSummary.value = res.data
     } catch (e) {
-      errors.push(e instanceof Error ? e.message : 'failed to load applog summary')
+      errors.push(`applog summary: ${e instanceof Error ? e.message : 'unknown error'}`)
     }
 
     error.value = errors.length > 0 ? errors.join('; ') : null
