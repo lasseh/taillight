@@ -67,7 +67,7 @@ function onKeydown(e: KeyboardEvent) {
         :aria-label="`${label} options`"
         class="bg-t-bg-dark border-t-border absolute left-0 top-full z-50 mt-1.5 w-max min-w-full rounded border shadow-lg"
       >
-        <div class="max-h-64 overflow-y-auto py-1">
+        <div class="overflow-y-auto py-1">
           <button
             type="button"
             role="option"
