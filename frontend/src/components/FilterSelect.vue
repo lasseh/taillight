@@ -51,11 +51,11 @@ function onKeydown(e: KeyboardEvent) {
         type="button"
         :aria-label="`Filter by ${label}`"
         :aria-expanded="open"
-        class="bg-t-bg-dark border-t-border text-t-fg cursor-pointer border px-2 py-0.5 text-xs transition-colors"
+        class="bg-t-bg-dark border-t-border text-t-fg cursor-pointer border px-2 py-0.5 text-left text-xs transition-colors"
         :class="open ? 'border-t-terminal' : 'hover:border-t-terminal'"
         @click="open = !open"
       >
-        <span class="invisible h-0 block">{{ longestLabel }}</span>
+        <span class="invisible block h-0">{{ longestLabel }}</span>
         <span>{{ selectedLabel }}</span>
       </button>
     </label>
