@@ -35,11 +35,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
+    # Note: no healthcheck — distroless image has no shell or wget.
+    # Use /health endpoint externally or add a healthcheck binary.
 
   frontend:
     build:
