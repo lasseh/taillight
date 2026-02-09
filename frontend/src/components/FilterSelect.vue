@@ -23,6 +23,14 @@ const selectedLabel = computed(() => {
   return match ? match.label : model.value
 })
 
+const longestLabel = computed(() => {
+  let longest = 'all'
+  for (const o of props.options) {
+    if (o.label.length > longest.length) longest = o.label
+  }
+  return longest
+})
+
 function select(value: string) {
   model.value = value
   open.value = false
@@ -47,7 +55,8 @@ function onKeydown(e: KeyboardEvent) {
         :class="open ? 'border-t-terminal' : 'hover:border-t-terminal'"
         @click="open = !open"
       >
-        {{ selectedLabel }}
+        <span class="invisible h-0 block">{{ longestLabel }}</span>
+        <span>{{ selectedLabel }}</span>
       </button>
     </label>
 
