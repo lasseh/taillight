@@ -51,8 +51,8 @@ func NewListener(connStr string, bufferSize int, logger *slog.Logger) *Listener 
 	return &Listener{connStr: connStr, bufferSize: bufferSize, logger: logger}
 }
 
-// Listen connects to PostgreSQL, runs LISTEN on syslog_ingest and
-// applog_ingest, and sends notifications on the returned channel.
+// Listen connects to PostgreSQL, runs LISTEN on syslog_ingest,
+// and sends notifications on the returned channel.
 // It reconnects automatically on connection loss.
 func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
 	conn, err := l.connect(ctx)
@@ -110,7 +110,7 @@ func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
 		}
 	}()
 
-	l.logger.Info("listening for notifications", "channels", []string{"syslog_ingest", "applog_ingest"})
+	l.logger.Info("listening for notifications", "channel", "syslog_ingest")
 	return ch, nil
 }
 
@@ -140,10 +140,6 @@ func (l *Listener) connect(ctx context.Context) (*pgx.Conn, error) {
 	if _, err := conn.Exec(ctx, "LISTEN syslog_ingest"); err != nil {
 		_ = conn.Close(ctx)
 		return nil, fmt.Errorf("listen syslog_ingest: %w", err)
-	}
-	if _, err := conn.Exec(ctx, "LISTEN applog_ingest"); err != nil {
-		_ = conn.Close(ctx)
-		return nil, fmt.Errorf("listen applog_ingest: %w", err)
 	}
 	return conn, nil
 }
