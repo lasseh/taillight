@@ -453,7 +453,8 @@ func (h *AuthHandler) SetUserActive(w http.ResponseWriter, r *http.Request) {
 }
 
 type updatePasswordRequest struct {
-	Password string `json:"password"`
+	Password        string `json:"password"`
+	CurrentPassword string `json:"current_password"`
 }
 
 // UpdateUserPassword handles PATCH /api/v1/auth/users/{id}/password.
@@ -480,6 +481,16 @@ func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request)
 	var req updatePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+		return
+	}
+
+	if req.CurrentPassword == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "current password is required")
+		return
+	}
+
+	if err := auth.CheckPassword(req.CurrentPassword, user.PasswordHash); err != nil {
+		writeError(w, http.StatusForbidden, "forbidden", "current password is incorrect")
 		return
 	}
 

@@ -67,7 +67,7 @@ async function changePassword() {
 
   saving.value = true
   try {
-    await api.updatePassword(auth.user.id, newPassword.value)
+    await api.updatePassword(auth.user.id, newPassword.value, currentPassword.value)
     passwordSuccess.value = 'password updated — logging out...'
     currentPassword.value = ''
     newPassword.value = ''

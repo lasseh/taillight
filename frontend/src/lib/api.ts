@@ -104,8 +104,8 @@ export const api = {
     return deleteAPI(`/api/v1/auth/keys/${id}`)
   },
 
-  updatePassword(id: string, password: string): Promise<{ status: string }> {
-    return patchAPI(`/api/v1/auth/users/${id}/password`, { password })
+  updatePassword(id: string, password: string, currentPassword: string): Promise<{ status: string }> {
+    return patchAPI(`/api/v1/auth/users/${id}/password`, { password, current_password: currentPassword })
   },
 
   updateEmail(email: string): Promise<MeResponse> {
