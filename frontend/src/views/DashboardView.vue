@@ -500,21 +500,22 @@ onUnmounted(() => {
       <!-- Chart 2: Individual bar chart per host -->
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <div v-for="(host, i) in dashboard.hosts" :key="host">
-          <h3 class="text-t-fg-dark mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+          <h3 class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
             <span
               class="inline-block h-2 w-2 rounded-sm"
               :style="{ backgroundColor: accentColors[i % accentColors.length] }"
             />
             {{ host }}
-            <template v-if="hoveredHost[host]">
-              <span class="ml-auto font-normal normal-case tracking-normal">
-                <span
-                  class="font-bold"
-                  :style="{ color: accentColors[i % accentColors.length] }"
-                >{{ (hoveredHost[host]![host] as number) ?? 0 }}</span>
-                <span class="opacity-60"> - {{ formatHoverTime(hoveredHost[host]!.x) }}</span>
-              </span>
-            </template>
+            <span
+              v-if="hoveredHost[host]"
+              class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
+            >
+              <span
+                class="font-bold"
+                :style="{ color: accentColors[i % accentColors.length] }"
+              >{{ (hoveredHost[host]![host] as number) ?? 0 }}</span>
+              <span class="opacity-60"> - {{ formatHoverTime(hoveredHost[host]!.x) }}</span>
+            </span>
           </h3>
           <div
             class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
@@ -582,21 +583,22 @@ onUnmounted(() => {
       <!-- Chart 2: Individual bar chart per service -->
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <div v-for="(service, i) in applogDashboard.services" :key="service">
-          <h3 class="text-t-fg-dark mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+          <h3 class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
             <span
               class="inline-block h-2 w-2 rounded-sm"
               :style="{ backgroundColor: accentColors[i % accentColors.length] }"
             />
             {{ service }}
-            <template v-if="hoveredService[service]">
-              <span class="ml-auto font-normal normal-case tracking-normal">
-                <span
-                  class="font-bold"
-                  :style="{ color: accentColors[i % accentColors.length] }"
-                >{{ (hoveredService[service]![service] as number) ?? 0 }}</span>
-                <span class="opacity-60"> - {{ formatHoverTime(hoveredService[service]!.x) }}</span>
-              </span>
-            </template>
+            <span
+              v-if="hoveredService[service]"
+              class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
+            >
+              <span
+                class="font-bold"
+                :style="{ color: accentColors[i % accentColors.length] }"
+              >{{ (hoveredService[service]![service] as number) ?? 0 }}</span>
+              <span class="opacity-60"> - {{ formatHoverTime(hoveredService[service]!.x) }}</span>
+            </span>
           </h3>
           <div
             class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
