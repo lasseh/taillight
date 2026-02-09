@@ -510,7 +510,7 @@ onUnmounted(() => {
               v-if="hoveredHost[host]"
               class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
             >
-              <span class="opacity-60">{{ formatHoverTime(hoveredHost[host]!.x) }} - </span>
+              <span class="text-t-fg-dark">{{ formatHoverTime(hoveredHost[host]!.x) }} - </span>
               <span
                 class="font-bold"
                 :style="{ color: accentColors[i % accentColors.length] }"
@@ -593,7 +593,7 @@ onUnmounted(() => {
               v-if="hoveredService[service]"
               class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
             >
-              <span class="opacity-60">{{ formatHoverTime(hoveredService[service]!.x) }} - </span>
+              <span class="text-t-fg-dark">{{ formatHoverTime(hoveredService[service]!.x) }} - </span>
               <span
                 class="font-bold"
                 :style="{ color: accentColors[i % accentColors.length] }"
