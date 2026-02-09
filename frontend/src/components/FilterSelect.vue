@@ -65,7 +65,7 @@ function onKeydown(e: KeyboardEvent) {
         v-if="open"
         role="listbox"
         :aria-label="`${label} options`"
-        class="bg-t-bg-dark border-t-border absolute left-0 top-full z-50 mt-1.5 min-w-36 rounded border shadow-lg"
+        class="bg-t-bg-dark border-t-border absolute left-0 top-full z-50 mt-1.5 min-w-full rounded border shadow-lg"
       >
         <div class="max-h-64 overflow-y-auto py-1">
           <button
