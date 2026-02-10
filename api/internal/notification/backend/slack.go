@@ -19,10 +19,6 @@ import (
 // slackConfig is the channel config schema for Slack.
 type slackConfig struct {
 	WebhookURL string `json:"webhook_url"`
-	Channel    string `json:"channel,omitempty"`
-	Username   string `json:"username,omitempty"`
-	IconEmoji  string `json:"icon_emoji,omitempty"`
-	IconURL    string `json:"icon_url,omitempty"`
 }
 
 // Slack implements the Notifier interface for Slack Incoming Webhooks.
@@ -66,7 +62,7 @@ func (s *Slack) Send(ctx context.Context, ch notification.Channel, payload notif
 		return notification.SendResult{Error: fmt.Errorf("parse slack config: %w", err), Duration: time.Since(start)}
 	}
 
-	msg := buildSlackMessage(cfg, payload)
+	msg := buildSlackMessage(payload)
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return notification.SendResult{Error: fmt.Errorf("marshal slack message: %w", err), Duration: time.Since(start)}
@@ -109,7 +105,7 @@ func (s *Slack) Send(ctx context.Context, ch notification.Channel, payload notif
 }
 
 // buildSlackMessage creates a Block Kit message from the payload.
-func buildSlackMessage(cfg slackConfig, p notification.Payload) map[string]any {
+func buildSlackMessage(p notification.Payload) map[string]any {
 	color := severityColor(p)
 	header := fmt.Sprintf("Taillight Alert: %s", p.RuleName)
 
@@ -180,7 +176,7 @@ func buildSlackMessage(cfg slackConfig, p notification.Payload) map[string]any {
 		},
 	}
 
-	msg := map[string]any{
+	return map[string]any{
 		"attachments": []map[string]any{
 			{
 				"color":  color,
@@ -188,21 +184,6 @@ func buildSlackMessage(cfg slackConfig, p notification.Payload) map[string]any {
 			},
 		},
 	}
-
-	if cfg.Channel != "" {
-		msg["channel"] = cfg.Channel
-	}
-	if cfg.Username != "" {
-		msg["username"] = cfg.Username
-	}
-	if cfg.IconEmoji != "" {
-		msg["icon_emoji"] = cfg.IconEmoji
-	}
-	if cfg.IconURL != "" {
-		msg["icon_url"] = cfg.IconURL
-	}
-
-	return msg
 }
 
 func slackField(label, value string) map[string]any {
