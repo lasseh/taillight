@@ -43,6 +43,18 @@ logshipper:
   min_level: "warn"      # Only ship warn and above to avoid feedback loops (debug, info, warn, error).
   # api_key: "changeme"  # Must match an entry in api_keys if auth is enabled.
 
+# Notification system — alert operators when log events match configurable rules.
+# Channels (Slack, webhooks) and rules are managed via the API or the ALERTS UI tab.
+notification:
+  enabled: false
+  # rule_refresh_interval: 30s    # How often rules/channels are reloaded from the database.
+  # dispatch_workers: 4           # Concurrent notification sender goroutines.
+  # dispatch_buffer: 1024         # Internal dispatch queue size.
+  # default_burst_window: 30s     # Collect matching events into one notification for this long.
+  # default_cooldown: 5m          # Suppress repeat notifications per rule after firing.
+  # send_timeout: 10s             # HTTP timeout for each backend send.
+  # global_rate_limit: 100        # Reserved for future use.
+
 # AI-powered daily syslog analysis using a local Ollama instance.
 # Produces a morning ops briefing covering incidents, anomalies, and correlations.
 analysis:
