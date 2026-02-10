@@ -354,7 +354,7 @@ onMounted(fetchData)
           class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 pt-10 pb-10"
           @click.self="closeModal"
         >
-          <div class="bg-t-bg-dark border-t-border w-full max-w-lg rounded border shadow-xl">
+          <div class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl">
             <!-- Modal header -->
             <div class="border-t-border flex items-center justify-between border-b px-5 py-3">
               <h3 class="text-t-fg text-sm font-semibold">{{ editing ? 'Edit Rule' : 'Add Rule' }}</h3>

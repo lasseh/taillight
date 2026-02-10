@@ -61,9 +61,14 @@ export function highlightMessage(id: number, msg: string): string {
   result = Prism.highlight(msg, Prism.languages['log']!, 'log')
   cache.set(id, result)
 
+  // Batch-evict oldest 500 entries when cache exceeds 3000 to avoid
+  // running eviction on every subsequent insert.
   if (cache.size > 3000) {
-    const first = cache.keys().next().value
-    if (first !== undefined) cache.delete(first)
+    const iter = cache.keys()
+    for (let i = 0; i < 500; i++) {
+      const key = iter.next().value
+      if (key !== undefined) cache.delete(key)
+    }
   }
 
   return result

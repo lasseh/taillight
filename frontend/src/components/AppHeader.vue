@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useNotifications } from '@/composables/useNotifications'
@@ -12,6 +12,8 @@ const auth = useAuthStore()
 const scrollStore = useScrollStore()
 const { supported, permission, enabled, requestPermission, setEnabled } = useNotifications()
 const { themes, themeId, setTheme } = useTheme()
+
+const isAuthenticated = computed(() => auth.user?.username !== 'anonymous')
 
 function navigateToLog(routeName: 'syslog' | 'applog') {
   scrollStore.requestScrollToBottom(routeName)
@@ -48,6 +50,16 @@ function goToApiKeys() {
   menuOpen.value = false
   closeMobileMenu()
   router.push({ name: 'api-keys' })
+}
+
+async function handleLogout() {
+  menuOpen.value = false
+  closeMobileMenu()
+  try {
+    await auth.logout()
+  } catch (e) {
+    console.error('logout failed', e)
+  }
 }
 
 function onClickOutside(e: MouseEvent) {
@@ -181,7 +193,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             </div>
 
             <!-- Settings section (authenticated only) -->
-            <div v-if="auth.user?.username !== 'anonymous'" class="border-t-border border-b py-1">
+            <div v-if="isAuthenticated" class="border-t-border border-b py-1">
               <span class="text-t-fg-dark px-3 py-1 text-[10px] font-semibold uppercase tracking-wider">Settings</span>
               <button
                 class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
@@ -232,10 +244,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             </div>
 
             <!-- Logout (authenticated only) -->
-            <div v-if="auth.user?.username !== 'anonymous'" class="border-t-border border-t py-1">
+            <div v-if="isAuthenticated" class="border-t-border border-t py-1">
               <button
                 class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-red flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="menuOpen = false; auth.logout()"
+                @click="handleLogout"
               >
                 <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -351,7 +363,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         </div>
 
         <!-- Settings section (authenticated only) -->
-        <template v-if="auth.user?.username !== 'anonymous'">
+        <template v-if="isAuthenticated">
           <div class="bg-t-border my-3 h-px"></div>
           <span class="text-t-fg-dark px-2 py-1 text-[10px] font-semibold uppercase tracking-wider">Settings</span>
           <div class="flex flex-col gap-1">
@@ -425,9 +437,9 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           </button>
           <div class="flex-1" />
           <button
-            v-if="auth.user?.username !== 'anonymous'"
+            v-if="isAuthenticated"
             class="text-t-fg-dark hover:text-t-red flex items-center gap-1 text-xs transition-colors"
-            @click="auth.logout(); closeMobileMenu()"
+            @click="handleLogout"
           >
             <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

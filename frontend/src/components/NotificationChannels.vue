@@ -104,7 +104,7 @@ function buildConfig(): Record<string, unknown> {
     try {
       cfg.headers = JSON.parse(formWebhookHeaders.value)
     } catch {
-      // Will be caught as saveError
+      throw new Error('Invalid JSON in webhook headers')
     }
   }
   if (formWebhookTemplate.value.trim()) {
@@ -144,7 +144,7 @@ async function saveChannel() {
     }
     closeModal()
   } catch (e) {
-    saveError.value = e instanceof ApiError ? e.message : 'Failed to save channel'
+    saveError.value = e instanceof Error ? e.message : 'Failed to save channel'
   } finally {
     saving.value = false
   }
