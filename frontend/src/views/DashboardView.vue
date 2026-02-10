@@ -498,7 +498,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Chart 2: Individual bar chart per host -->
-      <div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+      <div v-if="dashboard.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <div v-for="(host, i) in dashboard.hosts" :key="host">
           <h3 class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
             <span
@@ -537,6 +537,10 @@ onUnmounted(() => {
             </VisXYContainer>
           </div>
         </div>
+      </div>
+      <div v-else-if="!dashboard.loading && !dashboard.error"
+        class="bg-t-bg-dark border-t-border text-t-fg-dark flex items-center justify-center rounded border py-16 text-sm">
+        No data for the selected time range. Try a longer period.
       </div>
     </template>
 
@@ -581,7 +585,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Chart 2: Individual bar chart per service -->
-      <div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+      <div v-if="applogDashboard.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <div v-for="(service, i) in applogDashboard.services" :key="service">
           <h3 class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
             <span
@@ -620,6 +624,10 @@ onUnmounted(() => {
             </VisXYContainer>
           </div>
         </div>
+      </div>
+      <div v-else-if="!applogDashboard.loading && !applogDashboard.error"
+        class="bg-t-bg-dark border-t-border text-t-fg-dark flex items-center justify-center rounded border py-16 text-sm">
+        No data for the selected time range. Try a longer period.
       </div>
     </template>
 
