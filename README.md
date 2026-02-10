@@ -16,6 +16,7 @@ Real-time syslog and application log viewer. Streams filtered log events from Ti
 - **User authentication** — session-based auth with API key support for ingest
 - **Juniper reference data** — import syslog message definitions from Juniper XLSX files
 - **Load generators** — built-in tools for generating test syslog and app log events
+- **Notification system** — pluggable alert rules with Slack and webhook backends, burst windows, and cooldown anti-spam
 - **Prometheus metrics** — `/metrics` endpoint for monitoring
 - **Docker Compose** — one-command deployment of the full stack
 
@@ -300,6 +301,7 @@ Juniper syslog XLSX files are not included in the repository. Download them from
 - [Overview](docs/OVERVIEW.md) -- features, quickstart, configuration, CLI reference
 - [Architecture](docs/ARCHITECTURE.md) -- system design, data flow diagrams, deployment topology
 - [Internals](docs/INTERNALS.md) -- deep dive into SSE brokers, LISTEN/NOTIFY, schema, auth, frontend stores
+- [Notifications](docs/NOTIFICATIONS.md) -- notification system setup, channels, rules, anti-spam, and API reference
 - [API Reference](api/API.md) -- HTTP endpoints
 - [rsyslog README](rsyslog/README.md) -- rsyslog configuration and deployment
 
