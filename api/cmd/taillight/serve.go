@@ -26,6 +26,8 @@ import (
 	"github.com/lasseh/taillight/internal/config"
 	"github.com/lasseh/taillight/internal/handler"
 	"github.com/lasseh/taillight/internal/metrics"
+	"github.com/lasseh/taillight/internal/notification"
+	"github.com/lasseh/taillight/internal/notification/backend"
 	"github.com/lasseh/taillight/internal/ollama"
 	"github.com/lasseh/taillight/internal/postgres"
 	"github.com/lasseh/taillight/internal/scheduler"
@@ -78,7 +80,25 @@ func runServe(_ *cobra.Command, _ []string) error {
 	syslogBroker := broker.NewSyslogBroker(logger)
 	applogBroker := broker.NewApplogBroker(logger)
 
-	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, syslogBroker)
+	// Notification engine (optional).
+	var notifEngine *notification.Engine
+	if cfg.Notification.Enabled {
+		notifEngine = notification.NewEngine(store, notification.Config{
+			Enabled:             cfg.Notification.Enabled,
+			RuleRefreshInterval: cfg.Notification.RuleRefreshInterval,
+			DispatchWorkers:     cfg.Notification.DispatchWorkers,
+			DispatchBuffer:      cfg.Notification.DispatchBuffer,
+			DefaultBurstWindow:  cfg.Notification.DefaultBurstWindow,
+			DefaultCooldown:     cfg.Notification.DefaultCooldown,
+			SendTimeout:         cfg.Notification.SendTimeout,
+			GlobalRateLimit:     cfg.Notification.GlobalRateLimit,
+		}, logger)
+		notifEngine.RegisterBackend(notification.ChannelTypeSlack, backend.NewSlack(logger))
+		notifEngine.RegisterBackend(notification.ChannelTypeWebhook, backend.NewWebhook(logger))
+		notifEngine.Start(ctx)
+	}
+
+	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, syslogBroker, notifEngine)
 
 	// Analysis (optional).
 	var analysisHandler *handler.AnalysisHandler
@@ -86,7 +106,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		analysisHandler = setupAnalysis(ctx, cfg, store, logger)
 	}
 
-	r := setupRouter(cfg, logger, store, authStore, syslogBroker, applogBroker, analysisHandler)
+	r := setupRouter(cfg, logger, store, authStore, syslogBroker, applogBroker, analysisHandler, notifEngine)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -118,6 +138,13 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
+
+	// Shutdown notification engine (drain dispatch queue).
+	if notifEngine != nil {
+		if err := notifEngine.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("notification engine shutdown error", "err", err)
+		}
+	}
 
 	// Shutdown metrics server.
 	if metricsSrv != nil {
@@ -183,6 +210,7 @@ func startBackgroundWorkers(
 	pool *pgxpool.Pool,
 	notifications <-chan postgres.Notification,
 	syslogBroker *broker.SyslogBroker,
+	notifEngine *notification.Engine,
 ) {
 	// Bridge: fetch each notified row by ID and broadcast to SSE clients.
 	go func() {
@@ -195,6 +223,9 @@ func startBackgroundWorkers(
 					continue
 				}
 				syslogBroker.Broadcast(event)
+				if notifEngine != nil {
+					notifEngine.HandleSyslogEvent(event)
+				}
 			}
 		}
 	}()
@@ -271,6 +302,7 @@ func setupRouter(
 	syslogBroker *broker.SyslogBroker,
 	applogBroker *broker.ApplogBroker,
 	analysisHandler *handler.AnalysisHandler,
+	notifEngine *notification.Engine,
 ) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -321,11 +353,12 @@ func setupRouter(
 	syslogSSEHandler := handler.NewSyslogSSEHandler(syslogBroker, store, logger)
 
 	// Applog handlers.
-	applogIngestHandler := handler.NewAppLogIngestHandler(store, applogBroker, logger)
+	applogIngestHandler := handler.NewAppLogIngestHandler(store, applogBroker, logger, notifEngine)
 	applogHandler := handler.NewAppLogHandler(store)
 	applogSSEHandler := handler.NewAppLogSSEHandler(applogBroker, store, logger)
 	applogMetaHandler := handler.NewAppLogMetaHandler(store)
 	authHandler := handler.NewAuthHandler(authStore)
+	notifHandler := handler.NewNotificationHandler(store, notifEngine)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.AuthEnabled {
@@ -448,6 +481,26 @@ func setupRouter(
 				}
 				r.Post("/ingest", applogIngestHandler.Ingest)
 			})
+		})
+
+		// Notification endpoints.
+		r.Route("/notifications", func(r chi.Router) {
+			r.Use(middleware.Timeout(30 * time.Second))
+
+			r.Get("/channels", notifHandler.ListChannels)
+			r.Post("/channels", notifHandler.CreateChannel)
+			r.Get("/channels/{id}", notifHandler.GetChannel)
+			r.Put("/channels/{id}", notifHandler.UpdateChannel)
+			r.Delete("/channels/{id}", notifHandler.DeleteChannel)
+			r.Post("/channels/{id}/test", notifHandler.TestChannel)
+
+			r.Get("/rules", notifHandler.ListRules)
+			r.Post("/rules", notifHandler.CreateRule)
+			r.Get("/rules/{id}", notifHandler.GetRule)
+			r.Put("/rules/{id}", notifHandler.UpdateRule)
+			r.Delete("/rules/{id}", notifHandler.DeleteRule)
+
+			r.Get("/log", notifHandler.ListLog)
 		})
 	})
 

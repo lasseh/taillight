@@ -140,4 +140,56 @@ var (
 		Help:      "Duration of analysis runs in seconds.",
 		Buckets:   []float64{30, 60, 120, 300, 600},
 	})
+
+	// Notification metrics.
+
+	// NotifRulesEvaluatedTotal counts events × rules evaluated.
+	NotifRulesEvaluatedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "notification_rules_evaluated_total",
+		Help:      "Total number of rule evaluations against events.",
+	})
+
+	// NotifRulesMatchedTotal counts rule matches.
+	NotifRulesMatchedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "notification_rules_matched_total",
+		Help:      "Total number of rule matches.",
+	})
+
+	// NotifDispatchedTotal counts notifications sent to the dispatch queue.
+	NotifDispatchedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "notification_dispatched_total",
+		Help:      "Total number of notifications dispatched.",
+	})
+
+	// NotifSentTotal counts delivery outcomes by channel type and status.
+	NotifSentTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "notification_sent_total",
+		Help:      "Total number of notification send attempts by outcome.",
+	}, []string{"channel_type", "status"})
+
+	// NotifSuppressedTotal counts suppressed notifications by reason.
+	NotifSuppressedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "notification_suppressed_total",
+		Help:      "Total number of suppressed notifications by reason.",
+	}, []string{"reason"})
+
+	// NotifSendDuration tracks notification send latency.
+	NotifSendDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "taillight",
+		Name:      "notification_send_duration_seconds",
+		Help:      "Duration of notification send operations in seconds.",
+		Buckets:   prometheus.DefBuckets,
+	})
+
+	// NotifDispatchQueueLen tracks current dispatch queue depth.
+	NotifDispatchQueueLen = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "taillight",
+		Name:      "notification_dispatch_queue_length",
+		Help:      "Current number of notifications in the dispatch queue.",
+	})
 )

@@ -13,6 +13,7 @@ import (
 	"github.com/lasseh/taillight/internal/broker"
 	"github.com/lasseh/taillight/internal/metrics"
 	"github.com/lasseh/taillight/internal/model"
+	"github.com/lasseh/taillight/internal/notification"
 )
 
 const (
@@ -45,14 +46,15 @@ type ApplogIngestEntry struct {
 
 // AppLogIngestHandler handles POST /api/v1/applog/ingest.
 type AppLogIngestHandler struct {
-	store  AppLogStore
-	broker *broker.ApplogBroker
-	logger *slog.Logger
+	store       AppLogStore
+	broker      *broker.ApplogBroker
+	logger      *slog.Logger
+	notifEngine *notification.Engine
 }
 
 // NewAppLogIngestHandler creates a new AppLogIngestHandler.
-func NewAppLogIngestHandler(store AppLogStore, b *broker.ApplogBroker, l *slog.Logger) *AppLogIngestHandler {
-	return &AppLogIngestHandler{store: store, broker: b, logger: l}
+func NewAppLogIngestHandler(store AppLogStore, b *broker.ApplogBroker, l *slog.Logger, engine *notification.Engine) *AppLogIngestHandler {
+	return &AppLogIngestHandler{store: store, broker: b, logger: l, notifEngine: engine}
 }
 
 // Ingest handles POST /api/v1/applog/ingest.
@@ -157,9 +159,12 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	metrics.ApplogIngestBatchesTotal.Inc()
 	metrics.ApplogIngestTotal.Add(float64(len(inserted)))
 
-	// Broadcast to SSE clients.
+	// Broadcast to SSE clients and notification engine.
 	for i := range inserted {
 		h.broker.Broadcast(inserted[i])
+		if h.notifEngine != nil {
+			h.notifEngine.HandleAppLogEvent(inserted[i])
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

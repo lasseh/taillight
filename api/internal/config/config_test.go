@@ -3,6 +3,7 @@ package config
 import (
 	"log/slog"
 	"testing"
+	"time"
 )
 
 func TestParseLogLevel(t *testing.T) {
@@ -82,6 +83,27 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Analysis.NumCtx != 8192 {
 		t.Errorf("Analysis.NumCtx = %d, want %d", cfg.Analysis.NumCtx, 8192)
+	}
+	if cfg.Notification.Enabled {
+		t.Error("Notification.Enabled should be false by default")
+	}
+	if cfg.Notification.DispatchWorkers != 4 {
+		t.Errorf("Notification.DispatchWorkers = %d, want %d", cfg.Notification.DispatchWorkers, 4)
+	}
+	if cfg.Notification.DispatchBuffer != 1024 {
+		t.Errorf("Notification.DispatchBuffer = %d, want %d", cfg.Notification.DispatchBuffer, 1024)
+	}
+	if cfg.Notification.DefaultBurstWindow != 30*time.Second {
+		t.Errorf("Notification.DefaultBurstWindow = %v, want %v", cfg.Notification.DefaultBurstWindow, 30*time.Second)
+	}
+	if cfg.Notification.DefaultCooldown != 5*time.Minute {
+		t.Errorf("Notification.DefaultCooldown = %v, want %v", cfg.Notification.DefaultCooldown, 5*time.Minute)
+	}
+	if cfg.Notification.SendTimeout != 10*time.Second {
+		t.Errorf("Notification.SendTimeout = %v, want %v", cfg.Notification.SendTimeout, 10*time.Second)
+	}
+	if cfg.Notification.GlobalRateLimit != 100 {
+		t.Errorf("Notification.GlobalRateLimit = %d, want %d", cfg.Notification.GlobalRateLimit, 100)
 	}
 }
 

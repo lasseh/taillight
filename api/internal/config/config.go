@@ -26,6 +26,19 @@ type Config struct {
 	NotificationBufferSize int      // LISTEN/NOTIFY channel buffer size (0 = default 1024).
 	LogShipper             LogShipperConfig
 	Analysis               AnalysisConfig
+	Notification           NotificationConfig
+}
+
+// NotificationConfig configures the pluggable notification engine.
+type NotificationConfig struct {
+	Enabled             bool
+	RuleRefreshInterval time.Duration
+	DispatchWorkers     int
+	DispatchBuffer      int
+	DefaultBurstWindow  time.Duration
+	DefaultCooldown     time.Duration
+	SendTimeout         time.Duration
+	GlobalRateLimit     int
 }
 
 // LogShipperConfig configures the built-in log shipper that sends taillight's
@@ -79,6 +92,14 @@ func Load() (Config, error) {
 	v.SetDefault("analysis.temperature", 0.3)
 	v.SetDefault("analysis.num_ctx", 8192)
 	v.SetDefault("analysis.schedule_at", "03:00")
+	v.SetDefault("notification.enabled", false)
+	v.SetDefault("notification.rule_refresh_interval", "30s")
+	v.SetDefault("notification.dispatch_workers", 4)
+	v.SetDefault("notification.dispatch_buffer", 1024)
+	v.SetDefault("notification.default_burst_window", "30s")
+	v.SetDefault("notification.default_cooldown", "5m")
+	v.SetDefault("notification.send_timeout", "10s")
+	v.SetDefault("notification.global_rate_limit", 100)
 
 	// Config file.
 	v.SetConfigName("config")
@@ -128,6 +149,16 @@ func Load() (Config, error) {
 			Temperature: v.GetFloat64("analysis.temperature"),
 			NumCtx:      v.GetInt("analysis.num_ctx"),
 			ScheduleAt:  v.GetString("analysis.schedule_at"),
+		},
+		Notification: NotificationConfig{
+			Enabled:             v.GetBool("notification.enabled"),
+			RuleRefreshInterval: v.GetDuration("notification.rule_refresh_interval"),
+			DispatchWorkers:     v.GetInt("notification.dispatch_workers"),
+			DispatchBuffer:      v.GetInt("notification.dispatch_buffer"),
+			DefaultBurstWindow:  v.GetDuration("notification.default_burst_window"),
+			DefaultCooldown:     v.GetDuration("notification.default_cooldown"),
+			SendTimeout:         v.GetDuration("notification.send_timeout"),
+			GlobalRateLimit:     v.GetInt("notification.global_rate_limit"),
 		},
 	}, nil
 }
