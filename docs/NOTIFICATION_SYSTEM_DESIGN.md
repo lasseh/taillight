@@ -32,8 +32,13 @@ HTTP POST ──► AppLogIngestHandler ──► ApplogBroker ──► SSE    
                                   └──► NotifEngine.HandleAppLogEvent()
                                                                   │
                                                            ┌──────▼──────┐
-                                                           │ Cooldown    │ ← suppresses repeats
-                                                           │ check       │
+                                                           │ Burst       │ ← collect events
+                                                           │ window      │   for 30s
+                                                           └──────┬──────┘
+                                                                  │ (window closes)
+                                                           ┌──────▼──────┐
+                                                           │ Cooldown    │ ← suppress if
+                                                           │ check       │   recently sent
                                                            └──────┬──────┘
                                                                   │ (pass)
                                                            ┌──────▼──────┐
@@ -69,7 +74,7 @@ api/internal/notification/
     engine.go          — Engine: rule eval, dispatch queue, lifecycle
     rule.go            — Rule, Channel domain types, filter converters
     cooldown.go        — In-memory per-rule cooldown tracker
-    grouper.go         — Keyed batch collector (group_wait/group_interval)
+    burstwatcher.go    — Per-rule burst window collector
     ratelimit.go       — Per-key token bucket rate limiter
     backend/
         slack.go       — Slack Incoming Webhook (Block Kit)
@@ -126,9 +131,9 @@ type Payload struct {
     Kind        EventKind
     RuleName    string
     Timestamp   time.Time
-    AlertCount  int                 // number of events in this group (≥1)
-    SyslogEvent *model.SyslogEvent  // populated when Kind == EventKindSyslog
-    AppLogEvent *model.AppLogEvent  // populated when Kind == EventKindAppLog
+    EventCount  int                 // number of events in this burst (≥1)
+    SyslogEvent *model.SyslogEvent  // the triggering event (first in burst)
+    AppLogEvent *model.AppLogEvent  // the triggering event (first in burst)
     BaseURL     string              // taillight UI base URL for deep links
 }
 ```
@@ -220,11 +225,9 @@ type Rule struct {
     Search string `json:"search,omitempty"`
 
     // Notification behavior.
-    ChannelIDs      []int64       `json:"channel_ids"`
-    CooldownSeconds int           `json:"cooldown_seconds"` // default 300 (5 min)
-    GroupWait       time.Duration `json:"group_wait"`       // default 30s
-    GroupInterval   time.Duration `json:"group_interval"`   // default 5m
-    RepeatInterval  time.Duration `json:"repeat_interval"`  // default 4h
+    ChannelIDs      []int64 `json:"channel_ids"`
+    BurstWindow     int     `json:"burst_window"`     // seconds to collect events before sending (default 30)
+    CooldownSeconds int     `json:"cooldown_seconds"` // seconds to suppress after sending (default 300)
 }
 
 // SyslogFilter converts the rule's filter fields to a model.SyslogFilter
@@ -243,8 +246,8 @@ type Engine struct {
     backends   map[ChannelType]Notifier
     channels   []Channel            // in-memory cache, refreshed periodically
     rules      []Rule               // in-memory cache, refreshed periodically
-    cooldowns  *CooldownTracker
-    grouper    *Grouper
+    bursts     *BurstWatcher        // per-rule burst window collector
+    cooldowns  *CooldownTracker     // per-rule post-send cooldown
     rateLimits *PerKeyLimiter
     breakers   *BreakerRegistry
     dispatchCh chan dispatchJob
@@ -298,10 +301,8 @@ CREATE TABLE notification_rules (
     -- Shared
     search           TEXT,
     -- Behavior
-    cooldown_seconds INTEGER NOT NULL DEFAULT 300,
-    group_wait       TEXT NOT NULL DEFAULT '30s',
-    group_interval   TEXT NOT NULL DEFAULT '5m',
-    repeat_interval  TEXT NOT NULL DEFAULT '4h',
+    burst_window     INTEGER NOT NULL DEFAULT 30,   -- seconds to collect events before sending
+    cooldown_seconds INTEGER NOT NULL DEFAULT 300,  -- seconds to suppress after sending
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -321,10 +322,9 @@ CREATE TABLE notification_log (
     channel_id  BIGINT NOT NULL,
     event_kind  TEXT NOT NULL,
     event_id    BIGINT NOT NULL,
-    dedup_key   TEXT NOT NULL,
-    status      TEXT NOT NULL CHECK (status IN ('sent','suppressed','failed','grouped')),
+    status      TEXT NOT NULL CHECK (status IN ('sent','suppressed','failed')),
     reason      TEXT,                -- suppression reason or error message
-    alert_count INT NOT NULL DEFAULT 1,
+    event_count INT NOT NULL DEFAULT 1,  -- number of events in burst
     status_code INTEGER,
     duration_ms INTEGER NOT NULL DEFAULT 0,
     payload     JSONB                -- the notification payload sent (null for suppressed)
@@ -341,45 +341,64 @@ CREATE INDEX idx_notification_log_status ON notification_log (status, created_at
 
 ## 5. Anti-Spam Guardrails
 
-This is the most critical aspect of the system. Five layers of protection, each independent:
+This is the most critical aspect of the system. Four layers of protection, each independent.
 
-### Layer 1: Alert Grouping (Alertmanager model)
+Syslog and applog events are **discrete, fire-and-forget** — they never get acknowledged or resolved. Unlike Prometheus alerts that have a lifecycle (firing → resolved), log events simply happen. The anti-spam model is designed around this reality: collect bursts, send one notification per burst, then cool down.
 
-Borrowed from Prometheus Alertmanager, adapted for syslog/applog:
+### Layer 1: Burst Window
+
+When a rule matches its first event, a **burst window** opens (default 30 seconds). During this window, all subsequent matching events for the same rule are collected silently. When the window closes, a single notification is sent summarizing the burst:
+
+- **1 event in burst:** "rpd on router1: BGP peer 10.0.0.1 connection lost" (show the full event)
+- **N events in burst:** "12 events matched rule 'core-rpd-errors' in the last 30s" (show the first event + count)
 
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
-| `group_wait` | 30s | After the first alert fires a rule, wait this long to collect more alerts before sending |
-| `group_interval` | 5m | After the initial grouped notification, wait this long before sending an update |
-| `repeat_interval` | 4h | Re-notify for ongoing alerts after this interval |
+| `burst_window` | 30s | Time to collect events before sending one notification |
 
-**Grouping key:** `rule_id + hostname + programname + severity` (syslog) or `rule_id + service + component + level` (applog). Configurable per rule in the future.
-
-**Implementation:** In-memory `Grouper` with a `map[string]*GroupCollector`. Each collector holds a buffer of alerts and a timer. On timer fire, flush the buffer as a single grouped notification with `AlertCount` set to the number of collected events.
+**Implementation:** `BurstWatcher` — `map[int64]*burst` keyed by rule ID. Each `burst` holds the first event (for display), a count, and a timer. On timer fire, flush to dispatch queue with `EventCount` set.
 
 ```
-Event arrives → Rule matches → Grouper.Add(dedupKey, payload)
+Event arrives → Rule matches → BurstWatcher.Add(ruleID, payload)
                                      │
                     ┌────────────────┼────────────────────┐
-                    │ New group?     │ Existing group?     │
-                    │ Start timer    │ Add to buffer,      │
-                    │ (group_wait)   │ reset timer to      │
-                    │                │ (group_interval)    │
+                    │ No active      │ Active burst?       │
+                    │ burst?         │                     │
+                    │ Start burst,   │ Increment count,    │
+                    │ store first    │ keep first event    │
+                    │ event, start   │                     │
+                    │ timer          │                     │
                     └────────┬───────┴──────────┬──────────┘
                              │                   │
                          Timer fires ────────────┘
                              │
-                    Flush buffer → dispatch queue
+                    Send notification with EventCount
+                             │
+                    Enter cooldown for this rule
 ```
 
 ### Layer 2: Per-Rule Cooldown
 
-After sending a grouped notification, the rule enters cooldown for `cooldown_seconds` (default 5 min). During cooldown:
-- New alerts for the same dedup key are counted but **not dispatched**
+After a burst notification is sent, the rule enters **cooldown** for `cooldown_seconds` (default 5 min). During cooldown:
+- New matching events are counted but **not dispatched**
 - Logged to `notification_log` with `status = 'suppressed'`
-- At cooldown expiry, if alerts continued, the grouper sends a summary: "47 more alerts suppressed"
+- When cooldown expires:
+  - If events arrived during cooldown → send a summary: "147 more events suppressed during cooldown"
+  - If no events arrived → reset, ready for the next burst
 
-**Implementation:** `CooldownTracker` — `map[string]time.Time` tracking last-fire time per dedup key. Check is O(1). Background goroutine prunes expired entries every minute.
+This means the worst-case notification rate per rule is: one at burst window close, then one every `cooldown_seconds` thereafter (summary only).
+
+**Implementation:** `CooldownTracker` — `map[int64]cooldownState` keyed by rule ID. Each state tracks last-fire time and a suppressed event count. Background goroutine checks for expired cooldowns every 10 seconds and flushes summaries.
+
+```
+Burst fires → Notification sent → Cooldown starts (5 min)
+                                        │
+                              Events arrive during cooldown:
+                              count++ (not dispatched)
+                                        │
+                              Cooldown expires ──┬── count > 0 → send summary
+                                                 └── count = 0 → reset (idle)
+```
 
 ### Layer 3: Per-Channel Rate Limiting
 
@@ -420,11 +439,11 @@ One circuit breaker per channel (webhook URL), using `sony/gobreaker/v2`:
 ### Layer Summary
 
 ```
-Event → Rule match → Grouper (batch by key, wait 30s) → Cooldown check → Dispatch queue
-                                                                              │
-    Dispatch worker picks up job:                                             │
-    ├── Global rate limit check ◄─────────────────────────────────────────────┘
-    ├── Per-channel rate limit check
+Event → Rule match → Burst window (collect 30s) → Cooldown check → Dispatch queue
+                                                                         │
+    Dispatch worker picks up job:                                        │
+    ├── Per-channel rate limit check ◄───────────────────────────────────┘
+    ├── Global rate limit check
     ├── Circuit breaker check
     ├── HTTP POST (with retry: 3 attempts, exponential backoff)
     └── Log result to notification_log
@@ -439,7 +458,7 @@ Event → Rule match → Grouper (batch by key, wait 30s) → Cooldown check →
 - **API:** `POST https://hooks.slack.com/services/T.../B.../xxx` with JSON body
 - **Auth:** Webhook URL is the credential
 - **Format:** Block Kit with severity-colored header, field grid (hostname, program, severity, facility), message in code block, deep link to Taillight UI
-- **Grouped format:** "5 alerts for rpd on router1 in the last 60 seconds" with most recent message shown
+- **Burst format:** "12 events matched rule 'core-rpd-errors' in the last 30s" with first event shown
 - **Rate limit:** 1 msg/sec per channel. Respect HTTP 429 + `Retry-After`.
 - **Dependencies:** None (stdlib `net/http`)
 
@@ -464,7 +483,7 @@ Event → Rule match → Grouper (batch by key, wait 30s) → Cooldown check →
 - **Actions:** `trigger`, `acknowledge`, `resolve`
 - **Dedup key:** `taillight:{hostname}:{programname}:{severity}` — subsequent events merge into same incident
 - **Severity mapping:** syslog 0-2 → `critical`, 3 → `error`, 4-5 → `warning`, 6-7 → `info`
-- **Auto-resolve:** When `repeat_interval` expires with no new alerts, send `resolve` action (future enhancement)
+- **Auto-resolve:** Not applicable — syslog/applog events are fire-and-forget, no resolve signal exists. PagerDuty incidents must be resolved manually or via PagerDuty's own auto-resolve timer.
 - **Rate limit:** 7500 events/min (generous)
 
 ### Generic Webhook
@@ -479,7 +498,7 @@ Event → Rule match → Grouper (batch by key, wait 30s) → Cooldown check →
 
 - **Go approach:** stdlib `net/smtp` with STARTTLS on port 587
 - **Format:** multipart/alternative (HTML + plain text). HTML with severity-colored header, table layout for fields, monospace message.
-- **Digest mode:** Batch alerts within `group_interval` into a single email with a summary table (future enhancement)
+- **Burst format:** When `EventCount > 1`, show summary table of events in the burst (future enhancement)
 - **Subject line:** `[CRIT] host1.example.com/sshd: Failed password for root`
 
 ### No External Notification Libraries
@@ -498,7 +517,8 @@ notification:
   rule_refresh_interval: 30s   # how often to reload rules from DB
   dispatch_workers: 4           # concurrent delivery goroutines
   dispatch_buffer: 1024         # buffered channel size
-  default_cooldown: 5m          # per-rule cooldown (overridable per rule)
+  default_burst_window: 30s     # collect events before sending (overridable per rule)
+  default_cooldown: 5m          # suppress after sending (overridable per rule)
   send_timeout: 10s             # HTTP timeout for backend calls
   global_rate_limit: 100        # max notifications per hour (safety net)
 ```
@@ -511,6 +531,7 @@ type NotificationConfig struct {
     RuleRefreshInterval time.Duration // default: 30s
     DispatchWorkers     int           // default: 4
     DispatchBuffer      int           // default: 1024
+    DefaultBurstWindow  time.Duration // default: 30s
     DefaultCooldown     time.Duration // default: 5m
     SendTimeout         time.Duration // default: 10s
     GlobalRateLimit     int           // default: 100 per hour
@@ -653,25 +674,24 @@ notification_circuit_breaker_state{channel} gauge    — 0=closed, 1=half-open, 
 |---------|------------|-------|
 | Notification channels (CRUD API) | Low | Database + REST handler |
 | Notification rules with filter matching | Medium | Reuse existing `Matches()` |
-| Cooldown tracker | Low | In-memory, ~100 lines |
+| Burst watcher | Low | In-memory per-rule collector, ~150 lines |
+| Cooldown tracker with summary | Low | In-memory, ~100 lines. Sends "N more suppressed" on expiry |
 | Per-channel rate limiting | Low | `x/time/rate`, ~100 lines |
 | Circuit breaker per channel | Low | `sony/gobreaker`, ~50 lines |
 | Dispatch queue with worker pool | Medium | Buffered channel + goroutines |
 | Slack backend | Low | ~80 lines |
 | Generic webhook backend | Low | ~100 lines with templates |
 | Notification audit log | Low | TimescaleDB hypertable |
-| Test notification endpoint | Low | Bypass grouping/cooldown |
+| Test notification endpoint | Low | Bypass burst/cooldown |
 | Prometheus metrics | Low | Counters + gauges |
 
-### Phase 2 — Enhanced Grouping
+### Phase 2 — More Backends
 
 | Feature | Complexity | Notes |
 |---------|------------|-------|
-| Alert grouping (group_wait/group_interval) | Medium | ~200 lines, in-memory batch collector |
-| Repeat interval with summary | Medium | "47 more alerts suppressed" |
 | Discord backend | Low | ~70 lines |
 | Teams backend | Low | ~80 lines |
-| PagerDuty backend (trigger/resolve) | Medium | Dedup key management |
+| PagerDuty backend (trigger only) | Low | Dedup key for incident merging |
 | Email backend | Medium | SMTP + HTML templates |
 | Global rate limit | Low | Single `rate.Limiter` |
 
@@ -680,10 +700,8 @@ notification_circuit_breaker_state{channel} gauge    — 0=closed, 1=half-open, 
 | Feature | Complexity | Notes |
 |---------|------------|-------|
 | Silences / maintenance windows | Medium | DB-backed, API + UI |
-| Auto-resolve (PagerDuty) | Medium | Timer-based resolution |
 | Notification statistics API | Low | Aggregate from audit log |
 | Persistent delivery queue (River) | Medium | Survives restarts |
-| Digest/summary email mode | Medium | Periodic batch emails |
 | Severity-based routing (multi-channel) | Low | Already supported by rule→channel many-to-many |
 
 ---
@@ -694,19 +712,19 @@ notification_circuit_breaker_state{channel} gauge    — 0=closed, 1=half-open, 
 Phase 1 (MVP):
  1. Migration — schema (notification_channels, notification_rules, notification_log)
  2. Types — notifier.go, rule.go (interfaces, domain types)
- 3. Cooldown — cooldown.go (in-memory tracker)
- 4. Rate limiter — ratelimit.go (per-key token bucket)
- 5. Store — notification_store.go (CRUD)
- 6. Engine — engine.go (rule eval, dispatch queue, workers)
- 7. Backends — slack.go, webhook.go
- 8. Config — config.go (add NotificationConfig)
- 9. Wiring — serve.go, applog_ingest.go
-10. Handler — notification.go (REST API)
-11. Metrics — metrics.go (Prometheus counters)
-12. Tests — unit tests for rule matching, cooldown, engine, backends
+ 3. Burst watcher — burstwatcher.go (per-rule burst window collector)
+ 4. Cooldown — cooldown.go (in-memory tracker with summary on expiry)
+ 5. Rate limiter — ratelimit.go (per-key token bucket)
+ 6. Store — notification_store.go (CRUD)
+ 7. Engine — engine.go (rule eval, dispatch queue, workers)
+ 8. Backends — slack.go, webhook.go
+ 9. Config — config.go (add NotificationConfig)
+10. Wiring — serve.go, applog_ingest.go
+11. Handler — notification.go (REST API)
+12. Metrics — metrics.go (Prometheus counters)
+13. Tests — unit tests for rule matching, burst watcher, cooldown, engine, backends
 
-Phase 2 (grouping):
-13. Grouper — grouper.go
+Phase 2 (more backends):
 14. Backends — discord.go, teams.go, pagerduty.go, email.go
 
 Phase 3 (operational):
@@ -724,6 +742,7 @@ Phase 3 (operational):
 notification:
   enabled: true
   dispatch_workers: 4
+  default_burst_window: 30s
   default_cooldown: 5m
   send_timeout: 10s
 ```
@@ -740,11 +759,11 @@ curl -X POST /api/v1/notifications/channels/1/test
 
 # Create a rule: alert on severity ≤ 3 (error and above) from any host
 curl -X POST /api/v1/notifications/rules \
-  -d '{"name":"high-severity","event_kind":"syslog","severity":3,"channel_ids":[1],"cooldown_seconds":300}'
+  -d '{"name":"high-severity","event_kind":"syslog","severity":3,"channel_ids":[1],"burst_window":30,"cooldown_seconds":300}'
 
-# Create a rule: alert on rpd errors from core routers
+# Create a rule: alert on rpd errors from core routers (longer cooldown for noisy rule)
 curl -X POST /api/v1/notifications/rules \
-  -d '{"name":"core-rpd-errors","event_kind":"syslog","hostname":"core-*","programname":"rpd","severity":3,"channel_ids":[1],"cooldown_seconds":600}'
+  -d '{"name":"core-rpd-errors","event_kind":"syslog","hostname":"core-*","programname":"rpd","severity":3,"channel_ids":[1],"burst_window":60,"cooldown_seconds":600}'
 ```
 
 ## Appendix B: Severity Reference
