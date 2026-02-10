@@ -465,7 +465,7 @@ onUnmounted(() => {
           Total Volume
         </h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="dashboard.chartData" :height="220" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="dashboard.chartData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisStackedBar
               :x="xTotal"
               :y="hostYAccessors()"
@@ -521,7 +521,7 @@ onUnmounted(() => {
             class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
             @mouseleave="hoveredHost[host] = null"
           >
-            <VisXYContainer :data="dashboard.chartData" :height="120" :padding="{ top: 4, right: 4 }">
+            <VisXYContainer :data="dashboard.chartData" :height="120" :duration="0" :padding="{ top: 4, right: 4 }">
               <VisStackedBar
                 :x="xTotal"
                 :y="singleHostYAccessor(host)"
@@ -548,7 +548,7 @@ onUnmounted(() => {
           Total Volume
         </h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="applogDashboard.chartData" :height="220" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="applogDashboard.chartData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisStackedBar
               :x="xTotal"
               :y="serviceYAccessors()"
@@ -604,7 +604,7 @@ onUnmounted(() => {
             class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
             @mouseleave="hoveredService[service] = null"
           >
-            <VisXYContainer :data="applogDashboard.chartData" :height="120" :padding="{ top: 4, right: 4 }">
+            <VisXYContainer :data="applogDashboard.chartData" :height="120" :duration="0" :padding="{ top: 4, right: 4 }">
               <VisStackedBar
                 :x="xTotal"
                 :y="singleServiceYAccessor(service)"
@@ -668,7 +668,7 @@ onUnmounted(() => {
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Messages Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="rsMessagesData" :height="220" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="rsMessagesData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisLine :x="rsMessagesX" :y="rsReceivedY" :color="accentColors[0]" :curveType="'monotoneX'" />
             <VisLine :x="rsMessagesX" :y="rsWrittenY" :color="accentColors[1]" :curveType="'monotoneX'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
@@ -693,7 +693,7 @@ onUnmounted(() => {
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Queue Depth</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="rsyslogStats.queueLine" :height="160" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="rsyslogStats.queueLine" :height="160" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisLine :x="lineX" :y="lineY" :color="accentColors[2]" :curveType="'monotoneX'" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
@@ -808,7 +808,7 @@ onUnmounted(() => {
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Events Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="tlEventsData" :height="220" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="tlEventsData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisLine :x="tlDualX" :y="tlSyslogY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisLine :x="tlDualX" :y="tlApplogY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
@@ -833,7 +833,7 @@ onUnmounted(() => {
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">SSE Clients Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="tlSseData" :height="160" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="tlSseData" :height="160" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisLine :x="tlDualX" :y="tlSyslogY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisLine :x="tlDualX" :y="tlApplogY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
@@ -858,7 +858,7 @@ onUnmounted(() => {
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">DB Pool Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="tlPoolData" :height="160" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="tlPoolData" :height="160" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisLine :x="tlPoolX" :y="tlActiveY" :color="accentColors[0]" :curveType="'monotoneX'" />
             <VisLine :x="tlPoolX" :y="tlIdleY" :color="accentColors[1]" :curveType="'monotoneX'" />
             <VisLine :x="tlPoolX" :y="tlTotalY" :color="accentColors[2]" :curveType="'monotoneX'" />
