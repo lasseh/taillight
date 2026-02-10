@@ -18,6 +18,10 @@ const formName = ref('')
 const formType = ref<'slack' | 'webhook'>('slack')
 const formEnabled = ref(true)
 const formWebhookURL = ref('')
+const formSlackChannel = ref('')
+const formSlackUsername = ref('')
+const formSlackIconEmoji = ref('')
+const formSlackIconURL = ref('')
 const formWebhookMethod = ref('POST')
 const formWebhookHeaders = ref('')
 const formWebhookTemplate = ref('')
@@ -61,6 +65,10 @@ function openCreate() {
   formType.value = 'slack'
   formEnabled.value = true
   formWebhookURL.value = ''
+  formSlackChannel.value = ''
+  formSlackUsername.value = ''
+  formSlackIconEmoji.value = ''
+  formSlackIconURL.value = ''
   formWebhookMethod.value = 'POST'
   formWebhookHeaders.value = ''
   formWebhookTemplate.value = ''
@@ -75,7 +83,12 @@ function openEdit(ch: NotificationChannel) {
   formEnabled.value = ch.enabled
 
   if (ch.type === 'slack') {
-    formWebhookURL.value = (ch.config as Record<string, string>).webhook_url || ''
+    const cfg = ch.config as Record<string, string>
+    formWebhookURL.value = cfg.webhook_url || ''
+    formSlackChannel.value = cfg.channel || ''
+    formSlackUsername.value = cfg.username || ''
+    formSlackIconEmoji.value = cfg.icon_emoji || ''
+    formSlackIconURL.value = cfg.icon_url || ''
   } else if (ch.type === 'webhook') {
     const cfg = ch.config as Record<string, string>
     formWebhookURL.value = cfg.url || ''
@@ -94,7 +107,12 @@ function closeModal() {
 
 function buildConfig(): Record<string, unknown> {
   if (formType.value === 'slack') {
-    return { webhook_url: formWebhookURL.value }
+    const cfg: Record<string, unknown> = { webhook_url: formWebhookURL.value }
+    if (formSlackChannel.value.trim()) cfg.channel = formSlackChannel.value.trim()
+    if (formSlackUsername.value.trim()) cfg.username = formSlackUsername.value.trim()
+    if (formSlackIconEmoji.value.trim()) cfg.icon_emoji = formSlackIconEmoji.value.trim()
+    if (formSlackIconURL.value.trim()) cfg.icon_url = formSlackIconURL.value.trim()
+    return cfg
   }
   const cfg: Record<string, unknown> = { url: formWebhookURL.value }
   if (formWebhookMethod.value && formWebhookMethod.value !== 'POST') {
@@ -316,7 +334,7 @@ onMounted(fetchChannels)
           class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-20"
           @click.self="closeModal"
         >
-          <div class="bg-t-bg-dark border-t-border w-full max-w-lg rounded border shadow-xl">
+          <div class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl">
             <!-- Modal header -->
             <div class="border-t-border flex items-center justify-between border-b px-5 py-3">
               <h3 class="text-t-fg text-sm font-semibold">{{ editing ? 'Edit Channel' : 'Add Channel' }}</h3>
@@ -376,6 +394,45 @@ onMounted(fetchChannels)
                     class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-3 py-2 text-sm outline-none"
                   />
                 </label>
+                <div class="grid grid-cols-2 gap-3">
+                  <label class="block">
+                    <span class="text-t-fg-dark text-xs">Channel <span class="text-t-fg-gutter">(optional)</span></span>
+                    <input
+                      v-model="formSlackChannel"
+                      type="text"
+                      placeholder="#alerts"
+                      class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
+                    />
+                  </label>
+                  <label class="block">
+                    <span class="text-t-fg-dark text-xs">Bot Name <span class="text-t-fg-gutter">(optional)</span></span>
+                    <input
+                      v-model="formSlackUsername"
+                      type="text"
+                      placeholder="Taillight"
+                      class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
+                    />
+                  </label>
+                  <label class="block">
+                    <span class="text-t-fg-dark text-xs">Icon Emoji <span class="text-t-fg-gutter">(optional)</span></span>
+                    <input
+                      v-model="formSlackIconEmoji"
+                      type="text"
+                      placeholder=":rotating_light:"
+                      class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
+                    />
+                  </label>
+                  <label class="block">
+                    <span class="text-t-fg-dark text-xs">Icon URL <span class="text-t-fg-gutter">(optional)</span></span>
+                    <input
+                      v-model="formSlackIconURL"
+                      type="text"
+                      placeholder="https://example.com/icon.png"
+                      class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
+                    />
+                  </label>
+                </div>
+                <p class="text-t-fg-gutter text-xs">Channel, name, and icon overrides work with legacy Slack webhooks. Newer Slack app webhooks are locked to their configured channel.</p>
               </template>
 
               <!-- Webhook config -->
