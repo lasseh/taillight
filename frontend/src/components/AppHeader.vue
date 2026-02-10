@@ -138,6 +138,17 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         >
           DASHBOARD
         </router-link>
+        <router-link
+          to="/notifications"
+          class="px-2 py-0.5 text-xs transition-colors"
+          :class="
+            route.name === 'notifications'
+              ? 'bg-t-bg-highlight text-t-yellow'
+              : 'text-t-fg-dark hover:text-t-yellow'
+          "
+        >
+          ALERTS
+        </router-link>
       </div>
 
       <!-- Desktop: settings menu -->
@@ -312,6 +323,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             @click="closeMobileMenu"
           >
             DASHBOARD
+          </router-link>
+          <router-link
+            to="/notifications"
+            class="px-2 py-1.5 text-xs transition-colors"
+            :class="
+              route.name === 'notifications'
+                ? 'bg-t-bg-highlight text-t-yellow'
+                : 'text-t-fg-dark hover:text-t-yellow'
+            "
+            @click="closeMobileMenu"
+          >
+            ALERTS
           </router-link>
         </div>
 

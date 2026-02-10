@@ -4,6 +4,7 @@ import type { VolumeResponse, SyslogSummaryResponse, AppLogSummaryResponse } fro
 import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
 import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } from '@/types/taillight-metrics'
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse } from '@/types/auth'
+import type { ChannelListResponse, ChannelResponse, RuleListResponse, RuleResponse, LogListResponse, TestChannelResult, NotificationChannel, NotificationRule } from '@/types/notification'
 import { config } from './config'
 
 /** Shape of the JSON error body returned by the API. */
@@ -70,6 +71,18 @@ async function patchAPI<T>(path: string, body: unknown): Promise<T> {
   const url = `${config.apiUrl}${path}`
   const res = await fetch(url, {
     method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+    credentials: 'include',
+  })
+  return handleResponse(res)
+}
+
+async function putAPI<T>(path: string, body: unknown): Promise<T> {
+  const url = `${config.apiUrl}${path}`
+  const res = await fetch(url, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
@@ -198,5 +211,54 @@ export const api = {
 
   getTaillightMetricsVolume(params: URLSearchParams): Promise<TaillightMetricsVolumeResponse> {
     return fetchAPI(`/api/v1/metrics/volume?${params}`)
+  },
+
+  // Notifications
+  listChannels(): Promise<ChannelListResponse> {
+    return fetchAPI('/api/v1/notifications/channels')
+  },
+
+  getChannel(id: number): Promise<ChannelResponse> {
+    return fetchAPI(`/api/v1/notifications/channels/${id}`)
+  },
+
+  createChannel(ch: Partial<NotificationChannel>): Promise<ChannelResponse> {
+    return postAPI('/api/v1/notifications/channels', ch)
+  },
+
+  updateChannel(id: number, ch: Partial<NotificationChannel>): Promise<ChannelResponse> {
+    return putAPI(`/api/v1/notifications/channels/${id}`, ch)
+  },
+
+  deleteChannel(id: number): Promise<void> {
+    return deleteAPI(`/api/v1/notifications/channels/${id}`)
+  },
+
+  testChannel(id: number): Promise<TestChannelResult> {
+    return postAPI(`/api/v1/notifications/channels/${id}/test`, {})
+  },
+
+  listRules(): Promise<RuleListResponse> {
+    return fetchAPI('/api/v1/notifications/rules')
+  },
+
+  getRule(id: number): Promise<RuleResponse> {
+    return fetchAPI(`/api/v1/notifications/rules/${id}`)
+  },
+
+  createRule(rule: Partial<NotificationRule>): Promise<RuleResponse> {
+    return postAPI('/api/v1/notifications/rules', rule)
+  },
+
+  updateRule(id: number, rule: Partial<NotificationRule>): Promise<RuleResponse> {
+    return putAPI(`/api/v1/notifications/rules/${id}`, rule)
+  },
+
+  deleteRule(id: number): Promise<void> {
+    return deleteAPI(`/api/v1/notifications/rules/${id}`)
+  },
+
+  listNotificationLog(params: URLSearchParams): Promise<LogListResponse> {
+    return fetchAPI(`/api/v1/notifications/log?${params}`)
   },
 }
