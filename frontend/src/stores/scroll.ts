@@ -36,6 +36,7 @@ export const useScrollStore = defineStore('scroll', () => {
     pinnedRoutes.value[route] = pinned
   }
 
+  // Default to pinned so new routes auto-scroll to the latest events on mount.
   function isPinned(route: string): boolean {
     return pinnedRoutes.value[route] ?? true
   }

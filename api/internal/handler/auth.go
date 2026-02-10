@@ -89,6 +89,7 @@ func buildUserInfo(u model.User) userInfo {
 		GravatarURL: gravatarURL(u.Email),
 		CreatedAt:   u.CreatedAt.Format(time.RFC3339),
 	}
+	// Only set if the timestamp is valid (user has logged in at least once).
 	if u.LastLoginAt.Valid {
 		s := u.LastLoginAt.Time.Format(time.RFC3339)
 		info.LastLoginAt = &s

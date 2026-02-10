@@ -93,7 +93,8 @@ func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
 		}
 	}()
 
-	// Monitor channel utilization.
+	// Monitor channel utilization. Warn if the buffer exceeds 80% capacity,
+	// which indicates event bursts are outpacing consumption.
 	go func() {
 		ticker := time.NewTicker(monitorInterval)
 		defer ticker.Stop()

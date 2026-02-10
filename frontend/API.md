@@ -250,8 +250,8 @@ data: {"id":12345,"received_at":"2026-02-01T15:23:00Z",...}
 
 | Scenario                          | Behavior                                                         |
 |-----------------------------------|------------------------------------------------------------------|
-| No `Last-Event-ID` header         | Sends up to **50** most recent matching events, oldest first     |
-| `Last-Event-ID` present           | Sends up to **50** events with `id > Last-Event-ID`, oldest first |
+| No `Last-Event-ID` header         | Sends up to **100** most recent matching events, oldest first     |
+| `Last-Event-ID` present           | Sends up to **100** events with `id > Last-Event-ID`, oldest first |
 | After backfill                    | Subscribes to live events via broker, pushed as they arrive      |
 
 The backfill always delivers events in **chronological order** (oldest first) so the frontend can append them to the list in sequence.
@@ -601,7 +601,7 @@ export function useSyslogStream(filters: () => Record<string, string>) {
 
 1. On disconnect, the browser waits ~3 seconds, then reconnects.
 2. On reconnect, it sends the `Last-Event-ID` header with the `id` of the last received event.
-3. The server backfills up to 50 events that occurred since that ID.
+3. The server backfills up to 100 events that occurred since that ID.
 4. Live streaming resumes after the backfill.
 
 No custom reconnection logic is needed. The browser handles it natively.

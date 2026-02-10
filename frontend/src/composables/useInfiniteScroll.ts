@@ -12,6 +12,8 @@ export function useInfiniteScroll(onLoadMore: () => void) {
         onLoadMore()
       }
     },
+    // Trigger 200px before the sentinel enters the viewport to prefetch the
+    // next page before the user reaches the scroll boundary.
     { rootMargin: '200px' },
   )
 

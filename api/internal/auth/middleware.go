@@ -94,7 +94,9 @@ func extractBearer(r *http.Request) string {
 }
 
 // constantTimeMatch checks whether token matches any of the valid keys
-// using constant-time comparison to prevent timing attacks.
+// using constant-time comparison to prevent timing attacks. All keys are
+// checked (no early return) so the execution time is independent of which
+// key matches or whether any key matches at all.
 func constantTimeMatch(validKeys []string, token string) bool {
 	match := 0
 	for _, key := range validKeys {

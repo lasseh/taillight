@@ -81,6 +81,7 @@ func (h *SyslogHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Embed the base event and optionally enrich with Juniper reference docs.
 	detail := syslogDetailData{SyslogEvent: event}
 
 	if event.MsgID != "" {

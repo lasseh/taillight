@@ -213,6 +213,8 @@ func startBackgroundWorkers(
 	notifEngine *notification.Engine,
 ) {
 	// Bridge: fetch each notified row by ID and broadcast to SSE clients.
+	// On fetch failure the event is skipped (it may have been deleted by
+	// retention before we processed the notification).
 	go func() {
 		for n := range notifications {
 			metrics.NotificationsReceivedTotal.WithLabelValues(n.Channel).Inc()
@@ -323,6 +325,8 @@ func setupRouter(
 		corsOrigins = []string{"http://localhost:5173", "http://localhost:3000"}
 		logger.Warn("CORS defaulting to localhost dev origins — set cors_allowed_origins for production")
 	}
+	// CORS credentials + wildcard origin is rejected by browsers (spec violation),
+	// so only allow credentials when origins are explicitly listed.
 	hasWildcard := false
 	for _, o := range corsOrigins {
 		if o == "*" {

@@ -33,6 +33,8 @@ func writeJSON(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v) //nolint:errcheck
 }
 
+// writeError sends a JSON error response. Content-Type must be set before
+// WriteHeader because WriteHeader locks the header map.
 func writeError(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

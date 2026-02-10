@@ -87,7 +87,8 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate entries.
+	// Validate all entries and collect errors so the client sees every problem
+	// in one response, not just the first.
 	var errs []string
 	for i, entry := range req.Logs {
 		idx := "logs[" + strconv.Itoa(i) + "]: "

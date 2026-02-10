@@ -437,11 +437,14 @@ func (e *Engine) getOrCreateBreaker(channelID int64, channelName string) *gobrea
 	e.breakerMu.Lock()
 	defer e.breakerMu.Unlock()
 
-	// Double-check.
+	// Double-check after acquiring write lock to avoid creating duplicate breakers
+	// under concurrent load.
 	if cb, ok = e.breakers[channelID]; ok {
 		return cb
 	}
 
+	// Circuit breaker per channel: allow 2 half-open probes, open after 5
+	// consecutive failures, and retry after 60s.
 	cb = gobreaker.NewCircuitBreaker[SendResult](gobreaker.Settings{
 		Name:        fmt.Sprintf("notif-channel-%d-%s", channelID, channelName),
 		MaxRequests: 2,

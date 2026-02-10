@@ -53,6 +53,8 @@ export function createEventStore<TEvent extends { id: number }>(
       if (_knownIds.has(event.id)) return
       if (!config.matchesFilters(event, activeFilters.value)) return
       _knownIds.add(event.id)
+      // Trim oldest 5k IDs when set exceeds 10k to prevent unbounded memory
+      // growth during long-lived sessions.
       if (_knownIds.size > 10000) {
         const iter = _knownIds.values()
         for (let i = 0; i < 5000; i++) {
@@ -92,6 +94,7 @@ export function createEventStore<TEvent extends { id: number }>(
         }
 
         const res = await config.fetchEvents(params, signal)
+        // API returns events in DESC order; reverse to chronological for display.
         const reversed = [...res.data].reverse()
 
         for (const e of reversed) {
@@ -104,6 +107,8 @@ export function createEventStore<TEvent extends { id: number }>(
           const merge = () => {
             events.value = [...reversed, ...events.value]
           }
+          // wrapMerge lets the caller preserve scroll position when prepending
+          // older events (see EventTable.preserveScrollForPrepend).
           if (wrapMerge) {
             wrapMerge(merge)
           } else {

@@ -80,6 +80,8 @@ func (s *Store) ListSyslogs(ctx context.Context, f model.SyslogFilter, cursor *m
 	qb := psq.Select(syslogColumns...).From("syslog_events")
 	qb = applySyslogFilter(qb, f)
 
+	// Keyset (cursor) pagination using tuple comparison — Postgres evaluates
+	// (received_at, id) as a composite key, giving stable ordering without OFFSET.
 	if cursor != nil {
 		qb = qb.Where("(received_at, id) < (?, ?)", cursor.ReceivedAt, cursor.ID)
 	}
