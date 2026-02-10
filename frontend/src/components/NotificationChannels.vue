@@ -80,7 +80,7 @@ function openEdit(ch: NotificationChannel) {
     const cfg = ch.config as Record<string, string>
     formWebhookURL.value = cfg.url || ''
     formWebhookMethod.value = cfg.method || 'POST'
-    formWebhookHeaders.value = cfg.headers ? JSON.stringify(JSON.parse(cfg.headers), null, 2) : ''
+    formWebhookHeaders.value = cfg.headers ? JSON.stringify(cfg.headers, null, 2) : ''
     formWebhookTemplate.value = cfg.template || ''
   }
   saveError.value = ''
