@@ -103,7 +103,7 @@ onUnmounted(() => {
             </dd>
 
             <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">total logs</dt>
-            <dd class="text-t-fg border-t-border border-b px-4 py-1.5 font-mono">
+            <dd class="text-t-teal border-t-border border-b px-4 py-1.5 font-mono">
               {{ formatNumber(summary.total_count) }}
             </dd>
 
