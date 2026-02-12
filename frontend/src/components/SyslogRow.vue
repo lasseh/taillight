@@ -30,12 +30,16 @@ const highlightedMessage = computed(() =>
   highlightMessage(event.value.id, truncate(event.value.message, 200)),
 )
 
-
+const copyText = computed(() => {
+  const e = event.value
+  return `${formatTime(e.received_at)} ${e.severity_label.toUpperCase()} ${e.hostname} ${e.programname}: ${e.message}`
+})
 </script>
 
 <template>
   <div ref="rowEl" class="group">
     <div
+      :data-copytext="copyText"
       role="button"
       tabindex="0"
       :aria-expanded="expanded"

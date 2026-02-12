@@ -26,11 +26,21 @@ const lvlClass = computed(() => levelColorClass[event.value.level] ?? 'text-t-fg
 const bgClass = computed(() => levelBgClass[event.value.level] ?? '')
 
 const hasAttrs = computed(() => event.value.attrs && Object.keys(event.value.attrs).length > 0)
+
+const copyText = computed(() => {
+  const e = event.value
+  const parts = [formatTime(e.timestamp), e.level.toUpperCase(), e.host, e.service]
+  if (e.component) parts.push(e.component)
+  let line = parts.join(' ') + ': ' + e.msg
+  if (hasAttrs.value) line += ' ' + formatAttrs(e.attrs!)
+  return line
+})
 </script>
 
 <template>
   <div ref="rowEl" class="group">
     <div
+      :data-copytext="copyText"
       role="button"
       tabindex="0"
       :aria-expanded="expanded"

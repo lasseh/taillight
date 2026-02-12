@@ -118,6 +118,29 @@ watch(
     })
   },
 )
+
+// Intercept copy to produce clean log lines from selected rows.
+function onCopy(e: ClipboardEvent) {
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed) return
+
+  const el = scrollEl.value
+  if (!el) return
+
+  const rows = el.querySelectorAll('[data-copytext]')
+  const lines: string[] = []
+  for (const row of rows) {
+    if (sel.containsNode(row, true)) {
+      const text = (row as HTMLElement).dataset.copytext
+      if (text) lines.push(text)
+    }
+  }
+
+  if (lines.length > 0) {
+    e.preventDefault()
+    e.clipboardData?.setData('text/plain', lines.join('\n'))
+  }
+}
 </script>
 
 <template>
@@ -144,6 +167,7 @@ watch(
         aria-label="Live event stream"
         class="h-full overflow-y-auto [overflow-anchor:none]"
         @scroll="onScroll"
+        @copy="onCopy"
       >
         <div v-for="item in events" :key="item.id">
           <slot :item="item" />
