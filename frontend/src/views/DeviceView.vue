@@ -90,7 +90,7 @@ onUnmounted(() => {
         list-label="go to syslog"
       />
 
-      <div v-else-if="summary" class="mx-auto max-w-6xl space-y-4">
+      <div v-else-if="summary" class="mx-auto max-w-7xl space-y-4">
         <!-- Header -->
         <div class="bg-t-bg-dark border-t-border rounded border p-4">
           <h1 class="text-t-teal text-lg font-semibold font-mono">{{ summary.hostname }}</h1>
