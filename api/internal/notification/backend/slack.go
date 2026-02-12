@@ -113,14 +113,13 @@ func buildSlackMessage(p notification.Payload) map[string]any {
 
 	if p.SyslogEvent != nil {
 		e := p.SyslogEvent
-		severity := model.SeverityLabel(e.Severity)
-		summary = fmt.Sprintf("*%s* | %s | %s | %s", p.RuleName, e.Hostname, e.Programname, strings.ToUpper(severity))
+		summary = fmt.Sprintf("%s - %s", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
 		message = e.Message
 	}
 
 	if p.AppLogEvent != nil {
 		e := p.AppLogEvent
-		summary = fmt.Sprintf("*%s* | %s | %s | %s", p.RuleName, e.Host, e.Service, e.Level)
+		summary = fmt.Sprintf("%s - %s", e.Host, e.Level)
 		message = e.Msg
 	}
 
