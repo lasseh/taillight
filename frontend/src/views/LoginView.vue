@@ -24,10 +24,12 @@ async function handleSubmit() {
     await auth.login(username.value, password.value)
     router.push('/')
   } catch (e) {
-    if (e instanceof ApiError) {
+    if (e instanceof ApiError && e.status >= 502 && e.status <= 504) {
+      error.value = 'API is unreachable — it may be down or restarting'
+    } else if (e instanceof ApiError) {
       error.value = e.message
     } else {
-      error.value = 'Login failed'
+      error.value = 'API is unreachable — it may be down or restarting'
     }
   } finally {
     loading.value = false
