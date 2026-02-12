@@ -15,8 +15,10 @@ type DeviceSummary struct {
 
 // TopMessage holds a normalized message pattern with its count and a sample.
 type TopMessage struct {
-	Pattern  string `json:"pattern"`
-	Sample   string `json:"sample"`
-	Count    int64  `json:"count"`
-	LatestID int64  `json:"latest_id"`
+	Pattern       string `json:"pattern"`
+	Sample        string `json:"sample"`
+	Count         int64  `json:"count"`
+	LatestID      int64  `json:"latest_id"`
+	Severity      int    `json:"severity"`
+	SeverityLabel string `json:"severity_label"`
 }

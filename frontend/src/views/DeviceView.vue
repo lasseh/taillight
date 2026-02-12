@@ -4,6 +4,8 @@ import { useRouter, RouterLink } from 'vue-router'
 import type { DeviceSummary } from '@/types/device'
 import { api, ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
+import { severityColorClassByLabel, severityBgClass } from '@/lib/constants'
+import { highlightMessage } from '@/lib/highlighter'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
@@ -123,9 +125,11 @@ onUnmounted(() => {
               :key="i"
               :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
               class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors"
+              :class="severityBgClass[msg.severity] ?? ''"
             >
               <span class="text-t-purple w-[8ch] shrink-0 text-right text-xs">{{ formatNumber(msg.count) }}</span>
-              <span class="text-t-fg min-w-0 flex-1 truncate" :title="msg.sample">{{ msg.sample }}</span>
+              <span class="w-[8ch] shrink-0 uppercase" :class="severityColorClassByLabel[msg.severity_label] ?? 'text-t-fg'">{{ msg.severity_label }}</span>
+              <span class="min-w-0 flex-1 truncate" :title="msg.sample" v-html="highlightMessage(msg.latest_id, msg.sample)" />
             </RouterLink>
           </div>
         </div>

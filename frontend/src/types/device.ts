@@ -6,6 +6,8 @@ export interface TopMessage {
   sample: string
   count: number
   latest_id: number
+  severity: number
+  severity_label: string
 }
 
 export interface DeviceSummary {
