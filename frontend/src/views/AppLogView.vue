@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { AppLogEvent } from '@/types/applog'
 import { api, ApiError } from '@/lib/api'
@@ -25,18 +25,28 @@ const lvlClass = computed(() =>
   event.value ? (levelColorClass[event.value.level] ?? 'text-t-fg') : 'text-t-fg',
 )
 
-onMounted(async () => {
-  const numId = Number(props.id)
+let fetchVersion = 0
+
+watch(() => props.id, async (id) => {
+  const version = ++fetchVersion
+  event.value = null
+  loading.value = true
+  error.value = null
+  errorStatus.value = null
+
+  const numId = Number(id)
   if (!Number.isInteger(numId) || numId <= 0) {
     errorStatus.value = 404
-    error.value = `applog #${props.id} does not exist`
+    error.value = `applog #${id} does not exist`
     loading.value = false
     return
   }
   try {
     const res = await api.getAppLog(numId)
+    if (version !== fetchVersion) return
     event.value = res.data
   } catch (e) {
+    if (version !== fetchVersion) return
     if (e instanceof ApiError && e.code !== 'unknown') {
       errorStatus.value = e.status
       error.value = e.message
@@ -44,9 +54,11 @@ onMounted(async () => {
       error.value = e instanceof Error ? e.message : 'failed to load event'
     }
   } finally {
-    loading.value = false
+    if (version === fetchVersion) {
+      loading.value = false
+    }
   }
-})
+}, { immediate: true })
 </script>
 
 <template>

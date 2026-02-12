@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { SyslogEvent, JuniperSyslogRef } from '@/types/syslog'
 import { api, ApiError } from '@/lib/api'
@@ -35,21 +35,32 @@ const highlightedRaw = computed(() =>
   event.value?.raw_message ? highlight(event.value.raw_message) : '',
 )
 
-onMounted(async () => {
-  const numId = Number(props.id)
+let fetchVersion = 0
+
+watch(() => props.id, async (id) => {
+  const version = ++fetchVersion
+  event.value = null
+  juniperRefs.value = []
+  loading.value = true
+  error.value = null
+  errorStatus.value = null
+
+  const numId = Number(id)
   if (!Number.isInteger(numId) || numId <= 0) {
     errorStatus.value = 404
-    error.value = `syslog #${props.id} does not exist`
+    error.value = `syslog #${id} does not exist`
     loading.value = false
     return
   }
   try {
     const res = await api.getSyslog(numId)
+    if (version !== fetchVersion) return
     event.value = res.data
     if (res.data.juniper_ref) {
       juniperRefs.value = res.data.juniper_ref
     }
   } catch (e) {
+    if (version !== fetchVersion) return
     if (e instanceof ApiError && e.code !== 'unknown') {
       errorStatus.value = e.status
       error.value = e.message
@@ -57,9 +68,11 @@ onMounted(async () => {
       error.value = e instanceof Error ? e.message : 'failed to load event'
     }
   } finally {
-    loading.value = false
+    if (version === fetchVersion) {
+      loading.value = false
+    }
   }
-})
+}, { immediate: true })
 </script>
 
 <template>
