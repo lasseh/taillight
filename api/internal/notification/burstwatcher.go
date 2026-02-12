@@ -18,6 +18,8 @@ type burst struct {
 type BurstWatcher struct {
 	mu            sync.Mutex
 	bursts        map[int64]*burst
+	stopped       bool
+	inflightWg    sync.WaitGroup
 	onFlush       func(ruleID int64, first Payload, count int)
 	defaultWindow time.Duration
 }
@@ -41,6 +43,10 @@ func (bw *BurstWatcher) Add(ruleID int64, window time.Duration, payload Payload)
 	bw.mu.Lock()
 	defer bw.mu.Unlock()
 
+	if bw.stopped {
+		return
+	}
+
 	if b, ok := bw.bursts[ruleID]; ok {
 		b.count++
 		return
@@ -60,6 +66,10 @@ func (bw *BurstWatcher) Add(ruleID int64, window time.Duration, payload Payload)
 // flush fires the onFlush callback and removes the burst entry.
 func (bw *BurstWatcher) flush(ruleID int64) {
 	bw.mu.Lock()
+	if bw.stopped {
+		bw.mu.Unlock()
+		return
+	}
 	b, ok := bw.bursts[ruleID]
 	if !ok {
 		bw.mu.Unlock()
@@ -68,18 +78,23 @@ func (bw *BurstWatcher) flush(ruleID int64) {
 	first := b.first
 	count := b.count
 	delete(bw.bursts, ruleID)
+	bw.inflightWg.Add(1)
 	bw.mu.Unlock()
 
+	defer bw.inflightWg.Done()
 	bw.onFlush(ruleID, first, count)
 }
 
-// Stop cancels all pending burst timers.
+// Stop cancels all pending burst timers and waits for any in-flight flush
+// callbacks to complete. After Stop returns, no more onFlush calls will occur.
 func (bw *BurstWatcher) Stop() {
 	bw.mu.Lock()
-	defer bw.mu.Unlock()
-
+	bw.stopped = true
 	for id, b := range bw.bursts {
 		b.timer.Stop()
 		delete(bw.bursts, id)
 	}
+	bw.mu.Unlock()
+
+	bw.inflightWg.Wait()
 }
