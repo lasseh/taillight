@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/lib/api'
@@ -11,6 +11,32 @@ const username = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
+
+// Re-check auth periodically while on the login page. Handles auth-disabled
+// mode where the API was temporarily unreachable on first load: once the API
+// recovers and returns an anonymous user, redirect to home automatically.
+let retryTimer: ReturnType<typeof setInterval> | undefined
+
+onMounted(() => {
+  if (!auth.user) {
+    let attempts = 0
+    retryTimer = setInterval(async () => {
+      if (++attempts > 5) {
+        clearInterval(retryTimer)
+        return
+      }
+      await auth.init()
+      if (auth.user) {
+        clearInterval(retryTimer)
+        router.replace('/')
+      }
+    }, 2000)
+  }
+})
+
+onUnmounted(() => {
+  if (retryTimer) clearInterval(retryTimer)
+})
 
 async function handleSubmit() {
   error.value = ''

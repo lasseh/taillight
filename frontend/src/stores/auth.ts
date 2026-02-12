@@ -12,15 +12,15 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const res = await api.getMe()
       user.value = res.user
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        user.value = null
-      } else {
-        console.error('auth init failed', e)
-        user.value = null
-      }
-    } finally {
       ready.value = true
+    } catch (e) {
+      user.value = null
+      if (e instanceof ApiError && e.status === 401) {
+        // Auth enabled, not logged in — definitive state.
+        ready.value = true
+      }
+      // API unreachable (network error, 5xx): leave ready false so the
+      // router guard retries init() on the next navigation.
     }
   }
 
