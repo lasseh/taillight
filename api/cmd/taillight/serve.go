@@ -355,6 +355,7 @@ func setupRouter(
 	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
 	taillightMetricsHandler := handler.NewTaillightMetricsHandler(store)
 	syslogSSEHandler := handler.NewSyslogSSEHandler(syslogBroker, store, logger)
+	deviceHandler := handler.NewDeviceHandler(store)
 
 	// Applog handlers.
 	applogIngestHandler := handler.NewAppLogIngestHandler(store, applogBroker, logger, notifEngine)
@@ -429,6 +430,8 @@ func setupRouter(
 					r.Get("/volume", statsHandler.Volume)
 					r.Get("/summary", statsHandler.SyslogSummary)
 				})
+
+				r.Get("/device/{hostname}", deviceHandler.Get)
 
 				r.Route("/juniper", func(r chi.Router) {
 					r.Get("/lookup", juniperHandler.Lookup)

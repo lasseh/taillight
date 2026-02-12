@@ -56,7 +56,15 @@ function fieldColor(field: (typeof fields)[number]): string {
       class="flex gap-2 py-0.5 text-sm"
     >
       <span class="text-t-fg-dark w-24 shrink-0 text-right">{{ field.label }}</span>
-      <span class="min-w-0 break-all" :class="fieldColor(field)">{{ event[field.key] ?? '–' }}</span>
+      <RouterLink
+        v-if="field.key === 'hostname'"
+        :to="{ name: 'device-detail', params: { hostname: event.hostname } }"
+        class="min-w-0 break-all hover:underline" :class="fieldColor(field)"
+        @click.stop
+      >
+        {{ event.hostname || '–' }}
+      </RouterLink>
+      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{ event[field.key] ?? '–' }}</span>
     </div>
 
     <!-- message -->

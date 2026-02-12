@@ -543,6 +543,107 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 	return summary, nil
 }
 
+// GetDeviceSummary returns aggregated device information for the given hostname.
+// It fetches last-seen time, severity breakdown (7d), and top normalized messages (7d).
+func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.DeviceSummary, error) {
+	summary := model.DeviceSummary{
+		Hostname:          hostname,
+		SeverityBreakdown: make([]model.SeverityCount, 0),
+		TopMessages:       make([]model.TopMessage, 0),
+	}
+
+	// 1. Last seen from meta cache.
+	var lastSeen *time.Time
+	err := s.pool.QueryRow(ctx,
+		"SELECT last_seen_at FROM syslog_meta_cache WHERE column_name = 'hostname' AND value = $1",
+		hostname,
+	).Scan(&lastSeen)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return summary, fmt.Errorf("device last seen: %w", err)
+	}
+	summary.LastSeenAt = lastSeen
+
+	since := time.Now().UTC().Add(-7 * 24 * time.Hour)
+
+	// 2. Severity breakdown (7 days).
+	sevRows, err := s.pool.Query(ctx,
+		`SELECT severity, count(*) AS cnt
+		 FROM syslog_events
+		 WHERE hostname = $1 AND received_at >= $2
+		 GROUP BY severity
+		 ORDER BY severity`,
+		hostname, since,
+	)
+	if err != nil {
+		return summary, fmt.Errorf("device severity breakdown: %w", err)
+	}
+	defer sevRows.Close()
+
+	for sevRows.Next() {
+		var sev int
+		var cnt int64
+		if err := sevRows.Scan(&sev, &cnt); err != nil {
+			return summary, fmt.Errorf("scan severity: %w", err)
+		}
+		if sev <= model.SeverityErr {
+			summary.CriticalCount += cnt
+		}
+		summary.SeverityBreakdown = append(summary.SeverityBreakdown, model.SeverityCount{
+			Severity: sev,
+			Label:    model.SeverityLabel(sev),
+			Count:    cnt,
+		})
+	}
+	if err := sevRows.Err(); err != nil {
+		return summary, fmt.Errorf("severity rows: %w", err)
+	}
+
+	// Calculate percentages for severity breakdown.
+	var total int64
+	for _, sc := range summary.SeverityBreakdown {
+		total += sc.Count
+	}
+	for i := range summary.SeverityBreakdown {
+		if total > 0 {
+			summary.SeverityBreakdown[i].Pct = float64(summary.SeverityBreakdown[i].Count) / float64(total) * 100
+		}
+	}
+
+	// 3. Top normalized messages (7 days).
+	msgRows, err := s.pool.Query(ctx,
+		`SELECT
+		     regexp_replace(
+		         regexp_replace(message, '\d{1,3}(\.\d{1,3}){3}(:\d+)?', '<ip>', 'g'),
+		         '\d+', '<n>', 'g'
+		     ) AS pattern,
+		     min(message) AS sample,
+		     count(*) AS cnt
+		 FROM syslog_events
+		 WHERE hostname = $1 AND received_at >= $2
+		 GROUP BY pattern
+		 ORDER BY cnt DESC
+		 LIMIT 20`,
+		hostname, since,
+	)
+	if err != nil {
+		return summary, fmt.Errorf("device top messages: %w", err)
+	}
+	defer msgRows.Close()
+
+	for msgRows.Next() {
+		var tm model.TopMessage
+		if err := msgRows.Scan(&tm.Pattern, &tm.Sample, &tm.Count); err != nil {
+			return summary, fmt.Errorf("scan top message: %w", err)
+		}
+		summary.TopMessages = append(summary.TopMessages, tm)
+	}
+	if err := msgRows.Err(); err != nil {
+		return summary, fmt.Errorf("top message rows: %w", err)
+	}
+
+	return summary, nil
+}
+
 // LookupJuniperRef returns all Juniper syslog reference entries matching the given name.
 func (s *Store) LookupJuniperRef(ctx context.Context, name string) ([]model.JuniperSyslogRef, error) {
 	query, args, err := psq.

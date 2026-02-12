@@ -48,7 +48,13 @@ const highlightedMessage = computed(() =>
     >
       <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.received_at) }}</span>
       <span class="w-[8ch] shrink-0 uppercase" :class="sevClass">{{ event.severity_label }}</span>
-      <span class="text-t-teal w-[20ch] shrink-0 truncate">{{ event.hostname }}</span>
+      <RouterLink
+        :to="{ name: 'device-detail', params: { hostname: event.hostname } }"
+        class="text-t-teal w-[20ch] shrink-0 truncate hover:underline"
+        @click.stop
+      >
+        {{ event.hostname }}
+      </RouterLink>
       <span class="text-t-purple w-[14ch] shrink-0 truncate">{{ event.programname }}</span>
       <span class="min-w-0 flex-1 truncate" v-html="highlightedMessage" />
     </div>

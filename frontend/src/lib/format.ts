@@ -48,3 +48,25 @@ export function formatNumber(n: number): string {
 export function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s
 }
+
+/** Format an ISO timestamp as a human-readable relative time string. */
+export function formatRelativeTime(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime()
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
+/** Return a Tailwind text color class based on last-seen staleness. */
+export function lastSeenColorClass(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime()
+  const minutes = diff / 60000
+  if (minutes < 15) return 'text-t-green'
+  if (minutes < 120) return 'text-t-yellow'
+  return 'text-t-red'
+}

@@ -128,7 +128,14 @@ onMounted(async () => {
             <dd class="text-t-fg border-t-border border-b px-4 py-1.5 font-mono">{{ formatDateTime(event.reported_at) }}</dd>
 
             <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">hostname</dt>
-            <dd class="text-t-teal border-t-border border-b px-4 py-1.5 font-mono">{{ event.hostname || '–' }}</dd>
+            <dd class="text-t-teal border-t-border border-b px-4 py-1.5 font-mono">
+              <RouterLink
+                :to="{ name: 'device-detail', params: { hostname: event.hostname } }"
+                class="hover:underline"
+              >
+                {{ event.hostname || '–' }}
+              </RouterLink>
+            </dd>
 
             <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">ip</dt>
             <dd class="text-t-blue border-t-border border-b px-4 py-1.5 font-mono">{{ event.fromhost_ip || '–' }}</dd>

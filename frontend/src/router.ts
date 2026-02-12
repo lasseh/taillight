@@ -26,6 +26,12 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/device/:hostname',
+      name: 'device-detail',
+      component: () => import('@/views/DeviceView.vue'),
+      props: true,
+    },
+    {
       path: '/applog',
       name: 'applog',
       component: () => import('@/views/AppLogListView.vue'),
