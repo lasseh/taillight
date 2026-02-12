@@ -6,6 +6,7 @@ import type { ApiKeyInfo } from '@/types/auth'
 const keys = ref<ApiKeyInfo[]>([])
 const loading = ref(true)
 const loadError = ref('')
+const authDisabled = ref(false)
 
 // Creation state
 const showCreate = ref(false)
@@ -104,7 +105,11 @@ async function fetchKeys() {
     const res = await api.listKeys()
     keys.value = res.data
   } catch (e) {
-    loadError.value = e instanceof ApiError ? e.message : 'Failed to load keys'
+    if (e instanceof ApiError && e.status === 404) {
+      authDisabled.value = true
+    } else {
+      loadError.value = e instanceof ApiError ? e.message : 'Failed to load keys'
+    }
   } finally {
     loading.value = false
   }
@@ -191,7 +196,7 @@ onMounted(fetchKeys)
             <p class="text-t-fg-dark mt-1 text-sm">manage keys used to authenticate with the api — <a href="/api/docs" target="_blank" class="text-t-blue hover:brightness-125">api docs</a></p>
           </div>
           <button
-            v-if="!showCreate"
+            v-if="!showCreate && !authDisabled"
             class="bg-t-bg-highlight text-t-fg hover:brightness-125 border-t-border border px-4 py-2 text-sm transition-all"
             @click="showCreate = true"
           >
@@ -199,9 +204,18 @@ onMounted(fetchKeys)
           </button>
         </div>
 
-        <!-- Loading / error -->
+        <!-- Loading / error / auth disabled -->
         <div v-if="loading" class="text-t-fg-dark py-10 text-center text-sm">loading...</div>
         <div v-else-if="loadError" class="text-t-red py-10 text-center text-sm">{{ loadError }}</div>
+        <div v-else-if="authDisabled" class="bg-t-bg-dark border-t-border rounded border px-5 py-10 text-center">
+          <svg class="text-t-fg-gutter mx-auto mb-3 h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <p class="text-t-fg-dark text-sm">authentication is disabled</p>
+          <p class="text-t-fg-gutter mt-1 text-sm">enable auth in config.yaml to manage API keys</p>
+          <code class="text-t-fg-dark bg-t-bg mt-3 inline-block rounded px-3 py-1.5 font-mono text-xs">auth_enabled: true</code>
+        </div>
 
         <template v-else>
           <!-- Created key banner -->
