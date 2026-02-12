@@ -625,7 +625,7 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		 FROM syslog_events
 		 WHERE hostname = $1 AND received_at >= $2
 		 GROUP BY pattern
-		 ORDER BY cnt DESC
+		 ORDER BY cnt DESC, pattern
 		 LIMIT 10`,
 		hostname, since,
 	)

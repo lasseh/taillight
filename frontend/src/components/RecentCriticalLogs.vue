@@ -3,6 +3,7 @@ import { RouterLink } from 'vue-router'
 import type { SyslogEvent } from '@/types/syslog'
 import { severityColorClassByLabel, severityBgClass } from '@/lib/constants'
 import { formatTime } from '@/lib/format'
+import { highlightMessage } from '@/lib/highlighter'
 
 defineProps<{
   events: SyslogEvent[]
@@ -34,7 +35,7 @@ defineProps<{
         <span class="w-[8ch] shrink-0 uppercase" :class="severityColorClassByLabel[event.severity_label] ?? 'text-t-fg'">{{ event.severity_label }}</span>
         <span v-if="showHostname" class="text-t-teal hidden w-[20ch] shrink-0 truncate md:inline">{{ event.hostname }}</span>
         <span class="text-t-purple hidden w-[14ch] shrink-0 truncate md:inline">{{ event.programname }}</span>
-        <span class="text-t-fg min-w-0 flex-1 truncate">{{ event.message }}</span>
+        <span class="min-w-0 flex-1 truncate" v-html="highlightMessage(event.id, event.message)" />
       </RouterLink>
     </div>
   </div>
