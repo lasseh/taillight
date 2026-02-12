@@ -100,7 +100,7 @@ onMounted(async () => {
         list-label="go to syslog"
       />
 
-      <div v-else-if="event" class="mx-auto max-w-4xl space-y-4">
+      <div v-else-if="event" class="mx-auto max-w-7xl space-y-4">
         <!-- Header: severity + message -->
         <div
           class="bg-t-bg-dark rounded border-l-2 p-4"
