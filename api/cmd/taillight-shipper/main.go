@@ -11,8 +11,10 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -80,6 +82,16 @@ func run(_ *cobra.Command, _ []string) error {
 	// handlers tracks every Handler so we can shut them all down.
 	var handlers []*logshipper.Handler
 
+	var httpClient *http.Client
+	if cfg.TLSSkipVerify {
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // user-requested skip
+			},
+		}
+		logger.Warn("TLS certificate verification disabled")
+	}
+
 	newHandler := func(service, component, hostOverride string) *logshipper.Handler {
 		h := logshipper.New(logshipper.Config{
 			Endpoint:    cfg.Endpoint,
@@ -90,6 +102,7 @@ func run(_ *cobra.Command, _ []string) error {
 			BatchSize:   cfg.BatchSize,
 			FlushPeriod: flushPeriod,
 			BufferSize:  cfg.BufferSize,
+			Client:      httpClient,
 		})
 		handlers = append(handlers, h)
 		return h

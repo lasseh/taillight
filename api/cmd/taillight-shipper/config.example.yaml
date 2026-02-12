@@ -29,6 +29,9 @@ flush_period: 1s
 # Buffered channel capacity per handler.
 buffer_size: 1024
 
+# Skip TLS certificate verification (for self-signed certs).
+# tls_skip_verify: false
+
 # Files to tail (optional). Each file gets its own handler.
 # If service/component/host is omitted, the top-level defaults are used.
 files:

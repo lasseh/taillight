@@ -10,15 +10,16 @@ import (
 
 // config holds the top-level YAML configuration for taillight-shipper.
 type config struct {
-	Endpoint    string       `yaml:"endpoint"`
-	APIKey      string       `yaml:"api_key"`
-	Service     string       `yaml:"service"`
-	Component   string       `yaml:"component"`
-	Host        string       `yaml:"host"`
-	BatchSize   int          `yaml:"batch_size"`
-	FlushPeriod string       `yaml:"flush_period"`
-	BufferSize  int          `yaml:"buffer_size"`
-	Files       []fileConfig `yaml:"files"`
+	Endpoint      string       `yaml:"endpoint"`
+	APIKey        string       `yaml:"api_key"`
+	Service       string       `yaml:"service"`
+	Component     string       `yaml:"component"`
+	Host          string       `yaml:"host"`
+	BatchSize     int          `yaml:"batch_size"`
+	FlushPeriod   string       `yaml:"flush_period"`
+	BufferSize    int          `yaml:"buffer_size"`
+	TLSSkipVerify bool         `yaml:"tls_skip_verify"`
+	Files         []fileConfig `yaml:"files"`
 }
 
 // fileConfig describes a single file to tail.
