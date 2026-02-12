@@ -621,6 +621,7 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		     min(message) AS sample,
 		     count(*) AS cnt,
 		     max(id) AS latest_id,
+		     max(received_at) AS latest_at,
 		     min(severity) AS severity
 		 FROM syslog_events
 		 WHERE hostname = $1 AND received_at >= $2
@@ -636,7 +637,7 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 
 	for msgRows.Next() {
 		var tm model.TopMessage
-		if err := msgRows.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID, &tm.Severity); err != nil {
+		if err := msgRows.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID, &tm.LatestAt, &tm.Severity); err != nil {
 			return summary, fmt.Errorf("scan top message: %w", err)
 		}
 		tm.SeverityLabel = model.SeverityLabel(tm.Severity)

@@ -6,6 +6,7 @@ export interface TopMessage {
   sample: string
   count: number
   latest_id: number
+  latest_at: string
   severity: number
   severity_label: string
 }
