@@ -114,22 +114,18 @@ onUnmounted(() => {
 
         <!-- Top messages -->
         <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">
             Top Messages
           </h3>
-          <div class="divide-t-border divide-y">
+          <div>
             <RouterLink
               v-for="(msg, i) in summary.top_messages"
               :key="i"
               :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
-              class="hover:bg-t-bg flex items-baseline gap-3 px-4 py-1.5 text-sm transition-colors"
+              class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors"
             >
-              <span class="text-t-fg-dark w-16 shrink-0 text-right font-mono text-xs">
-                {{ formatNumber(msg.count) }}
-              </span>
-              <span class="text-t-fg min-w-0 flex-1 truncate font-mono text-xs" :title="msg.sample">
-                {{ msg.sample }}
-              </span>
+              <span class="text-t-purple w-[8ch] shrink-0 text-right text-xs">{{ formatNumber(msg.count) }}</span>
+              <span class="text-t-fg min-w-0 flex-1 truncate" :title="msg.sample">{{ msg.sample }}</span>
             </RouterLink>
           </div>
         </div>
