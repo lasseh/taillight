@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import type { DeviceSummary } from '@/types/device'
 import { api, ApiError } from '@/lib/api'
@@ -49,10 +49,16 @@ async function fetchData() {
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
-onMounted(() => {
+// Re-fetch and restart timer when hostname changes (prevents stacking timers).
+watch(() => props.hostname, () => {
+  clearInterval(refreshTimer)
+  summary.value = null
+  loading.value = true
+  error.value = null
+  errorStatus.value = null
   fetchData()
   refreshTimer = setInterval(fetchData, 10_000)
-})
+}, { immediate: true })
 
 onUnmounted(() => {
   clearInterval(refreshTimer)

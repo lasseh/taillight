@@ -73,6 +73,7 @@ export function createEventStream<T>(path: string, eventName: string) {
   }
 
   function scheduleRetry() {
+    stopWatchdog()
     if (retryTimer) return
     retryTimer = setTimeout(() => {
       retryTimer = null

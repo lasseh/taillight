@@ -54,20 +54,42 @@ export function createFilterStore<K extends string>(
       }
     }
 
+    // Guard to prevent circular sync: filter→URL→filter.
+    let syncing = false
+
     /** Sync filter state back to URL (replace, no navigation). */
     function syncToURL() {
       if (route.name !== routeName) return
+      syncing = true
       const query: Record<string, string> = {}
       for (const key of filterKeys) {
         if (filters[key]) {
           query[key] = filters[key]
         }
       }
-      router.replace({ name: route.name ?? undefined, query })
+      router.replace({ name: route.name ?? undefined, query }).finally(() => {
+        syncing = false
+      })
     }
 
     // Auto-sync to URL whenever filters change.
     watch(filters, syncToURL, { deep: true })
+
+    // Re-read URL params on browser back/forward (popstate).
+    watch(
+      () => route.query,
+      (query) => {
+        if (route.name !== routeName) return
+        if (syncing) return
+        for (const key of filterKeys) {
+          const val = query[key as string]
+          const newVal = typeof val === 'string' ? val : ''
+          if ((filters as Record<string, string>)[key] !== newVal) {
+            (filters as Record<string, string>)[key] = newVal
+          }
+        }
+      },
+    )
 
     return { filters, activeFilters, hasActiveFilters, clearAll, initFromURL }
   })

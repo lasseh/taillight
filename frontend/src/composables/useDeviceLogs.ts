@@ -17,6 +17,7 @@ export function useDeviceLogs(hostname: Ref<string>) {
   let lastEventAt = 0
   let backoff = INITIAL_BACKOFF
   let abortController: AbortController | null = null
+  let disposed = false
 
   const seenIds = new Set<number>()
 
@@ -68,10 +69,10 @@ export function useDeviceLogs(hostname: Ref<string>) {
   }
 
   function scheduleRetry() {
-    if (retryTimer) return
+    if (retryTimer || disposed) return
     retryTimer = setTimeout(() => {
       retryTimer = null
-      openStream()
+      if (!disposed) openStream()
       backoff = Math.min(backoff * 2, MAX_BACKOFF)
     }, backoff)
   }
@@ -142,11 +143,13 @@ export function useDeviceLogs(hostname: Ref<string>) {
   }
 
   watch(hostname, () => {
+    disposed = false
     stop()
     start()
   }, { immediate: true })
 
   onUnmounted(() => {
+    disposed = true
     stop()
   })
 
