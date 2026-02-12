@@ -23,7 +23,7 @@ const rangeDurations: Record<string, number> = {
 }
 
 function rangeToFrom(range: string): string {
-  const ms = rangeDurations[range] ?? rangeDurations['24h']
+  const ms = rangeDurations[range] ?? 24 * 3600_000
   return new Date(Date.now() - ms).toISOString()
 }
 
