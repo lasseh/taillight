@@ -104,74 +104,36 @@ func (s *Slack) Send(ctx context.Context, ch notification.Channel, payload notif
 	return result
 }
 
-// buildSlackMessage creates a Block Kit message from the payload.
+// buildSlackMessage creates a compact Block Kit message from the payload.
 func buildSlackMessage(p notification.Payload) map[string]any {
 	color := severityColor(p)
-	header := fmt.Sprintf("Taillight Alert: %s", p.RuleName)
 
-	var msgText string
-	if p.EventCount > 1 {
-		msgText = fmt.Sprintf("*%d events* matched rule *%s*", p.EventCount, p.RuleName)
-	}
-
-	var fields []map[string]any
+	// Build a concise summary line with key metadata inline.
+	var summary, message string
 
 	if p.SyslogEvent != nil {
 		e := p.SyslogEvent
-		fields = append(fields,
-			slackField("Host", e.Hostname),
-			slackField("Program", e.Programname),
-			slackField("Severity", model.SeverityLabel(e.Severity)),
-			slackField("Facility", model.FacilityLabel(e.Facility)),
-		)
-		if msgText == "" {
-			msgText = e.Message
-		} else {
-			msgText += "\n\n" + e.Message
-		}
+		severity := model.SeverityLabel(e.Severity)
+		summary = fmt.Sprintf("*%s* | %s | %s | %s", p.RuleName, e.Hostname, e.Programname, strings.ToUpper(severity))
+		message = e.Message
 	}
 
 	if p.AppLogEvent != nil {
 		e := p.AppLogEvent
-		fields = append(fields,
-			slackField("Service", e.Service),
-			slackField("Level", e.Level),
-			slackField("Host", e.Host),
-			slackField("Component", e.Component),
-		)
-		if msgText == "" {
-			msgText = e.Msg
-		} else {
-			msgText += "\n\n" + e.Msg
-		}
+		summary = fmt.Sprintf("*%s* | %s | %s | %s", p.RuleName, e.Host, e.Service, e.Level)
+		message = e.Msg
+	}
+
+	if p.EventCount > 1 {
+		summary += fmt.Sprintf(" (%d events)", p.EventCount)
 	}
 
 	blocks := []map[string]any{
 		{
-			"type": "header",
-			"text": map[string]any{
-				"type": "plain_text",
-				"text": header,
-			},
-		},
-		{
-			"type":   "section",
-			"fields": fields,
-		},
-		{
 			"type": "section",
 			"text": map[string]any{
 				"type": "mrkdwn",
-				"text": "```\n" + truncate(msgText, 2900) + "\n```",
-			},
-		},
-		{
-			"type": "context",
-			"elements": []map[string]any{
-				{
-					"type": "mrkdwn",
-					"text": fmt.Sprintf("_%s | %d event(s)_", p.Timestamp.Format(time.RFC3339), p.EventCount),
-				},
+				"text": summary + "\n```\n" + truncate(message, 2900) + "\n```",
 			},
 		},
 	}
@@ -183,16 +145,6 @@ func buildSlackMessage(p notification.Payload) map[string]any {
 				"blocks": blocks,
 			},
 		},
-	}
-}
-
-func slackField(label, value string) map[string]any {
-	if value == "" {
-		value = "-"
-	}
-	return map[string]any{
-		"type": "mrkdwn",
-		"text": fmt.Sprintf("*%s:*\n%s", label, value),
 	}
 }
 
