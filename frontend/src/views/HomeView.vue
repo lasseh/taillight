@@ -7,6 +7,8 @@ import { useNewFlash } from '@/composables/useNewFlash'
 import { formatTime, formatAttrs, formatNumber } from '@/lib/format'
 import { severityColorClassByLabel, severityBgClassByLabel } from '@/lib/constants'
 import { LEVEL_RANK, levelColorClass, levelBgColorClass } from '@/lib/applog-constants'
+import SeverityDistribution from '@/components/SeverityDistribution.vue'
+import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
 
 defineOptions({ name: 'HomeView' })
 
@@ -212,27 +214,7 @@ function getSeverityBgClass(level: string): string {
           <!-- Two Column Layout -->
           <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
             <!-- Severity Distribution -->
-            <div class="bg-t-bg-dark border-t-border rounded border p-4">
-              <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Severity Distribution</h3>
-              <div class="space-y-2">
-                <div
-                  v-for="item in home.syslogSummary!.severity_breakdown"
-                  :key="item.severity"
-                  class="group flex cursor-pointer items-center gap-2"
-                >
-                  <span class="w-16 shrink-0 text-xs uppercase" :class="getSeverityColorClass(item.label)">{{ item.label }}</span>
-                  <div class="bg-t-bg-highlight h-2 flex-1 overflow-hidden rounded">
-                    <div
-                      class="h-full rounded transition-all group-hover:opacity-80"
-                      :class="getSeverityBgClass(item.label)"
-                      :style="{ width: `${Math.min(item.pct * 1.3, 100)}%`, opacity: 0.7 }"
-                    ></div>
-                  </div>
-                  <span class="text-t-fg-dark w-8 text-right text-xs">{{ item.pct.toFixed(0) }}%</span>
-                  <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(item.count) }}</span>
-                </div>
-              </div>
-            </div>
+            <SeverityDistribution :items="home.syslogSummary!.severity_breakdown" />
 
             <!-- Top Hosts -->
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
@@ -259,27 +241,7 @@ function getSeverityBgClass(level: string): string {
           </div>
 
           <!-- Recent High-Severity Events -->
-          <div class="bg-t-bg-dark border-t-border rounded border">
-            <h3 class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">Recent High-Severity</h3>
-            <div>
-              <div v-if="home.recentSyslogEvents.length === 0" class="text-t-fg-dark px-4 py-2 text-xs">
-                No recent high-severity events
-              </div>
-              <router-link
-                v-for="event in home.recentSyslogEvents"
-                :key="event.id"
-                :to="`/syslog/${event.id}`"
-                class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors"
-                :class="newSyslogIds.has(event.id) ? 'row-flash' : ''"
-              >
-                <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.received_at) }}</span>
-                <span class="w-[8ch] shrink-0 uppercase" :class="getSeverityColorClass(event.severity_label)">{{ event.severity_label }}</span>
-                <span class="text-t-teal hidden w-[20ch] shrink-0 truncate md:inline">{{ event.hostname }}</span>
-                <span class="text-t-purple hidden w-[14ch] shrink-0 truncate md:inline">{{ event.programname }}</span>
-                <span class="text-t-fg min-w-0 flex-1 truncate">{{ event.message }}</span>
-              </router-link>
-            </div>
-          </div>
+          <RecentCriticalLogs :events="home.recentSyslogEvents" show-hostname :flash-ids="newSyslogIds" />
         </template>
       </section>
 

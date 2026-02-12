@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import type { DeviceSummary } from '@/types/device'
 import { api, ApiError } from '@/lib/api'
-import { formatRelativeTime, lastSeenColorClass, formatNumber, formatTime, truncate } from '@/lib/format'
-import { severityColorClassByLabel, severityBgClassByLabel, severityColorClass, severityBgClass } from '@/lib/constants'
+import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
+import SeverityDistribution from '@/components/SeverityDistribution.vue'
+import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
 
 const props = defineProps<{
   hostname: string
@@ -50,10 +51,6 @@ onUnmounted(() => {
   clearInterval(refreshTimer)
 })
 
-const sevTotal = computed(() => {
-  if (!summary.value) return 0
-  return summary.value.severity_breakdown.reduce((sum, s) => sum + s.count, 0)
-})
 </script>
 
 <template>
@@ -138,56 +135,10 @@ const sevTotal = computed(() => {
         </div>
 
         <!-- Severity breakdown -->
-        <div v-if="summary.severity_breakdown.length > 0" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
-            Severity Breakdown
-          </h3>
-          <div class="space-y-2 p-4">
-            <div
-              v-for="sev in summary.severity_breakdown"
-              :key="sev.severity"
-              class="flex items-center gap-3 text-sm"
-            >
-              <span class="w-16 shrink-0 text-right uppercase" :class="severityColorClassByLabel[sev.label] ?? 'text-t-fg'">
-                {{ sev.label }}
-              </span>
-              <div class="bg-t-bg h-4 min-w-0 flex-1 rounded">
-                <div
-                  class="h-4 rounded"
-                  :class="severityBgClassByLabel[sev.label] ?? 'bg-t-fg-dark'"
-                  :style="{ width: sevTotal > 0 ? `${(sev.count / sevTotal) * 100}%` : '0%' }"
-                />
-              </div>
-              <span class="text-t-fg-dark w-16 shrink-0 text-right font-mono text-xs">
-                {{ formatNumber(sev.count) }}
-              </span>
-              <span class="text-t-fg-dark w-12 shrink-0 text-right font-mono text-xs">
-                {{ sev.pct.toFixed(1) }}%
-              </span>
-            </div>
-          </div>
-        </div>
+        <SeverityDistribution v-if="summary.severity_breakdown.length > 0" :items="summary.severity_breakdown" title="Severity Breakdown" />
 
         <!-- Critical logs -->
-        <div v-if="summary.critical_logs.length > 0" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
-            Recent Critical Logs
-          </h3>
-          <div class="divide-t-border divide-y font-mono text-xs leading-snug">
-            <RouterLink
-              v-for="event in summary.critical_logs"
-              :key="event.id"
-              :to="{ name: 'syslog-detail', params: { id: event.id } }"
-              class="hover:bg-t-bg-hover flex items-baseline gap-3 px-4 py-px transition-colors"
-              :class="severityBgClass[event.severity] ?? ''"
-            >
-              <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.received_at) }}</span>
-              <span class="w-[8ch] shrink-0 uppercase" :class="severityColorClass[event.severity] ?? 'text-t-fg'">{{ event.severity_label }}</span>
-              <span class="text-t-purple w-[14ch] shrink-0 truncate">{{ event.programname }}</span>
-              <span class="text-t-fg min-w-0 flex-1 truncate">{{ truncate(event.message, 200) }}</span>
-            </RouterLink>
-          </div>
-        </div>
+        <RecentCriticalLogs v-if="summary.critical_logs.length > 0" :events="summary.critical_logs" title="Recent Critical Logs" highlight-severity />
       </div>
     </div>
   </div>
