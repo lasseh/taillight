@@ -69,18 +69,21 @@ function stopStreams() {
   applogStream.stop()
 }
 
-// Start/stop streams based on auth state.
-watch(
-  () => auth.user,
-  (u) => {
-    if (u) {
-      startStreams()
-    } else {
-      stopStreams()
-    }
-  },
-  { immediate: true },
-)
+// Start/stop streams based on auth state, but wait for router to be ready
+// so that initFromURL() can read query params from the resolved route.
+router.isReady().then(() => {
+  watch(
+    () => auth.user,
+    (u) => {
+      if (u) {
+        startStreams()
+      } else {
+        stopStreams()
+      }
+    },
+    { immediate: true },
+  )
+})
 
 onUnmounted(() => {
   stopStreams()
