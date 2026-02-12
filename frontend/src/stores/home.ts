@@ -12,6 +12,21 @@ const MAX_RECENT_EVENTS = 10
 const HIGH_SEVERITY_MAX = 2 // crit and above
 const HIGH_SEVERITY_LEVELS = new Set(['WARN', 'ERROR', 'FATAL'])
 
+// Map range labels to milliseconds for computing `from` timestamps.
+const rangeDurations: Record<string, number> = {
+  '1h': 1 * 3600_000,
+  '6h': 6 * 3600_000,
+  '12h': 12 * 3600_000,
+  '24h': 24 * 3600_000,
+  '7d': 7 * 24 * 3600_000,
+  '30d': 30 * 24 * 3600_000,
+}
+
+function rangeToFrom(range: string): string {
+  const ms = rangeDurations[range] ?? rangeDurations['24h']
+  return new Date(Date.now() - ms).toISOString()
+}
+
 export const useHomeStore = defineStore('home', () => {
   const syslogSummary = ref<SyslogSummary | null>(null)
   const applogSummary = ref<AppLogSummary | null>(null)
@@ -74,9 +89,11 @@ export const useHomeStore = defineStore('home', () => {
   }
 
   async function fetchInitialEvents() {
+    const from = rangeToFrom(range_.value)
+
     try {
       const syslogEventsRes = await api.getSyslogs(
-        new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS) }),
+        new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS), from }),
       )
       recentSyslogEvents.value = (syslogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
     } catch {
@@ -85,7 +102,7 @@ export const useHomeStore = defineStore('home', () => {
 
     try {
       const applogEventsRes = await api.getAppLogs(
-        new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS) }),
+        new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS), from }),
       )
       recentApplogEvents.value = (applogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
     } catch {
@@ -113,6 +130,7 @@ export const useHomeStore = defineStore('home', () => {
   function setRange(r: string) {
     range_.value = r
     fetchSummaries()
+    fetchInitialEvents()
   }
 
   function stopRefresh() {
