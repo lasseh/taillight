@@ -43,7 +43,7 @@ type AuthStore interface {
 	DeleteUserSessions(ctx context.Context, userID [16]byte) error
 	PruneUserSessions(ctx context.Context, userID [16]byte, keep int) error
 	CleanExpiredSessions(ctx context.Context) (int64, error)
-	CreateAPIKey(ctx context.Context, userID [16]byte, name, keyHash, keyPrefix string, expiresAt *time.Time) (model.APIKeyRow, error)
+	CreateAPIKey(ctx context.Context, userID [16]byte, name, keyHash, keyPrefix string, scopes []string, expiresAt *time.Time) (model.APIKeyRow, error)
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (postgres.APIKeyWithUser, error)
 	ListAPIKeysByUser(ctx context.Context, userID [16]byte) ([]model.APIKeyRow, error)
 	RevokeAPIKey(ctx context.Context, id [16]byte) error
@@ -265,8 +265,16 @@ func parseUUID(s string) ([16]byte, error) {
 // --- API Key endpoints ---
 
 type createKeyRequest struct {
-	Name      string  `json:"name"`
-	ExpiresAt *string `json:"expires_at"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes"`
+	ExpiresAt *string  `json:"expires_at"`
+}
+
+// validScopes is the set of allowed scope values.
+var validScopes = map[string]bool{
+	"ingest": true,
+	"read":   true,
+	"admin":  true,
 }
 
 type createKeyResponse struct {
@@ -300,6 +308,17 @@ func (h *AuthHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Scopes) == 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "at least one scope is required (ingest, read, admin)")
+		return
+	}
+	for _, s := range req.Scopes {
+		if !validScopes[s] {
+			writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid scope: %s", s))
+			return
+		}
+	}
+
 	var expiresAt *time.Time
 	if req.ExpiresAt != nil {
 		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
@@ -317,7 +336,7 @@ func (h *AuthHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyRow, err := h.store.CreateAPIKey(r.Context(), user.ID.Bytes, req.Name, hash, prefix, expiresAt)
+	keyRow, err := h.store.CreateAPIKey(r.Context(), user.ID.Bytes, req.Name, hash, prefix, req.Scopes, expiresAt)
 	if err != nil {
 		LoggerFromContext(r.Context()).Error("create key: store", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to create key")

@@ -37,6 +37,7 @@ type APIKeyRow struct {
 	Name       string             `json:"name"`
 	KeyHash    string             `json:"-"`
 	KeyPrefix  string             `json:"key_prefix"`
+	Scopes     []string           `json:"scopes"`
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at,omitempty"`
 	RevokedAt  pgtype.Timestamptz `json:"revoked_at,omitempty"`
 	LastUsedAt pgtype.Timestamptz `json:"last_used_at,omitempty"`

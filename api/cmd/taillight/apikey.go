@@ -18,6 +18,7 @@ import (
 var (
 	apikeyUsername string
 	apikeyName     string
+	apikeyScopes   []string
 )
 
 var apikeyCmd = &cobra.Command{
@@ -30,6 +31,7 @@ var apikeyCmd = &cobra.Command{
 func init() {
 	apikeyCmd.Flags().StringVar(&apikeyUsername, "username", "", "username to create the key for (required)")
 	apikeyCmd.Flags().StringVar(&apikeyName, "name", "", "descriptive name for the key (required)")
+	apikeyCmd.Flags().StringSliceVar(&apikeyScopes, "scopes", []string{"admin"}, "comma-separated scopes: ingest, read, admin")
 	_ = apikeyCmd.MarkFlagRequired("username")
 	_ = apikeyCmd.MarkFlagRequired("name")
 }
@@ -63,7 +65,7 @@ func runApikey(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("generate api key: %w", err)
 	}
 
-	_, err = store.CreateAPIKey(ctx, user.ID.Bytes, apikeyName, keyHash, keyPrefix, nil)
+	_, err = store.CreateAPIKey(ctx, user.ID.Bytes, apikeyName, keyHash, keyPrefix, apikeyScopes, nil)
 	if err != nil {
 		return fmt.Errorf("create api key: %w", err)
 	}

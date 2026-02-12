@@ -17,7 +17,6 @@ type Config struct {
 	ListenAddr             string
 	MetricsAddr            string // Separate metrics server address (empty = disabled).
 	LogLevel               slog.Level
-	APIKeys                []string
 	DBMaxConns             int32
 	DBMinConns             int32
 	CORSAllowedOrigins     []string // Empty means allow all origins (dev mode).
@@ -74,7 +73,6 @@ func Load() (Config, error) {
 	v.SetDefault("database_url", "postgres://taillight:changeme@localhost:15432/taillight")
 	v.SetDefault("listen_addr", ":8080")
 	v.SetDefault("log_level", "info")
-	v.SetDefault("api_keys", []string{})
 	v.SetDefault("db_max_conns", 10)
 	v.SetDefault("db_min_conns", 2)
 	v.SetDefault("cors_allowed_origins", []string{})
@@ -123,7 +121,6 @@ func Load() (Config, error) {
 		DatabaseURL:            v.GetString("database_url"),
 		ListenAddr:             v.GetString("listen_addr"),
 		LogLevel:               parseLogLevel(v.GetString("log_level")),
-		APIKeys:                v.GetStringSlice("api_keys"),
 		DBMaxConns:             v.GetInt32("db_max_conns"),
 		DBMinConns:             v.GetInt32("db_min_conns"),
 		CORSAllowedOrigins:     v.GetStringSlice("cors_allowed_origins"),

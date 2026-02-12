@@ -226,14 +226,14 @@ func (s *AuthStore) CleanExpiredSessions(ctx context.Context) (int64, error) {
 // --- API Keys ---
 
 // CreateAPIKey inserts a new API key row.
-func (s *AuthStore) CreateAPIKey(ctx context.Context, userID [16]byte, name, keyHash, keyPrefix string, expiresAt *time.Time) (model.APIKeyRow, error) {
+func (s *AuthStore) CreateAPIKey(ctx context.Context, userID [16]byte, name, keyHash, keyPrefix string, scopes []string, expiresAt *time.Time) (model.APIKeyRow, error) {
 	var k model.APIKeyRow
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, expires_at)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, user_id, name, key_hash, key_prefix, expires_at, revoked_at, last_used_at, created_at`,
-		userID, name, keyHash, keyPrefix, expiresAt,
-	).Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix,
+		`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id, user_id, name, key_hash, key_prefix, scopes, expires_at, revoked_at, last_used_at, created_at`,
+		userID, name, keyHash, keyPrefix, scopes, expiresAt,
+	).Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Scopes,
 		&k.ExpiresAt, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt)
 	if err != nil {
 		return model.APIKeyRow{}, fmt.Errorf("create api key: %w", err)
@@ -252,7 +252,7 @@ type APIKeyWithUser struct {
 func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKeyWithUser, error) {
 	var kw APIKeyWithUser
 	err := s.pool.QueryRow(ctx,
-		`SELECT k.id, k.user_id, k.name, k.key_hash, k.key_prefix,
+		`SELECT k.id, k.user_id, k.name, k.key_hash, k.key_prefix, k.scopes,
 		        k.expires_at, k.revoked_at, k.last_used_at, k.created_at,
 		        u.id, u.username, u.email, u.password_hash, u.is_active, u.is_admin, u.created_at, u.updated_at, u.last_login_at
 		 FROM api_keys k
@@ -263,7 +263,7 @@ func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey
 		   AND u.is_active = true`,
 		keyHash,
 	).Scan(
-		&kw.Key.ID, &kw.Key.UserID, &kw.Key.Name, &kw.Key.KeyHash, &kw.Key.KeyPrefix,
+		&kw.Key.ID, &kw.Key.UserID, &kw.Key.Name, &kw.Key.KeyHash, &kw.Key.KeyPrefix, &kw.Key.Scopes,
 		&kw.Key.ExpiresAt, &kw.Key.RevokedAt, &kw.Key.LastUsedAt, &kw.Key.CreatedAt,
 		&kw.User.ID, &kw.User.Username, &kw.User.Email, &kw.User.PasswordHash, &kw.User.IsActive, &kw.User.IsAdmin,
 		&kw.User.CreatedAt, &kw.User.UpdatedAt, &kw.User.LastLoginAt,
@@ -286,7 +286,7 @@ func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey
 // ListAPIKeysByUser returns all API keys for a user, including revoked ones.
 func (s *AuthStore) ListAPIKeysByUser(ctx context.Context, userID [16]byte) ([]model.APIKeyRow, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, key_hash, key_prefix, expires_at, revoked_at, last_used_at, created_at
+		`SELECT id, user_id, name, key_hash, key_prefix, scopes, expires_at, revoked_at, last_used_at, created_at
 		 FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`,
 		userID)
 	if err != nil {
@@ -297,7 +297,7 @@ func (s *AuthStore) ListAPIKeysByUser(ctx context.Context, userID [16]byte) ([]m
 	var keys []model.APIKeyRow
 	for rows.Next() {
 		var k model.APIKeyRow
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix,
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Scopes,
 			&k.ExpiresAt, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
@@ -321,10 +321,10 @@ func (s *AuthStore) RevokeAPIKey(ctx context.Context, id [16]byte) error {
 func (s *AuthStore) GetAPIKeyByID(ctx context.Context, id [16]byte) (model.APIKeyRow, error) {
 	var k model.APIKeyRow
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, user_id, name, key_hash, key_prefix, expires_at, revoked_at, last_used_at, created_at
+		`SELECT id, user_id, name, key_hash, key_prefix, scopes, expires_at, revoked_at, last_used_at, created_at
 		 FROM api_keys WHERE id = $1`,
 		id,
-	).Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.ExpiresAt, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt)
+	).Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Scopes, &k.ExpiresAt, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt)
 	if err != nil {
 		return model.APIKeyRow{}, fmt.Errorf("get api key by id: %w", err)
 	}
@@ -341,12 +341,12 @@ func (s *AuthStore) GetSessionUser(ctx context.Context, tokenHash string) (*mode
 }
 
 // GetAPIKeyUser implements auth.APIKeyLookup.
-func (s *AuthStore) GetAPIKeyUser(ctx context.Context, keyHash string) (*model.User, error) {
+func (s *AuthStore) GetAPIKeyUser(ctx context.Context, keyHash string) (*model.User, []string, error) {
 	kw, err := s.GetAPIKeyByHash(ctx, keyHash)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &kw.User, nil
+	return &kw.User, kw.Key.Scopes, nil
 }
 
 func collectUsers(rows pgx.Rows) ([]model.User, error) {

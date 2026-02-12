@@ -103,7 +103,7 @@ func (m *mockAuthStore) CleanExpiredSessions(_ context.Context) (int64, error) {
 	return 0, nil
 }
 
-func (m *mockAuthStore) CreateAPIKey(_ context.Context, _ [16]byte, _, _, _ string, _ *time.Time) (model.APIKeyRow, error) {
+func (m *mockAuthStore) CreateAPIKey(_ context.Context, _ [16]byte, _, _, _ string, _ []string, _ *time.Time) (model.APIKeyRow, error) {
 	return m.createKey, m.createErr
 }
 
@@ -349,14 +349,14 @@ func TestCreateKey(t *testing.T) {
 		{
 			name:       "success",
 			user:       user,
-			body:       `{"name":"my-key"}`,
+			body:       `{"name":"my-key","scopes":["read"]}`,
 			store:      &mockAuthStore{},
 			wantStatus: http.StatusCreated,
 		},
 		{
 			name:       "not authenticated",
 			user:       nil,
-			body:       `{"name":"my-key"}`,
+			body:       `{"name":"my-key","scopes":["read"]}`,
 			store:      &mockAuthStore{},
 			wantStatus: http.StatusUnauthorized,
 		},
@@ -370,28 +370,42 @@ func TestCreateKey(t *testing.T) {
 		{
 			name:       "empty name",
 			user:       user,
-			body:       `{"name":""}`,
+			body:       `{"name":"","scopes":["read"]}`,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing scopes",
+			user:       user,
+			body:       `{"name":"my-key"}`,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid scope",
+			user:       user,
+			body:       `{"name":"my-key","scopes":["bogus"]}`,
 			store:      &mockAuthStore{},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "store error",
 			user:       user,
-			body:       `{"name":"my-key"}`,
+			body:       `{"name":"my-key","scopes":["admin"]}`,
 			store:      &mockAuthStore{createErr: errors.New("db error")},
 			wantStatus: http.StatusInternalServerError,
 		},
 		{
 			name:       "with expires_at",
 			user:       user,
-			body:       `{"name":"my-key","expires_at":"2030-01-01T00:00:00Z"}`,
+			body:       `{"name":"my-key","scopes":["ingest"],"expires_at":"2030-01-01T00:00:00Z"}`,
 			store:      &mockAuthStore{},
 			wantStatus: http.StatusCreated,
 		},
 		{
 			name:       "invalid expires_at",
 			user:       user,
-			body:       `{"name":"my-key","expires_at":"not-a-date"}`,
+			body:       `{"name":"my-key","scopes":["read"],"expires_at":"not-a-date"}`,
 			store:      &mockAuthStore{},
 			wantStatus: http.StatusBadRequest,
 		},

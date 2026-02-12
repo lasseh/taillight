@@ -376,7 +376,7 @@ func setupRouter(
 			// Authenticated auth endpoints (session or API key).
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.Timeout(30 * time.Second))
-				r.Use(auth.SessionOrAPIKey(authStore, authStore, cfg.APIKeys))
+				r.Use(auth.SessionOrAPIKey(authStore, authStore))
 				r.Get("/auth/me", authHandler.Me)
 				r.Patch("/auth/me/email", authHandler.UpdateEmail)
 				r.Get("/auth/keys", authHandler.ListKeys)
@@ -401,110 +401,125 @@ func setupRouter(
 		}
 
 		if cfg.AuthEnabled && cfg.AuthReadEndpoints {
-			r.Use(auth.SessionOrAPIKey(authStore, authStore, cfg.APIKeys))
+			r.Use(auth.SessionOrAPIKey(authStore, authStore))
 		}
 
-		// SSE stream — long-lived, no timeout.
-		r.Get("/syslog/stream", syslogSSEHandler.Stream)
-
-		// REST endpoints — with request timeout.
+		// Read-scoped routes (all GET endpoints).
 		r.Group(func(r chi.Router) {
-			r.Use(middleware.Timeout(30 * time.Second))
+			r.Use(auth.RequireScope("read"))
 
-			r.Get("/syslog", syslogHandler.List)
-			r.Get("/syslog/{id}", syslogHandler.Get)
-
-			r.Route("/meta", func(r chi.Router) {
-				r.Get("/hosts", syslogMetaHandler.Hosts)
-				r.Get("/programs", syslogMetaHandler.Programs)
-				r.Get("/facilities", syslogMetaHandler.Facilities)
-				r.Get("/tags", syslogMetaHandler.Tags)
-			})
-
-			r.Route("/stats", func(r chi.Router) {
-				r.Get("/volume", statsHandler.Volume)
-				r.Get("/summary", statsHandler.SyslogSummary)
-			})
-
-			r.Route("/juniper", func(r chi.Router) {
-				r.Get("/lookup", juniperHandler.Lookup)
-			})
-
-			r.Route("/rsyslog", func(r chi.Router) {
-				r.Get("/stats/summary", rsyslogStatsHandler.Summary)
-				r.Get("/stats/volume", rsyslogStatsHandler.Volume)
-			})
-
-			r.Route("/metrics", func(r chi.Router) {
-				r.Get("/summary", taillightMetricsHandler.Summary)
-				r.Get("/volume", taillightMetricsHandler.Volume)
-			})
-		})
-
-		// Analysis endpoints.
-		if analysisHandler != nil {
-			r.Route("/analysis", func(r chi.Router) {
-				r.Group(func(r chi.Router) {
-					r.Use(middleware.Timeout(30 * time.Second))
-					r.Get("/reports", analysisHandler.List)
-					r.Get("/reports/latest", analysisHandler.Latest)
-					r.Get("/reports/{id}", analysisHandler.Get)
-				})
-				r.Group(func(r chi.Router) {
-					r.Use(middleware.Timeout(15 * time.Minute))
-					r.Post("/reports/trigger", analysisHandler.Trigger)
-				})
-			})
-		}
-
-		// App log endpoints.
-		r.Route("/applog", func(r chi.Router) {
 			// SSE stream — long-lived, no timeout.
-			r.Get("/stream", applogSSEHandler.Stream)
+			r.Get("/syslog/stream", syslogSSEHandler.Stream)
 
 			// REST endpoints — with request timeout.
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.Timeout(30 * time.Second))
 
-				r.Get("/", applogHandler.List)
-				r.Get("/{id}", applogHandler.Get)
+				r.Get("/syslog", syslogHandler.List)
+				r.Get("/syslog/{id}", syslogHandler.Get)
 
-				r.Get("/meta/services", applogMetaHandler.Services)
-				r.Get("/meta/components", applogMetaHandler.Components)
-				r.Get("/meta/hosts", applogMetaHandler.Hosts)
+				r.Route("/meta", func(r chi.Router) {
+					r.Get("/hosts", syslogMetaHandler.Hosts)
+					r.Get("/programs", syslogMetaHandler.Programs)
+					r.Get("/facilities", syslogMetaHandler.Facilities)
+					r.Get("/tags", syslogMetaHandler.Tags)
+				})
 
-				r.Get("/stats/volume", statsHandler.AppLogVolume)
-				r.Get("/stats/summary", statsHandler.AppLogSummary)
+				r.Route("/stats", func(r chi.Router) {
+					r.Get("/volume", statsHandler.Volume)
+					r.Get("/summary", statsHandler.SyslogSummary)
+				})
+
+				r.Route("/juniper", func(r chi.Router) {
+					r.Get("/lookup", juniperHandler.Lookup)
+				})
+
+				r.Route("/rsyslog", func(r chi.Router) {
+					r.Get("/stats/summary", rsyslogStatsHandler.Summary)
+					r.Get("/stats/volume", rsyslogStatsHandler.Volume)
+				})
+
+				r.Route("/metrics", func(r chi.Router) {
+					r.Get("/summary", taillightMetricsHandler.Summary)
+					r.Get("/volume", taillightMetricsHandler.Volume)
+				})
 			})
 
-			// Ingest endpoint — authenticated unless auth is globally disabled.
+			// Analysis read endpoints.
+			if analysisHandler != nil {
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(30 * time.Second))
+					r.Get("/analysis/reports", analysisHandler.List)
+					r.Get("/analysis/reports/latest", analysisHandler.Latest)
+					r.Get("/analysis/reports/{id}", analysisHandler.Get)
+				})
+			}
+
+			// App log read endpoints.
+			r.Route("/applog", func(r chi.Router) {
+				// SSE stream — long-lived, no timeout.
+				r.Get("/stream", applogSSEHandler.Stream)
+
+				// REST endpoints — with request timeout.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(30 * time.Second))
+
+					r.Get("/", applogHandler.List)
+					r.Get("/{id}", applogHandler.Get)
+
+					r.Get("/meta/services", applogMetaHandler.Services)
+					r.Get("/meta/components", applogMetaHandler.Components)
+					r.Get("/meta/hosts", applogMetaHandler.Hosts)
+
+					r.Get("/stats/volume", statsHandler.AppLogVolume)
+					r.Get("/stats/summary", statsHandler.AppLogSummary)
+				})
+			})
+
+			// Notification read endpoints.
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.Timeout(30 * time.Second))
-				if cfg.AuthEnabled {
-					r.Use(auth.SessionOrAPIKey(authStore, authStore, cfg.APIKeys))
-				}
-				r.Post("/ingest", applogIngestHandler.Ingest)
+				r.Get("/notifications/channels", notifHandler.ListChannels)
+				r.Get("/notifications/channels/{id}", notifHandler.GetChannel)
+				r.Get("/notifications/rules", notifHandler.ListRules)
+				r.Get("/notifications/rules/{id}", notifHandler.GetRule)
+				r.Get("/notifications/log", notifHandler.ListLog)
 			})
 		})
 
-		// Notification endpoints.
-		r.Route("/notifications", func(r chi.Router) {
+		// Ingest-scoped route.
+		r.Group(func(r chi.Router) {
 			r.Use(middleware.Timeout(30 * time.Second))
+			if cfg.AuthEnabled {
+				r.Use(auth.SessionOrAPIKey(authStore, authStore))
+			}
+			r.Use(auth.RequireScope("ingest"))
+			r.Post("/applog/ingest", applogIngestHandler.Ingest)
+		})
 
-			r.Get("/channels", notifHandler.ListChannels)
-			r.Post("/channels", notifHandler.CreateChannel)
-			r.Get("/channels/{id}", notifHandler.GetChannel)
-			r.Put("/channels/{id}", notifHandler.UpdateChannel)
-			r.Delete("/channels/{id}", notifHandler.DeleteChannel)
-			r.Post("/channels/{id}/test", notifHandler.TestChannel)
+		// Admin-scoped routes (write operations).
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireScope("admin"))
 
-			r.Get("/rules", notifHandler.ListRules)
-			r.Post("/rules", notifHandler.CreateRule)
-			r.Get("/rules/{id}", notifHandler.GetRule)
-			r.Put("/rules/{id}", notifHandler.UpdateRule)
-			r.Delete("/rules/{id}", notifHandler.DeleteRule)
+			// Analysis trigger.
+			if analysisHandler != nil {
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(15 * time.Minute))
+					r.Post("/analysis/reports/trigger", analysisHandler.Trigger)
+				})
+			}
 
-			r.Get("/log", notifHandler.ListLog)
+			// Notification write endpoints.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.Timeout(30 * time.Second))
+				r.Post("/notifications/channels", notifHandler.CreateChannel)
+				r.Put("/notifications/channels/{id}", notifHandler.UpdateChannel)
+				r.Delete("/notifications/channels/{id}", notifHandler.DeleteChannel)
+				r.Post("/notifications/channels/{id}/test", notifHandler.TestChannel)
+				r.Post("/notifications/rules", notifHandler.CreateRule)
+				r.Put("/notifications/rules/{id}", notifHandler.UpdateRule)
+				r.Delete("/notifications/rules/{id}", notifHandler.DeleteRule)
+			})
 		})
 	})
 

@@ -22,12 +22,13 @@ func (m *mockSessionLookup) GetSessionUser(_ context.Context, _ string) (*model.
 
 // mockAPIKeyLookup implements APIKeyLookup for tests.
 type mockAPIKeyLookup struct {
-	user *model.User
-	err  error
+	user   *model.User
+	scopes []string
+	err    error
 }
 
-func (m *mockAPIKeyLookup) GetAPIKeyUser(_ context.Context, _ string) (*model.User, error) {
-	return m.user, m.err
+func (m *mockAPIKeyLookup) GetAPIKeyUser(_ context.Context, _ string) (*model.User, []string, error) {
+	return m.user, m.scopes, m.err
 }
 
 func TestAllowAnonymous(t *testing.T) {
@@ -61,11 +62,11 @@ func TestSessionOrAPIKey(t *testing.T) {
 		name       string
 		sessions   *mockSessionLookup
 		apiKeys    *mockAPIKeyLookup
-		configKeys []string
 		cookie     *http.Cookie
 		bearer     string
 		wantStatus int
 		wantUser   string
+		wantScopes []string
 	}{
 		{
 			name:       "valid session cookie",
@@ -91,33 +92,24 @@ func TestSessionOrAPIKey(t *testing.T) {
 		{
 			name:       "valid api key with tl_ prefix",
 			sessions:   &mockSessionLookup{},
-			apiKeys:    &mockAPIKeyLookup{user: testUser},
+			apiKeys:    &mockAPIKeyLookup{user: testUser, scopes: []string{"read"}},
 			bearer:     "tl_someapikey123",
 			wantStatus: http.StatusOK,
 			wantUser:   "testuser",
+			wantScopes: []string{"read"},
 		},
 		{
-			name:       "api key lookup error falls through to config keys",
+			name:       "api key lookup error returns unauthorized",
 			sessions:   &mockSessionLookup{},
 			apiKeys:    &mockAPIKeyLookup{err: errors.New("not found")},
-			configKeys: []string{"config-key-1"},
 			bearer:     "tl_badkey",
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "valid config key",
+			name:       "non-tl_ bearer returns unauthorized",
 			sessions:   &mockSessionLookup{},
 			apiKeys:    &mockAPIKeyLookup{},
-			configKeys: []string{"my-config-key"},
-			bearer:     "my-config-key",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "config key mismatch",
-			sessions:   &mockSessionLookup{},
-			apiKeys:    &mockAPIKeyLookup{},
-			configKeys: []string{"my-config-key"},
-			bearer:     "wrong-key",
+			bearer:     "some-random-key",
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
@@ -144,10 +136,16 @@ func TestSessionOrAPIKey(t *testing.T) {
 						t.Errorf("got username %q, want %q", user.Username, tt.wantUser)
 					}
 				}
+				if tt.wantScopes != nil {
+					scopes := ScopesFromContext(r.Context())
+					if len(scopes) != len(tt.wantScopes) {
+						t.Errorf("got %d scopes, want %d", len(scopes), len(tt.wantScopes))
+					}
+				}
 				w.WriteHeader(http.StatusOK)
 			})
 
-			mw := SessionOrAPIKey(tt.sessions, tt.apiKeys, tt.configKeys)
+			mw := SessionOrAPIKey(tt.sessions, tt.apiKeys)
 			handler := mw(inner)
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -157,6 +155,84 @@ func TestSessionOrAPIKey(t *testing.T) {
 			if tt.bearer != "" {
 				req.Header.Set("Authorization", "Bearer "+tt.bearer)
 			}
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("got status %d, want %d", rec.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestRequireScope(t *testing.T) {
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	tests := []struct {
+		name       string
+		scope      string
+		ctxScopes  []string
+		nilScopes  bool
+		wantStatus int
+	}{
+		{
+			name:       "session auth (nil scopes) allowed",
+			scope:      "read",
+			nilScopes:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "matching scope allowed",
+			scope:      "read",
+			ctxScopes:  []string{"read"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "admin scope grants access to anything",
+			scope:      "read",
+			ctxScopes:  []string{"admin"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "admin scope grants ingest access",
+			scope:      "ingest",
+			ctxScopes:  []string{"admin"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "wrong scope forbidden",
+			scope:      "admin",
+			ctxScopes:  []string{"read"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "ingest scope cannot read",
+			scope:      "read",
+			ctxScopes:  []string{"ingest"},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "empty scopes forbidden",
+			scope:      "read",
+			ctxScopes:  []string{},
+			wantStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mw := RequireScope(tt.scope)
+			handler := mw(okHandler)
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			ctx := req.Context()
+			if !tt.nilScopes {
+				ctx = WithScopes(ctx, tt.ctxScopes)
+			}
+			req = req.WithContext(ctx)
 
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
@@ -230,49 +306,6 @@ func TestExtractBearer(t *testing.T) {
 	}
 }
 
-func TestConstantTimeMatch(t *testing.T) {
-	tests := []struct {
-		name  string
-		keys  []string
-		token string
-		want  bool
-	}{
-		{
-			name:  "match first key",
-			keys:  []string{"key1", "key2"},
-			token: "key1",
-			want:  true,
-		},
-		{
-			name:  "match second key",
-			keys:  []string{"key1", "key2"},
-			token: "key2",
-			want:  true,
-		},
-		{
-			name:  "no match",
-			keys:  []string{"key1", "key2"},
-			token: "key3",
-			want:  false,
-		},
-		{
-			name:  "empty keys",
-			keys:  nil,
-			token: "key1",
-			want:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := constantTimeMatch(tt.keys, tt.token)
-			if got != tt.want {
-				t.Errorf("constantTimeMatch() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestWriteJSONError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeJSONError(rec, http.StatusForbidden, "forbidden", "access denied")
@@ -287,5 +320,46 @@ func TestWriteJSONError(t *testing.T) {
 	body := rec.Body.String()
 	if body == "" {
 		t.Fatal("expected non-empty body")
+	}
+}
+
+func TestScopesContext(t *testing.T) {
+	// nil scopes by default.
+	got := ScopesFromContext(context.Background())
+	if got != nil {
+		t.Errorf("expected nil scopes from empty context, got %v", got)
+	}
+
+	// Store and retrieve scopes.
+	scopes := []string{"read", "ingest"}
+	ctx := WithScopes(context.Background(), scopes)
+	got = ScopesFromContext(ctx)
+	if len(got) != 2 || got[0] != "read" || got[1] != "ingest" {
+		t.Errorf("got scopes %v, want %v", got, scopes)
+	}
+}
+
+func TestHasScope(t *testing.T) {
+	tests := []struct {
+		name   string
+		scopes []string
+		target string
+		want   bool
+	}{
+		{"exact match", []string{"read"}, "read", true},
+		{"admin grants all", []string{"admin"}, "read", true},
+		{"admin grants ingest", []string{"admin"}, "ingest", true},
+		{"no match", []string{"read"}, "ingest", false},
+		{"empty scopes", []string{}, "read", false},
+		{"multiple scopes match", []string{"read", "ingest"}, "ingest", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hasScope(tt.scopes, tt.target)
+			if got != tt.want {
+				t.Errorf("hasScope(%v, %q) = %v, want %v", tt.scopes, tt.target, got, tt.want)
+			}
+		})
 	}
 }
