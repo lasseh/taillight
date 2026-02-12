@@ -97,7 +97,7 @@ onUnmounted(() => {
             Overview (7 days)
           </h3>
           <dl class="grid grid-cols-[auto_1fr] text-sm">
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">last seen</dt>
+            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">last log</dt>
             <dd class="border-t-border border-b px-4 py-1.5 font-mono" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
               {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never' }}
             </dd>
