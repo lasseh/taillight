@@ -92,6 +92,8 @@ func run(_ *cobra.Command, _ []string) error {
 		logger.Warn("TLS certificate verification disabled")
 	}
 
+	minLevel := parseMinLevel(cfg.MinLevel)
+
 	newHandler := func(service, component, hostOverride string) *logshipper.Handler {
 		h := logshipper.New(logshipper.Config{
 			Endpoint:    cfg.Endpoint,
@@ -99,6 +101,7 @@ func run(_ *cobra.Command, _ []string) error {
 			Service:     service,
 			Component:   component,
 			Host:        hostOverride,
+			MinLevel:    minLevel,
 			BatchSize:   cfg.BatchSize,
 			FlushPeriod: flushPeriod,
 			BufferSize:  cfg.BufferSize,

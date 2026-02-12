@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -18,6 +20,7 @@ type config struct {
 	BatchSize     int          `yaml:"batch_size"`
 	FlushPeriod   string       `yaml:"flush_period"`
 	BufferSize    int          `yaml:"buffer_size"`
+	MinLevel      string       `yaml:"min_level"`
 	TLSSkipVerify bool         `yaml:"tls_skip_verify"`
 	Files         []fileConfig `yaml:"files"`
 }
@@ -98,4 +101,18 @@ func parseFlushPeriod(s string) (time.Duration, error) {
 		return time.Second, nil
 	}
 	return time.ParseDuration(s)
+}
+
+// parseMinLevel parses a log level string, defaulting to debug (ship everything).
+func parseMinLevel(s string) slog.Level {
+	switch strings.ToLower(s) {
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelDebug
+	}
 }
