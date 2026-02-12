@@ -8,6 +8,16 @@ DROP TABLE IF EXISTS taillight_metrics;
 SELECT remove_retention_policy('rsyslog_stats', if_exists => true);
 DROP TABLE IF EXISTS rsyslog_stats;
 
+-- Drop notification tables (order matters: foreign keys + hypertable retention).
+SELECT remove_retention_policy('notification_log', if_exists => true);
+DROP TABLE IF EXISTS notification_log;
+DROP TABLE IF EXISTS notification_rule_channels;
+DROP TABLE IF EXISTS notification_rules;
+DROP TABLE IF EXISTS notification_channels;
+
+-- Drop analysis reports.
+DROP TABLE IF EXISTS analysis_reports;
+
 -- Drop auth tables (order matters: foreign keys).
 DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS sessions;

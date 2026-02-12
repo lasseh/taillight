@@ -1,9 +1,17 @@
--- Syslog events hypertable for rsyslog ompgsql output + Go SSE backend.
--- Requires: TimescaleDB extension and pg_trgm extension.
+-- Taillight init schema.
+-- Requires: TimescaleDB, pg_trgm, pg_stat_statements.
+
+-------------------------------------------------------------------------------
+-- 1. Extensions
+-------------------------------------------------------------------------------
 
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-------------------------------------------------------------------------------
+-- 2. Syslog events hypertable
+-------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS syslog_events (
     id              BIGINT GENERATED ALWAYS AS IDENTITY,
@@ -76,8 +84,6 @@ CREATE TRIGGER trg_syslog_notify
     FOR EACH ROW EXECUTE FUNCTION notify_syslog_insert();
 
 -- Compression: convert chunks older than 1 day to columnstore.
--- Syslog data is append-only; compressed chunks are transparent to queries.
--- The hypertable auto-creates a default 7-day policy; replace it with 1 day.
 CALL remove_columnstore_policy('syslog_events');
 CALL add_columnstore_policy('syslog_events', after => INTERVAL '1 day');
 
@@ -85,15 +91,13 @@ CALL add_columnstore_policy('syslog_events', after => INTERVAL '1 day');
 SELECT add_retention_policy('syslog_events', INTERVAL '90 days', if_not_exists => true);
 
 -- Tune autovacuum for high-insert workload.
--- Default thresholds (20% dead tuples / 10% for analyze) are too lazy
--- for a table receiving millions of inserts per day.
 ALTER TABLE syslog_events SET (
     autovacuum_vacuum_scale_factor = 0.05,
     autovacuum_analyze_scale_factor = 0.02
 );
 
 -------------------------------------------------------------------------------
--- Juniper syslog reference table
+-- 3. Juniper syslog reference table
 -------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS juniper_syslog_ref (
@@ -113,9 +117,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_juniper_ref_name_os ON juniper_syslog_ref 
 CREATE INDEX IF NOT EXISTS idx_juniper_ref_name ON juniper_syslog_ref (name);
 
 -------------------------------------------------------------------------------
--- Application log events hypertable
--- Note: applog does NOT use LISTEN/NOTIFY — the ingest handler broadcasts
--- directly via SSE broker, so a trigger would cause duplicate broadcasts.
+-- 4. Application log events hypertable
 -------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS applog_events (
@@ -152,11 +154,11 @@ CREATE INDEX IF NOT EXISTS idx_applog_level_received ON applog_events (level, re
 -- Full-text search
 CREATE INDEX IF NOT EXISTS idx_applog_search ON applog_events USING GIN (search_vector);
 
--- Override default 7-day columnstore policy: compress chunks older than 1 day
+-- Override default 7-day columnstore policy: compress chunks older than 1 day.
 CALL remove_columnstore_policy('applog_events');
 CALL add_columnstore_policy('applog_events', after => INTERVAL '1 day');
 
--- Drop chunks older than 90 days (match syslog_events retention)
+-- Drop chunks older than 90 days (match syslog_events retention).
 SELECT add_retention_policy('applog_events', INTERVAL '90 days', if_not_exists => true);
 
 -- Tune autovacuum for high-insert workload (match syslog_events).
@@ -166,26 +168,30 @@ ALTER TABLE applog_events SET (
 );
 
 -------------------------------------------------------------------------------
--- Meta cache tables: populated by triggers on every INSERT.
--- Avoids expensive DISTINCT queries on large hypertables.
+-- 5. Meta cache tables + triggers
 -------------------------------------------------------------------------------
 
--- Syslog meta cache
+-- Syslog meta cache (last_seen_at tracks hostname freshness).
 CREATE TABLE IF NOT EXISTS syslog_meta_cache (
-    column_name TEXT NOT NULL,
-    value       TEXT NOT NULL,
+    column_name  TEXT NOT NULL,
+    value        TEXT NOT NULL,
+    last_seen_at TIMESTAMPTZ,
     PRIMARY KEY (column_name, value)
 );
 
 CREATE OR REPLACE FUNCTION cache_syslog_meta()
 RETURNS trigger AS $$
 BEGIN
-    INSERT INTO syslog_meta_cache (column_name, value)
+    INSERT INTO syslog_meta_cache (column_name, value, last_seen_at)
     VALUES
-        ('hostname', NEW.hostname),
-        ('programname', NEW.programname),
-        ('syslogtag', NEW.syslogtag)
-    ON CONFLICT DO NOTHING;
+        ('hostname', NEW.hostname, now()),
+        ('programname', NEW.programname, NULL),
+        ('syslogtag', NEW.syslogtag, NULL)
+    ON CONFLICT (column_name, value) DO UPDATE
+        SET last_seen_at = CASE
+            WHEN EXCLUDED.column_name = 'hostname' THEN now()
+            ELSE syslog_meta_cache.last_seen_at
+        END;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -195,7 +201,7 @@ CREATE TRIGGER trg_syslog_meta_cache
     AFTER INSERT ON syslog_events
     FOR EACH ROW EXECUTE FUNCTION cache_syslog_meta();
 
--- Syslog facility cache
+-- Syslog facility cache.
 CREATE TABLE IF NOT EXISTS syslog_facility_cache (
     facility SMALLINT PRIMARY KEY
 );
@@ -215,7 +221,7 @@ CREATE TRIGGER trg_syslog_facility_cache
     AFTER INSERT ON syslog_events
     FOR EACH ROW EXECUTE FUNCTION cache_syslog_facility();
 
--- Applog meta cache
+-- Applog meta cache.
 CREATE TABLE IF NOT EXISTS applog_meta_cache (
     column_name TEXT NOT NULL,
     value       TEXT NOT NULL,
@@ -241,7 +247,7 @@ CREATE TRIGGER trg_applog_meta_cache
     FOR EACH ROW EXECUTE FUNCTION cache_applog_meta();
 
 -------------------------------------------------------------------------------
--- Authentication: users, sessions, API keys
+-- 6. Authentication: users, sessions, API keys
 -------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS users (
@@ -275,6 +281,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     name         TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
     key_hash     TEXT NOT NULL,
     key_prefix   TEXT NOT NULL DEFAULT '',
+    scopes       TEXT[] NOT NULL DEFAULT '{}',
     expires_at   TIMESTAMPTZ,
     revoked_at   TIMESTAMPTZ,
     last_used_at TIMESTAMPTZ,
@@ -284,7 +291,103 @@ CREATE UNIQUE INDEX idx_api_keys_hash ON api_keys (key_hash) WHERE revoked_at IS
 CREATE INDEX idx_api_keys_user ON api_keys (user_id);
 
 -------------------------------------------------------------------------------
--- rsyslog impstats telemetry
+-- 7. Analysis reports
+-------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS analysis_reports (
+    id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    generated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    model             TEXT NOT NULL,
+    period_start      TIMESTAMPTZ NOT NULL,
+    period_end        TIMESTAMPTZ NOT NULL,
+    report            TEXT NOT NULL,
+    prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    duration_ms       BIGINT NOT NULL DEFAULT 0,
+    status            TEXT NOT NULL DEFAULT 'completed'
+);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_reports_generated ON analysis_reports (generated_at DESC);
+
+-------------------------------------------------------------------------------
+-- 8. Notifications
+-------------------------------------------------------------------------------
+
+-- Notification channels (configured backends).
+CREATE TABLE notification_channels (
+    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name       TEXT UNIQUE NOT NULL,
+    type       TEXT NOT NULL CHECK (type IN ('slack','webhook')),
+    config     JSONB NOT NULL DEFAULT '{}',
+    enabled    BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Notification rules (alert conditions).
+CREATE TABLE notification_rules (
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name             TEXT UNIQUE NOT NULL,
+    enabled          BOOLEAN NOT NULL DEFAULT true,
+    event_kind       TEXT NOT NULL CHECK (event_kind IN ('syslog', 'applog')),
+    -- Syslog filter fields (nullable = don't filter on this field).
+    hostname         TEXT,
+    programname      TEXT,
+    severity         SMALLINT CHECK (severity BETWEEN 0 AND 7),
+    severity_max     SMALLINT CHECK (severity_max BETWEEN 0 AND 7),
+    facility         SMALLINT CHECK (facility BETWEEN 0 AND 23),
+    syslogtag        TEXT,
+    msgid            TEXT,
+    -- AppLog filter fields.
+    service          TEXT,
+    component        TEXT,
+    host             TEXT,
+    level            TEXT CHECK (level IN ('DEBUG','INFO','WARN','ERROR','FATAL')),
+    -- Shared.
+    search           TEXT,
+    -- Behavior.
+    burst_window     INTEGER NOT NULL DEFAULT 30,
+    cooldown_seconds INTEGER NOT NULL DEFAULT 300,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Many-to-many: rules → channels.
+CREATE TABLE notification_rule_channels (
+    rule_id    BIGINT REFERENCES notification_rules(id) ON DELETE CASCADE,
+    channel_id BIGINT REFERENCES notification_channels(id) ON DELETE CASCADE,
+    PRIMARY KEY (rule_id, channel_id)
+);
+
+-- Audit trail (hypertable with columnstore).
+CREATE TABLE notification_log (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    rule_id     BIGINT NOT NULL,
+    channel_id  BIGINT NOT NULL,
+    event_kind  TEXT NOT NULL,
+    event_id    BIGINT NOT NULL,
+    status      TEXT NOT NULL CHECK (status IN ('sent','suppressed','failed')),
+    reason      TEXT,
+    event_count INT NOT NULL DEFAULT 1,
+    status_code INTEGER,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    payload     JSONB
+) WITH (
+    tsdb.hypertable,
+    tsdb.partition_column = 'created_at',
+    tsdb.chunk_interval = '7 days',
+    tsdb.columnstore = true,
+    tsdb.orderby = 'created_at DESC'
+);
+
+SELECT add_retention_policy('notification_log', INTERVAL '30 days', if_not_exists => true);
+
+CREATE INDEX idx_notification_log_rule ON notification_log (rule_id, created_at DESC);
+CREATE INDEX idx_notification_log_status ON notification_log (status, created_at DESC);
+
+-------------------------------------------------------------------------------
+-- 9. rsyslog impstats telemetry
 -------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS rsyslog_stats (
@@ -310,7 +413,7 @@ CREATE INDEX IF NOT EXISTS idx_rsyslog_stats_origin_time ON rsyslog_stats (origi
 CREATE INDEX IF NOT EXISTS idx_rsyslog_stats_name_time   ON rsyslog_stats (name, collected_at DESC);
 
 -------------------------------------------------------------------------------
--- Taillight application metrics
+-- 10. Taillight application metrics
 -------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS taillight_metrics (
