@@ -20,6 +20,7 @@ export interface ApiKeyInfo {
   user_id: string
   name: string
   key_prefix: string
+  scopes: string[]
   expires_at?: string
   revoked_at?: string
   last_used_at?: string
@@ -28,6 +29,7 @@ export interface ApiKeyInfo {
 
 export interface CreateKeyRequest {
   name: string
+  scopes: string[]
   expires_at?: string
 }
 

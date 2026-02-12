@@ -16,6 +16,13 @@ const createdKey = ref('')
 const copied = ref(false)
 const creating = ref(false)
 
+const scopeOptions = [
+  { label: 'ingest', value: 'ingest', desc: 'POST applog events' },
+  { label: 'read', value: 'read', desc: 'read all endpoints' },
+  { label: 'admin', value: 'admin', desc: 'full access' },
+]
+const newKeyScopes = ref<string[]>(['read'])
+
 const expirationOptions = [
   { label: '30 days', value: '30d' },
   { label: '60 days', value: '60d' },
@@ -83,6 +90,15 @@ function isExpiringSoon(ts: string | undefined): boolean {
   return days > 0 && days <= 30
 }
 
+function toggleScope(scope: string) {
+  const idx = newKeyScopes.value.indexOf(scope)
+  if (idx >= 0) {
+    newKeyScopes.value.splice(idx, 1)
+  } else {
+    newKeyScopes.value.push(scope)
+  }
+}
+
 async function fetchKeys() {
   try {
     const res = await api.listKeys()
@@ -113,14 +129,19 @@ async function createKey() {
     newKeyError.value = 'name is required'
     return
   }
+  if (newKeyScopes.value.length === 0) {
+    newKeyError.value = 'at least one scope is required'
+    return
+  }
 
   creating.value = true
   try {
     const expiresAt = computeExpiresAt()
-    const res = await api.createKey({ name, expires_at: expiresAt })
+    const res = await api.createKey({ name, scopes: newKeyScopes.value, expires_at: expiresAt })
     createdKey.value = res.key
     keys.value.unshift(res.key_info)
     newKeyName.value = ''
+    newKeyScopes.value = ['read']
     newKeyExpires.value = '90d'
   } catch (e) {
     newKeyError.value = e instanceof ApiError ? e.message : 'Failed to create key'
@@ -223,6 +244,25 @@ onMounted(fetchKeys)
                   />
                 </label>
                 <label class="block">
+                  <span class="text-t-fg-dark text-sm">scopes</span>
+                  <div class="mt-1.5 flex flex-wrap gap-2">
+                    <button
+                      v-for="opt in scopeOptions"
+                      :key="opt.value"
+                      class="border px-3 py-1.5 text-sm transition-all"
+                      :class="
+                        newKeyScopes.includes(opt.value)
+                          ? 'border-t-blue text-t-blue'
+                          : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
+                      "
+                      @click="toggleScope(opt.value)"
+                    >
+                      {{ opt.label }}
+                      <span class="text-t-fg-gutter ml-1 text-xs">{{ opt.desc }}</span>
+                    </button>
+                  </div>
+                </label>
+                <label class="block">
                   <span class="text-t-fg-dark text-sm">expiration</span>
                   <div class="mt-1.5 flex flex-wrap gap-2">
                     <button
@@ -274,10 +314,11 @@ onMounted(fetchKeys)
 
             <!-- Table header -->
             <div v-if="activeKeys.length > 0" class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider">
-              <span class="w-44 shrink-0">Name</span>
-              <span class="w-36 shrink-0">Key</span>
-              <span class="w-36 shrink-0">Created</span>
-              <span class="w-36 shrink-0">Last Used</span>
+              <span class="w-40 shrink-0">Name</span>
+              <span class="w-32 shrink-0">Key</span>
+              <span class="w-36 shrink-0">Scopes</span>
+              <span class="w-28 shrink-0">Created</span>
+              <span class="w-28 shrink-0">Last Used</span>
               <span class="min-w-0 flex-1">Expires</span>
               <span class="w-20 shrink-0 text-right">Action</span>
             </div>
@@ -289,16 +330,32 @@ onMounted(fetchKeys)
                 :key="key.id"
                 class="hover:bg-t-bg-hover flex items-center px-5 py-3 text-sm transition-colors"
               >
-                <div class="w-44 shrink-0">
+                <div class="w-40 shrink-0">
                   <span class="text-t-fg font-medium">{{ key.name }}</span>
                 </div>
-                <div class="w-36 shrink-0">
+                <div class="w-32 shrink-0">
                   <span class="text-t-teal font-mono">{{ key.key_prefix }}...</span>
                 </div>
                 <div class="w-36 shrink-0">
+                  <div class="flex flex-wrap gap-1">
+                    <span
+                      v-for="scope in key.scopes"
+                      :key="scope"
+                      class="inline-block rounded px-1.5 py-0.5 text-xs"
+                      :class="{
+                        'bg-t-purple/10 text-t-purple': scope === 'admin',
+                        'bg-t-blue/10 text-t-blue': scope === 'read',
+                        'bg-t-green/10 text-t-green': scope === 'ingest',
+                      }"
+                    >
+                      {{ scope }}
+                    </span>
+                  </div>
+                </div>
+                <div class="w-28 shrink-0">
                   <span class="text-t-fg-dark" :title="formatDate(key.created_at)">{{ timeAgo(key.created_at) }}</span>
                 </div>
-                <div class="w-36 shrink-0">
+                <div class="w-28 shrink-0">
                   <span v-if="key.last_used_at" class="text-t-fg-dark" :title="formatDate(key.last_used_at)">{{ timeAgo(key.last_used_at) }}</span>
                   <span v-else class="text-t-fg-gutter">never</span>
                 </div>
