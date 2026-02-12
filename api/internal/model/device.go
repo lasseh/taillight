@@ -9,8 +9,8 @@ type DeviceSummary struct {
 	TotalCount        int64           `json:"total_count"`
 	CriticalCount     int64           `json:"critical_count"`
 	SeverityBreakdown []SeverityCount `json:"severity_breakdown"`
-	TopPrograms       []TopSource     `json:"top_programs"`
 	TopMessages       []TopMessage    `json:"top_messages"`
+	CriticalLogs      []SyslogEvent   `json:"critical_logs"`
 }
 
 // TopMessage holds a normalized message pattern with its count and a sample.

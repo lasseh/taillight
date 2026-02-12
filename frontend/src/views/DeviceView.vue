@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import type { DeviceSummary } from '@/types/device'
 import { api, ApiError } from '@/lib/api'
-import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
-import { severityColorClassByLabel, severityBgClassByLabel } from '@/lib/constants'
+import { formatRelativeTime, lastSeenColorClass, formatNumber, formatTime, truncate } from '@/lib/format'
+import { severityColorClassByLabel, severityBgClassByLabel, severityColorClass, severityBgClass } from '@/lib/constants'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 
 const props = defineProps<{
@@ -17,20 +17,37 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const errorStatus = ref<number | null>(null)
 
-onMounted(async () => {
+async function fetchData() {
   try {
     const res = await api.getDeviceSummary(props.hostname)
     summary.value = res.data
+    // Clear any previous error on successful refresh.
+    error.value = null
+    errorStatus.value = null
   } catch (e) {
-    if (e instanceof ApiError && e.code !== 'unknown') {
-      errorStatus.value = e.status
-      error.value = e.message
-    } else {
-      error.value = e instanceof Error ? e.message : 'failed to load device summary'
+    // Only set error state on initial load; silently ignore refresh failures.
+    if (!summary.value) {
+      if (e instanceof ApiError && e.code !== 'unknown') {
+        errorStatus.value = e.status
+        error.value = e.message
+      } else {
+        error.value = e instanceof Error ? e.message : 'failed to load device summary'
+      }
     }
   } finally {
     loading.value = false
   }
+}
+
+let refreshTimer: ReturnType<typeof setInterval> | undefined
+
+onMounted(() => {
+  fetchData()
+  refreshTimer = setInterval(fetchData, 10_000)
+})
+
+onUnmounted(() => {
+  clearInterval(refreshTimer)
 })
 
 const sevTotal = computed(() => {
@@ -69,7 +86,7 @@ const sevTotal = computed(() => {
         list-label="go to syslog"
       />
 
-      <div v-else-if="summary" class="mx-auto max-w-4xl space-y-4">
+      <div v-else-if="summary" class="mx-auto max-w-6xl space-y-4">
         <!-- Header -->
         <div class="bg-t-bg-dark border-t-border rounded border p-4">
           <h1 class="text-t-teal text-lg font-semibold font-mono">{{ summary.hostname }}</h1>
@@ -98,24 +115,25 @@ const sevTotal = computed(() => {
           </dl>
         </div>
 
-        <!-- Top programs -->
-        <div v-if="summary.top_programs.length > 0" class="bg-t-bg-dark border-t-border rounded border">
+        <!-- Top messages -->
+        <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border">
           <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
-            Top Programs
+            Top Messages
           </h3>
           <div class="divide-t-border divide-y">
-            <div
-              v-for="prog in summary.top_programs"
-              :key="prog.name"
-              class="flex items-baseline gap-3 px-4 py-1.5 text-sm"
+            <RouterLink
+              v-for="(msg, i) in summary.top_messages"
+              :key="i"
+              :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
+              class="hover:bg-t-bg flex items-baseline gap-3 px-4 py-1.5 text-sm transition-colors"
             >
               <span class="text-t-fg-dark w-16 shrink-0 text-right font-mono text-xs">
-                {{ formatNumber(prog.count) }}
+                {{ formatNumber(msg.count) }}
               </span>
-              <span class="text-t-purple min-w-0 flex-1 truncate font-mono text-xs">
-                {{ prog.name }}
+              <span class="text-t-fg min-w-0 flex-1 truncate font-mono text-xs" :title="msg.sample">
+                {{ msg.sample }}
               </span>
-            </div>
+            </RouterLink>
           </div>
         </div>
 
@@ -150,24 +168,23 @@ const sevTotal = computed(() => {
           </div>
         </div>
 
-        <!-- Top messages -->
-        <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border">
+        <!-- Critical logs -->
+        <div v-if="summary.critical_logs.length > 0" class="bg-t-bg-dark border-t-border rounded border">
           <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
-            Top Messages
+            Recent Critical Logs
           </h3>
-          <div class="divide-t-border divide-y">
+          <div class="divide-t-border divide-y font-mono text-xs leading-snug">
             <RouterLink
-              v-for="(msg, i) in summary.top_messages"
-              :key="i"
-              :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
-              class="hover:bg-t-bg flex items-baseline gap-3 px-4 py-1.5 text-sm transition-colors"
+              v-for="event in summary.critical_logs"
+              :key="event.id"
+              :to="{ name: 'syslog-detail', params: { id: event.id } }"
+              class="hover:bg-t-bg-hover flex items-baseline gap-3 px-4 py-px transition-colors"
+              :class="severityBgClass[event.severity] ?? ''"
             >
-              <span class="text-t-fg-dark w-16 shrink-0 text-right font-mono text-xs">
-                {{ formatNumber(msg.count) }}
-              </span>
-              <span class="text-t-fg min-w-0 flex-1 truncate font-mono text-xs" :title="msg.sample">
-                {{ msg.sample }}
-              </span>
+              <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.received_at) }}</span>
+              <span class="w-[8ch] shrink-0 uppercase" :class="severityColorClass[event.severity] ?? 'text-t-fg'">{{ event.severity_label }}</span>
+              <span class="text-t-purple w-[14ch] shrink-0 truncate">{{ event.programname }}</span>
+              <span class="text-t-fg min-w-0 flex-1 truncate">{{ truncate(event.message, 200) }}</span>
             </RouterLink>
           </div>
         </div>

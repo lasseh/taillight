@@ -1,4 +1,5 @@
-import type { SeverityCount, TopSource } from '@/types/stats'
+import type { SeverityCount } from '@/types/stats'
+import type { SyslogEvent } from '@/types/syslog'
 
 export interface TopMessage {
   pattern: string
@@ -13,8 +14,8 @@ export interface DeviceSummary {
   total_count: number
   critical_count: number
   severity_breakdown: SeverityCount[]
-  top_programs: TopSource[]
   top_messages: TopMessage[]
+  critical_logs: SyslogEvent[]
 }
 
 export interface DeviceSummaryResponse {

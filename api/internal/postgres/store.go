@@ -549,8 +549,8 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 	summary := model.DeviceSummary{
 		Hostname:          hostname,
 		SeverityBreakdown: make([]model.SeverityCount, 0),
-		TopPrograms:       make([]model.TopSource, 0),
 		TopMessages:       make([]model.TopMessage, 0),
+		CriticalLogs:      make([]model.SyslogEvent, 0),
 	}
 
 	// 1. Last seen from meta cache.
@@ -611,36 +611,7 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		}
 	}
 
-	// 3. Top programs (7 days).
-	progRows, err := s.pool.Query(ctx,
-		`SELECT programname, count(*) AS cnt
-		 FROM syslog_events
-		 WHERE hostname = $1 AND received_at >= $2
-		 GROUP BY programname
-		 ORDER BY cnt DESC
-		 LIMIT 5`,
-		hostname, since,
-	)
-	if err != nil {
-		return summary, fmt.Errorf("device top programs: %w", err)
-	}
-	defer progRows.Close()
-
-	for progRows.Next() {
-		var ts model.TopSource
-		if err := progRows.Scan(&ts.Name, &ts.Count); err != nil {
-			return summary, fmt.Errorf("scan top program: %w", err)
-		}
-		if total > 0 {
-			ts.Pct = float64(ts.Count) / float64(total) * 100
-		}
-		summary.TopPrograms = append(summary.TopPrograms, ts)
-	}
-	if err := progRows.Err(); err != nil {
-		return summary, fmt.Errorf("top program rows: %w", err)
-	}
-
-	// 4. Top normalized messages (7 days).
+	// 3. Top normalized messages (7 days).
 	msgRows, err := s.pool.Query(ctx,
 		`SELECT
 		     regexp_replace(
@@ -671,6 +642,34 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 	}
 	if err := msgRows.Err(); err != nil {
 		return summary, fmt.Errorf("top message rows: %w", err)
+	}
+
+	// 4. Recent critical logs (severity <= err, 7 days, newest first).
+	critQuery, critArgs, err := psq.
+		Select(syslogColumns...).
+		From("syslog_events").
+		Where(sq.Eq{"hostname": hostname}).
+		Where(sq.GtOrEq{"received_at": since}).
+		Where(sq.LtOrEq{"severity": model.SeverityErr}).
+		OrderBy("received_at DESC", "id DESC").
+		Limit(50).
+		ToSql()
+	if err != nil {
+		return summary, fmt.Errorf("build critical logs query: %w", err)
+	}
+
+	critRows, err := s.pool.Query(ctx, critQuery, critArgs...)
+	if err != nil {
+		return summary, fmt.Errorf("device critical logs: %w", err)
+	}
+	defer critRows.Close()
+
+	critEvents, err := collectSyslogs(critRows)
+	if err != nil {
+		return summary, fmt.Errorf("collect critical logs: %w", err)
+	}
+	if critEvents != nil {
+		summary.CriticalLogs = critEvents
 	}
 
 	return summary, nil
