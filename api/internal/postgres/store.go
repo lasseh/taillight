@@ -549,6 +549,7 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 	summary := model.DeviceSummary{
 		Hostname:          hostname,
 		SeverityBreakdown: make([]model.SeverityCount, 0),
+		TopPrograms:       make([]model.TopSource, 0),
 		TopMessages:       make([]model.TopMessage, 0),
 	}
 
@@ -603,13 +604,43 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 	for _, sc := range summary.SeverityBreakdown {
 		total += sc.Count
 	}
+	summary.TotalCount = total
 	for i := range summary.SeverityBreakdown {
 		if total > 0 {
 			summary.SeverityBreakdown[i].Pct = float64(summary.SeverityBreakdown[i].Count) / float64(total) * 100
 		}
 	}
 
-	// 3. Top normalized messages (7 days).
+	// 3. Top programs (7 days).
+	progRows, err := s.pool.Query(ctx,
+		`SELECT programname, count(*) AS cnt
+		 FROM syslog_events
+		 WHERE hostname = $1 AND received_at >= $2
+		 GROUP BY programname
+		 ORDER BY cnt DESC
+		 LIMIT 5`,
+		hostname, since,
+	)
+	if err != nil {
+		return summary, fmt.Errorf("device top programs: %w", err)
+	}
+	defer progRows.Close()
+
+	for progRows.Next() {
+		var ts model.TopSource
+		if err := progRows.Scan(&ts.Name, &ts.Count); err != nil {
+			return summary, fmt.Errorf("scan top program: %w", err)
+		}
+		if total > 0 {
+			ts.Pct = float64(ts.Count) / float64(total) * 100
+		}
+		summary.TopPrograms = append(summary.TopPrograms, ts)
+	}
+	if err := progRows.Err(); err != nil {
+		return summary, fmt.Errorf("top program rows: %w", err)
+	}
+
+	// 4. Top normalized messages (7 days).
 	msgRows, err := s.pool.Query(ctx,
 		`SELECT
 		     regexp_replace(
@@ -617,12 +648,13 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		         '\d+', '<n>', 'g'
 		     ) AS pattern,
 		     min(message) AS sample,
-		     count(*) AS cnt
+		     count(*) AS cnt,
+		     max(id) AS latest_id
 		 FROM syslog_events
 		 WHERE hostname = $1 AND received_at >= $2
 		 GROUP BY pattern
 		 ORDER BY cnt DESC
-		 LIMIT 20`,
+		 LIMIT 10`,
 		hostname, since,
 	)
 	if err != nil {
@@ -632,7 +664,7 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 
 	for msgRows.Next() {
 		var tm model.TopMessage
-		if err := msgRows.Scan(&tm.Pattern, &tm.Sample, &tm.Count); err != nil {
+		if err := msgRows.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID); err != nil {
 			return summary, fmt.Errorf("scan top message: %w", err)
 		}
 		summary.TopMessages = append(summary.TopMessages, tm)

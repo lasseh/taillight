@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, RouterLink } from 'vue-router'
 import type { DeviceSummary } from '@/types/device'
 import { api, ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
@@ -86,11 +86,37 @@ const sevTotal = computed(() => {
               {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never' }}
             </dd>
 
+            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">total logs</dt>
+            <dd class="text-t-fg border-t-border border-b px-4 py-1.5 font-mono">
+              {{ formatNumber(summary.total_count) }}
+            </dd>
+
             <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">critical logs</dt>
             <dd class="border-t-border border-b px-4 py-1.5 font-mono" :class="summary.critical_count > 0 ? 'text-sev-err' : 'text-t-fg'">
               {{ formatNumber(summary.critical_count) }}
             </dd>
           </dl>
+        </div>
+
+        <!-- Top programs -->
+        <div v-if="summary.top_programs.length > 0" class="bg-t-bg-dark border-t-border rounded border">
+          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+            Top Programs
+          </h3>
+          <div class="divide-t-border divide-y">
+            <div
+              v-for="prog in summary.top_programs"
+              :key="prog.name"
+              class="flex items-baseline gap-3 px-4 py-1.5 text-sm"
+            >
+              <span class="text-t-fg-dark w-16 shrink-0 text-right font-mono text-xs">
+                {{ formatNumber(prog.count) }}
+              </span>
+              <span class="text-t-purple min-w-0 flex-1 truncate font-mono text-xs">
+                {{ prog.name }}
+              </span>
+            </div>
+          </div>
         </div>
 
         <!-- Severity breakdown -->
@@ -130,10 +156,11 @@ const sevTotal = computed(() => {
             Top Messages
           </h3>
           <div class="divide-t-border divide-y">
-            <div
+            <RouterLink
               v-for="(msg, i) in summary.top_messages"
               :key="i"
-              class="flex items-baseline gap-3 px-4 py-1.5 text-sm"
+              :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
+              class="hover:bg-t-bg flex items-baseline gap-3 px-4 py-1.5 text-sm transition-colors"
             >
               <span class="text-t-fg-dark w-16 shrink-0 text-right font-mono text-xs">
                 {{ formatNumber(msg.count) }}
@@ -141,7 +168,7 @@ const sevTotal = computed(() => {
               <span class="text-t-fg min-w-0 flex-1 truncate font-mono text-xs" :title="msg.sample">
                 {{ msg.sample }}
               </span>
-            </div>
+            </RouterLink>
           </div>
         </div>
       </div>
