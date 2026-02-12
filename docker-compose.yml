@@ -62,7 +62,7 @@ services:
     depends_on:
       - api
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/healthz || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 3

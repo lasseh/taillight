@@ -42,6 +42,11 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
     location /health {
         proxy_pass ${API_BACKEND};
         proxy_set_header Host $host;

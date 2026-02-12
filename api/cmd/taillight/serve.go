@@ -311,9 +311,9 @@ func setupRouter(
 	r.Use(middleware.RealIP)
 	r.Use(handler.RequestLogger)
 	if cfg.LogShipper.Enabled {
-		r.Use(handler.SkipPath(middleware.Logger, "/api/v1/applog/ingest"))
+		r.Use(handler.SkipPath(handler.SkipPath(middleware.Logger, "/health"), "/api/v1/applog/ingest"))
 	} else {
-		r.Use(middleware.Logger)
+		r.Use(handler.SkipPath(middleware.Logger, "/health"))
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(handler.SecurityHeaders)
