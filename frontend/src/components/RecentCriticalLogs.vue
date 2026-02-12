@@ -11,12 +11,13 @@ defineProps<{
   showHostname?: boolean
   flashIds?: Set<number>
   highlightSeverity?: boolean
+  hideHeader?: boolean
 }>()
 </script>
 
 <template>
   <div class="bg-t-bg-dark border-t-border rounded border">
-    <h3 class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Recent High-Severity' }}</h3>
+    <h3 v-if="!hideHeader" class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Recent High-Severity' }}</h3>
     <div>
       <div v-if="events.length === 0" class="text-t-fg-dark px-4 py-2 text-xs">
         No recent high-severity events

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import type { DeviceSummary } from '@/types/device'
 import { api, ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
 import { severityColorClassByLabel, severityBgClass } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
+import { useDeviceLogs } from '@/composables/useDeviceLogs'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
@@ -13,6 +14,10 @@ import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
 const props = defineProps<{
   hostname: string
 }>()
+
+const hostnameRef = computed(() => props.hostname)
+const { events: deviceLogs } = useDeviceLogs(hostnameRef)
+const activeTab = ref<'critical' | 'all'>('critical')
 
 const router = useRouter()
 const summary = ref<DeviceSummary | null>(null)
@@ -137,8 +142,38 @@ onUnmounted(() => {
         <!-- Severity breakdown -->
         <SeverityDistribution v-if="summary.severity_breakdown.length > 0" :items="summary.severity_breakdown" title="Severity Breakdown" />
 
-        <!-- Critical logs -->
-        <RecentCriticalLogs v-if="summary.critical_logs.length > 0" :events="summary.critical_logs" title="Recent Critical Logs" highlight-severity />
+        <!-- Logs tabs -->
+        <div class="bg-t-bg-dark border-t-border rounded border">
+          <div class="border-t-border flex border-b">
+            <button
+              class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors"
+              :class="activeTab === 'critical' ? 'text-t-teal' : 'text-t-fg-dark hover:text-t-fg'"
+              @click="activeTab = 'critical'"
+            >
+              Critical Logs
+            </button>
+            <button
+              class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors"
+              :class="activeTab === 'all' ? 'text-t-teal' : 'text-t-fg-dark hover:text-t-fg'"
+              @click="activeTab = 'all'"
+            >
+              Recent Logs
+            </button>
+          </div>
+
+          <RecentCriticalLogs
+            v-if="activeTab === 'critical'"
+            :events="summary.critical_logs"
+            highlight-severity
+            hide-header
+          />
+          <RecentCriticalLogs
+            v-else
+            :events="deviceLogs"
+            highlight-severity
+            hide-header
+          />
+        </div>
       </div>
     </div>
   </div>
