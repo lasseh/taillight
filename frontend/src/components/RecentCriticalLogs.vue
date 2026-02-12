@@ -26,7 +26,7 @@ defineProps<{
         v-for="event in events"
         :key="event.id"
         :to="{ name: 'syslog-detail', params: { id: event.id } }"
-        class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors"
+        class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug"
         :class="[
           flashIds?.has(event.id) ? 'row-flash' : '',
           highlightSeverity ? (severityBgClass[event.severity] ?? '') : '',
