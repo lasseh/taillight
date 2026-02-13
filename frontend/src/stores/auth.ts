@@ -19,8 +19,10 @@ export const useAuthStore = defineStore('auth', () => {
       if (e instanceof ApiError && e.status === 401) {
         // Auth enabled, not logged in — definitive state.
         apiError.value = null
+      } else if (e instanceof ApiError) {
+        apiError.value = `${e.status} — ${e.message}`
       } else {
-        apiError.value = 'Cannot connect to server'
+        apiError.value = 'Network error'
       }
     } finally {
       ready.value = true

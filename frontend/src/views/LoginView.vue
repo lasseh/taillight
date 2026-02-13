@@ -89,7 +89,7 @@ async function handleSubmit() {
       <template v-if="auth.apiError">
         <p class="subtitle">Cannot connect to server</p>
         <div class="api-error">
-          <p class="api-error-detail">The API server is unreachable. It may be down or restarting.</p>
+          <p class="api-error-code">{{ auth.apiError }}</p>
           <p class="api-error-detail">Retrying automatically in the background...</p>
           <button type="button" class="btn" @click="handleRetry">Retry now</button>
         </div>
@@ -226,6 +226,14 @@ async function handleSubmit() {
   flex-direction: column;
   gap: 0.75rem;
   text-align: center;
+}
+
+.api-error-code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--color-sev-crit);
+  margin: 0;
+  line-height: 1.4;
 }
 
 .api-error-detail {
