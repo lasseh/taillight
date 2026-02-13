@@ -283,14 +283,16 @@ func (e *Engine) drainExpiredCooldowns(ctx context.Context) {
 		)
 
 		// Log the suppression to audit trail.
-		_ = e.store.InsertNotificationLog(ctx, LogEntry{
+		if err := e.store.InsertNotificationLog(ctx, LogEntry{
 			RuleID:     ec.RuleID,
 			EventKind:  "summary",
 			EventID:    0,
 			Status:     "suppressed",
 			Reason:     strPtr(fmt.Sprintf("%d events suppressed during cooldown", ec.SuppressedCount)),
 			EventCount: ec.SuppressedCount,
-		})
+		}); err != nil {
+			e.logger.Warn("failed to log suppressed cooldown", "rule_id", ec.RuleID, "err", err)
+		}
 	}
 }
 
@@ -356,8 +358,11 @@ func (e *Engine) sendToChannel(ctx context.Context, rule Rule, ch Channel, paylo
 			"err", cbErr,
 		)
 
-		logPayload, _ := json.Marshal(payload)
-		_ = e.store.InsertNotificationLog(ctx, LogEntry{
+		logPayload, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			e.logger.Warn("failed to marshal notification payload", "rule_id", rule.ID, "err", marshalErr)
+		}
+		if err := e.store.InsertNotificationLog(ctx, LogEntry{
 			RuleID:     rule.ID,
 			ChannelID:  ch.ID,
 			EventKind:  string(payload.Kind),
@@ -368,15 +373,20 @@ func (e *Engine) sendToChannel(ctx context.Context, rule Rule, ch Channel, paylo
 			StatusCode: optionalInt(result.StatusCode),
 			DurationMS: int(result.Duration.Milliseconds()),
 			Payload:    logPayload,
-		})
+		}); err != nil {
+			e.logger.Warn("failed to insert notification log", "rule_id", rule.ID, "channel_id", ch.ID, "err", err)
+		}
 		return
 	}
 
 	metrics.NotifSentTotal.WithLabelValues(string(ch.Type), "success").Inc()
 	metrics.NotifSendDuration.Observe(result.Duration.Seconds())
 
-	logPayload, _ := json.Marshal(payload)
-	_ = e.store.InsertNotificationLog(ctx, LogEntry{
+	logPayload, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		e.logger.Warn("failed to marshal notification payload", "rule_id", rule.ID, "err", marshalErr)
+	}
+	if err := e.store.InsertNotificationLog(ctx, LogEntry{
 		RuleID:     rule.ID,
 		ChannelID:  ch.ID,
 		EventKind:  string(payload.Kind),
@@ -386,7 +396,9 @@ func (e *Engine) sendToChannel(ctx context.Context, rule Rule, ch Channel, paylo
 		StatusCode: optionalInt(result.StatusCode),
 		DurationMS: int(result.Duration.Milliseconds()),
 		Payload:    logPayload,
-	})
+	}); err != nil {
+		e.logger.Warn("failed to insert notification log", "rule_id", rule.ID, "channel_id", ch.ID, "err", err)
+	}
 }
 
 // refreshCache reloads rules and channels from the store.
