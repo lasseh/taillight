@@ -26,7 +26,7 @@ build-linux: ## Build linux binary
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY_NAME)-linux-amd64 ./cmd/taillight
 
 build-shipper: ## Build taillight-shipper tool
-	$(GO) build $(GOFLAGS) -o taillight-shipper ./cmd/taillight-shipper
+	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -o taillight-shipper ./cmd/taillight-shipper
 
 ##@ Quality
 test: ## Run tests

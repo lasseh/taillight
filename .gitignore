@@ -38,6 +38,7 @@ Thumbs.db
 .claude/
 api/.claude/
 frontend/.claude/
+CLAUDE.md
 
 # Agent skills (auto-generated, not project code)
 **/.agents/
