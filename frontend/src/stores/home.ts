@@ -9,8 +9,7 @@ import type { AppLogEvent } from '@/types/applog'
 
 const SUMMARY_REFRESH_INTERVAL = 30_000 // 30 seconds
 const MAX_RECENT_EVENTS = 10
-const HIGH_SEVERITY_MAX = 2 // crit and above
-const HIGH_SEVERITY_LEVELS = new Set(['WARN', 'ERROR', 'FATAL'])
+const HIGH_SEVERITY_MAX = 2 // syslog: crit and above
 
 // Map range labels to milliseconds for computing `from` timestamps.
 const rangeDurations: Record<string, number> = {
@@ -38,28 +37,13 @@ export const useHomeStore = defineStore('home', () => {
   const lastUpdated = ref<Date | null>(null)
   const range_ = ref('24h')
 
-  let summaryTimer: ReturnType<typeof setInterval> | null = null
-  let syslogUnsub: (() => void) | null = null
-  let applogUnsub: (() => void) | null = null
+  let refreshTimer: ReturnType<typeof setInterval> | null = null
+  let fetchVersion = 0
 
+  // SSE connections are exposed for status indicators only — event list
+  // updates are handled by periodic API refresh to respect the time range.
   const syslogStream = useSyslogStream()
   const applogStream = useAppLogStream()
-
-  function onSyslogEvent(event: SyslogEvent) {
-    if (event.severity > HIGH_SEVERITY_MAX) return
-    const existing = recentSyslogEvents.value
-    if (existing.some(e => e.id === event.id)) return
-    recentSyslogEvents.value = [...existing, event].slice(-MAX_RECENT_EVENTS)
-    lastUpdated.value = new Date()
-  }
-
-  function onAppLogEvent(event: AppLogEvent) {
-    if (!HIGH_SEVERITY_LEVELS.has(event.level)) return
-    const existing = recentApplogEvents.value
-    if (existing.some(e => e.id === event.id)) return
-    recentApplogEvents.value = [...existing, event].slice(-MAX_RECENT_EVENTS)
-    lastUpdated.value = new Date()
-  }
 
   async function fetchSummaries() {
     if (!loaded.value) {
@@ -88,63 +72,55 @@ export const useHomeStore = defineStore('home', () => {
     loaded.value = true
   }
 
-  async function fetchInitialEvents() {
+  async function fetchRecentEvents() {
+    const version = ++fetchVersion
     const from = rangeToFrom(range_.value)
 
     try {
       const syslogEventsRes = await api.getSyslogs(
         new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS), from }),
       )
+      if (version !== fetchVersion) return
       recentSyslogEvents.value = (syslogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
     } catch {
-      // Non-critical, SSE will populate
+      // Non-critical — keep existing data
     }
 
     try {
       const applogEventsRes = await api.getAppLogs(
         new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS), from }),
       )
+      if (version !== fetchVersion) return
       recentApplogEvents.value = (applogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
     } catch {
-      // Non-critical, SSE will populate
+      // Non-critical — keep existing data
     }
 
-    lastUpdated.value = new Date()
+    if (version === fetchVersion) {
+      lastUpdated.value = new Date()
+    }
+  }
+
+  function refresh() {
+    fetchSummaries()
+    fetchRecentEvents()
   }
 
   function startRefresh() {
     stopRefresh()
-
-    // Fetch initial data
-    fetchSummaries()
-    fetchInitialEvents()
-
-    // Subscribe to SSE for live events
-    syslogUnsub = syslogStream.subscribe(onSyslogEvent)
-    applogUnsub = applogStream.subscribe(onAppLogEvent)
-
-    // Periodically refresh summaries (aggregated stats)
-    summaryTimer = setInterval(fetchSummaries, SUMMARY_REFRESH_INTERVAL)
+    refresh()
+    refreshTimer = setInterval(refresh, SUMMARY_REFRESH_INTERVAL)
   }
 
   function setRange(r: string) {
     range_.value = r
-    fetchSummaries()
-    fetchInitialEvents()
+    refresh()
   }
 
   function stopRefresh() {
-    if (summaryTimer) {
-      clearInterval(summaryTimer)
-      summaryTimer = null
-    }
-    if (syslogUnsub) {
-      syslogUnsub()
-      syslogUnsub = null
-    }
-    if (applogUnsub) {
-      applogUnsub()
-      applogUnsub = null
+    if (refreshTimer) {
+      clearInterval(refreshTimer)
+      refreshTimer = null
     }
   }
 
