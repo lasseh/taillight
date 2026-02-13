@@ -130,7 +130,16 @@ watch(() => props.id, async (id) => {
             <dd class="border-t-border border-b px-4 py-1.5 font-mono" :class="lvlClass">{{ event.level }}</dd>
 
             <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">host</dt>
-            <dd class="text-t-teal border-t-border border-b px-4 py-1.5 font-mono">{{ event.host || '–' }}</dd>
+            <dd class="border-t-border border-b px-4 py-1.5 font-mono">
+              <RouterLink
+                v-if="event.host"
+                :to="{ name: 'applog-device-detail', params: { hostname: event.host } }"
+                class="text-t-teal hover:underline"
+              >
+                {{ event.host }}
+              </RouterLink>
+              <span v-else class="text-t-teal">–</span>
+            </dd>
 
             <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">service</dt>
             <dd class="text-t-purple border-t-border border-b px-4 py-1.5 font-mono">{{ event.service || '–' }}</dd>
