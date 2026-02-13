@@ -362,6 +362,7 @@ func setupRouter(
 	applogHandler := handler.NewAppLogHandler(store)
 	applogSSEHandler := handler.NewAppLogSSEHandler(applogBroker, store, logger)
 	applogMetaHandler := handler.NewAppLogMetaHandler(store)
+	applogDeviceHandler := handler.NewAppLogDeviceHandler(store)
 	authHandler := handler.NewAuthHandler(authStore)
 	notifHandler := handler.NewNotificationHandler(store, notifEngine)
 
@@ -476,6 +477,8 @@ func setupRouter(
 
 					r.Get("/stats/volume", statsHandler.AppLogVolume)
 					r.Get("/stats/summary", statsHandler.AppLogSummary)
+
+					r.Get("/device/{hostname}", applogDeviceHandler.Get)
 				})
 			})
 

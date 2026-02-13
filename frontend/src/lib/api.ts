@@ -5,7 +5,7 @@ import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/
 import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } from '@/types/taillight-metrics'
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse } from '@/types/auth'
 import type { ChannelListResponse, ChannelResponse, RuleListResponse, RuleResponse, LogListResponse, TestChannelResult, NotificationChannel, NotificationRule } from '@/types/notification'
-import type { DeviceSummaryResponse } from '@/types/device'
+import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
 import { config } from './config'
 
 /** Shape of the JSON error body returned by the API. */
@@ -187,6 +187,10 @@ export const api = {
   // Device
   getDeviceSummary(hostname: string): Promise<DeviceSummaryResponse> {
     return fetchAPI(`/api/v1/device/${encodeURIComponent(hostname)}`)
+  },
+
+  getAppLogDeviceSummary(hostname: string): Promise<AppLogDeviceSummaryResponse> {
+    return fetchAPI(`/api/v1/applog/device/${encodeURIComponent(hostname)}`)
   },
 
   getSyslogSummary(range?: string): Promise<SyslogSummaryResponse> {

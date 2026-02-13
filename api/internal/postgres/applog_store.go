@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
@@ -267,4 +268,136 @@ func scanAppLog(row pgx.Row, e *model.AppLogEvent) error {
 		e.Attrs = json.RawMessage(attrs)
 	}
 	return nil
+}
+
+// GetAppLogDeviceSummary returns aggregated applog information for the given host.
+// It fetches last-seen time, level breakdown (7d), top normalized messages (7d),
+// and recent error/fatal logs.
+func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.AppLogDeviceSummary, error) {
+	summary := model.AppLogDeviceSummary{
+		Host:           host,
+		LevelBreakdown: make([]model.LevelCount, 0),
+		TopMessages:    make([]model.AppLogTopMessage, 0),
+		ErrorLogs:      make([]model.AppLogEvent, 0),
+	}
+
+	since := time.Now().UTC().Add(-7 * 24 * time.Hour)
+
+	// 1. Last seen.
+	var lastSeen *time.Time
+	err := s.pool.QueryRow(ctx,
+		"SELECT MAX(received_at) FROM applog_events WHERE host = $1",
+		host,
+	).Scan(&lastSeen)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return summary, fmt.Errorf("applog device last seen: %w", err)
+	}
+	summary.LastSeenAt = lastSeen
+
+	// 2. Level breakdown (7 days).
+	levelRows, err := s.pool.Query(ctx,
+		`SELECT level, count(*) AS cnt
+		 FROM applog_events
+		 WHERE host = $1 AND received_at >= $2
+		 GROUP BY level
+		 ORDER BY level`,
+		host, since,
+	)
+	if err != nil {
+		return summary, fmt.Errorf("applog device level breakdown: %w", err)
+	}
+	defer levelRows.Close()
+
+	var total int64
+	for levelRows.Next() {
+		var level string
+		var cnt int64
+		if err := levelRows.Scan(&level, &cnt); err != nil {
+			return summary, fmt.Errorf("scan level: %w", err)
+		}
+		total += cnt
+		upper := strings.ToUpper(level)
+		if upper == "ERROR" || upper == "FATAL" {
+			summary.ErrorCount += cnt
+		}
+		summary.LevelBreakdown = append(summary.LevelBreakdown, model.LevelCount{
+			Level: level,
+			Count: cnt,
+		})
+	}
+	if err := levelRows.Err(); err != nil {
+		return summary, fmt.Errorf("level rows: %w", err)
+	}
+
+	summary.TotalCount = total
+	for i := range summary.LevelBreakdown {
+		if total > 0 {
+			summary.LevelBreakdown[i].Pct = float64(summary.LevelBreakdown[i].Count) / float64(total) * 100
+		}
+	}
+
+	// 3. Top normalized messages (7 days).
+	msgRows, err := s.pool.Query(ctx,
+		`SELECT
+		     regexp_replace(
+		         regexp_replace(msg, '\d{1,3}(\.\d{1,3}){3}(:\d+)?', '<ip>', 'g'),
+		         '\d+', '<n>', 'g'
+		     ) AS pattern,
+		     min(msg) AS sample,
+		     count(*) AS cnt,
+		     max(id) AS latest_id,
+		     max(received_at) AS latest_at,
+		     min(level) AS level
+		 FROM applog_events
+		 WHERE host = $1 AND received_at >= $2
+		 GROUP BY pattern
+		 ORDER BY cnt DESC, pattern
+		 LIMIT 10`,
+		host, since,
+	)
+	if err != nil {
+		return summary, fmt.Errorf("applog device top messages: %w", err)
+	}
+	defer msgRows.Close()
+
+	for msgRows.Next() {
+		var tm model.AppLogTopMessage
+		if err := msgRows.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID, &tm.LatestAt, &tm.Level); err != nil {
+			return summary, fmt.Errorf("scan top message: %w", err)
+		}
+		summary.TopMessages = append(summary.TopMessages, tm)
+	}
+	if err := msgRows.Err(); err != nil {
+		return summary, fmt.Errorf("top message rows: %w", err)
+	}
+
+	// 4. Recent error logs (ERROR/FATAL, 7 days, newest first).
+	errQuery, errArgs, err := psq.
+		Select(appLogColumns...).
+		From("applog_events").
+		Where(sq.Eq{"host": host}).
+		Where(sq.GtOrEq{"received_at": since}).
+		Where(sq.Eq{"level": []string{"ERROR", "FATAL"}}).
+		OrderBy("received_at DESC", "id DESC").
+		Limit(50).
+		ToSql()
+	if err != nil {
+		return summary, fmt.Errorf("build error logs query: %w", err)
+	}
+
+	errRows, err := s.pool.Query(ctx, errQuery, errArgs...)
+	if err != nil {
+		return summary, fmt.Errorf("applog device error logs: %w", err)
+	}
+	defer errRows.Close()
+
+	errEvents, err := collectAppLogs(errRows)
+	if err != nil {
+		return summary, fmt.Errorf("collect error logs: %w", err)
+	}
+	if errEvents != nil {
+		summary.ErrorLogs = errEvents
+	}
+
+	return summary, nil
 }
