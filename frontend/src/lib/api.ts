@@ -31,7 +31,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body: ApiErrorBody | null = await res.json().catch(() => null)
     const code = body?.error?.code ?? 'unknown'
-    const message = body?.error?.message ?? `HTTP ${res.status}`
+    const message = body?.error?.message ?? res.statusText
     throw new ApiError(res.status, code, message)
   }
   return res.json()
