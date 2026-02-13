@@ -17,20 +17,37 @@ const loading = ref(false)
 // recovers and returns an anonymous user, redirect to home automatically.
 let retryTimer: ReturnType<typeof setInterval> | undefined
 
+function startRetryTimer() {
+  if (retryTimer) clearInterval(retryTimer)
+  let attempts = 0
+  retryTimer = setInterval(async () => {
+    if (++attempts > 30) {
+      clearInterval(retryTimer)
+      retryTimer = undefined
+      return
+    }
+    await auth.init()
+    if (auth.user) {
+      clearInterval(retryTimer)
+      retryTimer = undefined
+      router.replace('/')
+    }
+  }, 2000)
+}
+
+async function handleRetry() {
+  await auth.init()
+  if (auth.user) {
+    router.replace('/')
+    return
+  }
+  if (!auth.apiError) return
+  startRetryTimer()
+}
+
 onMounted(() => {
   if (!auth.user) {
-    let attempts = 0
-    retryTimer = setInterval(async () => {
-      if (++attempts > 5) {
-        clearInterval(retryTimer)
-        return
-      }
-      await auth.init()
-      if (auth.user) {
-        clearInterval(retryTimer)
-        router.replace('/')
-      }
-    }, 2000)
+    startRetryTimer()
   }
 })
 
@@ -69,42 +86,53 @@ async function handleSubmit() {
       <h1 class="logo">
         <span class="bg-gradient-to-r from-sev-emerg to-sev-alert bg-clip-text text-transparent">[Taillight]</span>
       </h1>
-      <p class="subtitle">Sign in to your account</p>
-
-      <form @submit.prevent="handleSubmit" class="form" autocomplete="on">
-        <div class="field">
-          <label for="username" class="field-label">Username</label>
-          <input
-            id="username"
-            v-model="username"
-            type="text"
-            autocomplete="username"
-            spellcheck="false"
-            class="field-input"
-          />
+      <template v-if="auth.apiError">
+        <p class="subtitle">Cannot connect to server</p>
+        <div class="api-error">
+          <p class="api-error-detail">The API server is unreachable. It may be down or restarting.</p>
+          <p class="api-error-detail">Retrying automatically in the background...</p>
+          <button type="button" class="btn" @click="handleRetry">Retry now</button>
         </div>
+      </template>
 
-        <div class="field">
-          <div class="field-label-row">
-            <label for="password" class="field-label">Password</label>
+      <template v-else>
+        <p class="subtitle">Sign in to your account</p>
+
+        <form @submit.prevent="handleSubmit" class="form" autocomplete="on">
+          <div class="field">
+            <label for="username" class="field-label">Username</label>
+            <input
+              id="username"
+              v-model="username"
+              type="text"
+              autocomplete="username"
+              spellcheck="false"
+              class="field-input"
+            />
           </div>
-          <input
-            id="password"
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
-            class="field-input"
-          />
-        </div>
 
-        <Transition name="err">
-          <p v-if="error" class="error" role="alert">{{ error }}</p>
-        </Transition>
+          <div class="field">
+            <div class="field-label-row">
+              <label for="password" class="field-label">Password</label>
+            </div>
+            <input
+              id="password"
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              class="field-input"
+            />
+          </div>
 
-        <button type="submit" class="btn" :disabled="loading">
-          {{ loading ? 'Signing in...' : 'Sign in' }}
-        </button>
-      </form>
+          <Transition name="err">
+            <p v-if="error" class="error" role="alert">{{ error }}</p>
+          </Transition>
+
+          <button type="submit" class="btn" :disabled="loading">
+            {{ loading ? 'Signing in...' : 'Sign in' }}
+          </button>
+        </form>
+      </template>
     </div>
 
     <p class="footer-text">Log aggregation &amp; search</p>
@@ -191,6 +219,21 @@ async function handleSubmit() {
 .field-input:focus {
   border-color: var(--color-t-blue);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-t-blue) 15%, transparent);
+}
+
+.api-error {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.api-error-detail {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-t-fg-dark);
+  margin: 0;
+  line-height: 1.4;
 }
 
 .error {

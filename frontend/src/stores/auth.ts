@@ -7,20 +7,23 @@ import router from '@/router'
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthUser | null>(null)
   const ready = ref(false)
+  const apiError = ref<string | null>(null)
 
   async function init() {
     try {
       const res = await api.getMe()
       user.value = res.user
-      ready.value = true
+      apiError.value = null
     } catch (e) {
       user.value = null
       if (e instanceof ApiError && e.status === 401) {
         // Auth enabled, not logged in — definitive state.
-        ready.value = true
+        apiError.value = null
+      } else {
+        apiError.value = 'Cannot connect to server'
       }
-      // API unreachable (network error, 5xx): leave ready false so the
-      // router guard retries init() on the next navigation.
+    } finally {
+      ready.value = true
     }
   }
 
@@ -39,5 +42,5 @@ export const useAuthStore = defineStore('auth', () => {
     router.push('/login')
   }
 
-  return { user, ready, init, login, logout }
+  return { user, ready, apiError, init, login, logout }
 })
