@@ -8,7 +8,8 @@ formatters:
     - goimports
   settings:
     goimports:
-      local-prefixes: github.com/
+      local-prefixes:
+        - github.com/
 
 linters:
   enable:
@@ -30,21 +31,29 @@ linters:
     - unconvert
     - unparam
     - wastedassign
-
-linters-settings:
-  revive:
-    rules:
-      - name: unexported-return
-        disabled: true
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-  exhaustive:
-    default-signifies-exhaustive: true
+  settings:
+    revive:
+      rules:
+        - name: unexported-return
+          disabled: true
+        - name: var-naming
+          disabled: true
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - hugeParam
+        - rangeValCopy
+        - whyNoLint
+        - httpNoBody
+        - nestingReduce
+        - unnamedResult
+        - appendCombine
+    exhaustive:
+      default-signifies-exhaustive: true
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
