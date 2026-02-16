@@ -59,11 +59,16 @@ function buildIso(date: string, hour: string, minute: string): string {
   return new Date(`${date}T${hour}:${minute}:00`).toISOString()
 }
 
-const canApply = computed(() => draftFromDate.value && draftToDate.value)
+function todayStr(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 function apply() {
-  emit('update:from', buildIso(draftFromDate.value, draftFromHour.value, draftFromMinute.value))
-  emit('update:to', buildIso(draftToDate.value, draftToHour.value, draftToMinute.value))
+  const today = todayStr()
+  emit('update:from', buildIso(draftFromDate.value || today, draftFromHour.value, draftFromMinute.value))
+  emit('update:to', buildIso(draftToDate.value || today, draftToHour.value, draftToMinute.value))
   open.value = false
 }
 
@@ -170,9 +175,7 @@ function onKeydown(e: KeyboardEvent) {
         <div class="border-t-border flex items-center gap-3 border-t px-3 py-2">
           <button
             type="button"
-            :disabled="!canApply"
-            class="text-xs transition-colors"
-            :class="canApply ? 'text-t-blue hover:underline' : 'text-t-fg-gutter cursor-not-allowed'"
+            class="text-t-blue text-xs hover:underline"
             @click="apply"
           >
             apply
