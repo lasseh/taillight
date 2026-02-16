@@ -108,6 +108,8 @@ export const useHomeStore = defineStore('home', () => {
   function setRange(r: string) {
     range_.value = r
     localStorage.setItem('home-range', r)
+    recentSyslogEvents.value = []
+    recentApplogEvents.value = []
     refresh()
   }
 
