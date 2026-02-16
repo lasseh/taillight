@@ -6,7 +6,8 @@ info:
     streaming, analysis reports, and rsyslog/Juniper integration.
   version: "1.0.0"
   license:
-    name: MIT
+    name: GPL-3.0
+    url: https://www.gnu.org/licenses/gpl-3.0.html
 
 servers:
   - url: /api/v1

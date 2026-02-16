@@ -4,7 +4,7 @@ Thank you for your interest in contributing to Taillight! This guide will help y
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - Node.js 20+
 - Docker and Docker Compose
 - PostgreSQL with TimescaleDB (or use Docker Compose)
