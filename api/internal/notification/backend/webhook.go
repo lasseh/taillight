@@ -76,6 +76,9 @@ func (w *Webhook) Validate(ch notification.Channel) error {
 	if cfg.URL == "" {
 		return fmt.Errorf("url is required")
 	}
+	if err := validateExternalURL(context.Background(), cfg.URL); err != nil {
+		return fmt.Errorf("url rejected: %w", err)
+	}
 	if cfg.Template != "" {
 		if _, err := template.New("validate").Funcs(templateFuncs).Parse(cfg.Template); err != nil {
 			return fmt.Errorf("invalid template: %w", err)
@@ -111,6 +114,10 @@ func (w *Webhook) Send(ctx context.Context, ch notification.Channel, payload not
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, payload); err != nil {
 		return notification.SendResult{Error: fmt.Errorf("execute template: %w", err), Duration: time.Since(start)}
+	}
+
+	if err := validateExternalURL(ctx, cfg.URL); err != nil {
+		return notification.SendResult{Error: fmt.Errorf("url rejected: %w", err), Duration: time.Since(start)}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, cfg.URL, &buf)
