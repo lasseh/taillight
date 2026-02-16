@@ -44,15 +44,6 @@ export interface MetaResponse<T> {
   data: T[]
 }
 
-export interface SyslogFilters {
-  hostname: string
-  programname: string
-  syslogtag: string
-  facility: string
-  severity_max: string
-  search: string
-}
-
 /** Option entry for filter dropdowns. */
 export interface FilterOption {
   value: string

@@ -20,11 +20,3 @@ export interface AppLogListResponse {
 export interface SingleAppLogResponse {
   data: AppLogEvent
 }
-
-export interface AppLogFilters {
-  service: string
-  component: string
-  host: string
-  level: string
-  search: string
-}

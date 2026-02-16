@@ -1,8 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
-import { useSyslogStream } from '@/composables/useSyslogStream'
-import { useAppLogStream } from '@/composables/useAppLogStream'
 import type { SyslogSummary, AppLogSummary } from '@/types/stats'
 import type { SyslogEvent } from '@/types/syslog'
 import type { AppLogEvent } from '@/types/applog'
@@ -39,11 +37,6 @@ export const useHomeStore = defineStore('home', () => {
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
   let fetchVersion = 0
-
-  // SSE connections are exposed for status indicators only — event list
-  // updates are handled by periodic API refresh to respect the time range.
-  const syslogStream = useSyslogStream()
-  const applogStream = useAppLogStream()
 
   async function fetchSummaries() {
     if (!loaded.value) {
@@ -134,8 +127,6 @@ export const useHomeStore = defineStore('home', () => {
     error,
     lastUpdated,
     range: range_,
-    syslogConnected: syslogStream.connected,
-    applogConnected: applogStream.connected,
     startRefresh,
     stopRefresh,
     setRange,

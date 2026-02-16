@@ -32,9 +32,3 @@ export interface RsyslogStatsTimeSeries {
 export interface RsyslogStatsVolumeResponse {
   data: RsyslogStatsTimeSeries[]
 }
-
-/** Flat record for Unovis charts: x (epoch ms) and dynamic name keys. */
-export interface RsyslogStatsDataRecord {
-  x: number
-  [name: string]: number
-}
