@@ -40,3 +40,5 @@ services:
   frontend:
     ports:
       - "80:80"
+    environment:
+      API_URL: ""  # Empty = relative URLs (works behind nginx)

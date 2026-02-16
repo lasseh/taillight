@@ -58,7 +58,10 @@ services:
     ports:
       - "3000:80"
     environment:
-      API_URL: http://localhost:8080
+      # API_URL is empty by default — the frontend uses relative URLs,
+      # which works when nginx proxies both frontend and API on the same origin.
+      # For local dev without a reverse proxy, set: API_URL=http://localhost:8080
+      API_URL: ${API_URL:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:80/healthz || exit 1"]
       interval: 10s
