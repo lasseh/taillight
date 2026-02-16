@@ -202,7 +202,11 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 			return nil, err
 		}
 		for i := range rules {
-			rules[i].ChannelIDs = channelMap[rules[i].ID]
+			if ids, ok := channelMap[rules[i].ID]; ok {
+				rules[i].ChannelIDs = ids
+			} else {
+				rules[i].ChannelIDs = []int64{}
+			}
 		}
 	}
 
@@ -261,7 +265,11 @@ func (s *Store) GetNotificationRule(ctx context.Context, id int64) (notification
 	if err != nil {
 		return notification.Rule{}, err
 	}
-	r.ChannelIDs = channelMap[id]
+	if ids, ok := channelMap[id]; ok {
+		r.ChannelIDs = ids
+	} else {
+		r.ChannelIDs = []int64{}
+	}
 
 	return r, nil
 }

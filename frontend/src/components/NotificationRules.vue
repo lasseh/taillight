@@ -128,7 +128,7 @@ function openEdit(rule: NotificationRule) {
   formHost.value = rule.host || ''
   formLevel.value = rule.level || ''
   formSearch.value = rule.search || ''
-  formChannelIDs.value = [...rule.channel_ids]
+  formChannelIDs.value = [...(rule.channel_ids ?? [])]
   formBurstWindow.value = rule.burst_window
   formCooldownSeconds.value = rule.cooldown_seconds
   saveError.value = ''
