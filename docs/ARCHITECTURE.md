@@ -119,7 +119,7 @@ Incoming message
 [Phase 2] Route to outputs: output_pgsql, output_local, output_librenms
 ```
 
-**Docker integration:** The Dockerfile uses `sed` commands to uncomment ompgsql configuration, set Docker network hostnames (`postgres` instead of `127.0.0.1`), disable LibreNMS output, and validate the config with `rsyslogd -N1`.
+**Docker integration:** The config files are Docker-ready by default (`server="postgres"`, `pwd="taillight"`). The Dockerfile validates the config with `rsyslogd -N1`. For company-specific deployments, mount custom `conf.d/` and `filters/` via `docker-compose.override.yml`.
 
 ### PostgreSQL + TimescaleDB
 

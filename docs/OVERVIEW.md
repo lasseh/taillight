@@ -121,7 +121,7 @@ auth_enabled: false
 
 # Require authentication on read endpoints (syslog, applog, meta, stats, SSE).
 # Only takes effect when auth_enabled is true.
-auth_read_endpoints: false
+auth_read_endpoints: true
 
 # CORS allowed origins. Defaults to localhost dev origins when empty.
 cors_allowed_origins:
