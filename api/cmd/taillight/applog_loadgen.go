@@ -99,7 +99,7 @@ func pickMsg(svc *serviceProfile, level string) applogMsg {
 	return svc.msgs[rand.IntN(len(svc.msgs))]
 }
 
-// ingestEntry matches the API's ApplogIngestEntry JSON shape.
+// ingestEntry matches the API's AppLogIngestEntry JSON shape.
 type ingestEntry struct {
 	Timestamp time.Time       `json:"timestamp"`
 	Level     string          `json:"level"`

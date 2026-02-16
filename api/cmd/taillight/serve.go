@@ -78,7 +78,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// SSE brokers.
 	syslogBroker := broker.NewSyslogBroker(logger)
-	applogBroker := broker.NewApplogBroker(logger)
+	applogBroker := broker.NewAppLogBroker(logger)
 
 	// Notification engine (optional).
 	var notifEngine *notification.Engine
@@ -301,7 +301,7 @@ func setupRouter(
 	store *postgres.Store,
 	authStore *postgres.AuthStore,
 	syslogBroker *broker.SyslogBroker,
-	applogBroker *broker.ApplogBroker,
+	applogBroker *broker.AppLogBroker,
 	analysisHandler *handler.AnalysisHandler,
 	notifEngine *notification.Engine,
 ) chi.Router {
@@ -356,7 +356,7 @@ func setupRouter(
 	syslogSSEHandler := handler.NewSyslogSSEHandler(syslogBroker, store, logger)
 	deviceHandler := handler.NewDeviceHandler(store)
 
-	// Applog handlers.
+	// AppLog handlers.
 	applogIngestHandler := handler.NewAppLogIngestHandler(store, applogBroker, logger, notifEngine)
 	applogHandler := handler.NewAppLogHandler(store)
 	applogSSEHandler := handler.NewAppLogSSEHandler(applogBroker, store, logger)

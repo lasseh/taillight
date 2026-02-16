@@ -17,13 +17,13 @@ const (
 
 // AppLogSSEHandler handles the SSE streaming endpoint for log events.
 type AppLogSSEHandler struct {
-	broker *broker.ApplogBroker
+	broker *broker.AppLogBroker
 	store  AppLogStore
 	logger *slog.Logger
 }
 
 // NewAppLogSSEHandler creates a new AppLogSSEHandler.
-func NewAppLogSSEHandler(b *broker.ApplogBroker, s AppLogStore, l *slog.Logger) *AppLogSSEHandler {
+func NewAppLogSSEHandler(b *broker.AppLogBroker, s AppLogStore, l *slog.Logger) *AppLogSSEHandler {
 	return &AppLogSSEHandler{broker: b, store: s, logger: l}
 }
 

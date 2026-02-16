@@ -10,12 +10,12 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-func newTestApplogBroker() *ApplogBroker {
+func newTestAppLogBroker() *AppLogBroker {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	return NewApplogBroker(logger)
+	return NewAppLogBroker(logger)
 }
 
-func mustApplogSubscribe(t *testing.T, b *ApplogBroker, filter model.AppLogFilter) *ApplogSubscription {
+func mustAppLogSubscribe(t *testing.T, b *AppLogBroker, filter model.AppLogFilter) *AppLogSubscription {
 	t.Helper()
 	sub, err := b.Subscribe(filter)
 	if err != nil {
@@ -24,19 +24,19 @@ func mustApplogSubscribe(t *testing.T, b *ApplogBroker, filter model.AppLogFilte
 	return sub
 }
 
-func TestApplogSubscribeUnsubscribe(t *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogSubscribeUnsubscribe(t *testing.T) {
+	b := newTestAppLogBroker()
 
 	if b.Len() != 0 {
 		t.Fatalf("Len() = %d, want 0", b.Len())
 	}
 
-	sub1 := mustApplogSubscribe(t, b, model.AppLogFilter{})
+	sub1 := mustAppLogSubscribe(t, b, model.AppLogFilter{})
 	if b.Len() != 1 {
 		t.Fatalf("Len() = %d, want 1", b.Len())
 	}
 
-	sub2 := mustApplogSubscribe(t, b, model.AppLogFilter{Service: "api"})
+	sub2 := mustAppLogSubscribe(t, b, model.AppLogFilter{Service: "api"})
 	if b.Len() != 2 {
 		t.Fatalf("Len() = %d, want 2", b.Len())
 	}
@@ -52,17 +52,17 @@ func TestApplogSubscribeUnsubscribe(t *testing.T) {
 	}
 }
 
-func TestApplogBroadcast_NoSubscribers(_ *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogBroadcast_NoSubscribers(_ *testing.T) {
+	b := newTestAppLogBroker()
 
 	// Should not panic with zero subscribers.
 	b.Broadcast(model.AppLogEvent{ID: 1, Service: "api", Level: "INFO", Msg: "hello"})
 }
 
-func TestApplogBroadcast_AllReceive(t *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogBroadcast_AllReceive(t *testing.T) {
+	b := newTestAppLogBroker()
 
-	sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
+	sub := mustAppLogSubscribe(t, b, model.AppLogFilter{})
 	defer b.Unsubscribe(sub)
 
 	event := model.AppLogEvent{
@@ -87,11 +87,11 @@ func TestApplogBroadcast_AllReceive(t *testing.T) {
 	}
 }
 
-func TestApplogBroadcast_FilteredOut(t *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogBroadcast_FilteredOut(t *testing.T) {
+	b := newTestAppLogBroker()
 
 	// Subscribe with service filter.
-	sub := mustApplogSubscribe(t, b, model.AppLogFilter{Service: "worker"})
+	sub := mustAppLogSubscribe(t, b, model.AppLogFilter{Service: "worker"})
 	defer b.Unsubscribe(sub)
 
 	// Broadcast event for different service — should not reach subscriber.
@@ -105,10 +105,10 @@ func TestApplogBroadcast_FilteredOut(t *testing.T) {
 	}
 }
 
-func TestApplogBroadcast_FilterMatch(t *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogBroadcast_FilterMatch(t *testing.T) {
+	b := newTestAppLogBroker()
 
-	sub := mustApplogSubscribe(t, b, model.AppLogFilter{Service: "api", Level: "WARN"})
+	sub := mustAppLogSubscribe(t, b, model.AppLogFilter{Service: "api", Level: "WARN"})
 	defer b.Unsubscribe(sub)
 
 	// Matching event (ERROR >= WARN).
@@ -134,10 +134,10 @@ func TestApplogBroadcast_FilterMatch(t *testing.T) {
 	}
 }
 
-func TestApplogBroadcast_SlowClient(t *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogBroadcast_SlowClient(t *testing.T) {
+	b := newTestAppLogBroker()
 
-	sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
+	sub := mustAppLogSubscribe(t, b, model.AppLogFilter{})
 	defer b.Unsubscribe(sub)
 
 	// Fill the channel (capacity 64).
@@ -161,10 +161,10 @@ done:
 	}
 }
 
-func TestApplogUnsubscribe_ClosesChannel(t *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogUnsubscribe_ClosesChannel(t *testing.T) {
+	b := newTestAppLogBroker()
 
-	sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
+	sub := mustAppLogSubscribe(t, b, model.AppLogFilter{})
 	b.Unsubscribe(sub)
 
 	// Channel should be closed.
@@ -174,11 +174,11 @@ func TestApplogUnsubscribe_ClosesChannel(t *testing.T) {
 	}
 }
 
-func TestApplogShutdown(t *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogShutdown(t *testing.T) {
+	b := newTestAppLogBroker()
 
-	sub1 := mustApplogSubscribe(t, b, model.AppLogFilter{})
-	sub2 := mustApplogSubscribe(t, b, model.AppLogFilter{Service: "worker"})
+	sub1 := mustAppLogSubscribe(t, b, model.AppLogFilter{})
+	sub2 := mustAppLogSubscribe(t, b, model.AppLogFilter{Service: "worker"})
 
 	b.Shutdown()
 
@@ -195,10 +195,10 @@ func TestApplogShutdown(t *testing.T) {
 	}
 }
 
-func TestApplogUnsubscribe_DoubleUnsubscribe(t *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogUnsubscribe_DoubleUnsubscribe(t *testing.T) {
+	b := newTestAppLogBroker()
 
-	sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
+	sub := mustAppLogSubscribe(t, b, model.AppLogFilter{})
 	b.Unsubscribe(sub)
 	// Second unsubscribe should be a no-op (not panic).
 	b.Unsubscribe(sub)
@@ -208,13 +208,13 @@ func TestApplogUnsubscribe_DoubleUnsubscribe(t *testing.T) {
 	}
 }
 
-func TestApplogSubscribe_MaxSubscribers(t *testing.T) {
-	b := newTestApplogBroker()
+func TestAppLogSubscribe_MaxSubscribers(t *testing.T) {
+	b := newTestAppLogBroker()
 
 	// Fill to max.
-	subs := make([]*ApplogSubscription, 0, maxSubscribers)
+	subs := make([]*AppLogSubscription, 0, maxSubscribers)
 	for range maxSubscribers {
-		sub := mustApplogSubscribe(t, b, model.AppLogFilter{})
+		sub := mustAppLogSubscribe(t, b, model.AppLogFilter{})
 		subs = append(subs, sub)
 	}
 

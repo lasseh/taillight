@@ -27,13 +27,13 @@ const (
 	applogMaxAttrsLen     = 64 * 1024 // 64 KB.
 )
 
-// ApplogIngestRequest is the POST body for log ingestion.
-type ApplogIngestRequest struct {
-	Logs []ApplogIngestEntry `json:"logs"`
+// AppLogIngestRequest is the POST body for log ingestion.
+type AppLogIngestRequest struct {
+	Logs []AppLogIngestEntry `json:"logs"`
 }
 
-// ApplogIngestEntry is a single log entry in an ingest batch.
-type ApplogIngestEntry struct {
+// AppLogIngestEntry is a single log entry in an ingest batch.
+type AppLogIngestEntry struct {
 	Timestamp time.Time       `json:"timestamp"`
 	Level     string          `json:"level"`
 	Msg       string          `json:"msg"`
@@ -47,13 +47,13 @@ type ApplogIngestEntry struct {
 // AppLogIngestHandler handles POST /api/v1/applog/ingest.
 type AppLogIngestHandler struct {
 	store       AppLogStore
-	broker      *broker.ApplogBroker
+	broker      *broker.AppLogBroker
 	logger      *slog.Logger
 	notifEngine *notification.Engine
 }
 
 // NewAppLogIngestHandler creates a new AppLogIngestHandler.
-func NewAppLogIngestHandler(store AppLogStore, b *broker.ApplogBroker, l *slog.Logger, engine *notification.Engine) *AppLogIngestHandler {
+func NewAppLogIngestHandler(store AppLogStore, b *broker.AppLogBroker, l *slog.Logger, engine *notification.Engine) *AppLogIngestHandler {
 	return &AppLogIngestHandler{store: store, broker: b, logger: l, notifEngine: engine}
 }
 
@@ -64,25 +64,25 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 
 	data, err := io.ReadAll(body)
 	if err != nil {
-		metrics.ApplogIngestErrorsTotal.Inc()
+		metrics.AppLogIngestErrorsTotal.Inc()
 		writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", "request body exceeds 5MB limit")
 		return
 	}
 
-	var req ApplogIngestRequest
+	var req AppLogIngestRequest
 	if err := json.Unmarshal(data, &req); err != nil {
-		metrics.ApplogIngestErrorsTotal.Inc()
+		metrics.AppLogIngestErrorsTotal.Inc()
 		writeError(w, http.StatusBadRequest, "invalid_json", "malformed JSON body")
 		return
 	}
 
 	if len(req.Logs) == 0 {
-		metrics.ApplogIngestErrorsTotal.Inc()
+		metrics.AppLogIngestErrorsTotal.Inc()
 		writeError(w, http.StatusBadRequest, "empty_batch", "logs array is empty")
 		return
 	}
 	if len(req.Logs) > applogMaxBatchSize {
-		metrics.ApplogIngestErrorsTotal.Inc()
+		metrics.AppLogIngestErrorsTotal.Inc()
 		writeError(w, http.StatusBadRequest, "batch_too_large", fmt.Sprintf("max batch size is %d entries", applogMaxBatchSize))
 		return
 	}
@@ -128,7 +128,7 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) > 0 {
-		metrics.ApplogIngestErrorsTotal.Inc()
+		metrics.AppLogIngestErrorsTotal.Inc()
 		writeError(w, http.StatusBadRequest, "validation_failed", strings.Join(errs, "; "))
 		return
 	}
@@ -151,14 +151,14 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	// Batch insert — populates ID and ReceivedAt.
 	inserted, err := h.store.InsertLogBatch(r.Context(), events)
 	if err != nil {
-		metrics.ApplogIngestErrorsTotal.Inc()
+		metrics.AppLogIngestErrorsTotal.Inc()
 		LoggerFromContext(r.Context()).Error("insert log batch failed", "err", err, "batch_size", len(events))
 		writeError(w, http.StatusInternalServerError, "insert_failed", "failed to store log entries")
 		return
 	}
 
-	metrics.ApplogIngestBatchesTotal.Inc()
-	metrics.ApplogIngestTotal.Add(float64(len(inserted)))
+	metrics.AppLogIngestBatchesTotal.Inc()
+	metrics.AppLogIngestTotal.Add(float64(len(inserted)))
 
 	// Broadcast to SSE clients and notification engine.
 	for i := range inserted {

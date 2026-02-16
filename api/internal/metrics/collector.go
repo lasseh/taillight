@@ -33,16 +33,16 @@ func counterValue(c interface{ Write(*dto.Metric) error }) float64 {
 func Snapshot() model.MetricsSnapshot {
 	return model.MetricsSnapshot{
 		SSEClientsSyslog:      int(gaugeValue(SSEClientsActive)),
-		SSEClientsApplog:      int(gaugeValue(ApplogSSEClientsActive)),
+		SSEClientsAppLog:      int(gaugeValue(AppLogSSEClientsActive)),
 		DBPoolActive:          int(gaugeValue(DBPoolActiveConns)),
 		DBPoolIdle:            int(gaugeValue(DBPoolIdleConns)),
 		DBPoolTotal:           int(gaugeValue(DBPoolTotalConns)),
 		EventsBroadcast:       int64(counterValue(EventsBroadcastTotal)),
 		EventsDropped:         int64(counterValue(EventsDroppedTotal)),
-		ApplogEventsBroadcast: int64(counterValue(ApplogEventsBroadcastTotal)),
-		ApplogEventsDropped:   int64(counterValue(ApplogEventsDroppedTotal)),
-		ApplogIngestTotal:     int64(counterValue(ApplogIngestTotal)),
-		ApplogIngestErrors:    int64(counterValue(ApplogIngestErrorsTotal)),
+		AppLogEventsBroadcast: int64(counterValue(AppLogEventsBroadcastTotal)),
+		AppLogEventsDropped:   int64(counterValue(AppLogEventsDroppedTotal)),
+		AppLogIngestTotal:     int64(counterValue(AppLogIngestTotal)),
+		AppLogIngestErrors:    int64(counterValue(AppLogIngestErrorsTotal)),
 		ListenerReconnects:    int64(counterValue(ListenerReconnectsTotal)),
 	}
 }

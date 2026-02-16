@@ -6,16 +6,16 @@ import "time"
 type MetricsSnapshot struct {
 	CollectedAt           time.Time `json:"collected_at"`
 	SSEClientsSyslog      int       `json:"sse_clients_syslog"`
-	SSEClientsApplog      int       `json:"sse_clients_applog"`
+	SSEClientsAppLog      int       `json:"sse_clients_applog"`
 	DBPoolActive          int       `json:"db_pool_active"`
 	DBPoolIdle            int       `json:"db_pool_idle"`
 	DBPoolTotal           int       `json:"db_pool_total"`
 	EventsBroadcast       int64     `json:"events_broadcast"`
 	EventsDropped         int64     `json:"events_dropped"`
-	ApplogEventsBroadcast int64     `json:"applog_events_broadcast"`
-	ApplogEventsDropped   int64     `json:"applog_events_dropped"`
-	ApplogIngestTotal     int64     `json:"applog_ingest_total"`
-	ApplogIngestErrors    int64     `json:"applog_ingest_errors"`
+	AppLogEventsBroadcast int64     `json:"applog_events_broadcast"`
+	AppLogEventsDropped   int64     `json:"applog_events_dropped"`
+	AppLogIngestTotal     int64     `json:"applog_ingest_total"`
+	AppLogIngestErrors    int64     `json:"applog_ingest_errors"`
 	ListenerReconnects    int64     `json:"listener_reconnects"`
 }
 
@@ -23,7 +23,7 @@ type MetricsSnapshot struct {
 type MetricsSummary struct {
 	// Latest gauge values.
 	SSEClientsSyslog int `json:"sse_clients_syslog"`
-	SSEClientsApplog int `json:"sse_clients_applog"`
+	SSEClientsAppLog int `json:"sse_clients_applog"`
 	DBPoolActive     int `json:"db_pool_active"`
 	DBPoolIdle       int `json:"db_pool_idle"`
 	DBPoolTotal      int `json:"db_pool_total"`
@@ -31,10 +31,10 @@ type MetricsSummary struct {
 	// Counter deltas over the range (max - min).
 	EventsBroadcast       int64 `json:"events_broadcast"`
 	EventsDropped         int64 `json:"events_dropped"`
-	ApplogEventsBroadcast int64 `json:"applog_events_broadcast"`
-	ApplogEventsDropped   int64 `json:"applog_events_dropped"`
-	ApplogIngestTotal     int64 `json:"applog_ingest_total"`
-	ApplogIngestErrors    int64 `json:"applog_ingest_errors"`
+	AppLogEventsBroadcast int64 `json:"applog_events_broadcast"`
+	AppLogEventsDropped   int64 `json:"applog_events_dropped"`
+	AppLogIngestTotal     int64 `json:"applog_ingest_total"`
+	AppLogIngestErrors    int64 `json:"applog_ingest_errors"`
 	ListenerReconnects    int64 `json:"listener_reconnects"`
 
 	// Computed rates (per minute).

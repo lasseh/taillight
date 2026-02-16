@@ -46,11 +46,11 @@ func (s *Store) InsertMetricsSnapshot(ctx context.Context, snap model.MetricsSna
 			applog_ingest_total, applog_ingest_errors,
 			listener_reconnects
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		snap.SSEClientsSyslog, snap.SSEClientsApplog,
+		snap.SSEClientsSyslog, snap.SSEClientsAppLog,
 		snap.DBPoolActive, snap.DBPoolIdle, snap.DBPoolTotal,
 		snap.EventsBroadcast, snap.EventsDropped,
-		snap.ApplogEventsBroadcast, snap.ApplogEventsDropped,
-		snap.ApplogIngestTotal, snap.ApplogIngestErrors,
+		snap.AppLogEventsBroadcast, snap.AppLogEventsDropped,
+		snap.AppLogIngestTotal, snap.AppLogIngestErrors,
 		snap.ListenerReconnects,
 	)
 	if err != nil {
@@ -85,16 +85,16 @@ func (s *Store) GetMetricsSummary(ctx context.Context, rangeDur time.Duration) (
 	var summary model.MetricsSummary
 	err := s.pool.QueryRow(ctx, query, since).Scan(
 		&summary.SSEClientsSyslog,
-		&summary.SSEClientsApplog,
+		&summary.SSEClientsAppLog,
 		&summary.DBPoolActive,
 		&summary.DBPoolIdle,
 		&summary.DBPoolTotal,
 		&summary.EventsBroadcast,
 		&summary.EventsDropped,
-		&summary.ApplogEventsBroadcast,
-		&summary.ApplogEventsDropped,
-		&summary.ApplogIngestTotal,
-		&summary.ApplogIngestErrors,
+		&summary.AppLogEventsBroadcast,
+		&summary.AppLogEventsDropped,
+		&summary.AppLogIngestTotal,
+		&summary.AppLogIngestErrors,
 		&summary.ListenerReconnects,
 	)
 	if err != nil {
@@ -107,8 +107,8 @@ func (s *Store) GetMetricsSummary(ctx context.Context, rangeDur time.Duration) (
 		if summary.EventsBroadcast > 0 {
 			summary.EventsRate = float64(summary.EventsBroadcast) / minutes
 		}
-		if summary.ApplogIngestTotal > 0 {
-			summary.IngestRate = float64(summary.ApplogIngestTotal) / minutes
+		if summary.AppLogIngestTotal > 0 {
+			summary.IngestRate = float64(summary.AppLogIngestTotal) / minutes
 		}
 	}
 

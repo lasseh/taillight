@@ -50,45 +50,45 @@ var (
 		Help:      "Total number of listener reconnection attempts.",
 	})
 
-	// Applog metrics.
+	// AppLog metrics.
 
-	// ApplogSSEClientsActive tracks the current number of connected applog SSE clients.
-	ApplogSSEClientsActive = promauto.NewGauge(prometheus.GaugeOpts{
+	// AppLogSSEClientsActive tracks the current number of connected applog SSE clients.
+	AppLogSSEClientsActive = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "taillight",
 		Name:      "applog_sse_clients_active",
 		Help:      "Number of currently connected applog SSE clients.",
 	})
 
-	// ApplogEventsBroadcastTotal counts applog events broadcast to SSE clients.
-	ApplogEventsBroadcastTotal = promauto.NewCounter(prometheus.CounterOpts{
+	// AppLogEventsBroadcastTotal counts applog events broadcast to SSE clients.
+	AppLogEventsBroadcastTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "taillight",
 		Name:      "applog_events_broadcast_total",
 		Help:      "Total number of applog events broadcast.",
 	})
 
-	// ApplogEventsDroppedTotal counts applog events dropped due to slow clients.
-	ApplogEventsDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	// AppLogEventsDroppedTotal counts applog events dropped due to slow clients.
+	AppLogEventsDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "taillight",
 		Name:      "applog_events_dropped_total",
 		Help:      "Total number of applog events dropped for slow clients.",
 	})
 
-	// ApplogIngestTotal counts total log entries ingested.
-	ApplogIngestTotal = promauto.NewCounter(prometheus.CounterOpts{
+	// AppLogIngestTotal counts total log entries ingested.
+	AppLogIngestTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "taillight",
 		Name:      "applog_ingest_total",
 		Help:      "Total number of log entries ingested.",
 	})
 
-	// ApplogIngestBatchesTotal counts ingest POST requests.
-	ApplogIngestBatchesTotal = promauto.NewCounter(prometheus.CounterOpts{
+	// AppLogIngestBatchesTotal counts ingest POST requests.
+	AppLogIngestBatchesTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "taillight",
 		Name:      "applog_ingest_batches_total",
 		Help:      "Total number of ingest batch requests.",
 	})
 
-	// ApplogIngestErrorsTotal counts failed ingest requests.
-	ApplogIngestErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+	// AppLogIngestErrorsTotal counts failed ingest requests.
+	AppLogIngestErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "taillight",
 		Name:      "applog_ingest_errors_total",
 		Help:      "Total number of failed ingest requests.",
