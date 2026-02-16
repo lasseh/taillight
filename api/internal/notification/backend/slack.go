@@ -99,7 +99,35 @@ func (s *Slack) Send(ctx context.Context, ch notification.Channel, payload notif
 func buildSlackMessage(p notification.Payload) map[string]any {
 	color := severityColor(p)
 
-	// Build a concise summary line with key metadata inline.
+	var text string
+	if p.IsDigest {
+		text = buildSlackDigest(p)
+	} else {
+		text = buildSlackInitial(p)
+	}
+
+	blocks := []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]any{
+				"type": "mrkdwn",
+				"text": text,
+			},
+		},
+	}
+
+	return map[string]any{
+		"attachments": []map[string]any{
+			{
+				"color":  color,
+				"blocks": blocks,
+			},
+		},
+	}
+}
+
+// buildSlackInitial formats the initial (non-digest) notification.
+func buildSlackInitial(p notification.Payload) string {
 	var summary, message string
 
 	if p.SyslogEvent != nil {
@@ -118,24 +146,32 @@ func buildSlackMessage(p notification.Payload) map[string]any {
 		summary += fmt.Sprintf(" (%d events)", p.EventCount)
 	}
 
-	blocks := []map[string]any{
-		{
-			"type": "section",
-			"text": map[string]any{
-				"type": "mrkdwn",
-				"text": summary + "\n```\n" + truncate(message, 2900) + "\n```",
-			},
-		},
+	return summary + "\n```\n" + truncate(message, 2900) + "\n```"
+}
+
+// buildSlackDigest formats a digest summary notification.
+func buildSlackDigest(p notification.Payload) string {
+	var summary, lastMessage string
+	windowMin := int(p.Window.Minutes())
+	windowLabel := fmt.Sprintf("%d minutes", windowMin)
+	if windowMin < 1 {
+		windowLabel = fmt.Sprintf("%d seconds", int(p.Window.Seconds()))
 	}
 
-	return map[string]any{
-		"attachments": []map[string]any{
-			{
-				"color":  color,
-				"blocks": blocks,
-			},
-		},
+	if p.SyslogEvent != nil {
+		e := p.SyslogEvent
+		summary = fmt.Sprintf("%s - %s (digest)", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
+		lastMessage = e.Message
 	}
+
+	if p.AppLogEvent != nil {
+		e := p.AppLogEvent
+		summary = fmt.Sprintf("%s - %s (digest)", e.Host, e.Level)
+		lastMessage = e.Msg
+	}
+
+	return fmt.Sprintf("%s\n*%d more events* in the last %s\nLast seen: `%s`",
+		summary, p.EventCount, windowLabel, truncate(lastMessage, 500))
 }
 
 func severityColor(p notification.Payload) string {

@@ -36,6 +36,7 @@ type NotificationConfig struct {
 	DispatchBuffer      int
 	DefaultBurstWindow  time.Duration
 	DefaultCooldown     time.Duration
+	DefaultMaxCooldown  time.Duration
 	SendTimeout         time.Duration
 }
 
@@ -94,7 +95,8 @@ func Load() (Config, error) {
 	v.SetDefault("notification.dispatch_workers", 4)
 	v.SetDefault("notification.dispatch_buffer", 1024)
 	v.SetDefault("notification.default_burst_window", "30s")
-	v.SetDefault("notification.default_cooldown", "5m")
+	v.SetDefault("notification.default_cooldown", "1m")
+	v.SetDefault("notification.default_max_cooldown", "1h")
 	v.SetDefault("notification.send_timeout", "10s")
 
 	// Config file.
@@ -152,6 +154,7 @@ func Load() (Config, error) {
 			DispatchBuffer:      v.GetInt("notification.dispatch_buffer"),
 			DefaultBurstWindow:  v.GetDuration("notification.default_burst_window"),
 			DefaultCooldown:     v.GetDuration("notification.default_cooldown"),
+			DefaultMaxCooldown:  v.GetDuration("notification.default_max_cooldown"),
 			SendTimeout:         v.GetDuration("notification.send_timeout"),
 		},
 	}, nil

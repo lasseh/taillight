@@ -91,6 +91,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 			DispatchBuffer:      cfg.Notification.DispatchBuffer,
 			DefaultBurstWindow:  cfg.Notification.DefaultBurstWindow,
 			DefaultCooldown:     cfg.Notification.DefaultCooldown,
+			DefaultMaxCooldown:  cfg.Notification.DefaultMaxCooldown,
 			SendTimeout:         cfg.Notification.SendTimeout,
 		}, logger)
 		notifEngine.RegisterBackend(notification.ChannelTypeSlack, backend.NewSlack(logger))

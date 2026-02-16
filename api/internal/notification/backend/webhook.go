@@ -27,6 +27,9 @@ var defaultWebhookTemplate = `{
   "rule": "{{.RuleName}}",
   "kind": "{{.Kind}}",
   "event_count": {{.EventCount}},
+  "is_digest": {{.IsDigest}},
+  "group_key": {{marshal .GroupKey}},
+  "window_seconds": {{.Window.Seconds}},
   "timestamp": "{{.Timestamp.Format "2006-01-02T15:04:05Z07:00"}}",
   {{- if .SyslogEvent}}
   "hostname": "{{.SyslogEvent.Hostname}}",

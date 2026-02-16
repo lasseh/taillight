@@ -96,8 +96,11 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Notification.DefaultBurstWindow != 30*time.Second {
 		t.Errorf("Notification.DefaultBurstWindow = %v, want %v", cfg.Notification.DefaultBurstWindow, 30*time.Second)
 	}
-	if cfg.Notification.DefaultCooldown != 5*time.Minute {
-		t.Errorf("Notification.DefaultCooldown = %v, want %v", cfg.Notification.DefaultCooldown, 5*time.Minute)
+	if cfg.Notification.DefaultCooldown != 1*time.Minute {
+		t.Errorf("Notification.DefaultCooldown = %v, want %v", cfg.Notification.DefaultCooldown, 1*time.Minute)
+	}
+	if cfg.Notification.DefaultMaxCooldown != 1*time.Hour {
+		t.Errorf("Notification.DefaultMaxCooldown = %v, want %v", cfg.Notification.DefaultMaxCooldown, 1*time.Hour)
 	}
 	if cfg.Notification.SendTimeout != 10*time.Second {
 		t.Errorf("Notification.SendTimeout = %v, want %v", cfg.Notification.SendTimeout, 10*time.Second)

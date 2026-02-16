@@ -65,9 +65,11 @@ type Rule struct {
 	Search string `json:"search,omitempty"`
 
 	// Notification behavior.
-	ChannelIDs      []int64 `json:"channel_ids"`
-	BurstWindow     int     `json:"burst_window"`
-	CooldownSeconds int     `json:"cooldown_seconds"`
+	ChannelIDs         []int64 `json:"channel_ids"`
+	BurstWindow        int     `json:"burst_window"`
+	CooldownSeconds    int     `json:"cooldown_seconds"`
+	GroupBy            string  `json:"group_by,omitempty"`
+	MaxCooldownSeconds int     `json:"max_cooldown_seconds"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -81,6 +83,9 @@ type Payload struct {
 	EventCount  int                `json:"event_count"`
 	SyslogEvent *model.SyslogEvent `json:"syslog_event,omitempty"`
 	AppLogEvent *model.AppLogEvent `json:"applog_event,omitempty"`
+	IsDigest    bool               `json:"is_digest,omitempty"`
+	GroupKey    string             `json:"group_key,omitempty"`
+	Window      time.Duration      `json:"window,omitempty"`
 }
 
 // SendResult captures the outcome of a backend Send call.
@@ -140,5 +145,6 @@ type Config struct {
 	DispatchBuffer      int
 	DefaultBurstWindow  time.Duration
 	DefaultCooldown     time.Duration
+	DefaultMaxCooldown  time.Duration
 	SendTimeout         time.Duration
 }

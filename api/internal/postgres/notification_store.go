@@ -144,6 +144,7 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 			"facility", "syslogtag", "msgid",
 			"service", "component", "host", "level", "search",
 			"burst_window", "cooldown_seconds",
+			"group_by", "max_cooldown_seconds",
 			"created_at", "updated_at",
 		).
 		From("notification_rules").
@@ -170,6 +171,7 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 			&r.Facility, &syslogtag, &msgid,
 			&service, &component, &host, &level, &search,
 			&r.BurstWindow, &r.CooldownSeconds,
+			&r.GroupBy, &r.MaxCooldownSeconds,
 			&r.CreatedAt, &r.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan notification rule: %w", err)
@@ -216,6 +218,7 @@ func (s *Store) GetNotificationRule(ctx context.Context, id int64) (notification
 			"facility", "syslogtag", "msgid",
 			"service", "component", "host", "level", "search",
 			"burst_window", "cooldown_seconds",
+			"group_by", "max_cooldown_seconds",
 			"created_at", "updated_at",
 		).
 		From("notification_rules").
@@ -234,6 +237,7 @@ func (s *Store) GetNotificationRule(ctx context.Context, id int64) (notification
 		&r.Facility, &syslogtag, &msgid,
 		&service, &component, &host, &level, &search,
 		&r.BurstWindow, &r.CooldownSeconds,
+		&r.GroupBy, &r.MaxCooldownSeconds,
 		&r.CreatedAt, &r.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -278,6 +282,7 @@ func (s *Store) CreateNotificationRule(ctx context.Context, r notification.Rule)
 			"facility", "syslogtag", "msgid",
 			"service", "component", "host", "level", "search",
 			"burst_window", "cooldown_seconds",
+			"group_by", "max_cooldown_seconds",
 		).
 		Values(
 			r.Name, r.Enabled, r.EventKind,
@@ -286,6 +291,7 @@ func (s *Store) CreateNotificationRule(ctx context.Context, r notification.Rule)
 			nullIfEmpty(r.Service), nullIfEmpty(r.Component), nullIfEmpty(r.Host),
 			nullIfEmpty(r.Level), nullIfEmpty(r.Search),
 			r.BurstWindow, r.CooldownSeconds,
+			r.GroupBy, r.MaxCooldownSeconds,
 		).
 		Suffix("RETURNING id, created_at, updated_at").
 		ToSql()
@@ -335,6 +341,8 @@ func (s *Store) UpdateNotificationRule(ctx context.Context, id int64, r notifica
 		Set("search", nullIfEmpty(r.Search)).
 		Set("burst_window", r.BurstWindow).
 		Set("cooldown_seconds", r.CooldownSeconds).
+		Set("group_by", r.GroupBy).
+		Set("max_cooldown_seconds", r.MaxCooldownSeconds).
 		Set("updated_at", time.Now()).
 		Where(sq.Eq{"id": id}).
 		Suffix("RETURNING id, name, enabled, event_kind, created_at, updated_at").

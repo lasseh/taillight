@@ -27,8 +27,7 @@ type Engine struct {
 	channels    []Channel
 	rules       []Rule
 	cacheMu     sync.RWMutex
-	bursts      *BurstWatcher
-	cooldowns   *CooldownTracker
+	groups      *GroupTracker
 	rateLimiter *PerKeyLimiter
 	breakers    map[int64]*gobreaker.CircuitBreaker[SendResult]
 	breakerMu   sync.RWMutex
@@ -44,7 +43,6 @@ func NewEngine(store Store, cfg Config, logger *slog.Logger) *Engine {
 	e := &Engine{
 		store:       store,
 		backends:    make(map[ChannelType]Notifier),
-		cooldowns:   NewCooldownTracker(),
 		rateLimiter: NewPerKeyLimiter(),
 		breakers:    make(map[int64]*gobreaker.CircuitBreaker[SendResult]),
 		dispatchCh:  make(chan dispatchJob, cfg.DispatchBuffer),
@@ -52,7 +50,7 @@ func NewEngine(store Store, cfg Config, logger *slog.Logger) *Engine {
 		cfg:         cfg,
 	}
 
-	e.bursts = NewBurstWatcher(cfg.DefaultBurstWindow, e.onBurstFlush)
+	e.groups = NewGroupTracker(e.onGroupFlush)
 	return e
 }
 
@@ -88,22 +86,6 @@ func (e *Engine) Start(ctx context.Context) {
 		}
 	}()
 
-	// Cooldown drain goroutine.
-	e.wg.Add(1)
-	go func() {
-		defer e.wg.Done()
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				e.drainExpiredCooldowns(ctx)
-			}
-		}
-	}()
-
 	// Dispatch workers.
 	for i := 0; i < e.cfg.DispatchWorkers; i++ {
 		e.wg.Add(1)
@@ -123,7 +105,7 @@ func (e *Engine) Start(ctx context.Context) {
 // Shutdown stops the engine and waits for in-flight dispatches to complete.
 // If the context deadline is reached, shutdown returns the context error.
 func (e *Engine) Shutdown(ctx context.Context) error {
-	e.bursts.Stop()
+	e.groups.Stop()
 	if e.cancel != nil {
 		e.cancel()
 	}
@@ -168,8 +150,21 @@ func (e *Engine) HandleSyslogEvent(event model.SyslogEvent) {
 				SyslogEvent: &event,
 			}
 
+			groupKey := r.GroupKeyFromSyslog(event)
 			window := time.Duration(r.BurstWindow) * time.Second
-			e.bursts.Add(r.ID, window, payload)
+			cooldown := time.Duration(r.CooldownSeconds) * time.Second
+			maxCooldown := time.Duration(r.MaxCooldownSeconds) * time.Second
+			if window <= 0 {
+				window = e.cfg.DefaultBurstWindow
+			}
+			if cooldown <= 0 {
+				cooldown = e.cfg.DefaultCooldown
+			}
+			if maxCooldown <= 0 {
+				maxCooldown = e.cfg.DefaultMaxCooldown
+			}
+
+			e.groups.Add(r.ID, groupKey, window, cooldown, maxCooldown, payload)
 		}
 	}
 }
@@ -197,8 +192,21 @@ func (e *Engine) HandleAppLogEvent(event model.AppLogEvent) {
 				AppLogEvent: &event,
 			}
 
+			groupKey := r.GroupKeyFromAppLog(event)
 			window := time.Duration(r.BurstWindow) * time.Second
-			e.bursts.Add(r.ID, window, payload)
+			cooldown := time.Duration(r.CooldownSeconds) * time.Second
+			maxCooldown := time.Duration(r.MaxCooldownSeconds) * time.Second
+			if window <= 0 {
+				window = e.cfg.DefaultBurstWindow
+			}
+			if cooldown <= 0 {
+				cooldown = e.cfg.DefaultCooldown
+			}
+			if maxCooldown <= 0 {
+				maxCooldown = e.cfg.DefaultMaxCooldown
+			}
+
+			e.groups.Add(r.ID, groupKey, window, cooldown, maxCooldown, payload)
 		}
 	}
 }
@@ -240,19 +248,23 @@ func (e *Engine) ValidateChannel(ch Channel) error {
 	return backend.Validate(ch)
 }
 
-// onBurstFlush is the callback from BurstWatcher when a burst window closes.
-func (e *Engine) onBurstFlush(ruleID int64, first Payload, count int) {
-	first.EventCount = count
-
-	// Cooldown check.
-	if e.cooldowns.Check(ruleID) {
-		e.cooldowns.Suppress(ruleID)
-		metrics.NotifSuppressedTotal.WithLabelValues("cooldown").Inc()
-		e.logger.Debug("notification suppressed by cooldown", "rule_id", ruleID, "count", count)
-		return
+// onGroupFlush is the callback from GroupTracker when a burst or cooldown window closes.
+func (e *Engine) onGroupFlush(ruleID int64, groupKey string, fp FlushPayload) {
+	// Build the final payload from the flush data.
+	var payload Payload
+	if fp.IsDigest {
+		// Digest: use the last event for context.
+		payload = fp.Last
+		payload.IsDigest = true
+	} else {
+		// Initial: use the first event.
+		payload = fp.First
 	}
+	payload.EventCount = fp.Count
+	payload.GroupKey = groupKey
+	payload.Window = fp.Window
 
-	// Look up the rule to get channel IDs and cooldown duration.
+	// Look up the rule to get channel IDs.
 	e.cacheMu.RLock()
 	var rule Rule
 	for _, r := range e.rules {
@@ -265,47 +277,29 @@ func (e *Engine) onBurstFlush(ruleID int64, first Payload, count int) {
 	e.cacheMu.RUnlock()
 
 	if len(channels) == 0 {
-		e.logger.Warn("no channels for rule", "rule_id", ruleID)
+		e.logger.Warn("no channels for rule", "rule_id", ruleID, "group_key", groupKey)
 		return
 	}
 
-	// Activate cooldown.
-	cooldown := time.Duration(rule.CooldownSeconds) * time.Second
-	if cooldown <= 0 {
-		cooldown = e.cfg.DefaultCooldown
+	kind := "initial"
+	if fp.IsDigest {
+		kind = "digest"
 	}
-	e.cooldowns.Activate(ruleID, cooldown)
+	e.logger.Debug("notification flush",
+		"rule_id", ruleID,
+		"group_key", groupKey,
+		"kind", kind,
+		"count", fp.Count,
+		"window", fp.Window,
+	)
 
 	// Send to dispatch queue.
 	metrics.NotifDispatchedTotal.Inc()
 	select {
-	case e.dispatchCh <- dispatchJob{rule: rule, channels: channels, payload: first}:
+	case e.dispatchCh <- dispatchJob{rule: rule, channels: channels, payload: payload}:
 		metrics.NotifDispatchQueueLen.Set(float64(len(e.dispatchCh)))
 	default:
 		e.logger.Warn("dispatch queue full, dropping notification", "rule_id", ruleID)
-	}
-}
-
-// drainExpiredCooldowns checks for expired cooldowns and logs suppressed summaries.
-func (e *Engine) drainExpiredCooldowns(ctx context.Context) {
-	expired := e.cooldowns.DrainExpired()
-	for _, ec := range expired {
-		e.logger.Info("cooldown expired with suppressed events",
-			"rule_id", ec.RuleID,
-			"suppressed_count", ec.SuppressedCount,
-		)
-
-		// Log the suppression to audit trail.
-		if err := e.store.InsertNotificationLog(ctx, LogEntry{
-			RuleID:     ec.RuleID,
-			EventKind:  "summary",
-			EventID:    0,
-			Status:     "suppressed",
-			Reason:     strPtr(fmt.Sprintf("%d events suppressed during cooldown", ec.SuppressedCount)),
-			EventCount: ec.SuppressedCount,
-		}); err != nil {
-			e.logger.Warn("failed to log suppressed cooldown", "rule_id", ec.RuleID, "err", err)
-		}
 	}
 }
 
@@ -482,8 +476,6 @@ func (e *Engine) getOrCreateBreaker(channelID int64, channelName string) *gobrea
 	e.breakers[channelID] = cb
 	return cb
 }
-
-func strPtr(s string) *string { return &s }
 
 func optionalInt(v int) *int {
 	if v == 0 {
