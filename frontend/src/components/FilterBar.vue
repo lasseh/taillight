@@ -5,6 +5,7 @@ import { useSyslogFilterStore } from '@/stores/syslog-filters'
 import { useMetaStore } from '@/stores/meta'
 import { facilityLabels, severityOptions } from '@/lib/constants'
 import FilterSelect from '@/components/FilterSelect.vue'
+import DateRangePicker from '@/components/DateRangePicker.vue'
 
 const filterStore = useSyslogFilterStore()
 const meta = useMetaStore()
@@ -34,6 +35,12 @@ const searchInput = computed({
 
 <template>
   <div class="border-t-border bg-t-bg-dark flex flex-wrap items-center gap-3 border-b px-4 py-1.5">
+    <DateRangePicker
+      :from="filterStore.filters.from"
+      :to="filterStore.filters.to"
+      @update:from="filterStore.filters.from = $event"
+      @update:to="filterStore.filters.to = $event"
+    />
     <FilterSelect v-model="filterStore.filters.severity_max" label="severity" :options="severityOptions" />
     <FilterSelect v-model="filterStore.filters.hostname" label="host" :options="hostOptions" searchable />
     <FilterSelect v-model="filterStore.filters.programname" label="program" :options="programOptions" />

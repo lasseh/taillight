@@ -6,6 +6,7 @@ import { createEventStore } from '@/stores/event-store-factory'
 import { wildcardMatch } from '@/lib/wildcard'
 
 function matchesFilters(event: SyslogEvent, filters: Record<string, string>): boolean {
+  if (filters.from || filters.to) return false
   if (filters.hostname) {
     if (filters.hostname.includes('*') ? !wildcardMatch(event.hostname, filters.hostname) : event.hostname !== filters.hostname) return false
   }

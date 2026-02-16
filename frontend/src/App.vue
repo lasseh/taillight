@@ -46,6 +46,12 @@ const { notifySyslog, notifyApplog } = useNotifications()
 
 const connected = computed(() => syslogStream.connected.value || applogStream.connected.value)
 
+const isHistoricalMode = computed(() => {
+  if (route.name === 'syslog') return Boolean(filters.filters.from || filters.filters.to)
+  if (route.name === 'applog') return Boolean(appLogFilters.filters.from || appLogFilters.filters.to)
+  return false
+})
+
 useFavicon(connected)
 
 let unsubSyslog: (() => void) | null = null
@@ -104,7 +110,16 @@ onUnmounted(() => {
       </KeepAlive>
     </router-view>
     <div class="border-t-border bg-t-bg-dark relative flex items-center border-t px-4 py-1.5">
-      <StatusBadge :connected="connected" />
+      <span
+        v-if="isHistoricalMode"
+        role="status"
+        aria-label="Viewing historical data"
+        class="bg-t-yellow/15 text-t-yellow inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs"
+      >
+        <span class="bg-t-yellow inline-block h-1.5 w-1.5 rounded-full" aria-hidden="true" />
+        historical
+      </span>
+      <StatusBadge v-else :connected="connected" />
       <button
         v-if="showJumpToLatest"
         class="text-t-yellow hover:text-t-fg absolute left-1/2 -translate-x-1/2 text-xs transition-colors"

@@ -5,6 +5,7 @@ import { useAppLogFilterStore } from '@/stores/applog-filters'
 import { useAppLogMetaStore } from '@/stores/applog-meta'
 import { levelOptions } from '@/lib/applog-constants'
 import FilterSelect from '@/components/FilterSelect.vue'
+import DateRangePicker from '@/components/DateRangePicker.vue'
 
 const filterStore = useAppLogFilterStore()
 const meta = useAppLogMetaStore()
@@ -31,6 +32,12 @@ const searchInput = computed({
 
 <template>
   <div class="border-t-border bg-t-bg-dark flex flex-wrap items-center gap-3 border-b px-4 py-1.5">
+    <DateRangePicker
+      :from="filterStore.filters.from"
+      :to="filterStore.filters.to"
+      @update:from="filterStore.filters.from = $event"
+      @update:to="filterStore.filters.to = $event"
+    />
     <FilterSelect v-model="filterStore.filters.level" label="level" :options="levelOptions" />
     <FilterSelect v-model="filterStore.filters.host" label="host" :options="hostOptions" searchable />
     <FilterSelect v-model="filterStore.filters.service" label="service" :options="serviceOptions" />

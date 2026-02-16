@@ -27,6 +27,8 @@ const current = computed(() => {
   return themes.find((t) => t.id === themeId.value) ?? themes[0]!
 })
 
+const isDark = computed(() => current.value.isDark)
+
 export function useTheme() {
-  return { themes, current, themeId, setTheme }
+  return { themes, current, themeId, isDark, setTheme }
 }

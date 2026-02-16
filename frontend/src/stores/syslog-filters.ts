@@ -1,6 +1,8 @@
 import { createFilterStore } from '@/stores/filter-store-factory'
 
 const FILTER_KEYS = [
+  'from',
+  'to',
   'hostname',
   'programname',
   'syslogtag',

@@ -7,6 +7,7 @@ import { LEVEL_RANK } from '@/lib/applog-constants'
 import { wildcardMatch } from '@/lib/wildcard'
 
 function matchesFilters(event: AppLogEvent, filters: Record<string, string>): boolean {
+  if (filters.from || filters.to) return false
   if (filters.service && event.service !== filters.service) return false
   if (filters.component && event.component !== filters.component) return false
   if (filters.host) {

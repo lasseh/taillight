@@ -12,6 +12,7 @@
   "dependencies": {
     "@unovis/ts": "^1.6.4",
     "@unovis/vue": "^1.6.4",
+    "@vuepic/vue-datepicker": "^12.1.0",
     "@vueuse/core": "^14.2.1",
     "pinia": "^3.0.4",
     "prismjs": "^1.30.0",
