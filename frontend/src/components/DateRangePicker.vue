@@ -41,13 +41,16 @@ function applyPreset(ms: number) {
 function isoToLocal(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso)
+  d.setMinutes(Math.round(d.getMinutes() / 5) * 5, 0, 0)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function localToIso(local: string): string {
   if (!local) return ''
-  return new Date(local).toISOString()
+  const d = new Date(local)
+  d.setMinutes(Math.round(d.getMinutes() / 5) * 5, 0, 0)
+  return d.toISOString()
 }
 
 function onFromInput(e: Event) {
