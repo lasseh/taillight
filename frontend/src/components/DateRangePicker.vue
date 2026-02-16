@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 
 const props = defineProps<{
@@ -21,24 +21,16 @@ onClickOutside(dropdownRef, () => {
 
 const hasRange = computed(() => Boolean(props.from || props.to))
 
-const presets = [
-  { label: '15m', ms: 15 * 60 * 1000 },
-  { label: '1h', ms: 60 * 60 * 1000 },
-  { label: '6h', ms: 6 * 60 * 60 * 1000 },
-  { label: '24h', ms: 24 * 60 * 60 * 1000 },
-  { label: '7d', ms: 7 * 24 * 60 * 60 * 1000 },
-  { label: '30d', ms: 30 * 24 * 60 * 60 * 1000 },
-] as const
-
 const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const minutes = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'))
 
-function applyPreset(ms: number) {
-  const now = new Date()
-  emit('update:from', new Date(now.getTime() - ms).toISOString())
-  emit('update:to', now.toISOString())
-  open.value = false
-}
+// Draft state — only applied on "apply" click
+const draftFromDate = ref('')
+const draftFromHour = ref('00')
+const draftFromMinute = ref('00')
+const draftToDate = ref('')
+const draftToHour = ref('00')
+const draftToMinute = ref('00')
 
 function parseParts(iso: string): { date: string; hour: string; minute: string } {
   if (!iso) return { date: '', hour: '00', minute: '00' }
@@ -48,22 +40,31 @@ function parseParts(iso: string): { date: string; hour: string; minute: string }
   return { date, hour: pad(d.getHours()), minute: pad(d.getMinutes()) }
 }
 
+// Sync draft from props when dropdown opens
+watch(open, (isOpen) => {
+  if (isOpen) {
+    const f = parseParts(props.from)
+    draftFromDate.value = f.date
+    draftFromHour.value = f.hour
+    draftFromMinute.value = f.minute
+    const t = parseParts(props.to)
+    draftToDate.value = t.date
+    draftToHour.value = t.hour
+    draftToMinute.value = t.minute
+  }
+})
+
 function buildIso(date: string, hour: string, minute: string): string {
   if (!date) return ''
   return new Date(`${date}T${hour}:${minute}:00`).toISOString()
 }
 
-const fromParts = computed(() => parseParts(props.from))
-const toParts = computed(() => parseParts(props.to))
+const canApply = computed(() => draftFromDate.value && draftToDate.value)
 
-function updateFrom(field: 'date' | 'hour' | 'minute', value: string) {
-  const parts = { ...fromParts.value, [field]: value }
-  emit('update:from', buildIso(parts.date, parts.hour, parts.minute))
-}
-
-function updateTo(field: 'date' | 'hour' | 'minute', value: string) {
-  const parts = { ...toParts.value, [field]: value }
-  emit('update:to', buildIso(parts.date, parts.hour, parts.minute))
+function apply() {
+  emit('update:from', buildIso(draftFromDate.value, draftFromHour.value, draftFromMinute.value))
+  emit('update:to', buildIso(draftToDate.value, draftToHour.value, draftToMinute.value))
+  open.value = false
 }
 
 function clear() {
@@ -119,41 +120,25 @@ function onKeydown(e: KeyboardEvent) {
         v-if="open"
         class="bg-t-bg-dark border-t-border absolute left-0 top-full z-50 mt-1.5 w-max rounded border shadow-lg"
       >
-        <!-- Presets -->
-        <div class="border-t-border flex flex-wrap gap-1.5 border-b px-3 py-2">
-          <button
-            v-for="p in presets"
-            :key="p.label"
-            type="button"
-            class="bg-t-bg-highlight text-t-fg hover:bg-t-bg-hover hover:text-t-blue rounded px-2 py-0.5 text-xs transition-colors"
-            @click="applyPreset(p.ms)"
-          >
-            {{ p.label }}
-          </button>
-        </div>
-
         <!-- Custom range -->
         <div class="space-y-2 px-3 py-2">
           <div class="flex items-center gap-2">
             <span class="text-t-fg-dark w-8 text-xs">from</span>
             <input
               type="date"
-              :value="fromParts.date"
+              v-model="draftFromDate"
               class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1.5 py-0.5 text-xs outline-none"
-              @input="updateFrom('date', ($event.target as HTMLInputElement).value)"
             />
             <select
-              :value="fromParts.hour"
+              v-model="draftFromHour"
               class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1 py-0.5 text-xs outline-none"
-              @change="updateFrom('hour', ($event.target as HTMLSelectElement).value)"
             >
               <option v-for="h in hours" :key="h" :value="h">{{ h }}</option>
             </select>
             <span class="text-t-fg-dark text-xs">:</span>
             <select
-              :value="fromParts.minute"
+              v-model="draftFromMinute"
               class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1 py-0.5 text-xs outline-none"
-              @change="updateFrom('minute', ($event.target as HTMLSelectElement).value)"
             >
               <option v-for="m in minutes" :key="m" :value="m">{{ m }}</option>
             </select>
@@ -162,36 +147,43 @@ function onKeydown(e: KeyboardEvent) {
             <span class="text-t-fg-dark w-8 text-xs">to</span>
             <input
               type="date"
-              :value="toParts.date"
+              v-model="draftToDate"
               class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1.5 py-0.5 text-xs outline-none"
-              @input="updateTo('date', ($event.target as HTMLInputElement).value)"
             />
             <select
-              :value="toParts.hour"
+              v-model="draftToHour"
               class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1 py-0.5 text-xs outline-none"
-              @change="updateTo('hour', ($event.target as HTMLSelectElement).value)"
             >
               <option v-for="h in hours" :key="h" :value="h">{{ h }}</option>
             </select>
             <span class="text-t-fg-dark text-xs">:</span>
             <select
-              :value="toParts.minute"
+              v-model="draftToMinute"
               class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1 py-0.5 text-xs outline-none"
-              @change="updateTo('minute', ($event.target as HTMLSelectElement).value)"
             >
               <option v-for="m in minutes" :key="m" :value="m">{{ m }}</option>
             </select>
           </div>
         </div>
 
-        <!-- Clear -->
-        <div v-if="hasRange" class="border-t-border border-t px-3 py-2">
+        <!-- Actions -->
+        <div class="border-t-border flex items-center gap-3 border-t px-3 py-2">
           <button
+            type="button"
+            :disabled="!canApply"
+            class="text-xs transition-colors"
+            :class="canApply ? 'text-t-blue hover:underline' : 'text-t-fg-gutter cursor-not-allowed'"
+            @click="apply"
+          >
+            apply
+          </button>
+          <button
+            v-if="hasRange"
             type="button"
             class="text-t-red text-xs hover:underline"
             @click="clear"
           >
-            clear time range
+            clear
           </button>
         </div>
       </div>
