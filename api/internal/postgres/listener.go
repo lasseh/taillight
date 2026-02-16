@@ -8,9 +8,11 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lasseh/taillight/internal/metrics"
 )
@@ -38,8 +40,12 @@ type Notification struct {
 // Listener holds a dedicated LISTEN connection and publishes notifications.
 type Listener struct {
 	connStr    string
+	pool       *pgxpool.Pool
 	logger     *slog.Logger
 	bufferSize int
+
+	// lastSeenID tracks the most recent notification ID for gap fill on reconnect.
+	lastSeenID atomic.Int64
 
 	mu     sync.Mutex
 	conn   *pgx.Conn
@@ -47,8 +53,9 @@ type Listener struct {
 }
 
 // NewListener creates a new Listener with the given notification buffer size.
-func NewListener(connStr string, bufferSize int, logger *slog.Logger) *Listener {
-	return &Listener{connStr: connStr, bufferSize: bufferSize, logger: logger}
+// The pool is used to query missed events after reconnection.
+func NewListener(connStr string, pool *pgxpool.Pool, bufferSize int, logger *slog.Logger) *Listener {
+	return &Listener{connStr: connStr, pool: pool, bufferSize: bufferSize, logger: logger}
 }
 
 // Listen connects to PostgreSQL, runs LISTEN on syslog_ingest,
@@ -89,6 +96,9 @@ func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
 				l.mu.Lock()
 				l.conn = c
 				l.mu.Unlock()
+
+				// Fill gap: push any events missed while disconnected.
+				l.fillGap(listenCtx, ch)
 			}
 		}
 	}()
@@ -188,10 +198,54 @@ func (l *Listener) recv(ctx context.Context, conn *pgx.Conn, ch chan<- Notificat
 			continue
 		}
 
+		l.lastSeenID.Store(id)
+
 		select {
 		case ch <- Notification{Channel: notification.Channel, ID: id}:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	}
+}
+
+// fillGap queries for syslog events inserted while the listener was disconnected
+// and pushes them into the notification channel so the broker doesn't miss any.
+func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
+	lastID := l.lastSeenID.Load()
+	if lastID == 0 {
+		return // no baseline — nothing to fill
+	}
+
+	rows, err := l.pool.Query(ctx,
+		"SELECT id FROM syslog_events WHERE id > $1 ORDER BY id ASC LIMIT 10000",
+		lastID,
+	)
+	if err != nil {
+		l.logger.Error("gap fill query failed", "last_seen_id", lastID, "err", err)
+		return
+	}
+	defer rows.Close()
+
+	var count int
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			l.logger.Error("gap fill scan failed", "err", err)
+			return
+		}
+		select {
+		case ch <- Notification{Channel: "syslog_ingest", ID: id}:
+			l.lastSeenID.Store(id)
+			count++
+		case <-ctx.Done():
+			return
+		}
+	}
+	if err := rows.Err(); err != nil {
+		l.logger.Error("gap fill rows error", "err", err)
+		return
+	}
+	if count > 0 {
+		l.logger.Info("gap fill complete", "events", count, "from_id", lastID)
 	}
 }

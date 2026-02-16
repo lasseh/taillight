@@ -272,7 +272,7 @@ func scanAppLog(row pgx.Row, e *model.AppLogEvent) error {
 
 // GetAppLogDeviceSummary returns aggregated applog information for the given host.
 // It fetches last-seen time, level breakdown (7d), top normalized messages (7d),
-// and recent error/fatal logs.
+// and recent error/fatal logs using a single pgx.Batch round-trip.
 func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.AppLogDeviceSummary, error) {
 	summary := model.AppLogDeviceSummary{
 		Host:           host,
@@ -283,19 +283,31 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 
 	since := time.Now().UTC().Add(-7 * 24 * time.Hour)
 
-	// 1. Last seen.
-	var lastSeen *time.Time
-	err := s.pool.QueryRow(ctx,
-		"SELECT MAX(received_at) FROM applog_events WHERE host = $1",
-		host,
-	).Scan(&lastSeen)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return summary, fmt.Errorf("applog device last seen: %w", err)
+	// Build error logs query via squirrel for column list consistency.
+	errQuery, errArgs, err := psq.
+		Select(appLogColumns...).
+		From("applog_events").
+		Where(sq.Eq{"host": host}).
+		Where(sq.GtOrEq{"received_at": since}).
+		Where(sq.Eq{"level": []string{"ERROR", "FATAL"}}).
+		OrderBy("received_at DESC", "id DESC").
+		Limit(50).
+		ToSql()
+	if err != nil {
+		return summary, fmt.Errorf("build error logs query: %w", err)
 	}
-	summary.LastSeenAt = lastSeen
 
-	// 2. Level breakdown (7 days).
-	levelRows, err := s.pool.Query(ctx,
+	// Send all 4 queries in a single round-trip.
+	batch := &pgx.Batch{}
+
+	// Q1: last seen from meta cache.
+	batch.Queue(
+		"SELECT last_seen_at FROM applog_meta_cache WHERE column_name = 'host' AND value = $1",
+		host,
+	)
+
+	// Q2: level breakdown (7 days).
+	batch.Queue(
 		`SELECT level, count(*) AS cnt
 		 FROM applog_events
 		 WHERE host = $1 AND received_at >= $2
@@ -303,10 +315,45 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		 ORDER BY level`,
 		host, since,
 	)
+
+	// Q3: top normalized messages (7 days).
+	batch.Queue(
+		`SELECT
+		     regexp_replace(
+		         regexp_replace(msg, '\d{1,3}(\.\d{1,3}){3}(:\d+)?', '<ip>', 'g'),
+		         '\d+', '<n>', 'g'
+		     ) AS pattern,
+		     min(msg) AS sample,
+		     count(*) AS cnt,
+		     max(id) AS latest_id,
+		     max(received_at) AS latest_at,
+		     min(level) AS level
+		 FROM applog_events
+		 WHERE host = $1 AND received_at >= $2
+		 GROUP BY pattern
+		 ORDER BY cnt DESC, pattern
+		 LIMIT 10`,
+		host, since,
+	)
+
+	// Q4: recent error logs.
+	batch.Queue(errQuery, errArgs...)
+
+	results := s.pool.SendBatch(ctx, batch)
+	defer results.Close() //nolint:errcheck // best-effort close
+
+	// R1: last seen.
+	var lastSeen *time.Time
+	if err := results.QueryRow().Scan(&lastSeen); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return summary, fmt.Errorf("applog device last seen: %w", err)
+	}
+	summary.LastSeenAt = lastSeen
+
+	// R2: level breakdown.
+	levelRows, err := results.Query()
 	if err != nil {
 		return summary, fmt.Errorf("applog device level breakdown: %w", err)
 	}
-	defer levelRows.Close()
 
 	var total int64
 	for levelRows.Next() {
@@ -325,9 +372,7 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 			Count: cnt,
 		})
 	}
-	if err := levelRows.Err(); err != nil {
-		return summary, fmt.Errorf("level rows: %w", err)
-	}
+	levelRows.Close()
 
 	summary.TotalCount = total
 	for i := range summary.LevelBreakdown {
@@ -336,29 +381,11 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		}
 	}
 
-	// 3. Top normalized messages (7 days).
-	msgRows, err := s.pool.Query(ctx,
-		`SELECT
-		     regexp_replace(
-		         regexp_replace(msg, '\d{1,3}(\.\d{1,3}){3}(:\d+)?', '<ip>', 'g'),
-		         '\d+', '<n>', 'g'
-		     ) AS pattern,
-		     min(msg) AS sample,
-		     count(*) AS cnt,
-		     max(id) AS latest_id,
-		     max(received_at) AS latest_at,
-		     min(level) AS level
-		 FROM applog_events
-		 WHERE host = $1 AND received_at >= $2
-		 GROUP BY pattern
-		 ORDER BY cnt DESC, pattern
-		 LIMIT 10`,
-		host, since,
-	)
+	// R3: top messages.
+	msgRows, err := results.Query()
 	if err != nil {
 		return summary, fmt.Errorf("applog device top messages: %w", err)
 	}
-	defer msgRows.Close()
 
 	for msgRows.Next() {
 		var tm model.AppLogTopMessage
@@ -367,29 +394,13 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		}
 		summary.TopMessages = append(summary.TopMessages, tm)
 	}
-	if err := msgRows.Err(); err != nil {
-		return summary, fmt.Errorf("top message rows: %w", err)
-	}
+	msgRows.Close()
 
-	// 4. Recent error logs (ERROR/FATAL, 7 days, newest first).
-	errQuery, errArgs, err := psq.
-		Select(appLogColumns...).
-		From("applog_events").
-		Where(sq.Eq{"host": host}).
-		Where(sq.GtOrEq{"received_at": since}).
-		Where(sq.Eq{"level": []string{"ERROR", "FATAL"}}).
-		OrderBy("received_at DESC", "id DESC").
-		Limit(50).
-		ToSql()
-	if err != nil {
-		return summary, fmt.Errorf("build error logs query: %w", err)
-	}
-
-	errRows, err := s.pool.Query(ctx, errQuery, errArgs...)
+	// R4: error logs.
+	errRows, err := results.Query()
 	if err != nil {
 		return summary, fmt.Errorf("applog device error logs: %w", err)
 	}
-	defer errRows.Close()
 
 	errEvents, err := collectAppLogs(errRows)
 	if err != nil {

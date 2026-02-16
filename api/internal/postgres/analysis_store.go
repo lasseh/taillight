@@ -199,15 +199,25 @@ func (s *Store) GetSeverityComparison(ctx context.Context, currentSince, baselin
 // GetTopErrorHosts returns hosts with the most errors (severity <= 3).
 func (s *Store) GetTopErrorHosts(ctx context.Context, since time.Time, limit int) ([]model.HostErrorCount, error) {
 	query := `
-		SELECT hostname, count(*) AS cnt,
-		       (SELECT msgid FROM syslog_events e2
-		        WHERE e2.hostname = e1.hostname AND e2.received_at >= $1 AND e2.severity <= 3 AND e2.msgid != ''
-		        GROUP BY msgid ORDER BY count(*) DESC LIMIT 1) AS top_msgid
-		FROM syslog_events e1
-		WHERE received_at >= $1 AND severity <= 3
-		GROUP BY hostname
-		ORDER BY cnt DESC
-		LIMIT $2`
+		WITH host_counts AS (
+			SELECT hostname, count(*) AS cnt
+			FROM syslog_events
+			WHERE received_at >= $1 AND severity <= 3
+			GROUP BY hostname
+			ORDER BY cnt DESC
+			LIMIT $2
+		)
+		SELECT hc.hostname, hc.cnt, tm.msgid AS top_msgid
+		FROM host_counts hc
+		LEFT JOIN LATERAL (
+			SELECT msgid
+			FROM syslog_events
+			WHERE hostname = hc.hostname AND received_at >= $1 AND severity <= 3 AND msgid != ''
+			GROUP BY msgid
+			ORDER BY count(*) DESC
+			LIMIT 1
+		) tm ON true
+		ORDER BY hc.cnt DESC`
 
 	rows, err := s.pool.Query(ctx, query, since, limit)
 	if err != nil {

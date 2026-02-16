@@ -544,7 +544,8 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 }
 
 // GetDeviceSummary returns aggregated device information for the given hostname.
-// It fetches last-seen time, severity breakdown (7d), and top normalized messages (7d).
+// It fetches last-seen time, severity breakdown (7d), top normalized messages (7d),
+// and recent critical logs using a single pgx.Batch round-trip.
 func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.DeviceSummary, error) {
 	summary := model.DeviceSummary{
 		Hostname:          hostname,
@@ -553,21 +554,33 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		CriticalLogs:      make([]model.SyslogEvent, 0),
 	}
 
-	// 1. Last seen from meta cache.
-	var lastSeen *time.Time
-	err := s.pool.QueryRow(ctx,
-		"SELECT last_seen_at FROM syslog_meta_cache WHERE column_name = 'hostname' AND value = $1",
-		hostname,
-	).Scan(&lastSeen)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return summary, fmt.Errorf("device last seen: %w", err)
-	}
-	summary.LastSeenAt = lastSeen
-
 	since := time.Now().UTC().Add(-7 * 24 * time.Hour)
 
-	// 2. Severity breakdown (7 days).
-	sevRows, err := s.pool.Query(ctx,
+	// Build critical logs query via squirrel for column list consistency.
+	critQuery, critArgs, err := psq.
+		Select(syslogColumns...).
+		From("syslog_events").
+		Where(sq.Eq{"hostname": hostname}).
+		Where(sq.GtOrEq{"received_at": since}).
+		Where(sq.LtOrEq{"severity": model.SeverityErr}).
+		OrderBy("received_at DESC", "id DESC").
+		Limit(50).
+		ToSql()
+	if err != nil {
+		return summary, fmt.Errorf("build critical logs query: %w", err)
+	}
+
+	// Send all 4 queries in a single round-trip.
+	batch := &pgx.Batch{}
+
+	// Q1: last seen from meta cache.
+	batch.Queue(
+		"SELECT last_seen_at FROM syslog_meta_cache WHERE column_name = 'hostname' AND value = $1",
+		hostname,
+	)
+
+	// Q2: severity breakdown (7 days).
+	batch.Queue(
 		`SELECT severity, count(*) AS cnt
 		 FROM syslog_events
 		 WHERE hostname = $1 AND received_at >= $2
@@ -575,44 +588,9 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		 ORDER BY severity`,
 		hostname, since,
 	)
-	if err != nil {
-		return summary, fmt.Errorf("device severity breakdown: %w", err)
-	}
-	defer sevRows.Close()
 
-	for sevRows.Next() {
-		var sev int
-		var cnt int64
-		if err := sevRows.Scan(&sev, &cnt); err != nil {
-			return summary, fmt.Errorf("scan severity: %w", err)
-		}
-		if sev <= model.SeverityErr {
-			summary.CriticalCount += cnt
-		}
-		summary.SeverityBreakdown = append(summary.SeverityBreakdown, model.SeverityCount{
-			Severity: sev,
-			Label:    model.SeverityLabel(sev),
-			Count:    cnt,
-		})
-	}
-	if err := sevRows.Err(); err != nil {
-		return summary, fmt.Errorf("severity rows: %w", err)
-	}
-
-	// Calculate percentages for severity breakdown.
-	var total int64
-	for _, sc := range summary.SeverityBreakdown {
-		total += sc.Count
-	}
-	summary.TotalCount = total
-	for i := range summary.SeverityBreakdown {
-		if total > 0 {
-			summary.SeverityBreakdown[i].Pct = float64(summary.SeverityBreakdown[i].Count) / float64(total) * 100
-		}
-	}
-
-	// 3. Top normalized messages (7 days).
-	msgRows, err := s.pool.Query(ctx,
+	// Q3: top normalized messages (7 days).
+	batch.Queue(
 		`SELECT
 		     regexp_replace(
 		         regexp_replace(message, '\d{1,3}(\.\d{1,3}){3}(:\d+)?', '<ip>', 'g'),
@@ -630,10 +608,59 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		 LIMIT 10`,
 		hostname, since,
 	)
+
+	// Q4: recent critical logs.
+	batch.Queue(critQuery, critArgs...)
+
+	results := s.pool.SendBatch(ctx, batch)
+	defer results.Close() //nolint:errcheck // best-effort close
+
+	// R1: last seen.
+	var lastSeen *time.Time
+	if err := results.QueryRow().Scan(&lastSeen); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return summary, fmt.Errorf("device last seen: %w", err)
+	}
+	summary.LastSeenAt = lastSeen
+
+	// R2: severity breakdown.
+	sevRows, err := results.Query()
+	if err != nil {
+		return summary, fmt.Errorf("device severity breakdown: %w", err)
+	}
+
+	for sevRows.Next() {
+		var sev int
+		var cnt int64
+		if err := sevRows.Scan(&sev, &cnt); err != nil {
+			return summary, fmt.Errorf("scan severity: %w", err)
+		}
+		if sev <= model.SeverityErr {
+			summary.CriticalCount += cnt
+		}
+		summary.SeverityBreakdown = append(summary.SeverityBreakdown, model.SeverityCount{
+			Severity: sev,
+			Label:    model.SeverityLabel(sev),
+			Count:    cnt,
+		})
+	}
+	sevRows.Close()
+
+	var total int64
+	for _, sc := range summary.SeverityBreakdown {
+		total += sc.Count
+	}
+	summary.TotalCount = total
+	for i := range summary.SeverityBreakdown {
+		if total > 0 {
+			summary.SeverityBreakdown[i].Pct = float64(summary.SeverityBreakdown[i].Count) / float64(total) * 100
+		}
+	}
+
+	// R3: top messages.
+	msgRows, err := results.Query()
 	if err != nil {
 		return summary, fmt.Errorf("device top messages: %w", err)
 	}
-	defer msgRows.Close()
 
 	for msgRows.Next() {
 		var tm model.TopMessage
@@ -643,29 +670,13 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		tm.SeverityLabel = model.SeverityLabel(tm.Severity)
 		summary.TopMessages = append(summary.TopMessages, tm)
 	}
-	if err := msgRows.Err(); err != nil {
-		return summary, fmt.Errorf("top message rows: %w", err)
-	}
+	msgRows.Close()
 
-	// 4. Recent critical logs (severity <= err, 7 days, newest first).
-	critQuery, critArgs, err := psq.
-		Select(syslogColumns...).
-		From("syslog_events").
-		Where(sq.Eq{"hostname": hostname}).
-		Where(sq.GtOrEq{"received_at": since}).
-		Where(sq.LtOrEq{"severity": model.SeverityErr}).
-		OrderBy("received_at DESC", "id DESC").
-		Limit(50).
-		ToSql()
-	if err != nil {
-		return summary, fmt.Errorf("build critical logs query: %w", err)
-	}
-
-	critRows, err := s.pool.Query(ctx, critQuery, critArgs...)
+	// R4: critical logs.
+	critRows, err := results.Query()
 	if err != nil {
 		return summary, fmt.Errorf("device critical logs: %w", err)
 	}
-	defer critRows.Close()
 
 	critEvents, err := collectSyslogs(critRows)
 	if err != nil {
