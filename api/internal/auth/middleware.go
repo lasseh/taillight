@@ -3,11 +3,11 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/lasseh/taillight/internal/httputil"
 	"github.com/lasseh/taillight/internal/model"
 )
 
@@ -85,7 +85,7 @@ func SessionOrAPIKey(sessions SessionLookup, apiKeys APIKeyLookup) func(http.Han
 				}
 			}
 
-			writeJSONError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+			httputil.WriteError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		})
 	}
 }
@@ -106,7 +106,7 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			writeJSONError(w, http.StatusForbidden, "forbidden",
+			httputil.WriteError(w, http.StatusForbidden, "forbidden",
 				fmt.Sprintf("api key missing required scope: %s", scope))
 		})
 	}
@@ -130,21 +130,4 @@ func extractBearer(r *http.Request) string {
 		return ""
 	}
 	return token
-}
-
-type authErrorBody struct {
-	Error authErrorDetail `json:"error"`
-}
-
-type authErrorDetail struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-func writeJSONError(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(authErrorBody{ //nolint:errcheck
-		Error: authErrorDetail{Code: code, Message: msg},
-	})
 }

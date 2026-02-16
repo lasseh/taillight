@@ -22,6 +22,7 @@ type Config struct {
 	CORSAllowedOrigins     []string // Empty means allow all origins (dev mode).
 	AuthEnabled            bool     // When false, all endpoints are public (no login required).
 	AuthReadEndpoints      bool     // When true, read endpoints also require authentication.
+	CookieSecure           bool     // When true, force Secure flag on session cookies regardless of X-Forwarded-Proto.
 	NotificationBufferSize int      // LISTEN/NOTIFY channel buffer size (0 = default 1024).
 	LogShipper             LogShipperConfig
 	Analysis               AnalysisConfig
@@ -78,6 +79,7 @@ func Load() (Config, error) {
 	v.SetDefault("cors_allowed_origins", []string{})
 	v.SetDefault("auth_enabled", true)
 	v.SetDefault("auth_read_endpoints", true)
+	v.SetDefault("cookie_secure", false)
 	v.SetDefault("notification_buffer_size", 1024)
 	v.SetDefault("metrics_addr", "")
 	v.SetDefault("logshipper.enabled", false)
@@ -126,6 +128,7 @@ func Load() (Config, error) {
 		CORSAllowedOrigins:     v.GetStringSlice("cors_allowed_origins"),
 		AuthEnabled:            v.GetBool("auth_enabled"),
 		AuthReadEndpoints:      v.GetBool("auth_read_endpoints"),
+		CookieSecure:           v.GetBool("cookie_secure"),
 		NotificationBufferSize: v.GetInt("notification_buffer_size"),
 		MetricsAddr:            v.GetString("metrics_addr"),
 		LogShipper: LogShipperConfig{

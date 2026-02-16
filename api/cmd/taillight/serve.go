@@ -71,7 +71,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	authStore := postgres.NewAuthStore(pool)
 
 	// Dedicated LISTEN connection.
-	listener := postgres.NewListener(cfg.DatabaseURL, cfg.NotificationBufferSize, logger)
+	listener := postgres.NewListener(cfg.DatabaseURL, pool, cfg.NotificationBufferSize, logger)
 	notifications, err := listener.Listen(ctx)
 	if err != nil {
 		return err
@@ -370,7 +370,7 @@ func setupRouter(
 	applogSSEHandler := handler.NewAppLogSSEHandler(applogBroker, store, logger)
 	applogMetaHandler := handler.NewAppLogMetaHandler(store)
 	applogDeviceHandler := handler.NewAppLogDeviceHandler(store)
-	authHandler := handler.NewAuthHandler(authStore)
+	authHandler := handler.NewAuthHandler(authStore, cfg.CookieSecure)
 	notifHandler := handler.NewNotificationHandler(store, notifEngine)
 
 	r.Route("/api/v1", func(r chi.Router) {
@@ -391,9 +391,14 @@ func setupRouter(
 				r.Get("/auth/keys", authHandler.ListKeys)
 				r.Post("/auth/keys", authHandler.CreateKey)
 				r.Delete("/auth/keys/{id}", authHandler.RevokeKey)
-				r.Get("/auth/users", authHandler.ListUsers)
-				r.Patch("/auth/users/{id}/active", authHandler.SetUserActive)
-				r.Patch("/auth/users/{id}/password", authHandler.UpdateUserPassword)
+
+				// User management — admin scope + handler-level checks (defense-in-depth).
+				r.Group(func(r chi.Router) {
+					r.Use(auth.RequireScope("admin"))
+					r.Get("/auth/users", authHandler.ListUsers)
+					r.Patch("/auth/users/{id}/active", authHandler.SetUserActive)
+					r.Patch("/auth/users/{id}/password", authHandler.UpdateUserPassword)
+				})
 			})
 		} else {
 			// Auth disabled: /auth/me returns anonymous user, login/logout are no-ops.

@@ -209,7 +209,7 @@ func TestLogin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store)
+			h := NewAuthHandler(tt.store, false)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
@@ -274,7 +274,7 @@ func TestLogout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store)
+			h := NewAuthHandler(tt.store, false)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
 			if tt.cookie != nil {
 				req.AddCookie(tt.cookie)
@@ -320,7 +320,7 @@ func TestMe(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(&mockAuthStore{})
+			h := NewAuthHandler(&mockAuthStore{}, false)
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 			if tt.user != nil {
 				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
@@ -413,7 +413,7 @@ func TestCreateKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store)
+			h := NewAuthHandler(tt.store, false)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/keys", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			if tt.user != nil {
@@ -461,7 +461,7 @@ func TestListKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store)
+			h := NewAuthHandler(tt.store, false)
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/keys", nil)
 			if tt.user != nil {
 				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
@@ -540,7 +540,7 @@ func TestRevokeKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store)
+			h := NewAuthHandler(tt.store, false)
 
 			// Use chi router to inject URL params.
 			r := chi.NewRouter()

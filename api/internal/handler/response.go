@@ -4,6 +4,8 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/lasseh/taillight/internal/httputil"
 )
 
 // listResponse wraps a slice result with a data envelope.
@@ -18,7 +20,8 @@ type itemResponse struct {
 	Data any `json:"data"`
 }
 
-// errorBody is the structured error envelope.
+// errorBody is the structured error envelope used by tests to unmarshal
+// error responses. The actual encoding is handled by httputil.WriteError.
 type errorBody struct {
 	Error errorDetail `json:"error"`
 }
@@ -44,11 +47,7 @@ func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 // writeError sends a JSON error response. Content-Type must be set before
 // WriteHeader because WriteHeader locks the header map.
 func writeError(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(errorBody{ //nolint:errcheck
-		Error: errorDetail{Code: code, Message: msg},
-	})
+	httputil.WriteError(w, status, code, msg)
 }
 
 // mustJSON marshals v to JSON. Returns nil, false on error.

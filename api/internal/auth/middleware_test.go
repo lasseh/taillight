@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/lasseh/taillight/internal/httputil"
 	"github.com/lasseh/taillight/internal/model"
 )
 
@@ -308,7 +309,7 @@ func TestExtractBearer(t *testing.T) {
 
 func TestWriteJSONError(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writeJSONError(rec, http.StatusForbidden, "forbidden", "access denied")
+	httputil.WriteError(rec, http.StatusForbidden, "forbidden", "access denied")
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("got status %d, want %d", rec.Code, http.StatusForbidden)

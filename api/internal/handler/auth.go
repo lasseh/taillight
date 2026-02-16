@@ -52,12 +52,13 @@ type AuthStore interface {
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
-	store AuthStore
+	store        AuthStore
+	cookieSecure bool // Force Secure flag on session cookies.
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(store AuthStore) *AuthHandler {
-	return &AuthHandler{store: store}
+func NewAuthHandler(store AuthStore, cookieSecure bool) *AuthHandler {
+	return &AuthHandler{store: store, cookieSecure: cookieSecure}
 }
 
 type loginRequest struct {
@@ -186,12 +187,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		LoggerFromContext(r.Context()).Warn("login: update last login", "err", err)
 	}
 
+	secure := h.cookieSecure || isSecureRequest(r)
+	if !secure {
+		LoggerFromContext(r.Context()).Warn("setting session cookie without Secure flag")
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    rawToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
@@ -220,7 +225,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   h.cookieSecure || isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
