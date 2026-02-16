@@ -40,8 +40,6 @@ services:
     ports:
       - "1514:514/udp"
       - "1514:514/tcp"
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taillight}
     depends_on:
       postgres:
         condition: service_healthy
