@@ -132,6 +132,7 @@ function onKeydown(e: KeyboardEvent) {
             <span class="text-t-fg-dark w-8 text-xs">from</span>
             <input
               type="datetime-local"
+              step="300"
               :value="isoToLocal(from)"
               :max="isoToLocal(to) || undefined"
               class="bg-t-bg border-t-border text-t-fg focus:border-t-blue flex-1 rounded border px-1.5 py-0.5 text-xs outline-none"
@@ -142,6 +143,7 @@ function onKeydown(e: KeyboardEvent) {
             <span class="text-t-fg-dark w-8 text-xs">to</span>
             <input
               type="datetime-local"
+              step="300"
               :value="isoToLocal(to)"
               :min="isoToLocal(from) || undefined"
               class="bg-t-bg border-t-border text-t-fg focus:border-t-blue flex-1 rounded border px-1.5 py-0.5 text-xs outline-none"
