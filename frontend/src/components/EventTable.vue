@@ -33,6 +33,7 @@ function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
   if (!el) return
   el.scrollTo({ top: el.scrollHeight, behavior })
   isPinned.value = true
+  scrollStore.setPinned(props.routeName, true)
 }
 
 function onScroll() {
@@ -107,16 +108,44 @@ watch(
   () => scrollToBottom(),
 )
 
-// Auto-scroll when new events arrive (SSE appends at bottom).
+// Handle scroll behavior when events change.
+// - Pinned: auto-scroll to bottom.
+// - Not pinned: preserve scroll position so the user's view stays stable
+//   even when items are trimmed from the top of the buffer.
+// Track the newest event ID so we can count new arrivals even when the
+// buffer trims and the array length stays at MAX_EVENTS.
+let _lastTailId = 0
 watch(
-  () => props.events.length,
-  () => {
-    if (!isPinned.value) return
-    nextTick(() => {
-      const el = scrollEl.value
-      if (el) el.scrollTop = el.scrollHeight
-    })
+  () => props.events,
+  (evts) => {
+    const el = scrollEl.value
+    const last = evts[evts.length - 1]
+    const tailId = last ? last.id : 0
+
+    if (isPinned.value) {
+      _lastTailId = tailId
+      nextTick(() => {
+        if (el) el.scrollTop = el.scrollHeight
+      })
+      return
+    }
+
+    // A new event was appended if the tail ID advanced.
+    if (tailId > _lastTailId && _lastTailId > 0) {
+      scrollStore.addNewEvents(props.routeName, 1)
+    }
+    _lastTailId = tailId
+
+    // Preserve scroll position: capture pre-DOM height, adjust after render.
+    if (el) {
+      const prevHeight = el.scrollHeight
+      const prevTop = el.scrollTop
+      nextTick(() => {
+        el.scrollTop = el.scrollHeight - prevHeight + prevTop
+      })
+    }
   },
+  { flush: 'sync' },
 )
 
 // Intercept copy to produce clean log lines from selected rows.

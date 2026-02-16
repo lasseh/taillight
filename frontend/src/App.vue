@@ -38,6 +38,8 @@ const showJumpToLatest = computed(() => {
   return !scrollStore.isPinned(String(route.name))
 })
 
+const newEventCount = computed(() => scrollStore.getNewEventCount(String(route.name)))
+
 const syslogStream = useSyslogStream()
 const applogStream = useAppLogStream()
 const { notifySyslog, notifyApplog } = useNotifications()
@@ -108,7 +110,7 @@ onUnmounted(() => {
         class="text-t-yellow hover:text-t-fg absolute left-1/2 -translate-x-1/2 text-xs transition-colors"
         @click="scrollStore.triggerJump(String(route.name))"
       >
-        ↓ jump to latest (space)
+        paused{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to latest (space)
       </button>
     </div>
   </div>

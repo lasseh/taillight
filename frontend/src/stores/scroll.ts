@@ -11,6 +11,7 @@ export const useScrollStore = defineStore('scroll', () => {
   const scrollToBottomRequested = ref<string | null>(null)
   const pinnedRoutes = ref<Record<string, boolean>>({})
   const jumpSignal = ref<Record<string, number>>({})
+  const newEventCounts = ref<Record<string, number>>({})
 
   function savePosition(route: string, top: number, isPinned: boolean) {
     positions.value[route] = { top, isPinned }
@@ -34,6 +35,9 @@ export const useScrollStore = defineStore('scroll', () => {
 
   function setPinned(route: string, pinned: boolean) {
     pinnedRoutes.value[route] = pinned
+    if (pinned) {
+      newEventCounts.value[route] = 0
+    }
   }
 
   // Default to pinned so new routes auto-scroll to the latest events on mount.
@@ -49,5 +53,13 @@ export const useScrollStore = defineStore('scroll', () => {
     return jumpSignal.value[route] ?? 0
   }
 
-  return { positions, savePosition, getPosition, requestScrollToBottom, consumeScrollToBottom, setPinned, isPinned, triggerJump, getJumpSignal }
+  function addNewEvents(route: string, count: number) {
+    newEventCounts.value[route] = (newEventCounts.value[route] ?? 0) + count
+  }
+
+  function getNewEventCount(route: string): number {
+    return newEventCounts.value[route] ?? 0
+  }
+
+  return { positions, savePosition, getPosition, requestScrollToBottom, consumeScrollToBottom, setPinned, isPinned, triggerJump, getJumpSignal, addNewEvents, getNewEventCount }
 })
