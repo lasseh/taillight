@@ -10,6 +10,7 @@
 #   company-repo/                 # company-specific config repo
 #     docker-compose.override.yml
 #     .env                        # POSTGRES_PASSWORD=...
+#                                   (entrypoint replaces pwd="changeme" in rsyslog configs)
 #     config.yaml                 # API configuration
 #     rsyslog.conf                # rsyslog main config
 #     conf.d/                     # rsyslog core config (modules, templates, outputs, etc.)
