@@ -172,7 +172,7 @@ function onKeydown(e: KeyboardEvent) {
         </div>
 
         <!-- Actions -->
-        <div class="border-t-border flex items-center gap-3 border-t px-3 py-2">
+        <div class="border-t-border flex items-center gap-3 border-t px-3 py-2 justify-end">
           <button
             type="button"
             class="text-t-blue text-xs hover:underline"
