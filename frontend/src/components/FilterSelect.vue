@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { onClickOutside } from '@vueuse/core'
-import { wildcardMatch } from '@/lib/wildcard'
 import type { FilterOption } from '@/types/syslog'
 
 const props = withDefaults(
@@ -17,8 +16,10 @@ const model = defineModel<string>({ required: true })
 
 const open = ref(false)
 const searchText = ref('')
+const highlightIndex = ref(-1)
 const searchInput = ref<HTMLInputElement | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
+const listRef = ref<HTMLElement | null>(null)
 
 onClickOutside(dropdownRef, () => {
   open.value = false
@@ -26,14 +27,20 @@ onClickOutside(dropdownRef, () => {
 
 watch(open, (isOpen) => {
   if (isOpen && props.searchable) {
-    searchText.value = model.value?.includes('*') ? model.value : ''
+    searchText.value = ''
+    highlightIndex.value = -1
     nextTick(() => searchInput.value?.focus())
   }
 })
 
+watch(searchText, () => {
+  highlightIndex.value = -1
+})
+
 const filteredOptions = computed(() => {
   if (!props.searchable || !searchText.value) return props.options
-  return props.options.filter((o) => wildcardMatch(o.value, searchText.value))
+  const q = searchText.value.toLowerCase()
+  return props.options.filter((o) => o.value.toLowerCase().includes(q))
 })
 
 const selectedOption = computed(() => {
@@ -57,18 +64,41 @@ const longestLabel = computed(() => {
 function select(value: string) {
   model.value = value
   searchText.value = ''
+  highlightIndex.value = -1
   open.value = false
 }
 
+function scrollHighlightedIntoView() {
+  nextTick(() => {
+    const el = listRef.value?.querySelector('[data-highlighted]')
+    el?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
 function onSearchKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
+  const total = filteredOptions.value.length
+  // -1 = "all" row, 0..total-1 = filtered options
+  if (e.key === 'ArrowDown') {
     e.preventDefault()
-    const text = searchText.value.trim()
-    if (!text || text === '*') {
-      select('')
+    highlightIndex.value = Math.min(highlightIndex.value + 1, total - 1)
+    scrollHighlightedIntoView()
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    highlightIndex.value = Math.max(highlightIndex.value - 1, -1)
+    scrollHighlightedIntoView()
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    if (highlightIndex.value === -1) {
+      // "all" row highlighted or no navigation yet — select "all" if empty, first match otherwise
+      const first = filteredOptions.value[0]
+      if (!searchText.value.trim()) {
+        select('')
+      } else if (first) {
+        select(first.value)
+      }
     } else {
-      model.value = text
-      open.value = false
+      const opt = filteredOptions.value[highlightIndex.value]
+      if (opt) select(opt.value)
     }
   }
 }
@@ -109,21 +139,24 @@ function onKeydown(e: KeyboardEvent) {
             ref="searchInput"
             v-model="searchText"
             type="text"
-            placeholder="glob pattern…"
+            placeholder="search…"
             class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter w-full border px-1.5 py-0.5 text-xs outline-none focus:border-t-blue"
             @keydown="onSearchKeydown"
           />
         </div>
-        <div class="overflow-y-auto py-1">
+        <div ref="listRef" class="max-h-64 overflow-y-auto py-1">
           <button
             type="button"
             role="option"
             :aria-selected="!model"
+            :data-highlighted="highlightIndex === -1 && searchable ? '' : undefined"
             class="flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors"
             :class="
-              !model
-                ? 'bg-t-bg-highlight text-t-fg'
-                : 'text-t-fg hover:bg-t-bg-hover'
+              highlightIndex === -1 && searchable
+                ? 'bg-t-bg-hover text-t-fg'
+                : !model
+                  ? 'bg-t-bg-highlight text-t-fg'
+                  : 'text-t-fg hover:bg-t-bg-hover'
             "
             @click="select('')"
           >
@@ -131,16 +164,19 @@ function onKeydown(e: KeyboardEvent) {
             <span v-if="!model" class="text-t-green ml-auto">*</span>
           </button>
           <button
-            v-for="opt in filteredOptions"
+            v-for="(opt, idx) in filteredOptions"
             :key="opt.value"
             type="button"
             role="option"
             :aria-selected="model === opt.value"
+            :data-highlighted="highlightIndex === idx ? '' : undefined"
             class="flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors"
             :class="
-              model === opt.value
-                ? 'bg-t-bg-highlight text-t-fg'
-                : 'text-t-fg hover:bg-t-bg-hover'
+              highlightIndex === idx
+                ? 'bg-t-bg-hover text-t-fg'
+                : model === opt.value
+                  ? 'bg-t-bg-highlight text-t-fg'
+                  : 'text-t-fg hover:bg-t-bg-hover'
             "
             @click="select(opt.value)"
           >
