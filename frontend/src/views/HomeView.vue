@@ -150,7 +150,7 @@ function getSeverityBgClass(level: string): string {
       <!-- ═══════════════════════════ SYSLOG SECTION ═══════════════════════════ -->
       <section>
         <h2 class="text-t-teal mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
-          <span class="bg-t-teal/20 rounded px-2 py-0.5">Syslog</span>
+          <RouterLink to="/syslog" class="bg-t-teal/20 rounded px-2 py-0.5 hover:bg-t-teal/30 transition-colors">Syslog</RouterLink>
           <span class="bg-t-border h-px flex-1"></span>
           <span class="flex items-center gap-1">
             <button
@@ -248,7 +248,7 @@ function getSeverityBgClass(level: string): string {
       <!-- ═══════════════════════════ APPLOG SECTION ═══════════════════════════ -->
       <section>
         <h2 class="text-t-magenta mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
-          <span class="bg-t-magenta/20 rounded px-2 py-0.5">Applog</span>
+          <RouterLink to="/applog" class="bg-t-magenta/20 rounded px-2 py-0.5 hover:bg-t-magenta/30 transition-colors">Applog</RouterLink>
           <span class="bg-t-border h-px flex-1"></span>
           <span class="flex items-center gap-1">
             <button
