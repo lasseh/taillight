@@ -9,10 +9,8 @@
 #   docker-compose.override.yml
 #   .env                          # POSTGRES_PASSWORD=...
 #   config.yaml                   # API configuration
+#   conf.d/                       # rsyslog core config (modules, templates, outputs, etc.)
 #   filters/                      # rsyslog filter rules
-#     05-by-msgid.conf
-#     10-by-programname.conf
-#     ...
 #
 # Usage (from the taillight repo root):
 #   cp ../company-repo/docker-compose.override.yml .
@@ -21,6 +19,7 @@
 services:
   rsyslog:
     volumes:
+      - ./conf.d/:/etc/rsyslog.d/conf.d/:ro
       - ./filters/:/etc/rsyslog.d/filters/:ro
     ports:
       - "514:514/udp"
