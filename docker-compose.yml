@@ -57,6 +57,8 @@ services:
     build: ./frontend
     ports:
       - "3000:80"
+    environment:
+      API_URL: http://localhost:8080
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:80/healthz || exit 1"]
       interval: 10s
