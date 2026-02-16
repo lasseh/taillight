@@ -58,6 +58,7 @@ const searchInput = computed({
       clear
     </button>
 
+    <span v-if="filterStore.filters.hostname" class="text-t-fg-dark text-xs">-</span>
     <RouterLink
       v-if="filterStore.filters.hostname"
       :to="{ name: 'device-detail', params: { hostname: filterStore.filters.hostname } }"
