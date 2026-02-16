@@ -146,7 +146,7 @@ watch(() => props.id, async (id) => {
                 :to="{ name: 'device-detail', params: { hostname: event.hostname } }"
                 class="hover:underline"
               >
-                {{ event.hostname || '–' }}
+                {{ event.hostname || '–' }} <span class="text-t-fg-dark text-xs">&rarr;</span>
               </RouterLink>
             </dd>
 

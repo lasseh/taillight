@@ -136,7 +136,7 @@ watch(() => props.id, async (id) => {
                 :to="{ name: 'applog-device-detail', params: { hostname: event.host } }"
                 class="text-t-teal hover:underline"
               >
-                {{ event.host }}
+                {{ event.host }} <span class="text-t-fg-dark text-xs">&rarr;</span>
               </RouterLink>
               <span v-else class="text-t-teal">–</span>
             </dd>
