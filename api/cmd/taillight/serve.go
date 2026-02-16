@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -116,7 +117,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	go func() {
 		logger.Info("starting server", "addr", cfg.ListenAddr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server error", "err", err)
 			cancel()
 		}
@@ -315,7 +316,6 @@ func setupRouter(
 		r.Use(handler.SkipPath(middleware.Logger, "/health"))
 	}
 	r.Use(middleware.Recoverer)
-	r.Use(handler.SecurityHeaders)
 	r.Use(metrics.HTTPMetrics)
 
 	// CORS — configurable allowed origins.
@@ -324,6 +324,10 @@ func setupRouter(
 		corsOrigins = []string{"http://localhost:5173", "http://localhost:3000"}
 		logger.Warn("CORS defaulting to localhost dev origins — set cors_allowed_origins for production")
 	}
+
+	// Security headers (CSP connect-src includes CORS origins).
+	r.Use(handler.SecurityHeaders(corsOrigins))
+
 	// CORS credentials + wildcard origin is rejected by browsers (spec violation),
 	// so only allow credentials when origins are explicitly listed.
 	hasWildcard := false
@@ -559,7 +563,7 @@ func startMetricsServer(addr string, logger *slog.Logger) *http.Server {
 	}
 	go func() {
 		logger.Info("starting metrics server", "addr", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("metrics server error", "err", err)
 		}
 	}()

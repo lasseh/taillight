@@ -13,4 +13,4 @@ COPY --from=build /app /app
 COPY --from=build /src/migrations /migrations
 # Run pending migrations then start the server.
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["/app migrate up --path /migrations && /app serve"]
+CMD ["/app migrate up --path /migrations && exec /app serve"]

@@ -113,8 +113,7 @@ func (h *NotificationHandler) CreateChannel(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, itemResponse{Data: created})
+	writeJSONStatus(w, http.StatusCreated, itemResponse{Data: created})
 }
 
 // UpdateChannel handles PUT /api/v1/notifications/channels/{id}.
@@ -297,8 +296,7 @@ func (h *NotificationHandler) CreateRule(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, itemResponse{Data: created})
+	writeJSONStatus(w, http.StatusCreated, itemResponse{Data: created})
 }
 
 // UpdateRule handles PUT /api/v1/notifications/rules/{id}.

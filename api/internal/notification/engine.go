@@ -121,15 +121,28 @@ func (e *Engine) Start(ctx context.Context) {
 }
 
 // Shutdown stops the engine and waits for in-flight dispatches to complete.
-func (e *Engine) Shutdown(_ context.Context) error {
+// If the context deadline is reached, shutdown returns the context error.
+func (e *Engine) Shutdown(ctx context.Context) error {
 	e.bursts.Stop()
 	if e.cancel != nil {
 		e.cancel()
 	}
 	close(e.dispatchCh)
-	e.wg.Wait()
-	e.logger.Info("notification engine stopped")
-	return nil
+
+	done := make(chan struct{})
+	go func() {
+		e.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		e.logger.Info("notification engine stopped")
+		return nil
+	case <-ctx.Done():
+		e.logger.Warn("notification engine shutdown timed out")
+		return ctx.Err()
+	}
 }
 
 // HandleSyslogEvent evaluates all syslog rules against the event.
