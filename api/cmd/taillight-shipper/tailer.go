@@ -12,13 +12,21 @@ import (
 )
 
 // tailFile tails path and sends each line through handler until ctx is
-// cancelled. It handles log rotation via ReOpen and waits for the file to
-// appear if it doesn't exist at startup.
+// cancelled. It handles log rotation via ReOpen and requires the file to
+// exist and be readable at startup.
 func tailFile(ctx context.Context, path string, handler *logshipper.Handler, logger *slog.Logger) {
+	// Verify the file is readable before handing off to the tail library.
+	f, err := os.Open(path)
+	if err != nil {
+		logger.Error("cannot open file", "path", path, "error", err)
+		return
+	}
+	f.Close() //nolint:errcheck // read-only open for permission check
+
 	t, err := tail.TailFile(path, tail.Config{
 		Follow:    true,
 		ReOpen:    true,
-		MustExist: false,
+		MustExist: true,
 		Location:  &tail.SeekInfo{Offset: 0, Whence: io.SeekEnd},
 		Logger:    tail.DiscardingLogger,
 	})
