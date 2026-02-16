@@ -3,14 +3,17 @@
 # This file shows how to overlay site-specific configuration on top of
 # the base docker-compose.yml.  In a separate company repo you would
 # keep this file (renamed to docker-compose.override.yml), your custom
-# rsyslog filters, config.yaml, and .env.
+# rsyslog config, and .env.
 #
-# Company repo layout:
-#   docker-compose.override.yml
-#   .env                          # POSTGRES_PASSWORD=...
-#   config.yaml                   # API configuration
-#   conf.d/                       # rsyslog core config (modules, templates, outputs, etc.)
-#   filters/                      # rsyslog filter rules
+# Expected directory layout (sibling repos):
+#   taillight/                    # main taillight repo
+#   company-repo/                 # company-specific config repo
+#     docker-compose.override.yml
+#     .env                        # POSTGRES_PASSWORD=...
+#     config.yaml                 # API configuration
+#     rsyslog.conf                # rsyslog main config
+#     conf.d/                     # rsyslog core config (modules, templates, outputs, etc.)
+#     filters/                    # rsyslog filter rules
 #
 # Usage (from the taillight repo root):
 #   cp ../company-repo/docker-compose.override.yml .
@@ -19,15 +22,16 @@
 services:
   rsyslog:
     volumes:
-      - ./conf.d/:/etc/rsyslog.d/conf.d/:ro
-      - ./filters/:/etc/rsyslog.d/filters/:ro
+      - ../company-repo/rsyslog.conf:/etc/rsyslog.conf:ro
+      - ../company-repo/conf.d/:/etc/rsyslog.d/conf.d/:ro
+      - ../company-repo/filters/:/etc/rsyslog.d/filters/:ro
     ports:
       - "514:514/udp"
       - "514:514/tcp"
 
   api:
     volumes:
-      - ./config.yaml:/config.yaml:ro
+      - ../company-repo/config.yaml:/config.yaml:ro
 
   postgres:
     ports:
