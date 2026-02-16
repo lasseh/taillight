@@ -1,6 +1,7 @@
 import Prism from 'prismjs'
 import 'prismjs/components/prism-log'
 import 'prismjs/components/prism-json'
+import DOMPurify from 'dompurify'
 
 // Extend the log grammar with Juniper/JunOS-specific tokens.
 // insertBefore places these before 'string' so they get matched first.
@@ -43,13 +44,13 @@ Prism.languages.insertBefore('log', 'string', {
 })
 
 export function highlight(msg: string): string {
-  return Prism.highlight(msg, Prism.languages['log']!, 'log')
+  return DOMPurify.sanitize(Prism.highlight(msg, Prism.languages['log']!, 'log'))
 }
 
 export function highlightJson(obj: Record<string, unknown> | null): string {
   if (!obj) return ''
   const json = JSON.stringify(obj, null, 2)
-  return Prism.highlight(json, Prism.languages['json']!, 'json')
+  return DOMPurify.sanitize(Prism.highlight(json, Prism.languages['json']!, 'json'))
 }
 
 const cache = new Map<number, string>()
@@ -58,7 +59,7 @@ export function highlightMessage(id: number, msg: string): string {
   let result = cache.get(id)
   if (result !== undefined) return result
 
-  result = Prism.highlight(msg, Prism.languages['log']!, 'log')
+  result = DOMPurify.sanitize(Prism.highlight(msg, Prism.languages['log']!, 'log'))
   cache.set(id, result)
 
   // Batch-evict oldest 500 entries when cache exceeds 3000 to avoid

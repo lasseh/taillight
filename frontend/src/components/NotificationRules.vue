@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { api, ApiError } from '@/lib/api'
 import type { NotificationRule, NotificationChannel } from '@/types/notification'
+import { useFocusTrap } from '@/composables/useFocusTrap'
 
 const rules = ref<NotificationRule[]>([])
 const channels = ref<NotificationChannel[]>([])
@@ -33,6 +34,9 @@ const formSearch = ref('')
 const formChannelIDs = ref<number[]>([])
 const formBurstWindow = ref(10)
 const formCooldownSeconds = ref(60)
+
+const modalEl = ref<HTMLElement | null>(null)
+useFocusTrap(modalEl)
 
 // Delete state.
 const confirmDelete = ref<number | null>(null)
@@ -354,7 +358,7 @@ onMounted(fetchData)
           class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 pt-10 pb-10"
           @click.self="closeModal"
         >
-          <div class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl">
+          <div ref="modalEl" class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl">
             <!-- Modal header -->
             <div class="border-t-border flex items-center justify-between border-b px-5 py-3">
               <h3 class="text-t-fg text-sm font-semibold">{{ editing ? 'Edit Rule' : 'Add Rule' }}</h3>
