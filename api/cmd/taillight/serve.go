@@ -178,7 +178,7 @@ func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler) {
 	if cfg.LogShipper.Enabled {
 		addr := cfg.ListenAddr
 		if strings.HasPrefix(addr, ":") {
-			addr = "127.0.0.1" + addr
+			addr = "localhost" + addr
 		}
 		host := cfg.LogShipper.Host
 		if host == "" {
@@ -322,7 +322,10 @@ func setupRouter(
 	// CORS — configurable allowed origins.
 	corsOrigins := cfg.CORSAllowedOrigins
 	if len(corsOrigins) == 0 {
-		corsOrigins = []string{"http://localhost:5173", "http://localhost:3000"}
+		corsOrigins = []string{
+			"http://localhost:5173", "http://localhost:3000",
+			"http://[::1]:5173", "http://[::1]:3000",
+		}
 		logger.Warn("CORS defaulting to localhost dev origins — set cors_allowed_origins for production")
 	}
 
