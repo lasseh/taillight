@@ -38,6 +38,8 @@ services:
   rsyslog:
     build: ./rsyslog
     ports:
+      # Uses 1514 to avoid conflicts during development.
+      # Change to 514:514 for production so devices can send to the standard syslog port.
       - "1514:514/udp"
       - "1514:514/tcp"
     depends_on:
