@@ -32,7 +32,7 @@ const formLevel = ref('')
 const formSearch = ref('')
 const formChannelIDs = ref<number[]>([])
 const formBurstWindow = ref(30)
-const formCooldownSeconds = ref(300)
+const formCooldownSeconds = ref(60)
 
 // Delete state.
 const confirmDelete = ref<number | null>(null)
@@ -101,7 +101,7 @@ function resetForm() {
   formSearch.value = ''
   formChannelIDs.value = []
   formBurstWindow.value = 30
-  formCooldownSeconds.value = 300
+  formCooldownSeconds.value = 60
 }
 
 function openCreate() {
