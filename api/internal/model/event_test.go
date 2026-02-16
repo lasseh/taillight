@@ -327,7 +327,7 @@ func TestParseSyslogFilter_Invalid(t *testing.T) {
 	}
 }
 
-func TestMatchWildcard(t *testing.T) {
+func Test_matchWildcard(t *testing.T) {
 	tests := []struct {
 		value   string
 		pattern string
@@ -362,9 +362,9 @@ func TestMatchWildcard(t *testing.T) {
 	for _, tt := range tests {
 		name := fmt.Sprintf("%s~%s", tt.value, tt.pattern)
 		t.Run(name, func(t *testing.T) {
-			got := MatchWildcard(tt.value, tt.pattern)
+			got := matchWildcard(tt.value, tt.pattern)
 			if got != tt.want {
-				t.Errorf("MatchWildcard(%q, %q) = %v, want %v", tt.value, tt.pattern, got, tt.want)
+				t.Errorf("matchWildcard(%q, %q) = %v, want %v", tt.value, tt.pattern, got, tt.want)
 			}
 		})
 	}

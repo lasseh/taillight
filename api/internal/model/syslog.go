@@ -35,14 +35,14 @@ type SyslogEvent struct {
 
 // Severity codes per RFC 5424.
 const (
-	SeverityEmerg   = 0
-	SeverityAlert   = 1
-	SeverityCrit    = 2
+	severityEmerg   = 0 //nolint:unused // RFC 5424 completeness.
+	severityAlert   = 1 //nolint:unused // RFC 5424 completeness.
+	severityCrit    = 2 //nolint:unused // RFC 5424 completeness.
 	SeverityErr     = 3
 	SeverityWarning = 4
-	SeverityNotice  = 5
-	SeverityInfo    = 6
-	SeverityDebug   = 7
+	severityNotice  = 5 //nolint:unused // RFC 5424 completeness.
+	severityInfo    = 6 //nolint:unused // RFC 5424 completeness.
+	severityDebug   = 7 //nolint:unused // RFC 5424 completeness.
 )
 
 // Severity labels per RFC 5424.
@@ -116,10 +116,10 @@ type SyslogFilter struct {
 	To          *time.Time
 }
 
-// MatchWildcard reports whether value matches a glob pattern where * matches
+// matchWildcard reports whether value matches a glob pattern where * matches
 // any sequence of characters. The comparison is case-insensitive.
 // If pattern contains no *, it falls back to a plain case-insensitive equal.
-func MatchWildcard(value, pattern string) bool {
+func matchWildcard(value, pattern string) bool {
 	if pattern == "*" {
 		return true
 	}
@@ -153,7 +153,7 @@ func MatchWildcard(value, pattern string) bool {
 // matchField compares value to pattern using wildcard if pattern contains *.
 func matchField(value, pattern string) bool {
 	if strings.Contains(pattern, "*") {
-		return MatchWildcard(value, pattern)
+		return matchWildcard(value, pattern)
 	}
 	return value == pattern
 }

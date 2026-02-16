@@ -63,9 +63,6 @@ func NewWebhook(logger *slog.Logger) *Webhook {
 	}
 }
 
-// Type returns the backend type identifier.
-func (w *Webhook) Type() string { return "webhook" }
-
 // Validate checks that the channel config contains a valid URL and optional template.
 func (w *Webhook) Validate(ch notification.Channel) error {
 	var cfg webhookConfig

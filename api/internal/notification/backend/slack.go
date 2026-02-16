@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,9 +33,6 @@ func NewSlack(logger *slog.Logger) *Slack {
 		logger: logger.With("backend", "slack"),
 	}
 }
-
-// Type returns the backend type identifier.
-func (s *Slack) Type() string { return "slack" }
 
 // Validate checks that the channel config contains a valid webhook URL.
 func (s *Slack) Validate(ch notification.Channel) error {
@@ -86,11 +82,6 @@ func (s *Slack) Send(ctx context.Context, ch notification.Channel, payload notif
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		if v := resp.Header.Get("Retry-After"); v != "" {
-			if secs, err := strconv.Atoi(v); err == nil {
-				result.RetryAfter = time.Duration(secs) * time.Second
-			}
-		}
 		result.Error = fmt.Errorf("slack rate limited (429)")
 		return result
 	}

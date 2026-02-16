@@ -37,7 +37,6 @@ type NotificationConfig struct {
 	DefaultBurstWindow  time.Duration
 	DefaultCooldown     time.Duration
 	SendTimeout         time.Duration
-	GlobalRateLimit     int
 }
 
 // LogShipperConfig configures the built-in log shipper that sends taillight's
@@ -97,7 +96,6 @@ func Load() (Config, error) {
 	v.SetDefault("notification.default_burst_window", "30s")
 	v.SetDefault("notification.default_cooldown", "5m")
 	v.SetDefault("notification.send_timeout", "10s")
-	v.SetDefault("notification.global_rate_limit", 100)
 
 	// Config file.
 	v.SetConfigName("config")
@@ -155,7 +153,6 @@ func Load() (Config, error) {
 			DefaultBurstWindow:  v.GetDuration("notification.default_burst_window"),
 			DefaultCooldown:     v.GetDuration("notification.default_cooldown"),
 			SendTimeout:         v.GetDuration("notification.send_timeout"),
-			GlobalRateLimit:     v.GetInt("notification.global_rate_limit"),
 		},
 	}, nil
 }

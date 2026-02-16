@@ -81,7 +81,6 @@ type Payload struct {
 	EventCount  int                `json:"event_count"`
 	SyslogEvent *model.SyslogEvent `json:"syslog_event,omitempty"`
 	AppLogEvent *model.AppLogEvent `json:"applog_event,omitempty"`
-	BaseURL     string             `json:"base_url,omitempty"`
 }
 
 // SendResult captures the outcome of a backend Send call.
@@ -90,14 +89,10 @@ type SendResult struct {
 	StatusCode int
 	Error      error
 	Duration   time.Duration
-	RetryAfter time.Duration
 }
 
 // Notifier is the interface every notification backend must implement.
 type Notifier interface {
-	// Type returns the backend type identifier.
-	Type() string
-
 	// Send delivers a notification to the given channel.
 	Send(ctx context.Context, channel Channel, payload Payload) SendResult
 
@@ -146,5 +141,4 @@ type Config struct {
 	DefaultBurstWindow  time.Duration
 	DefaultCooldown     time.Duration
 	SendTimeout         time.Duration
-	GlobalRateLimit     int
 }

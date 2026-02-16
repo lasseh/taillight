@@ -10,7 +10,6 @@ import (
 
 // SyslogStore defines the syslog data access interface.
 type SyslogStore interface {
-	Ping(ctx context.Context) error
 	GetSyslog(ctx context.Context, id int64) (model.SyslogEvent, error)
 	ListSyslogs(ctx context.Context, f model.SyslogFilter, cursor *model.Cursor, limit int) ([]model.SyslogEvent, *model.Cursor, error)
 	ListSyslogsSince(ctx context.Context, f model.SyslogFilter, sinceID int64, limit int) ([]model.SyslogEvent, error)

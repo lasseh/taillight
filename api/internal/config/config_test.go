@@ -102,9 +102,6 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Notification.SendTimeout != 10*time.Second {
 		t.Errorf("Notification.SendTimeout = %v, want %v", cfg.Notification.SendTimeout, 10*time.Second)
 	}
-	if cfg.Notification.GlobalRateLimit != 100 {
-		t.Errorf("Notification.GlobalRateLimit = %d, want %d", cfg.Notification.GlobalRateLimit, 100)
-	}
 }
 
 func TestLoadEnvOverride(t *testing.T) {
