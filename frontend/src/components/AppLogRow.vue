@@ -4,6 +4,9 @@ import type { AppLogEvent } from '@/types/applog'
 import { levelColorClass, levelBgClass } from '@/lib/applog-constants'
 import { formatTime, formatAttrs, truncate } from '@/lib/format'
 import AppLogDetail from '@/components/AppLogDetail.vue'
+import { useAppLogFilterStore } from '@/stores/applog-filters'
+
+const filterStore = useAppLogFilterStore()
 
 const props = defineProps<{
   event: AppLogEvent
@@ -53,13 +56,12 @@ const copyText = computed(() => {
     >
       <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.timestamp) }}</span>
       <span class="w-[8ch] shrink-0 uppercase" :class="lvlClass">{{ event.level }}</span>
-      <RouterLink
-        :to="{ name: 'applog-device-detail', params: { hostname: event.host } }"
-        class="text-t-teal w-[20ch] shrink-0 truncate hover:underline"
-        @click.stop
+      <button
+        class="text-t-teal w-[20ch] shrink-0 truncate text-left hover:underline"
+        @click.stop="filterStore.filters.host = event.host"
       >
         {{ event.host }}
-      </RouterLink>
+      </button>
       <span class="text-t-purple w-[14ch] shrink-0 truncate">{{ event.service }}</span>
       <span class="text-t-yellow w-[14ch] shrink-0 truncate">{{ event.component }}</span>
       <span class="text-t-fg min-w-0 flex-1 truncate">{{ truncate(event.msg, 200) }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></span>

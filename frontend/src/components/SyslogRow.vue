@@ -5,6 +5,9 @@ import { severityColorClass, severityBgClass } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
 import { formatTime, truncate } from '@/lib/format'
 import SyslogDetail from '@/components/SyslogDetail.vue'
+import { useSyslogFilterStore } from '@/stores/syslog-filters'
+
+const filterStore = useSyslogFilterStore()
 
 const props = defineProps<{
   event: SyslogEvent
@@ -52,13 +55,12 @@ const copyText = computed(() => {
     >
       <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.received_at) }}</span>
       <span class="w-[8ch] shrink-0 uppercase" :class="sevClass">{{ event.severity_label }}</span>
-      <RouterLink
-        :to="{ name: 'device-detail', params: { hostname: event.hostname } }"
-        class="text-t-teal w-[20ch] shrink-0 truncate hover:underline"
-        @click.stop
+      <button
+        class="text-t-teal w-[20ch] shrink-0 truncate text-left hover:underline"
+        @click.stop="filterStore.filters.hostname = event.hostname"
       >
         {{ event.hostname }}
-      </RouterLink>
+      </button>
       <span class="text-t-purple w-[14ch] shrink-0 truncate">{{ event.programname }}</span>
       <span class="min-w-0 flex-1 truncate" v-html="highlightedMessage" />
     </div>
