@@ -174,19 +174,19 @@ function onKeydown(e: KeyboardEvent) {
         <!-- Actions -->
         <div class="border-t-border flex items-center gap-3 border-t px-3 py-2 justify-end">
           <button
-            type="button"
-            class="text-t-blue text-xs hover:underline"
-            @click="apply"
-          >
-            apply
-          </button>
-          <button
             v-if="hasRange"
             type="button"
             class="text-t-red text-xs hover:underline"
             @click="clear"
           >
             clear
+          </button>
+          <button
+            type="button"
+            class="text-t-blue text-xs hover:underline"
+            @click="apply"
+          >
+            apply
           </button>
         </div>
       </div>
