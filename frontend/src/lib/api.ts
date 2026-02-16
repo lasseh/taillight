@@ -34,6 +34,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
     const message = body?.error?.message ?? res.statusText
     throw new ApiError(res.status, code, message)
   }
+  if (res.status === 204) return undefined as T
   return res.json()
 }
 
