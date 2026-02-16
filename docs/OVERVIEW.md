@@ -279,7 +279,7 @@ taillight version
 
 ### Docker Compose (default)
 
-The default `docker-compose.yml` runs the full stack with an nginx reverse proxy in front of the Vue SPA. The frontend container proxies `/api` requests to the API container. This is the simplest setup and works for single-host deployments.
+The default `docker-compose.yml` runs the full stack. The frontend container serves only static files (no API proxy). For production, place a reverse proxy in front to route both `/api` and `/` through a single origin (see `docs/nginx-reverse-proxy.conf.example`).
 
 ```sh
 docker compose up -d

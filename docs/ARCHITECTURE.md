@@ -499,7 +499,7 @@ Client connects: GET /api/v1/syslog/stream?hostname=rtr01&severity_max=3
 | **Type Checking** | TypeScript | 5.7 | Static type analysis |
 | **Reverse Proxy** | nginx | Alpine | SSE-aware reverse proxy, static file serving |
 | **Container Runtime** | Docker Compose | - | Multi-service orchestration |
-| **API Runtime Image** | distroless/static-debian12:nonroot | - | Minimal, no-shell production container |
+| **API Runtime Image** | alpine:3.21 | - | Lightweight runtime with shell for migrations |
 
 ## Deployment Topology
 
@@ -509,17 +509,17 @@ Client connects: GET /api/v1/syslog/stream?hostname=rtr01&severity_max=3
 +----------------------------------------------------------+
 |  Docker Compose Network                                  |
 |                                                          |
-|  +-----------+    :5432    +---------+    :8080          |
-|  | postgres  | <---------- |   api   | <-------+        |
-|  | (tsdb +   |   pgxpool   | (Go)    |         |        |
-|  |  pg18)    |   + LISTEN   |         |         |        |
-|  +-----------+              +---------+         |        |
-|       ^                                         |        |
-|       | ompgsql                          proxy_pass      |
-|  +-----------+              +-----------+       |        |
-|  | rsyslog   |              | frontend  | ------+        |
-|  | (Debian)  |              | (nginx +  |                |
-|  +-----------+              |  Vue SPA) |                |
+|  +-----------+    :5432    +---------+                   |
+|  | postgres  | <---------- |   api   |                   |
+|  | (tsdb +   |   pgxpool   | (Go)    |                   |
+|  |  pg18)    |   + LISTEN   |         |                   |
+|  +-----------+              +---------+                   |
+|       ^                      :8080                       |
+|       | ompgsql                                          |
+|  +-----------+              +-----------+                |
+|  | rsyslog   |              | frontend  |                |
+|  | (Debian)  |              | (nginx,   |                |
+|  +-----------+              | static)   |                |
 |   :1514->514                +-----------+                |
 |                              :3000->80                   |
 +----------------------------------------------------------+
@@ -533,9 +533,9 @@ Host ports:
 
 Service dependencies:
 - `postgres` starts first (healthcheck: `pg_isready`)
-- `api` waits for postgres healthy, then runs migrations via initdb.sh
+- `api` waits for postgres healthy, then runs migrations on startup
 - `rsyslog` waits for postgres healthy
-- `frontend` waits for api to start
+- `frontend` starts independently (static files only, no API dependency)
 
 ### Production (separate subdomains)
 
