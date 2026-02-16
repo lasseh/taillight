@@ -31,7 +31,7 @@ const formHost = ref('')
 const formLevel = ref('')
 const formSearch = ref('')
 const formChannelIDs = ref<number[]>([])
-const formBurstWindow = ref(30)
+const formBurstWindow = ref(10)
 const formCooldownSeconds = ref(60)
 
 // Delete state.
@@ -100,7 +100,7 @@ function resetForm() {
   formLevel.value = ''
   formSearch.value = ''
   formChannelIDs.value = []
-  formBurstWindow.value = 30
+  formBurstWindow.value = 10
   formCooldownSeconds.value = 60
 }
 
