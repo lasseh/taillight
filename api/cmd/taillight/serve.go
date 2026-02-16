@@ -401,12 +401,11 @@ func setupRouter(
 			})
 		}
 
-		if cfg.AuthEnabled && cfg.AuthReadEndpoints {
-			r.Use(auth.SessionOrAPIKey(authStore, authStore))
-		}
-
 		// Read-scoped routes (all GET endpoints).
 		r.Group(func(r chi.Router) {
+			if cfg.AuthEnabled && cfg.AuthReadEndpoints {
+				r.Use(auth.SessionOrAPIKey(authStore, authStore))
+			}
 			r.Use(auth.RequireScope("read"))
 
 			// SSE stream — long-lived, no timeout.
@@ -504,6 +503,9 @@ func setupRouter(
 
 		// Admin-scoped routes (write operations).
 		r.Group(func(r chi.Router) {
+			if cfg.AuthEnabled {
+				r.Use(auth.SessionOrAPIKey(authStore, authStore))
+			}
 			r.Use(auth.RequireScope("admin"))
 
 			// Analysis trigger.
