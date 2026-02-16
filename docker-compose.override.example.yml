@@ -1,0 +1,39 @@
+# Company-specific overrides for Taillight.
+#
+# This file shows how to overlay site-specific configuration on top of
+# the base docker-compose.yml.  In a separate company repo you would
+# keep this file (renamed to docker-compose.override.yml), your custom
+# rsyslog filters, config.yaml, and .env.
+#
+# Company repo layout:
+#   docker-compose.override.yml
+#   .env                          # POSTGRES_PASSWORD=...
+#   config.yaml                   # API configuration
+#   filters/                      # rsyslog filter rules
+#     05-by-msgid.conf
+#     10-by-programname.conf
+#     ...
+#
+# Usage (from the taillight repo root):
+#   cp ../company-repo/docker-compose.override.yml .
+#   docker compose up -d
+
+services:
+  rsyslog:
+    volumes:
+      - ./filters/:/etc/rsyslog.d/filters/:ro
+    ports:
+      - "514:514/udp"
+      - "514:514/tcp"
+
+  api:
+    volumes:
+      - ./config.yaml:/config.yaml:ro
+
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  frontend:
+    ports:
+      - "80:80"
