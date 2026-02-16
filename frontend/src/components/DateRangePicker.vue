@@ -67,8 +67,11 @@ function todayStr(): string {
 
 function apply() {
   const today = todayStr()
-  emit('update:from', buildIso(draftFromDate.value || today, draftFromHour.value, draftFromMinute.value))
-  emit('update:to', buildIso(draftToDate.value || today, draftToHour.value, draftToMinute.value))
+  let fromIso = buildIso(draftFromDate.value || today, draftFromHour.value, draftFromMinute.value)
+  let toIso = buildIso(draftToDate.value || today, draftToHour.value, draftToMinute.value)
+  if (fromIso > toIso) [fromIso, toIso] = [toIso, fromIso]
+  emit('update:from', fromIso)
+  emit('update:to', toIso)
   open.value = false
 }
 
