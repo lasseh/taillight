@@ -2,11 +2,6 @@ database_url: "postgres://user:password@localhost:5432/taillight"
 listen_addr: ":8080"
 log_level: "info"
 
-# API keys for JSON log ingest authentication.
-# Leave empty to allow unauthenticated ingest.
-api_keys:
-  # - "changeme"
-
 # Enable authentication (login, sessions, API keys).
 # Set to false for deployments behind a firewall where all users should have access.
 auth_enabled: true

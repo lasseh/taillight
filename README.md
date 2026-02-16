@@ -153,11 +153,6 @@ database_url: "postgres://user:password@host:port/dbname"
 listen_addr: ":8080"
 log_level: "info"
 
-# API keys for applog ingest authentication (optional)
-# Leave empty to allow unauthenticated ingest
-api_keys:
-  - "your-secret-key"
-
 # CORS allowed origins (optional)
 # Leave empty to allow all origins (dev mode)
 cors_allowed_origins:

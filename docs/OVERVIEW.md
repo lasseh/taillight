@@ -110,11 +110,6 @@ listen_addr: ":8080"
 # Log level: debug, info, warn, error.
 log_level: "info"
 
-# Static API keys for applog ingest authentication.
-# Leave empty to allow unauthenticated ingest.
-api_keys:
-  # - "changeme"
-
 # Enable session-based authentication.
 # Set to false for trusted-network deployments.
 auth_enabled: false
