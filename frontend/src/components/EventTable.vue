@@ -58,18 +58,21 @@ function onKeydown(e: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', onKeydown)
-
-  // Scroll to bottom once first data arrives.
-  const unwatch = watch(
-    () => props.events.length,
-    (len) => {
-      if (len > 0) {
-        nextTick(() => scrollToBottom('instant'))
-        unwatch()
-      }
-    },
-  )
 })
+
+// Scroll to bottom whenever events arrive after being empty (initial load or filter reset).
+let _prevEventCount = 0
+watch(
+  () => props.events.length,
+  (len) => {
+    if (len > 0 && _prevEventCount === 0) {
+      isPinned.value = true
+      scrollStore.setPinned(props.routeName, true)
+      nextTick(() => scrollToBottom('instant'))
+    }
+    _prevEventCount = len
+  },
+)
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
