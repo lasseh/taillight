@@ -95,7 +95,7 @@ The audit found **no critical vulnerabilities**. Five HIGH/MEDIUM issues were id
 |---|---|
 | **Severity** | MEDIUM |
 | **Category** | Denial of Service |
-| **File** | `frontend/nginx.conf.template:10` |
+| **File** | `frontend/nginx.conf` |
 | **Status** | Fixed |
 
 **Description:** The nginx reverse proxy had no `client_max_body_size` directive. Nginx defaults to 1MB, but this should be explicitly set to prevent ambiguity and ensure the limit applies even if the default changes.

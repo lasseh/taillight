@@ -328,27 +328,23 @@ Security headers include X-Content-Type-Options, X-Frame-Options, Referrer-Polic
 **Build and deploy:**
 - Development: `npm run dev` (Vite dev server, port 5173)
 - Production: multi-stage Docker build (Node 22 -> nginx:alpine)
-- nginx serves static files and proxies `/api/` to the Go backend
-- Separate SSE location block with buffering disabled and 24h timeout
+- nginx serves static files only (no API proxy)
+- A separate reverse proxy handles routing to both frontend and API (see `docs/nginx-reverse-proxy.conf.example`)
 
 ### nginx
 
-**Role:** Reverse proxy in the frontend Docker container. Serves the Vue SPA, proxies API requests, and handles SSE-specific configuration.
+**Role:** Static file server in the frontend Docker container. Serves the Vue SPA with SPA-style routing fallback.
 
-**Configuration** (`frontend/nginx.conf.template`):
+**Configuration** (`frontend/nginx.conf`):
 
 ```text
 location /                              -> try_files (SPA fallback)
-location /api/                          -> proxy_pass to API backend
-location ~ /api/v1/(syslog|applog)/stream  -> SSE-aware proxy:
-                                              - proxy_buffering off
-                                              - proxy_cache off
-                                              - chunked_transfer_encoding off
-                                              - proxy_read_timeout 86400s (24h)
-                                              - Connection: '' (disable keep-alive upgrade)
-location /assets/                       -> 1 year cache, immutable
-location /health                        -> proxy_pass to API health check
+location ~* \.(js|css|...)              -> 1 year cache, immutable
+location /health                        -> 200 OK
+location /healthz                       -> 200 ok
 ```
+
+API proxying is handled by a separate reverse proxy in production (see `docs/nginx-reverse-proxy.conf.example`).
 
 Security headers: X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin.
 
@@ -550,7 +546,7 @@ For production, the recommended topology uses separate subdomains with an extern
   api.taillight.example.com -> Go API (direct or behind reverse proxy)
 ```
 
-The frontend includes `nginx-standalone.conf` for this mode, where `API_URL` is injected at container startup and the SPA makes direct cross-origin requests to the API subdomain.
+The frontend container serves only static files. `API_URL` is injected at container startup so the SPA makes direct requests to the API. See `docs/nginx-reverse-proxy.conf.example` for the recommended production reverse proxy configuration.
 
 ## Security Model
 

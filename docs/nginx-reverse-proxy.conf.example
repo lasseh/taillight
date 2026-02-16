@@ -1,7 +1,7 @@
 # Taillight — production nginx reverse proxy
 #
 # Place behind your TLS terminator or configure ssl_certificate below.
-# Adjust server_name, proxy_pass, and root to match your deployment.
+# Adjust server_name and proxy_pass addresses to match your deployment.
 #
 # Features:
 #   - SSE streaming support (proxy_buffering off, long read timeout)
@@ -76,17 +76,9 @@ server {
         proxy_pass http://127.0.0.1:8080;
     }
 
-    # ── Frontend static files ─────────────────────────────────────────
+    # ── Frontend (proxied to frontend container) ─────────────────────
     location / {
-        root /var/www/taillight;
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Static asset caching
-    location /assets/ {
-        root /var/www/taillight;
-        expires 1y;
-        add_header Cache-Control "public, immutable";
+        proxy_pass http://127.0.0.1:3000;
     }
 }
 
