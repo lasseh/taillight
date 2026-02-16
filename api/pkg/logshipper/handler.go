@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -60,16 +61,17 @@ func (c *Config) setDefaults() {
 // Handler implements slog.Handler. It buffers log entries and ships them in
 // batches via HTTP POST to the configured ingest endpoint.
 type Handler struct {
-	cfg      Config
-	ch       chan logEntry
-	done     chan struct{}
-	wg       sync.WaitGroup
-	dropped  atomic.Int64
-	preAttrs []slog.Attr
-	groups   []string
-	ctx      context.Context
-	cancel   context.CancelFunc
-	logger   *slog.Logger
+	cfg       Config
+	ch        chan logEntry
+	done      chan struct{}
+	wg        sync.WaitGroup
+	closeOnce sync.Once
+	dropped   atomic.Int64
+	preAttrs  []slog.Attr
+	groups    []string
+	ctx       context.Context
+	cancel    context.CancelFunc
+	logger    *slog.Logger
 }
 
 type logEntry struct {
@@ -199,7 +201,7 @@ func (h *Handler) Dropped() int64 {
 // Shutdown flushes remaining buffered logs and stops the background goroutine.
 func (h *Handler) Shutdown(ctx context.Context) error {
 	h.cancel()
-	close(h.done)
+	h.closeOnce.Do(func() { close(h.done) })
 
 	finished := make(chan struct{})
 	go func() {
@@ -273,7 +275,8 @@ func (h *Handler) send(ctx context.Context, batch []logEntry) error {
 	if err != nil {
 		return fmt.Errorf("send batch: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()               //nolint:errcheck // Response body close error is not actionable.
+	_, _ = io.Copy(io.Discard, resp.Body) // Drain body to allow connection reuse.
 
 	if resp.StatusCode >= httpErrorStatusCode {
 		return fmt.Errorf("ingest API returned %d", resp.StatusCode)

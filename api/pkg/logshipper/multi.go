@@ -2,6 +2,7 @@ package logshipper
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 )
 
@@ -24,14 +25,15 @@ func (h *multiHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (h *multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	var errs []error
 	for _, handler := range h.handlers {
 		if handler.Enabled(ctx, r.Level) {
 			if err := handler.Handle(ctx, r.Clone()); err != nil {
-				return err
+				errs = append(errs, err)
 			}
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (h *multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
