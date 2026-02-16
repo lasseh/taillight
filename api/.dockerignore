@@ -7,7 +7,7 @@ taillight
 taillight-linux-amd64
 taillight-shipper
 taillight-shipper-linux-amd64
-config.yaml
+config.yml
 coverage.out
 coverage.html
 *.md

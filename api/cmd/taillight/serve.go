@@ -529,7 +529,7 @@ func setupRouter(
 	})
 
 	// API docs.
-	r.Get("/api/v1/openapi.yaml", docs.SpecHandler())
+	r.Get("/api/v1/openapi.yml", docs.SpecHandler())
 	r.Get("/api/docs", docs.ScalarHandler())
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {

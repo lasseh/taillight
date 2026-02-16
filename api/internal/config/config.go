@@ -63,7 +63,7 @@ type AnalysisConfig struct {
 	ScheduleAt  string  // Cron-style schedule (e.g. "03:00").
 }
 
-// Load reads configuration from config.yaml with environment variable overrides.
+// Load reads configuration from config.yml with environment variable overrides.
 // Returns an error if the config file exists but cannot be parsed.
 func Load() (Config, error) {
 	v := viper.New()
@@ -99,7 +99,7 @@ func Load() (Config, error) {
 
 	// Config file.
 	v.SetConfigName("config")
-	v.SetConfigType("yaml")
+	v.SetConfigType("yml")
 	v.AddConfigPath(".")
 	v.AddConfigPath("/etc/taillight")
 	v.AddConfigPath("/")

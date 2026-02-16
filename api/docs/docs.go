@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-//go:embed openapi.yaml
+//go:embed openapi.yml
 var spec []byte
 
 // SpecHandler serves the raw OpenAPI YAML spec.
@@ -76,7 +76,7 @@ const scalarHTML = `<!DOCTYPE html>
   </div>
   <script
     id="api-reference"
-    data-url="/api/v1/openapi.yaml"
+    data-url="/api/v1/openapi.yml"
     data-configuration='{"darkMode":true,"hideDarkModeToggle":true}'
   ></script>
   <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>

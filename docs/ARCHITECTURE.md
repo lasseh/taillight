@@ -273,7 +273,7 @@ Security headers include X-Content-Type-Options, X-Frame-Options, Referrer-Polic
 
 **Connection pool:** pgxpool with configurable max/min conns (default 10/2).
 
-**Configuration** (`internal/config/config.go`): Viper-based YAML config with environment variable overrides. Supports `config.yaml` from current directory, `/etc/taillight`, or `/`.
+**Configuration** (`internal/config/config.go`): Viper-based YAML config with environment variable overrides. Supports `config.yml` from current directory, `/etc/taillight`, or `/`.
 
 ### LLM Analysis Subsystem
 

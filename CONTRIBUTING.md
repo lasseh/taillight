@@ -15,7 +15,7 @@ Thank you for your interest in contributing to Taillight! This guide will help y
 
 ```sh
 cd api
-cp config.yaml.example config.yaml  # fill in database credentials
+cp config.yml.example config.yml  # fill in database credentials
 make build
 make test
 make lint

@@ -106,7 +106,7 @@ logger -n localhost -P 1514 -d --rfc5424 -p local7.warning -t rpd "BGP peer 10.0
 
 ```sh
 cd api
-cp config.yaml.example config.yaml  # fill in real database credentials
+cp config.yml.example config.yml  # fill in real database credentials
 make build
 make test
 make lint
@@ -146,7 +146,7 @@ npm run dev
 
 ## Configuration
 
-The API reads `api/config.yaml`:
+The API reads `api/config.yml`:
 
 ```yaml
 database_url: "postgres://user:password@host:port/dbname"

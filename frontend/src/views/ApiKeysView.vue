@@ -213,7 +213,7 @@ onMounted(fetchKeys)
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
           <p class="text-t-fg-dark text-sm">authentication is disabled</p>
-          <p class="text-t-fg-gutter mt-1 text-sm">enable auth in config.yaml to manage API keys</p>
+          <p class="text-t-fg-gutter mt-1 text-sm">enable auth in config.yml to manage API keys</p>
           <code class="text-t-fg-dark bg-t-bg mt-3 inline-block rounded px-3 py-1.5 font-mono text-xs">auth_enabled: true</code>
         </div>
 

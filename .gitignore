@@ -9,7 +9,7 @@ api/taillight-shipper-linux-amd64
 api/coverage.*
 
 # API config (real credentials)
-api/config.yaml
+api/config.yml
 
 # Frontend
 frontend/node_modules/
