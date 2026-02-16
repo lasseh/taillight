@@ -58,7 +58,7 @@ const searchInput = computed({
     <RouterLink
       v-if="filterStore.filters.host"
       :to="{ name: 'applog-device-detail', params: { hostname: filterStore.filters.host } }"
-      class="text-t-teal mx-auto text-xs hover:underline"
+      class="text-t-teal text-xs hover:underline"
     >
       {{ filterStore.filters.host }} details &rarr;
     </RouterLink>
