@@ -30,6 +30,9 @@ const presets = [
   { label: '30d', ms: 30 * 24 * 60 * 60 * 1000 },
 ] as const
 
+const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+const minutes = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'))
+
 function applyPreset(ms: number) {
   const now = new Date()
   emit('update:from', new Date(now.getTime() - ms).toISOString())
@@ -37,30 +40,30 @@ function applyPreset(ms: number) {
   open.value = false
 }
 
-// datetime-local inputs use "YYYY-MM-DDTHH:mm" in local time
-function isoToLocal(iso: string): string {
-  if (!iso) return ''
+function parseParts(iso: string): { date: string; hour: string; minute: string } {
+  if (!iso) return { date: '', hour: '00', minute: '00' }
   const d = new Date(iso)
-  d.setMinutes(Math.round(d.getMinutes() / 5) * 5, 0, 0)
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return { date, hour: pad(d.getHours()), minute: pad(d.getMinutes()) }
 }
 
-function localToIso(local: string): string {
-  if (!local) return ''
-  const d = new Date(local)
-  d.setMinutes(Math.round(d.getMinutes() / 5) * 5, 0, 0)
-  return d.toISOString()
+function buildIso(date: string, hour: string, minute: string): string {
+  if (!date) return ''
+  return new Date(`${date}T${hour}:${minute}:00`).toISOString()
 }
 
-function onFromInput(e: Event) {
-  const val = (e.target as HTMLInputElement).value
-  emit('update:from', val ? localToIso(val) : '')
+const fromParts = computed(() => parseParts(props.from))
+const toParts = computed(() => parseParts(props.to))
+
+function updateFrom(field: 'date' | 'hour' | 'minute', value: string) {
+  const parts = { ...fromParts.value, [field]: value }
+  emit('update:from', buildIso(parts.date, parts.hour, parts.minute))
 }
 
-function onToInput(e: Event) {
-  const val = (e.target as HTMLInputElement).value
-  emit('update:to', val ? localToIso(val) : '')
+function updateTo(field: 'date' | 'hour' | 'minute', value: string) {
+  const parts = { ...toParts.value, [field]: value }
+  emit('update:to', buildIso(parts.date, parts.hour, parts.minute))
 }
 
 function clear() {
@@ -114,7 +117,7 @@ function onKeydown(e: KeyboardEvent) {
     <Transition name="menu">
       <div
         v-if="open"
-        class="bg-t-bg-dark border-t-border absolute left-0 top-full z-50 mt-1.5 w-64 rounded border shadow-lg"
+        class="bg-t-bg-dark border-t-border absolute left-0 top-full z-50 mt-1.5 w-max rounded border shadow-lg"
       >
         <!-- Presets -->
         <div class="border-t-border flex flex-wrap gap-1.5 border-b px-3 py-2">
@@ -131,28 +134,54 @@ function onKeydown(e: KeyboardEvent) {
 
         <!-- Custom range -->
         <div class="space-y-2 px-3 py-2">
-          <label class="flex items-center gap-2">
+          <div class="flex items-center gap-2">
             <span class="text-t-fg-dark w-8 text-xs">from</span>
             <input
-              type="datetime-local"
-              step="300"
-              :value="isoToLocal(from)"
-              :max="isoToLocal(to) || undefined"
-              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue flex-1 rounded border px-1.5 py-0.5 text-xs outline-none"
-              @input="onFromInput"
+              type="date"
+              :value="fromParts.date"
+              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1.5 py-0.5 text-xs outline-none"
+              @input="updateFrom('date', ($event.target as HTMLInputElement).value)"
             />
-          </label>
-          <label class="flex items-center gap-2">
+            <select
+              :value="fromParts.hour"
+              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1 py-0.5 text-xs outline-none"
+              @change="updateFrom('hour', ($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="h in hours" :key="h" :value="h">{{ h }}</option>
+            </select>
+            <span class="text-t-fg-dark text-xs">:</span>
+            <select
+              :value="fromParts.minute"
+              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1 py-0.5 text-xs outline-none"
+              @change="updateFrom('minute', ($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="m in minutes" :key="m" :value="m">{{ m }}</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2">
             <span class="text-t-fg-dark w-8 text-xs">to</span>
             <input
-              type="datetime-local"
-              step="300"
-              :value="isoToLocal(to)"
-              :min="isoToLocal(from) || undefined"
-              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue flex-1 rounded border px-1.5 py-0.5 text-xs outline-none"
-              @input="onToInput"
+              type="date"
+              :value="toParts.date"
+              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1.5 py-0.5 text-xs outline-none"
+              @input="updateTo('date', ($event.target as HTMLInputElement).value)"
             />
-          </label>
+            <select
+              :value="toParts.hour"
+              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1 py-0.5 text-xs outline-none"
+              @change="updateTo('hour', ($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="h in hours" :key="h" :value="h">{{ h }}</option>
+            </select>
+            <span class="text-t-fg-dark text-xs">:</span>
+            <select
+              :value="toParts.minute"
+              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue rounded border px-1 py-0.5 text-xs outline-none"
+              @change="updateTo('minute', ($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="m in minutes" :key="m" :value="m">{{ m }}</option>
+            </select>
+          </div>
         </div>
 
         <!-- Clear -->
@@ -182,8 +211,8 @@ function onKeydown(e: KeyboardEvent) {
   transform: translateY(-4px);
 }
 
-/* Style native datetime-local inputs to blend with theme */
-input[type='datetime-local']::-webkit-calendar-picker-indicator {
+/* Style native date input picker icon to blend with theme */
+input[type='date']::-webkit-calendar-picker-indicator {
   filter: invert(0.6);
   cursor: pointer;
 }
