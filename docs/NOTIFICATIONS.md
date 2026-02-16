@@ -29,7 +29,7 @@ Log event arrives
 
 ## Enabling Notifications
 
-Add the following to `api/config.yaml`:
+Add the following to `api/config.yml`:
 
 ```yaml
 notification:

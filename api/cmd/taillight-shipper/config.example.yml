@@ -1,9 +1,9 @@
 # taillight-shipper configuration
 #
 # Modes:
-#   stdin pipe:   ./app | taillight-shipper -c config.yaml
-#   file follow:  taillight-shipper -c config.yaml
-#   both:         ./app | taillight-shipper -c config.yaml -t
+#   stdin pipe:   ./app | taillight-shipper -c config.yml
+#   file follow:  taillight-shipper -c config.yml
+#   both:         ./app | taillight-shipper -c config.yml -t
 
 # Ingest endpoint URL.
 endpoint: http://localhost:8080/api/v1/applog/ingest

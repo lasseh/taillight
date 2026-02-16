@@ -512,7 +512,7 @@ The `SessionOrAPIKey` middleware tries three methods in order:
 2. **DB API key** (`Authorization: Bearer tl_...`) -- SHA-256 hash the token,
    look up in `api_keys` table joined with `users`
 3. **Config static key** -- constant-time compare against keys defined in
-   `config.yaml`
+   `config.yml`
 
 On success, the authenticated `*model.User` is stored in the request context
 via `auth.WithUser()`. Config keys do not have a user context (`UserFromContext`

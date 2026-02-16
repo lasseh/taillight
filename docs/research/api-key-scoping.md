@@ -2,7 +2,7 @@
 
 ## Status: Implemented
 
-API keys now carry a `scopes` field that restricts what operations each key can perform. Static config-based API keys (`api_keys` in config.yaml) have been removed in favor of DB-backed keys with scopes.
+API keys now carry a `scopes` field that restricts what operations each key can perform. Static config-based API keys (`api_keys` in config.yml) have been removed in favor of DB-backed keys with scopes.
 
 ## Scope Levels
 

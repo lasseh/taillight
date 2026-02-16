@@ -509,7 +509,7 @@ All backends are simple HTTP POST operations with stdlib `net/http`. This gives 
 
 ## 7. Configuration
 
-### `config.yaml` section
+### `config.yml` section
 
 ```yaml
 notification:
@@ -738,7 +738,7 @@ Phase 3 (operational):
 ## Appendix A: Example Configuration
 
 ```yaml
-# config.yaml
+# config.yml
 notification:
   enabled: true
   dispatch_workers: 4

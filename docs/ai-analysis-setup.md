@@ -44,7 +44,7 @@ ollama pull llama3.1:8b
 
 ## Configure Taillight
 
-Edit your `config.yaml` (in the `api/` directory):
+Edit your `config.yml` (in the `api/` directory):
 
 ```yaml
 analysis:

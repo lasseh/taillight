@@ -96,9 +96,9 @@ logger -n localhost -P 1514 -d "Test message from $(hostname)"
 
 ## Configuration
 
-Taillight reads configuration from `config.yaml` (searched in `.`, `/etc/taillight`, `/`). Every field can be overridden with an environment variable of the same name (uppercase), resolved via viper's `AutomaticEnv()`.
+Taillight reads configuration from `config.yml` (searched in `.`, `/etc/taillight`, `/`). Every field can be overridden with an environment variable of the same name (uppercase), resolved via viper's `AutomaticEnv()`.
 
-### config.yaml reference
+### config.yml reference
 
 ```yaml
 # PostgreSQL connection string (required).

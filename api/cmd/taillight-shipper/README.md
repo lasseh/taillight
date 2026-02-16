@@ -6,9 +6,9 @@ A log shipping tool that reads log lines from stdin and/or tails log files, forw
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| Stdin pipe | `./app \| taillight-shipper -c config.yaml` | Read lines from a piped process |
-| File follow | `taillight-shipper -c config.yaml` | Tail one or more log files |
-| Both | `./app \| taillight-shipper -c config.yaml -t` | Pipe stdin + tail files simultaneously |
+| Stdin pipe | `./app \| taillight-shipper -c config.yml` | Read lines from a piped process |
+| File follow | `taillight-shipper -c config.yml` | Tail one or more log files |
+| Both | `./app \| taillight-shipper -c config.yml -t` | Pipe stdin + tail files simultaneously |
 
 Stdin is auto-detected. If stdin is connected to a pipe, it is read. If `files` are configured, they are tailed. Both can run at the same time.
 
@@ -21,7 +21,7 @@ make build-shipper
 ## Usage
 
 ```
-taillight-shipper --config <config.yaml> [--tee]
+taillight-shipper --config <config.yml> [--tee]
 ```
 
 | Flag | Short | Description |
@@ -31,7 +31,7 @@ taillight-shipper --config <config.yaml> [--tee]
 
 ## Configuration
 
-See [config.example.yaml](config.example.yaml) for a full example.
+See [config.example.yml](config.example.yml) for a full example.
 
 ```yaml
 endpoint: http://localhost:8080/api/v1/applog/ingest
@@ -102,24 +102,24 @@ On `SIGINT` or `SIGTERM`:
 Ship a process's stdout:
 
 ```sh
-./my-api | taillight-shipper -c config.yaml
+./my-api | taillight-shipper -c config.yml
 ```
 
 Ship stdout while keeping terminal output:
 
 ```sh
-./my-api | taillight-shipper -c config.yaml -t
+./my-api | taillight-shipper -c config.yml -t
 ```
 
 Tail multiple log files (no stdin):
 
 ```sh
-taillight-shipper -c config.yaml
+taillight-shipper -c config.yml
 ```
 
 Pipe stdin and tail files simultaneously:
 
 ```sh
-./my-api | taillight-shipper -c config.yaml -t
-# (with files configured in config.yaml)
+./my-api | taillight-shipper -c config.yml -t
+# (with files configured in config.yml)
 ```
