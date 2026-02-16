@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { VueDatePicker } from '@vuepic/vue-datepicker'
-import '@vuepic/vue-datepicker/dist/main.css'
-import { useTheme } from '@/composables/useTheme'
+import { ref, computed } from 'vue'
+import { onClickOutside } from '@vueuse/core'
 
 const props = defineProps<{
   from: string
@@ -14,26 +12,59 @@ const emit = defineEmits<{
   'update:to': [value: string]
 }>()
 
-const { isDark } = useTheme()
+const open = ref(false)
+const dropdownRef = ref<HTMLElement | null>(null)
+
+onClickOutside(dropdownRef, () => {
+  open.value = false
+})
 
 const hasRange = computed(() => Boolean(props.from || props.to))
 
-const dateRange = computed({
-  get: (): string[] | null => {
-    if (!props.from && !props.to) return null
-    return [props.from || '', props.to || '']
-  },
-  set: (val: string[] | null) => {
-    if (!val || !Array.isArray(val)) {
-      emit('update:from', '')
-      emit('update:to', '')
-      return
-    }
-    const [start, end] = val
-    emit('update:from', start || '')
-    emit('update:to', end || '')
-  },
-})
+const presets = [
+  { label: '15m', ms: 15 * 60 * 1000 },
+  { label: '1h', ms: 60 * 60 * 1000 },
+  { label: '6h', ms: 6 * 60 * 60 * 1000 },
+  { label: '24h', ms: 24 * 60 * 60 * 1000 },
+  { label: '7d', ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: '30d', ms: 30 * 24 * 60 * 60 * 1000 },
+] as const
+
+function applyPreset(ms: number) {
+  const now = new Date()
+  emit('update:from', new Date(now.getTime() - ms).toISOString())
+  emit('update:to', now.toISOString())
+  open.value = false
+}
+
+// datetime-local inputs use "YYYY-MM-DDTHH:mm" in local time
+function isoToLocal(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function localToIso(local: string): string {
+  if (!local) return ''
+  return new Date(local).toISOString()
+}
+
+function onFromInput(e: Event) {
+  const val = (e.target as HTMLInputElement).value
+  emit('update:from', val ? localToIso(val) : '')
+}
+
+function onToInput(e: Event) {
+  const val = (e.target as HTMLInputElement).value
+  emit('update:to', val ? localToIso(val) : '')
+}
+
+function clear() {
+  emit('update:from', '')
+  emit('update:to', '')
+  open.value = false
+}
 
 function formatRange(from: string, to: string): string {
   const fmt = (iso: string) => {
@@ -50,83 +81,105 @@ function formatRange(from: string, to: string): string {
   return 'all time'
 }
 
-function clear() {
-  emit('update:from', '')
-  emit('update:to', '')
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') open.value = false
 }
 </script>
 
 <template>
-  <div class="relative flex items-center gap-1">
-    <span class="text-t-fg-dark text-xs">time</span>
-    <VueDatePicker
-      v-model="dateRange"
-      range
-      enable-time-picker
-      auto-apply
-      model-type="iso"
-      :max-date="new Date()"
-      :dark="isDark"
-      teleport="body"
-      :enable-seconds="false"
-    >
-      <template #dp-input="{}">
-        <button
-          type="button"
-          aria-label="Filter by time range"
-          class="bg-t-bg-dark border-t-border cursor-pointer border px-2 py-0.5 text-left text-xs transition-colors"
-          :class="hasRange ? 'border-t-blue text-t-blue' : 'text-t-fg hover:border-t-terminal'"
-        >
-          {{ formatRange(from, to) }}
-        </button>
-      </template>
-    </VueDatePicker>
-    <button
-      v-if="hasRange"
-      type="button"
-      aria-label="Clear time range"
-      class="text-t-fg-dark hover:text-t-red text-xs"
-      @click="clear"
-    >
-      ✕
-    </button>
+  <div ref="dropdownRef" class="relative" @keydown="onKeydown">
+    <label class="flex items-center gap-1">
+      <span class="text-t-fg-dark text-xs">time</span>
+      <button
+        type="button"
+        aria-label="Filter by time range"
+        :aria-expanded="open"
+        class="bg-t-bg-dark border-t-border cursor-pointer border px-2 py-0.5 text-left text-xs transition-colors"
+        :class="
+          hasRange
+            ? 'border-t-blue text-t-blue'
+            : open
+              ? 'text-t-fg border-t-terminal'
+              : 'text-t-fg hover:border-t-terminal'
+        "
+        @click="open = !open"
+      >
+        {{ formatRange(from, to) }}
+      </button>
+    </label>
+
+    <Transition name="menu">
+      <div
+        v-if="open"
+        class="bg-t-bg-dark border-t-border absolute left-0 top-full z-50 mt-1.5 w-64 rounded border shadow-lg"
+      >
+        <!-- Presets -->
+        <div class="border-t-border flex flex-wrap gap-1.5 border-b px-3 py-2">
+          <button
+            v-for="p in presets"
+            :key="p.label"
+            type="button"
+            class="bg-t-bg-highlight text-t-fg hover:bg-t-bg-hover hover:text-t-blue rounded px-2 py-0.5 text-xs transition-colors"
+            @click="applyPreset(p.ms)"
+          >
+            {{ p.label }}
+          </button>
+        </div>
+
+        <!-- Custom range -->
+        <div class="space-y-2 px-3 py-2">
+          <label class="flex items-center gap-2">
+            <span class="text-t-fg-dark w-8 text-xs">from</span>
+            <input
+              type="datetime-local"
+              :value="isoToLocal(from)"
+              :max="isoToLocal(to) || undefined"
+              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue flex-1 rounded border px-1.5 py-0.5 text-xs outline-none"
+              @input="onFromInput"
+            />
+          </label>
+          <label class="flex items-center gap-2">
+            <span class="text-t-fg-dark w-8 text-xs">to</span>
+            <input
+              type="datetime-local"
+              :value="isoToLocal(to)"
+              :min="isoToLocal(from) || undefined"
+              class="bg-t-bg border-t-border text-t-fg focus:border-t-blue flex-1 rounded border px-1.5 py-0.5 text-xs outline-none"
+              @input="onToInput"
+            />
+          </label>
+        </div>
+
+        <!-- Clear -->
+        <div v-if="hasRange" class="border-t-border border-t px-3 py-2">
+          <button
+            type="button"
+            class="text-t-red text-xs hover:underline"
+            @click="clear"
+          >
+            clear time range
+          </button>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
-<style>
-.dp__theme_dark {
-  --dp-background-color: var(--color-t-bg-dark);
-  --dp-text-color: var(--color-t-fg);
-  --dp-hover-color: var(--color-t-bg-hover);
-  --dp-hover-text-color: var(--color-t-fg);
-  --dp-primary-color: var(--color-t-blue);
-  --dp-primary-text-color: #fff;
-  --dp-secondary-color: var(--color-t-fg-dark);
-  --dp-border-color: var(--color-t-border);
-  --dp-menu-border-color: var(--color-t-border);
-  --dp-border-color-hover: var(--color-t-terminal);
-  --dp-disabled-color: var(--color-t-bg-highlight);
-  --dp-highlight-color: var(--color-t-blue);
-  --dp-range-between-dates-background-color: color-mix(in srgb, var(--color-t-blue) 15%, transparent);
-  --dp-range-between-dates-text-color: var(--color-t-fg);
-  --dp-range-between-border-color: color-mix(in srgb, var(--color-t-blue) 30%, transparent);
+<style scoped>
+.menu-enter-active,
+.menu-leave-active {
+  transition: opacity 0.1s ease, transform 0.1s ease;
 }
 
-.dp__theme_light {
-  --dp-background-color: var(--color-t-bg);
-  --dp-text-color: var(--color-t-fg);
-  --dp-hover-color: var(--color-t-bg-hover);
-  --dp-hover-text-color: var(--color-t-fg);
-  --dp-primary-color: var(--color-t-blue);
-  --dp-primary-text-color: #fff;
-  --dp-secondary-color: var(--color-t-fg-dark);
-  --dp-border-color: var(--color-t-border);
-  --dp-menu-border-color: var(--color-t-border);
-  --dp-border-color-hover: var(--color-t-terminal);
-  --dp-disabled-color: var(--color-t-bg-highlight);
-  --dp-highlight-color: var(--color-t-blue);
-  --dp-range-between-dates-background-color: color-mix(in srgb, var(--color-t-blue) 15%, transparent);
-  --dp-range-between-dates-text-color: var(--color-t-fg);
-  --dp-range-between-border-color: color-mix(in srgb, var(--color-t-blue) 30%, transparent);
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* Style native datetime-local inputs to blend with theme */
+input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  cursor: pointer;
 }
 </style>
