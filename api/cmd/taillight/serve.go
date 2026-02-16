@@ -401,7 +401,7 @@ func setupRouter(
 				r.Post("/auth/login", authHandler.Me)
 				r.Post("/auth/logout", func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+					json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck // Static map encode cannot fail; write error is not recoverable.
 				})
 			})
 		}
@@ -543,10 +543,10 @@ func setupRouter(
 		w.Header().Set("Content-Type", "application/json")
 		if err := store.Ping(r.Context()); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy"}) //nolint:errcheck
+			json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy"}) //nolint:errcheck // Static map encode cannot fail; write error is not recoverable.
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"}) //nolint:errcheck // Static map encode cannot fail; write error is not recoverable.
 	})
 
 	return r
