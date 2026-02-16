@@ -33,7 +33,7 @@ export const useHomeStore = defineStore('home', () => {
   const loaded = ref(false)
   const error = ref<string | null>(null)
   const lastUpdated = ref<Date | null>(null)
-  const range_ = ref('24h')
+  const range_ = ref(localStorage.getItem('home-range') ?? '24h')
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
   let fetchVersion = 0
@@ -107,6 +107,7 @@ export const useHomeStore = defineStore('home', () => {
 
   function setRange(r: string) {
     range_.value = r
+    localStorage.setItem('home-range', r)
     refresh()
   }
 
