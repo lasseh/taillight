@@ -9,6 +9,9 @@ import (
 // Version is set at build time via ldflags.
 var Version = "dev"
 
+// cfgFile is the optional path to the config file, set via --config.
+var cfgFile string
+
 var rootCmd = &cobra.Command{
 	Use:          "taillight",
 	Short:        "Taillight — real-time syslog and application log viewer",
@@ -24,6 +27,8 @@ var versionCmd = &cobra.Command{
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "path to config file (default: config.yml in . or /etc/taillight)")
+
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(migrateCmd)

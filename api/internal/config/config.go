@@ -66,8 +66,10 @@ type AnalysisConfig struct {
 }
 
 // Load reads configuration from config.yml with environment variable overrides.
-// Returns an error if the config file exists but cannot be parsed.
-func Load() (Config, error) {
+// An optional configFile path can be provided to use a specific file instead of
+// searching default locations. Returns an error if the config file exists but
+// cannot be parsed.
+func Load(configFile ...string) (Config, error) {
 	v := viper.New()
 
 	// Defaults.
@@ -102,11 +104,15 @@ func Load() (Config, error) {
 	v.SetDefault("notification.send_timeout", "10s")
 
 	// Config file.
-	v.SetConfigName("config")
-	v.SetConfigType("yml")
-	v.AddConfigPath(".")
-	v.AddConfigPath("/etc/taillight")
-	v.AddConfigPath("/")
+	if len(configFile) > 0 && configFile[0] != "" {
+		v.SetConfigFile(configFile[0])
+	} else {
+		v.SetConfigName("config")
+		v.SetConfigType("yml")
+		v.AddConfigPath(".")
+		v.AddConfigPath("/etc/taillight")
+		v.AddConfigPath("/")
+	}
 
 	if err := v.ReadInConfig(); err != nil {
 		var notFound viper.ConfigFileNotFoundError

@@ -68,7 +68,7 @@ func init() {
 }
 
 func newMigrate() (*migrate.Migrate, error) {
-	cfg, err := config.Load()
+	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}

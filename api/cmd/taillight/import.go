@@ -55,7 +55,7 @@ func runImport(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	cfg, err := config.Load()
+	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}

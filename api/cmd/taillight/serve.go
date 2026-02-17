@@ -42,7 +42,7 @@ var serveCmd = &cobra.Command{
 }
 
 func runServe(_ *cobra.Command, _ []string) error {
-	cfg, err := config.Load()
+	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}

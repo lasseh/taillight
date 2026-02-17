@@ -169,7 +169,7 @@ func runLoadgenSyslog() error {
 }
 
 func runLoadgenSQL() error {
-	cfg, err := config.Load()
+	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
