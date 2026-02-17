@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/lasseh/taillight/pkg/logshipper"
 )
 
 func TestParseLine_JSON(t *testing.T) {
@@ -136,9 +138,9 @@ func TestExtractLevel(t *testing.T) {
 		{name: "WARNING", m: map[string]any{"level": "WARNING"}, want: slog.LevelWarn},
 		{name: "ERROR", m: map[string]any{"level": "ERROR"}, want: slog.LevelError},
 		{name: "TRACE", m: map[string]any{"level": "TRACE"}, want: slog.LevelDebug},
-		{name: "FATAL", m: map[string]any{"level": "FATAL"}, want: slog.LevelError},
-		{name: "CRITICAL", m: map[string]any{"level": "CRITICAL"}, want: slog.LevelError},
-		{name: "PANIC", m: map[string]any{"level": "PANIC"}, want: slog.LevelError},
+		{name: "FATAL", m: map[string]any{"level": "FATAL"}, want: logshipper.LevelFatal},
+		{name: "CRITICAL", m: map[string]any{"level": "CRITICAL"}, want: logshipper.LevelFatal},
+		{name: "PANIC", m: map[string]any{"level": "PANIC"}, want: logshipper.LevelFatal},
 		{name: "unknown defaults to INFO", m: map[string]any{"level": "VERBOSE"}, want: slog.LevelInfo},
 		{name: "missing defaults to INFO", m: map[string]any{}, want: slog.LevelInfo},
 		{name: "non-string defaults to INFO", m: map[string]any{"level": 42}, want: slog.LevelInfo},

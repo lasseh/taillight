@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/lasseh/taillight/pkg/logshipper"
 )
 
 // parseLine attempts to parse a line as JSON. If that fails, it treats the line
@@ -82,7 +84,7 @@ func extractLevel(m map[string]any) slog.Level {
 	case "ERROR":
 		return slog.LevelError
 	case "FATAL", "CRITICAL", "PANIC":
-		return slog.LevelError
+		return logshipper.LevelFatal
 	default:
 		return slog.LevelInfo
 	}

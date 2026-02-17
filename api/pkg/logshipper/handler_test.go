@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -332,5 +333,270 @@ func TestMultiHandler(t *testing.T) {
 	}
 	if received[0].Logs[0].Msg != "multi handler test" {
 		t.Errorf("msg = %q, want %q", received[0].Logs[0].Msg, "multi handler test")
+	}
+}
+
+func TestHandler_LevelMapping(t *testing.T) {
+	var mu sync.Mutex
+	var received []ingestRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req ingestRequest
+		json.Unmarshal(body, &req) //nolint:errcheck
+		mu.Lock()
+		received = append(received, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	h := New(Config{
+		Endpoint:    srv.URL,
+		APIKey:      "test-key",
+		Service:     "test-svc",
+		MinLevel:    slog.LevelDebug,
+		BatchSize:   100,
+		FlushPeriod: 50 * time.Millisecond,
+		BufferSize:  100,
+	})
+
+	logger := slog.New(h)
+	logger.Debug("debug msg")
+	logger.Info("info msg")
+	logger.Warn("warn msg")
+	logger.Error("error msg")
+	logger.Log(context.Background(), LevelFatal, "fatal msg")
+
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Collect all entries.
+	entries := make([]logEntry, 0, len(received)*5)
+	for _, r := range received {
+		entries = append(entries, r.Logs...)
+	}
+
+	if len(entries) != 5 {
+		t.Fatalf("got %d entries, want 5", len(entries))
+	}
+
+	want := []string{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
+	for i, e := range entries {
+		if e.Level != want[i] {
+			t.Errorf("entry[%d].Level = %q, want %q", i, e.Level, want[i])
+		}
+	}
+}
+
+func TestHandler_CustomLevelMapping(t *testing.T) {
+	tests := []struct {
+		level slog.Level
+		want  string
+	}{
+		{slog.LevelDebug - 4, "DEBUG"}, // Custom sub-debug.
+		{slog.LevelDebug, "DEBUG"},
+		{slog.LevelInfo, "INFO"},
+		{slog.LevelInfo + 2, "INFO"}, // Non-canonical, still below WARN threshold.
+		{slog.LevelWarn, "WARN"},
+		{slog.LevelError, "ERROR"},
+		{slog.LevelError + 2, "ERROR"}, // Non-canonical, between ERROR and FATAL.
+		{LevelFatal, "FATAL"},
+		{LevelFatal + 4, "FATAL"}, // Beyond FATAL.
+	}
+
+	for _, tt := range tests {
+		got := levelString(tt.level)
+		if got != tt.want {
+			t.Errorf("levelString(%d) = %q, want %q", tt.level, got, tt.want)
+		}
+	}
+}
+
+func TestHandler_DurationSerialization(t *testing.T) {
+	var mu sync.Mutex
+	var received []ingestRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req ingestRequest
+		json.Unmarshal(body, &req) //nolint:errcheck
+		mu.Lock()
+		received = append(received, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	h := New(Config{
+		Endpoint:    srv.URL,
+		APIKey:      "test-key",
+		Service:     "test-svc",
+		BatchSize:   100,
+		FlushPeriod: 50 * time.Millisecond,
+		BufferSize:  100,
+	})
+
+	logger := slog.New(h)
+	logger.Info("timing", "elapsed", 42*time.Millisecond)
+
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(received) == 0 {
+		t.Fatal("expected at least one batch")
+	}
+
+	entry := received[0].Logs[0]
+	var attrs map[string]any
+	if err := json.Unmarshal(entry.Attrs, &attrs); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
+	}
+
+	elapsed, ok := attrs["elapsed"].(string)
+	if !ok {
+		t.Fatalf("elapsed attr is %T, want string (got %v)", attrs["elapsed"], attrs["elapsed"])
+	}
+	if elapsed != "42ms" {
+		t.Errorf("elapsed = %q, want %q", elapsed, "42ms")
+	}
+}
+
+func TestHandler_StringerSerialization(t *testing.T) {
+	var mu sync.Mutex
+	var received []ingestRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req ingestRequest
+		json.Unmarshal(body, &req) //nolint:errcheck
+		mu.Lock()
+		received = append(received, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	h := New(Config{
+		Endpoint:    srv.URL,
+		APIKey:      "test-key",
+		Service:     "test-svc",
+		BatchSize:   100,
+		FlushPeriod: 50 * time.Millisecond,
+		BufferSize:  100,
+	})
+
+	u, _ := url.Parse("https://example.com/path?q=1")
+	logger := slog.New(h)
+	logger.Info("request", "url", u)
+
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(received) == 0 {
+		t.Fatal("expected at least one batch")
+	}
+
+	entry := received[0].Logs[0]
+	var attrs map[string]any
+	if err := json.Unmarshal(entry.Attrs, &attrs); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
+	}
+
+	urlStr, ok := attrs["url"].(string)
+	if !ok {
+		t.Fatalf("url attr is %T, want string (got %v)", attrs["url"], attrs["url"])
+	}
+	if urlStr != "https://example.com/path?q=1" {
+		t.Errorf("url = %q, want %q", urlStr, "https://example.com/path?q=1")
+	}
+}
+
+func TestHandler_JSONMarshalerPreserved(t *testing.T) {
+	var mu sync.Mutex
+	var received []ingestRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req ingestRequest
+		json.Unmarshal(body, &req) //nolint:errcheck
+		mu.Lock()
+		received = append(received, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	h := New(Config{
+		Endpoint:    srv.URL,
+		APIKey:      "test-key",
+		Service:     "test-svc",
+		BatchSize:   100,
+		FlushPeriod: 50 * time.Millisecond,
+		BufferSize:  100,
+	})
+
+	// time.Time implements both json.Marshaler and fmt.Stringer.
+	// It should keep its JSON form (RFC3339), not use String().
+	ts := time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC)
+	logger := slog.New(h)
+	logger.Info("event", "created_at", ts)
+
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(received) == 0 {
+		t.Fatal("expected at least one batch")
+	}
+
+	entry := received[0].Logs[0]
+	var attrs map[string]any
+	if err := json.Unmarshal(entry.Attrs, &attrs); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
+	}
+
+	// time.Time with json.Marshaler should produce an RFC3339 string.
+	createdAt, ok := attrs["created_at"].(string)
+	if !ok {
+		t.Fatalf("created_at attr is %T, want string (got %v)", attrs["created_at"], attrs["created_at"])
+	}
+	if _, err := time.Parse(time.RFC3339Nano, createdAt); err != nil {
+		t.Errorf("created_at %q is not valid RFC3339: %v", createdAt, err)
+	}
+}
+
+func TestHandler_SendFailedCounter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	h := New(Config{
+		Endpoint:    srv.URL,
+		APIKey:      "test-key",
+		Service:     "test-svc",
+		BatchSize:   5,
+		FlushPeriod: 50 * time.Millisecond,
+		BufferSize:  100,
+	})
+
+	logger := slog.New(h)
+	for range 5 {
+		logger.Info("will fail")
+	}
+
+	// Wait for flush + retry attempts.
+	time.Sleep(300 * time.Millisecond)
+
+	if h.SendFailed() == 0 {
+		t.Error("expected SendFailed > 0")
 	}
 }

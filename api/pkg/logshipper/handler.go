@@ -15,6 +15,10 @@ import (
 	"time"
 )
 
+// LevelFatal is a custom slog level for fatal/critical log entries.
+// Use this when logging events that should be stored as FATAL severity.
+const LevelFatal = slog.Level(12) // slog.LevelError + 4
+
 const (
 	// defaultBatchSize is the default number of log entries per HTTP request.
 	defaultBatchSize = 100
@@ -28,6 +32,23 @@ const (
 	// httpErrorStatusCode is the minimum status code considered an error.
 	httpErrorStatusCode = 400
 )
+
+// levelString maps any slog.Level to one of the five canonical taillight
+// severity strings: DEBUG, INFO, WARN, ERROR, FATAL.
+func levelString(l slog.Level) string {
+	switch {
+	case l >= LevelFatal:
+		return "FATAL"
+	case l >= slog.LevelError:
+		return "ERROR"
+	case l >= slog.LevelWarn:
+		return "WARN"
+	case l >= slog.LevelInfo:
+		return "INFO"
+	default:
+		return "DEBUG"
+	}
+}
 
 // Config configures the logshipper Handler.
 type Config struct {
@@ -61,17 +82,18 @@ func (c *Config) setDefaults() {
 // Handler implements slog.Handler. It buffers log entries and ships them in
 // batches via HTTP POST to the configured ingest endpoint.
 type Handler struct {
-	cfg       Config
-	ch        chan logEntry
-	done      chan struct{}
-	wg        sync.WaitGroup
-	closeOnce sync.Once
-	dropped   atomic.Int64
-	preAttrs  []slog.Attr
-	groups    []string
-	ctx       context.Context
-	cancel    context.CancelFunc
-	logger    *slog.Logger
+	cfg        Config
+	ch         chan logEntry
+	done       chan struct{}
+	wg         sync.WaitGroup
+	closeOnce  sync.Once
+	dropped    atomic.Int64
+	sendFailed atomic.Int64
+	preAttrs   []slog.Attr
+	groups     []string
+	ctx        context.Context
+	cancel     context.CancelFunc
+	logger     *slog.Logger
 }
 
 type logEntry struct {
@@ -116,7 +138,7 @@ func (h *Handler) Enabled(_ context.Context, level slog.Level) bool {
 func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	entry := logEntry{
 		Timestamp: r.Time,
-		Level:     r.Level.String(),
+		Level:     levelString(r.Level),
 		Msg:       r.Message,
 		Service:   h.cfg.Service,
 		Component: h.cfg.Component,
@@ -198,9 +220,15 @@ func (h *Handler) Dropped() int64 {
 	return h.dropped.Load()
 }
 
+// SendFailed returns the number of log entries that failed to send due to HTTP errors.
+func (h *Handler) SendFailed() int64 {
+	return h.sendFailed.Load()
+}
+
 // Shutdown flushes remaining buffered logs and stops the background goroutine.
+// It closes the done channel first to trigger drain, then cancels the context
+// after the loop exits so in-flight sends are not aborted.
 func (h *Handler) Shutdown(ctx context.Context) error {
-	h.cancel()
 	h.closeOnce.Do(func() { close(h.done) })
 
 	finished := make(chan struct{})
@@ -211,8 +239,10 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-finished:
+		h.cancel()
 		return nil
 	case <-ctx.Done():
+		h.cancel()
 		return ctx.Err()
 	}
 }
@@ -230,6 +260,12 @@ func (h *Handler) loop() {
 		}
 		if err := h.send(ctx, batch); err != nil {
 			h.logger.Warn("logshipper send failed", "error", err, "batch_size", len(batch))
+			h.sendFailed.Add(int64(len(batch)))
+			// Cap retained batch to prevent OOM on persistent failures.
+			if len(batch) >= h.cfg.BatchSize*10 {
+				batch = batch[:0]
+			}
+			return
 		}
 		batch = batch[:0]
 	}
@@ -313,10 +349,23 @@ func setAttr(m map[string]any, groups []string, a slog.Attr) {
 		return
 	}
 
+	if a.Value.Kind() == slog.KindDuration {
+		target[a.Key] = a.Value.Duration().String()
+		return
+	}
+
 	v := a.Value.Any()
 	if e, ok := v.(error); ok {
 		target[a.Key] = e.Error()
 		return
+	}
+	// Use String() for fmt.Stringer types that don't implement json.Marshaler,
+	// so types like *url.URL and *regexp.Regexp serialize readably.
+	if _, ok := v.(json.Marshaler); !ok {
+		if s, ok := v.(fmt.Stringer); ok {
+			target[a.Key] = s.String()
+			return
+		}
 	}
 	target[a.Key] = v
 }
