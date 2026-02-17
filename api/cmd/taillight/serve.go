@@ -403,6 +403,7 @@ func setupRouter(
 				r.Get("/auth/keys", authHandler.ListKeys)
 				r.Post("/auth/keys", authHandler.CreateKey)
 				r.Delete("/auth/keys/{id}", authHandler.RevokeKey)
+				r.Post("/auth/sessions/revoke-all", authHandler.LogoutAll)
 
 				// User management — admin scope + handler-level checks (defense-in-depth).
 				r.Group(func(r chi.Router) {
@@ -410,6 +411,7 @@ func setupRouter(
 					r.Get("/auth/users", authHandler.ListUsers)
 					r.Patch("/auth/users/{id}/active", authHandler.SetUserActive)
 					r.Patch("/auth/users/{id}/password", authHandler.UpdateUserPassword)
+					r.Post("/auth/users/{id}/revoke-sessions", authHandler.RevokeUserSessions)
 				})
 			})
 		} else {

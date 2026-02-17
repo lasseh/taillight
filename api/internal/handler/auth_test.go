@@ -225,7 +225,7 @@ func TestLogin(t *testing.T) {
 				cookies := rec.Result().Cookies()
 				found := false
 				for _, c := range cookies {
-					if c.Name == "tl_session" && c.Value != "" {
+					if c.Name == sessionCookieName && c.Value != "" {
 						found = true
 					}
 				}
@@ -255,7 +255,7 @@ func TestLogout(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			cookie:     &http.Cookie{Name: "tl_session", Value: "some-token"},
+			cookie:     &http.Cookie{Name: sessionCookieName, Value: "some-token"},
 			store:      &mockAuthStore{},
 			wantStatus: http.StatusOK,
 		},
@@ -266,7 +266,7 @@ func TestLogout(t *testing.T) {
 		},
 		{
 			name:       "delete session error still clears cookie",
-			cookie:     &http.Cookie{Name: "tl_session", Value: "some-token"},
+			cookie:     &http.Cookie{Name: sessionCookieName, Value: "some-token"},
 			store:      &mockAuthStore{sessionDel: errors.New("db error")},
 			wantStatus: http.StatusOK,
 		},
@@ -291,10 +291,136 @@ func TestLogout(t *testing.T) {
 				// Verify cookie is cleared.
 				cookies := rec.Result().Cookies()
 				for _, c := range cookies {
-					if c.Name == "tl_session" && c.MaxAge != -1 {
+					if c.Name == sessionCookieName && c.MaxAge != -1 {
 						t.Error("expected tl_session cookie MaxAge to be -1")
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestLogoutAll(t *testing.T) {
+	user := &model.User{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, Username: "testuser", IsActive: true}
+
+	tests := []struct {
+		name       string
+		user       *model.User
+		store      *mockAuthStore
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			user:       user,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not authenticated",
+			user:       nil,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "store error",
+			user:       user,
+			store:      &mockAuthStore{delSessErr: errors.New("db error")},
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewAuthHandler(tt.store, false)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/sessions/revoke-all", nil)
+			if tt.user != nil {
+				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
+			}
+			rec := httptest.NewRecorder()
+
+			h.LogoutAll(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("got status %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+
+			if tt.wantStatus == http.StatusOK {
+				// Verify cookie is cleared.
+				for _, c := range rec.Result().Cookies() {
+					if c.Name == sessionCookieName && c.MaxAge != -1 {
+						t.Error("expected tl_session cookie MaxAge to be -1")
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestRevokeUserSessions(t *testing.T) {
+	admin := &model.User{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, Username: "admin", IsAdmin: true, IsActive: true}
+	regular := &model.User{ID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}, Username: "user", IsAdmin: false, IsActive: true}
+
+	tests := []struct {
+		name       string
+		user       *model.User
+		userID     string
+		store      *mockAuthStore
+		wantStatus int
+	}{
+		{
+			name:       "admin success",
+			user:       admin,
+			userID:     "00000002-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not authenticated",
+			user:       nil,
+			userID:     "00000002-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "non-admin forbidden",
+			user:       regular,
+			userID:     "00000001-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "invalid uuid",
+			user:       admin,
+			userID:     "not-a-uuid",
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "store error",
+			user:       admin,
+			userID:     "00000002-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{delSessErr: errors.New("db error")},
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewAuthHandler(tt.store, false)
+
+			r := chi.NewRouter()
+			r.Post("/users/{id}/revoke-sessions", h.RevokeUserSessions)
+
+			req := httptest.NewRequest(http.MethodPost, "/users/"+tt.userID+"/revoke-sessions", nil)
+			if tt.user != nil {
+				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
+			}
+			rec := httptest.NewRecorder()
+
+			r.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("got status %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
 			}
 		})
 	}

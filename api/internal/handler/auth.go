@@ -233,6 +233,63 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
+// LogoutAll handles POST /api/v1/auth/sessions/revoke-all.
+// Revokes all sessions for the authenticated user, including the current one.
+func (h *AuthHandler) LogoutAll(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	if err := h.store.DeleteUserSessions(r.Context(), user.ID.Bytes); err != nil {
+		LoggerFromContext(r.Context()).Error("logout all: delete sessions", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to revoke sessions")
+		return
+	}
+
+	// Clear the current cookie.
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.cookieSecure || isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// RevokeUserSessions handles POST /api/v1/auth/users/{id}/revoke-sessions.
+// Admin-only: revokes all sessions for the specified user.
+func (h *AuthHandler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	if !requireAdmin(w, user) {
+		return
+	}
+
+	id, err := parseUUID(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid user ID")
+		return
+	}
+
+	if err := h.store.DeleteUserSessions(r.Context(), id); err != nil {
+		LoggerFromContext(r.Context()).Error("revoke user sessions", "user_id", formatUUID(id), "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to revoke sessions")
+		return
+	}
+
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
 // Me handles GET /api/v1/auth/me.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
