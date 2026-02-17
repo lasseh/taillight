@@ -52,6 +52,40 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
+// RetentionConfig specifies retention periods for each hypertable.
+type RetentionConfig struct {
+	SyslogDays          int
+	AppLogDays          int
+	NotificationLogDays int
+	RsyslogStatsDays    int
+	MetricsDays         int
+}
+
+// ApplyRetentionPolicies updates TimescaleDB retention policies to match the given config.
+func (s *Store) ApplyRetentionPolicies(ctx context.Context, cfg RetentionConfig) error {
+	tables := []struct {
+		name string
+		days int
+	}{
+		{"syslog_events", cfg.SyslogDays},
+		{"applog_events", cfg.AppLogDays},
+		{"notification_log", cfg.NotificationLogDays},
+		{"rsyslog_stats", cfg.RsyslogStatsDays},
+		{"taillight_metrics", cfg.MetricsDays},
+	}
+
+	for _, t := range tables {
+		interval := fmt.Sprintf("%d days", t.days)
+		if _, err := s.pool.Exec(ctx, "SELECT remove_retention_policy($1, if_exists => true)", t.name); err != nil {
+			return fmt.Errorf("remove retention policy for %s: %w", t.name, err)
+		}
+		if _, err := s.pool.Exec(ctx, "SELECT add_retention_policy($1, INTERVAL '1 day' * $2, if_not_exists => true)", t.name, t.days); err != nil {
+			return fmt.Errorf("add retention policy for %s (%s): %w", t.name, interval, err)
+		}
+	}
+	return nil
+}
+
 // GetSyslog returns a single event by ID.
 func (s *Store) GetSyslog(ctx context.Context, id int64) (model.SyslogEvent, error) {
 	query, args, err := psq.

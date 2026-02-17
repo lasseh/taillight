@@ -70,6 +70,17 @@ func runServe(_ *cobra.Command, _ []string) error {
 	store := postgres.NewStore(pool)
 	authStore := postgres.NewAuthStore(pool)
 
+	// Apply configurable retention policies.
+	if err := store.ApplyRetentionPolicies(ctx, postgres.RetentionConfig{
+		SyslogDays:          cfg.Retention.SyslogDays,
+		AppLogDays:          cfg.Retention.AppLogDays,
+		NotificationLogDays: cfg.Retention.NotificationLogDays,
+		RsyslogStatsDays:    cfg.Retention.RsyslogStatsDays,
+		MetricsDays:         cfg.Retention.MetricsDays,
+	}); err != nil {
+		logger.Warn("failed to apply retention policies", "err", err)
+	}
+
 	// Dedicated LISTEN connection.
 	listener := postgres.NewListener(cfg.DatabaseURL, pool, cfg.NotificationBufferSize, logger)
 	notifications, err := listener.Listen(ctx)

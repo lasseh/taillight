@@ -38,6 +38,15 @@ logshipper:
   min_level: "warn"      # Only ship warn and above to avoid feedback loops (debug, info, warn, error).
   # api_key: "changeme"  # Must match an entry in api_keys if auth is enabled.
 
+# Data retention periods (in days). Applied on startup as TimescaleDB retention policies.
+# Minimum 1 day. Defaults match the migration-level policies.
+retention:
+  syslog_days: 90
+  applog_days: 90
+  notification_log_days: 30
+  rsyslog_stats_days: 30
+  metrics_days: 30
+
 # Notification system — alert operators when log events match configurable rules.
 # Channels (Slack, webhooks) and rules are managed via the API or the ALERTS UI tab.
 notification:

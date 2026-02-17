@@ -27,6 +27,17 @@ type Config struct {
 	LogShipper             LogShipperConfig
 	Analysis               AnalysisConfig
 	Notification           NotificationConfig
+	Retention              RetentionConfig
+}
+
+// RetentionConfig controls how long data is kept in each hypertable.
+// Values are in days. Minimum 1 day to prevent accidental data loss.
+type RetentionConfig struct {
+	SyslogDays          int // Default 90.
+	AppLogDays          int // Default 90.
+	NotificationLogDays int // Default 30.
+	RsyslogStatsDays    int // Default 30.
+	MetricsDays         int // Default 30.
 }
 
 // NotificationConfig configures the pluggable notification engine.
@@ -94,6 +105,11 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("analysis.temperature", 0.3)
 	v.SetDefault("analysis.num_ctx", 8192)
 	v.SetDefault("analysis.schedule_at", "03:00")
+	v.SetDefault("retention.syslog_days", 90)
+	v.SetDefault("retention.applog_days", 90)
+	v.SetDefault("retention.notification_log_days", 30)
+	v.SetDefault("retention.rsyslog_stats_days", 30)
+	v.SetDefault("retention.metrics_days", 30)
 	v.SetDefault("notification.enabled", false)
 	v.SetDefault("notification.rule_refresh_interval", "30s")
 	v.SetDefault("notification.dispatch_workers", 4)
@@ -165,6 +181,13 @@ func Load(configFile ...string) (Config, error) {
 			DefaultCooldown:     v.GetDuration("notification.default_cooldown"),
 			DefaultMaxCooldown:  v.GetDuration("notification.default_max_cooldown"),
 			SendTimeout:         v.GetDuration("notification.send_timeout"),
+		},
+		Retention: RetentionConfig{
+			SyslogDays:          max(v.GetInt("retention.syslog_days"), 1),
+			AppLogDays:          max(v.GetInt("retention.applog_days"), 1),
+			NotificationLogDays: max(v.GetInt("retention.notification_log_days"), 1),
+			RsyslogStatsDays:    max(v.GetInt("retention.rsyslog_stats_days"), 1),
+			MetricsDays:         max(v.GetInt("retention.metrics_days"), 1),
 		},
 	}, nil
 }
