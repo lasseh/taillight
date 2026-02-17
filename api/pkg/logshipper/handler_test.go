@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -598,5 +599,95 @@ func TestHandler_SendFailedCounter(t *testing.T) {
 
 	if h.SendFailed() == 0 {
 		t.Error("expected SendFailed > 0")
+	}
+}
+
+func TestHandler_AddSource(t *testing.T) {
+	var mu sync.Mutex
+	var received []ingestRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req ingestRequest
+		json.Unmarshal(body, &req) //nolint:errcheck
+		mu.Lock()
+		received = append(received, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	h := New(Config{
+		Endpoint:    srv.URL,
+		APIKey:      "test-key",
+		Service:     "test-svc",
+		AddSource:   true,
+		BatchSize:   100,
+		FlushPeriod: 50 * time.Millisecond,
+		BufferSize:  100,
+	})
+
+	logger := slog.New(h)
+	logger.Info("source test") // This line's file:line should appear in Source.
+
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(received) == 0 {
+		t.Fatal("expected at least one batch")
+	}
+
+	entry := received[0].Logs[0]
+	if entry.Source == "" {
+		t.Fatal("expected source to be populated")
+	}
+	// Should point to this test file.
+	if !strings.Contains(entry.Source, "handler_test.go:") {
+		t.Errorf("source = %q, want it to contain handler_test.go:", entry.Source)
+	}
+}
+
+func TestHandler_AddSourceDisabled(t *testing.T) {
+	var mu sync.Mutex
+	var received []ingestRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req ingestRequest
+		json.Unmarshal(body, &req) //nolint:errcheck
+		mu.Lock()
+		received = append(received, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	h := New(Config{
+		Endpoint:    srv.URL,
+		APIKey:      "test-key",
+		Service:     "test-svc",
+		AddSource:   false,
+		BatchSize:   100,
+		FlushPeriod: 50 * time.Millisecond,
+		BufferSize:  100,
+	})
+
+	logger := slog.New(h)
+	logger.Info("no source")
+
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(received) == 0 {
+		t.Fatal("expected at least one batch")
+	}
+
+	entry := received[0].Logs[0]
+	if entry.Source != "" {
+		t.Errorf("expected empty source, got %q", entry.Source)
 	}
 }

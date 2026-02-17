@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,6 +58,7 @@ type Config struct {
 	Service     string        // Populates the service field for all entries.
 	Component   string        // Optional component field.
 	Host        string        // Optional host/instance identifier.
+	AddSource   bool          // Include source file:line from the calling function.
 	MinLevel    slog.Level    // Minimum level to ship (default: DEBUG, i.e. ship everything).
 	BatchSize   int           // Flush when batch reaches this size.
 	FlushPeriod time.Duration // Flush at least this often.
@@ -159,13 +161,22 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		return true
 	})
 
-	// Extract source if present.
-	if src, ok := attrs[slog.SourceKey]; ok {
-		if s, ok := src.(*slog.Source); ok {
-			entry.Source = fmt.Sprintf("%s:%d", s.File, s.Line)
-			delete(attrs, slog.SourceKey)
+	// Resolve source from the record's program counter.
+	if h.cfg.AddSource && r.PC != 0 {
+		fs := runtime.CallersFrames([]uintptr{r.PC})
+		f, _ := fs.Next()
+		entry.Source = fmt.Sprintf("%s:%d", f.File, f.Line)
+	}
+
+	// Extract source from attrs if not already set (e.g. from a wrapping handler).
+	if entry.Source == "" {
+		if src, ok := attrs[slog.SourceKey]; ok {
+			if s, ok := src.(*slog.Source); ok {
+				entry.Source = fmt.Sprintf("%s:%d", s.File, s.Line)
+			}
 		}
 	}
+	delete(attrs, slog.SourceKey)
 
 	if len(attrs) > 0 {
 		raw, err := json.Marshal(attrs)
