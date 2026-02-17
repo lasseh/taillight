@@ -133,7 +133,7 @@ func (h *AppLogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 	// Default: send recent matching events.
 	recent, _, err := h.store.ListAppLogs(r.Context(), filter, nil, applogSSEBackfillLimit)
 	if err != nil {
-		logger.Warn("applog backfill failed", "err", err)
+		logger.Warn("applog backfill failed", "err", err, "service", filter.Service, "host", filter.Host, "level", filter.Level)
 		return 0
 	}
 	// Send in chronological order (oldest first).

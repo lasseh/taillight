@@ -135,7 +135,7 @@ func (h *SyslogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 	// Default: send recent matching events.
 	recent, _, err := h.store.ListSyslogs(r.Context(), filter, nil, sseBackfillLimit)
 	if err != nil {
-		logger.Warn("syslog backfill failed", "err", err)
+		logger.Warn("syslog backfill failed", "err", err, "hostname", filter.Hostname, "programname", filter.Programname, "severity", filter.Severity)
 		return 0
 	}
 	// Send in chronological order (oldest first).

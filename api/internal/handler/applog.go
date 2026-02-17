@@ -38,7 +38,13 @@ func (h *AppLogHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	events, nextCursor, err := h.store.ListAppLogs(r.Context(), filter, cursor, limit)
 	if err != nil {
-		LoggerFromContext(r.Context()).Error("list applogs failed", "err", err)
+		LoggerFromContext(r.Context()).Error("list applogs failed",
+			"err", err,
+			"service", filter.Service,
+			"host", filter.Host,
+			"level", filter.Level,
+			"search", filter.Search,
+		)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query log events")
 		return
 	}

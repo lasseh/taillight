@@ -37,7 +37,7 @@ func (h *RsyslogStatsHandler) Summary(w http.ResponseWriter, r *http.Request) {
 
 	summary, err := h.store.GetRsyslogStatsSummary(r.Context(), rangeDur)
 	if err != nil {
-		LoggerFromContext(r.Context()).Error("get rsyslog stats summary failed", "err", err)
+		LoggerFromContext(r.Context()).Error("get rsyslog stats summary failed", "err", err, "range", rangeDur)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query rsyslog stats summary")
 		return
 	}
@@ -60,7 +60,7 @@ func (h *RsyslogStatsHandler) Volume(w http.ResponseWriter, r *http.Request) {
 
 	series, err := h.store.GetRsyslogStatsTimeSeries(r.Context(), field, params.Interval, params.RangeDur)
 	if err != nil {
-		LoggerFromContext(r.Context()).Error("get rsyslog stats volume failed", "err", err)
+		LoggerFromContext(r.Context()).Error("get rsyslog stats volume failed", "err", err, "field", field, "interval", params.Interval, "range", params.RangeDur)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query rsyslog stats volume")
 		return
 	}

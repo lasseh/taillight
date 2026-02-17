@@ -313,7 +313,12 @@ func setAttr(m map[string]any, groups []string, a slog.Attr) {
 		return
 	}
 
-	target[a.Key] = a.Value.Any()
+	v := a.Value.Any()
+	if e, ok := v.(error); ok {
+		target[a.Key] = e.Error()
+		return
+	}
+	target[a.Key] = v
 }
 
 func cloneAttrs(attrs []slog.Attr) []slog.Attr {

@@ -36,7 +36,7 @@ func (h *StatsHandler) Volume(w http.ResponseWriter, r *http.Request) {
 
 	buckets, err := h.store.GetVolume(r.Context(), params.Interval, params.RangeDur)
 	if err != nil {
-		LoggerFromContext(r.Context()).Error("get volume failed", "err", err)
+		LoggerFromContext(r.Context()).Error("get volume failed", "err", err, "interval", params.Interval, "range", params.RangeDur)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query volume")
 		return
 	}
@@ -54,7 +54,7 @@ func (h *StatsHandler) AppLogVolume(w http.ResponseWriter, r *http.Request) {
 
 	buckets, err := h.store.GetAppLogVolume(r.Context(), params.Interval, params.RangeDur)
 	if err != nil {
-		LoggerFromContext(r.Context()).Error("get applog volume failed", "err", err)
+		LoggerFromContext(r.Context()).Error("get applog volume failed", "err", err, "interval", params.Interval, "range", params.RangeDur)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query applog volume")
 		return
 	}
@@ -72,7 +72,7 @@ func (h *StatsHandler) SyslogSummary(w http.ResponseWriter, r *http.Request) {
 
 	summary, err := h.store.GetSyslogSummary(r.Context(), rangeDur)
 	if err != nil {
-		LoggerFromContext(r.Context()).Error("get syslog summary failed", "err", err)
+		LoggerFromContext(r.Context()).Error("get syslog summary failed", "err", err, "range", rangeDur)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query syslog summary")
 		return
 	}
@@ -90,7 +90,7 @@ func (h *StatsHandler) AppLogSummary(w http.ResponseWriter, r *http.Request) {
 
 	summary, err := h.store.GetAppLogSummary(r.Context(), rangeDur)
 	if err != nil {
-		LoggerFromContext(r.Context()).Error("get applog summary failed", "err", err)
+		LoggerFromContext(r.Context()).Error("get applog summary failed", "err", err, "range", rangeDur)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query applog summary")
 		return
 	}

@@ -38,7 +38,14 @@ func (h *SyslogHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	events, nextCursor, err := h.store.ListSyslogs(r.Context(), filter, cursor, limit)
 	if err != nil {
-		LoggerFromContext(r.Context()).Error("list syslogs failed", "err", err)
+		LoggerFromContext(r.Context()).Error("list syslogs failed",
+			"err", err,
+			"hostname", filter.Hostname,
+			"programname", filter.Programname,
+			"severity", filter.Severity,
+			"facility", filter.Facility,
+			"search", filter.Search,
+		)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query events")
 		return
 	}

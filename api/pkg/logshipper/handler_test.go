@@ -3,6 +3,7 @@ package logshipper
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -210,6 +211,60 @@ func TestHandler_WithAttrs(t *testing.T) {
 	}
 	if attrs["extra"] != "value" {
 		t.Errorf("extra = %v, want %q", attrs["extra"], "value")
+	}
+}
+
+func TestHandler_ErrorSerialization(t *testing.T) {
+	var mu sync.Mutex
+	var received []ingestRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req ingestRequest
+		json.Unmarshal(body, &req) //nolint:errcheck
+		mu.Lock()
+		received = append(received, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	h := New(Config{
+		Endpoint:    srv.URL,
+		APIKey:      "test-key",
+		Service:     "test-svc",
+		BatchSize:   100,
+		FlushPeriod: 50 * time.Millisecond,
+		BufferSize:  100,
+	})
+
+	logger := slog.New(h)
+
+	// Log an error value — this should serialize as the error string, not {}.
+	testErr := fmt.Errorf("connection refused: %w", io.ErrUnexpectedEOF)
+	logger.Error("query failed", "err", testErr)
+
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(received) == 0 {
+		t.Fatal("expected at least one batch")
+	}
+
+	entry := received[0].Logs[0]
+	var attrs map[string]any
+	if err := json.Unmarshal(entry.Attrs, &attrs); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
+	}
+
+	errVal, ok := attrs["err"].(string)
+	if !ok {
+		t.Fatalf("err attr is %T, want string (got %v)", attrs["err"], attrs["err"])
+	}
+	if errVal != testErr.Error() {
+		t.Errorf("err = %q, want %q", errVal, testErr.Error())
 	}
 }
 
