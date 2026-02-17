@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T extends { id: number }">
-import { ref, watch, nextTick, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
+import { ref, watch, nextTick, provide, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useScrollStore } from '@/stores/scroll'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
@@ -16,6 +16,10 @@ const props = defineProps<{
 const scrollStore = useScrollStore()
 const scrollEl = ref<HTMLElement | null>(null)
 const isPinned = ref(true)
+
+// Collapse signal: row components watch this and collapse when it increments.
+const collapseSignal = ref(0)
+provide('collapseSignal', collapseSignal)
 
 function preserveScrollForPrepend(mutate: () => void) {
   const el = scrollEl.value
@@ -49,6 +53,11 @@ function onScroll() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  if (e.code === 'Escape') {
+    collapseSignal.value++
+    scrollToBottom()
+    return
+  }
   if (e.code !== 'Space') return
   const tag = (e.target as HTMLElement)?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return

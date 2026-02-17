@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, toRef } from 'vue'
+import { ref, computed, nextTick, toRef, inject, watch } from 'vue'
+import type { Ref } from 'vue'
 import type { AppLogEvent } from '@/types/applog'
 import { levelColorClass, levelBgClass } from '@/lib/applog-constants'
 import { formatTime, formatAttrs, truncate } from '@/lib/format'
@@ -14,6 +15,10 @@ const props = defineProps<{
 
 const expanded = ref(false)
 const rowEl = ref<HTMLElement | null>(null)
+const collapseSignal = inject<Ref<number>>('collapseSignal')
+if (collapseSignal) {
+  watch(collapseSignal, () => { expanded.value = false })
+}
 
 function toggle() {
   expanded.value = !expanded.value
