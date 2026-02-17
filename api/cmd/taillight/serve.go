@@ -190,6 +190,7 @@ func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler) {
 			Service:     cfg.LogShipper.Service,
 			Component:   cfg.LogShipper.Component,
 			Host:        host,
+			AddSource:   true,
 			MinLevel:    cfg.LogShipper.MinLevel,
 			BatchSize:   cfg.LogShipper.BatchSize,
 			FlushPeriod: cfg.LogShipper.FlushPeriod,
