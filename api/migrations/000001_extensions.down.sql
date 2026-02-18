@@ -1,0 +1,2 @@
+-- Extensions are not dropped: they may be shared across schemas or require
+-- superuser privileges. Remove them manually if needed.
