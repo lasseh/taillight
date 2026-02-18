@@ -125,7 +125,7 @@ onUnmounted(() => {
         class="text-t-yellow hover:text-t-fg absolute left-1/2 -translate-x-1/2 text-xs transition-colors"
         @click="scrollStore.triggerJump(String(route.name))"
       >
-        paused{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to latest (space)
+        paused{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to latest (esc)
       </button>
     </div>
   </div>

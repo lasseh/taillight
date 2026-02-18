@@ -53,15 +53,8 @@ function onScroll() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.code === 'Escape') {
-    collapseSignal.value++
-    scrollToBottom()
-    return
-  }
-  if (e.code !== 'Space') return
-  const tag = (e.target as HTMLElement)?.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return
-  e.preventDefault()
+  if (e.code !== 'Escape') return
+  collapseSignal.value++
   scrollToBottom()
 }
 
