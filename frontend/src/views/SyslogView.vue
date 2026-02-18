@@ -133,46 +133,49 @@ watch(() => props.id, async (id) => {
           <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
             Details
           </h3>
-          <dl class="grid grid-cols-[auto_1fr] text-sm">
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">received</dt>
-            <dd class="text-t-fg border-t-border border-b px-4 py-1.5 font-mono">{{ formatDateTime(event.received_at) }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">reported</dt>
-            <dd class="text-t-fg border-t-border border-b px-4 py-1.5 font-mono">{{ formatDateTime(event.reported_at) }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">hostname</dt>
-            <dd class="text-t-teal border-t-border border-b px-4 py-1.5 font-mono">
+          <div class="divide-t-border divide-y text-sm">
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">received</span>
+              <span class="text-t-fg font-mono">{{ formatDateTime(event.received_at) }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">reported</span>
+              <span class="text-t-fg font-mono">{{ formatDateTime(event.reported_at) }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">hostname</span>
               <RouterLink
                 :to="{ name: 'device-detail', params: { hostname: event.hostname } }"
-                class="hover:underline"
+                class="text-t-teal font-mono hover:underline"
               >
                 {{ event.hostname || '–' }} <span class="text-t-fg-dark text-xs">&rarr;</span>
               </RouterLink>
-            </dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">ip</dt>
-            <dd class="text-t-blue border-t-border border-b px-4 py-1.5 font-mono">{{ event.fromhost_ip || '–' }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">program</dt>
-            <dd class="text-t-purple border-t-border border-b px-4 py-1.5 font-mono">{{ event.programname || '–' }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">tag</dt>
-            <dd class="text-t-fg border-t-border border-b px-4 py-1.5 font-mono">{{ event.syslogtag || '–' }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">msgid</dt>
-            <dd class="text-t-fg border-t-border border-b px-4 py-1.5 font-mono">{{ event.msgid || '–' }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">severity</dt>
-            <dd class="border-t-border border-b px-4 py-1.5 font-mono" :class="sevClass">
-              {{ event.severity_label }} ({{ event.severity }})
-            </dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">facility</dt>
-            <dd class="text-t-orange border-t-border border-b px-4 py-1.5 font-mono">
-              {{ event.facility_label }} ({{ event.facility }})
-            </dd>
-
-          </dl>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">ip</span>
+              <span class="text-t-blue font-mono">{{ event.fromhost_ip || '–' }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">program</span>
+              <span class="text-t-purple font-mono">{{ event.programname || '–' }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">tag</span>
+              <span class="text-t-fg font-mono">{{ event.syslogtag || '–' }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">msgid</span>
+              <span class="text-t-fg font-mono">{{ event.msgid || '–' }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">severity</span>
+              <span class="font-mono" :class="sevClass">{{ event.severity_label }} ({{ event.severity }})</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">facility</span>
+              <span class="text-t-orange font-mono">{{ event.facility_label }} ({{ event.facility }})</span>
+            </div>
+          </div>
         </div>
 
         <!-- Structured data -->
