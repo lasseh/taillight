@@ -102,27 +102,33 @@ onUnmounted(() => {
           <h1 class="text-t-teal text-lg font-semibold font-mono">{{ summary.hostname }}</h1>
         </div>
 
-        <!-- Info panel -->
-        <div class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
-            Overview (7 days)
-          </h3>
-          <dl class="grid grid-cols-[auto_1fr] text-sm">
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">last log</dt>
-            <dd class="border-t-border border-b px-4 py-1.5 font-mono" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
-              {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never' }}
-            </dd>
+        <!-- Overview + Severity breakdown -->
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <!-- Info panel -->
+          <div class="bg-t-bg-dark border-t-border rounded border">
+            <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+              Overview (7 days)
+            </h3>
+            <dl class="grid grid-cols-[auto_1fr] text-sm">
+              <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">last log</dt>
+              <dd class="border-t-border border-b px-4 py-1.5 font-mono" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
+                {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never' }}
+              </dd>
 
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">total logs</dt>
-            <dd class="text-t-teal border-t-border border-b px-4 py-1.5 font-mono">
-              {{ formatNumber(summary.total_count) }}
-            </dd>
+              <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">total logs</dt>
+              <dd class="text-t-teal border-t-border border-b px-4 py-1.5 font-mono">
+                {{ formatNumber(summary.total_count) }}
+              </dd>
 
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">critical logs</dt>
-            <dd class="border-t-border border-b px-4 py-1.5 font-mono" :class="summary.critical_count > 0 ? 'text-sev-err' : 'text-t-fg'">
-              {{ formatNumber(summary.critical_count) }}
-            </dd>
-          </dl>
+              <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">critical logs</dt>
+              <dd class="border-t-border border-b px-4 py-1.5 font-mono" :class="summary.critical_count > 0 ? 'text-sev-err' : 'text-t-fg'">
+                {{ formatNumber(summary.critical_count) }}
+              </dd>
+            </dl>
+          </div>
+
+          <!-- Severity breakdown -->
+          <SeverityDistribution v-if="summary.severity_breakdown.length > 0" :items="summary.severity_breakdown" title="Severity Breakdown" />
         </div>
 
         <!-- Top messages -->
@@ -145,9 +151,6 @@ onUnmounted(() => {
             </RouterLink>
           </div>
         </div>
-
-        <!-- Severity breakdown -->
-        <SeverityDistribution v-if="summary.severity_breakdown.length > 0" :items="summary.severity_breakdown" title="Severity Breakdown" />
 
         <!-- Logs tabs -->
         <div class="bg-t-bg-dark border-t-border rounded border">
