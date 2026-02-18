@@ -127,34 +127,50 @@ watch(
 // Track the newest event ID so we can count new arrivals even when the
 // buffer trims and the array length stays at MAX_EVENTS.
 let _lastTailId = 0
+let _lastHeadId = 0
 watch(
   () => props.events,
-  (evts) => {
+  (evts, oldEvts) => {
     const el = scrollEl.value
+    const first = evts[0]
     const last = evts[evts.length - 1]
     const tailId = last ? last.id : 0
+    const headId = first ? first.id : 0
 
     if (isPinned.value) {
       _lastTailId = tailId
+      _lastHeadId = headId
       nextTick(() => {
         if (el) el.scrollTop = el.scrollHeight
       })
       return
     }
 
-    // A new event was appended if the tail ID advanced.
+    // Count new arrivals while paused.
     if (tailId > _lastTailId && _lastTailId > 0) {
       scrollStore.addNewEvents(props.routeName, 1)
     }
-    _lastTailId = tailId
 
-    // Preserve scroll position: capture pre-DOM height, adjust after render.
-    if (el) {
-      const prevHeight = el.scrollHeight
-      const prevTop = el.scrollTop
-      nextTick(() => {
-        el.scrollTop = el.scrollHeight - prevHeight + prevTop
-      })
+    // Detect items trimmed from the top of the buffer.
+    const wasTrimmed = _lastHeadId > 0 && headId > _lastHeadId
+
+    _lastTailId = tailId
+    _lastHeadId = headId
+
+    // Only adjust scroll when items were trimmed from the top.
+    // For pure appends, the browser preserves scrollTop naturally.
+    if (el && wasTrimmed && oldEvts && oldEvts.length > 0) {
+      const trimCount = oldEvts.findIndex(e => e.id >= headId)
+      if (trimCount > 0) {
+        let removedHeight = 0
+        for (let i = 0; i < Math.min(trimCount, el.children.length); i++) {
+          removedHeight += (el.children[i] as HTMLElement).offsetHeight
+        }
+        const prevTop = el.scrollTop
+        nextTick(() => {
+          el.scrollTop = Math.max(0, prevTop - removedHeight)
+        })
+      }
     }
   },
   { flush: 'sync' },
