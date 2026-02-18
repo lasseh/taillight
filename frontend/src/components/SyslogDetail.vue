@@ -36,6 +36,8 @@ const copyText = computed(() => {
 })
 
 function onCopy(e: ClipboardEvent) {
+  const sel = window.getSelection()?.toString() ?? ''
+  if (!sel.includes('\n')) return // single field: use browser default
   e.preventDefault()
   e.clipboardData?.setData('text/plain', copyText.value)
 }
