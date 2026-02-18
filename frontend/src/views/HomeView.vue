@@ -220,9 +220,10 @@ function getSeverityBgClass(level: string): string {
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
               <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Hosts</h3>
               <div ref="hostsListEl" class="min-h-[120px] flex-1 space-y-2 overflow-hidden">
-                <div
+                <RouterLink
                   v-for="(host, idx) in visibleHosts"
                   :key="host.name"
+                  :to="{ name: 'device-detail', params: { hostname: host.name } }"
                   class="group flex cursor-pointer items-center gap-2"
                 >
                   <span class="text-t-fg-dark w-4 text-xs">{{ idx + 1 }}.</span>
@@ -235,7 +236,7 @@ function getSeverityBgClass(level: string): string {
                   </div>
                   <span class="text-t-fg-dark w-8 text-right text-xs">{{ host.pct.toFixed(0) }}%</span>
                   <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(host.count) }}</span>
-                </div>
+                </RouterLink>
               </div>
             </div>
           </div>
@@ -338,9 +339,10 @@ function getSeverityBgClass(level: string): string {
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
               <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Services</h3>
               <div ref="servicesListEl" class="min-h-[120px] flex-1 space-y-2 overflow-hidden">
-                <div
+                <RouterLink
                   v-for="(service, idx) in visibleServices"
                   :key="service.name"
+                  :to="{ name: 'applog', query: { service: service.name } }"
                   class="group flex cursor-pointer items-center gap-2"
                 >
                   <span class="text-t-fg-dark w-4 text-xs">{{ idx + 1 }}.</span>
@@ -353,7 +355,7 @@ function getSeverityBgClass(level: string): string {
                   </div>
                   <span class="text-t-fg-dark w-8 text-right text-xs">{{ service.pct.toFixed(0) }}%</span>
                   <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(service.count) }}</span>
-                </div>
+                </RouterLink>
               </div>
             </div>
           </div>
