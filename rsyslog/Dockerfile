@@ -11,9 +11,6 @@ COPY rsyslog.conf /etc/rsyslog.conf
 COPY conf.d/ /etc/rsyslog.d/conf.d/
 COPY filters/ /etc/rsyslog.d/filters/
 
-# Remove company-specific filters not used in Docker
-RUN rm -f /etc/rsyslog.d/filters/06-ui-commit-trigger.conf
-
 # Create spool and log directories
 RUN mkdir -p /var/spool/rsyslog /var/log/network
 
