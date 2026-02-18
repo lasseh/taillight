@@ -28,6 +28,18 @@ const highlightedRaw = computed(() =>
   props.event.raw_message ? highlight(props.event.raw_message) : '',
 )
 
+const copyText = computed(() => {
+  const lines = fields.map((f) => `${f.label}: ${props.event[f.key] ?? '–'}`)
+  lines.push(`message: ${props.event.message}`)
+  if (props.event.raw_message) lines.push(`raw message: ${props.event.raw_message}`)
+  return lines.join('\n')
+})
+
+function onCopy(e: ClipboardEvent) {
+  e.preventDefault()
+  e.clipboardData?.setData('text/plain', copyText.value)
+}
+
 function fieldColor(field: (typeof fields)[number]): string {
   if (field.key === 'severity_label') return sevClass
   return field.color ?? 'text-t-fg'
@@ -38,6 +50,7 @@ function fieldColor(field: (typeof fields)[number]): string {
   <div
     class="bg-t-bg-dark relative border mx-2 my-1 rounded py-1.5 pl-4 pr-4"
     :class="borderClass"
+    @copy="onCopy"
   >
     <!-- permalink -->
     <RouterLink

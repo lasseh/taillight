@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { AppLogEvent } from '@/types/applog'
 import { levelBorderClass, levelColorClass } from '@/lib/applog-constants'
 import { highlightAttrs } from '@/lib/format'
@@ -20,6 +21,19 @@ const fields: { label: string; key: keyof AppLogEvent; color?: string }[] = [
 const borderClass = levelBorderClass[props.event.level] ?? 'border-t-border'
 const lvlClass = levelColorClass[props.event.level] ?? 'text-t-fg'
 
+const copyText = computed(() => {
+  const lines = fields.map((f) => `${f.label}: ${props.event[f.key] ?? '–'}`)
+  lines.push(`message: ${props.event.msg}`)
+  if (props.event.attrs && Object.keys(props.event.attrs).length > 0)
+    lines.push(`attrs: ${JSON.stringify(props.event.attrs, null, 2)}`)
+  return lines.join('\n')
+})
+
+function onCopy(e: ClipboardEvent) {
+  e.preventDefault()
+  e.clipboardData?.setData('text/plain', copyText.value)
+}
+
 function fieldColor(field: (typeof fields)[number]): string {
   if (field.key === 'level') return lvlClass
   return field.color ?? 'text-t-fg'
@@ -31,6 +45,7 @@ function fieldColor(field: (typeof fields)[number]): string {
   <div
     class="bg-t-bg-dark relative border mx-2 my-1 rounded py-1.5 pl-4 pr-4"
     :class="borderClass"
+    @copy="onCopy"
   >
     <!-- permalink -->
     <RouterLink
