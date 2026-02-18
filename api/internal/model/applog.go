@@ -92,8 +92,12 @@ func (f AppLogFilter) Matches(e AppLogEvent) bool {
 			return false
 		}
 	}
-	if f.Search != "" && !strings.Contains(strings.ToLower(e.Msg), strings.ToLower(f.Search)) {
-		return false
+	if f.Search != "" {
+		lower := strings.ToLower(f.Search)
+		if !strings.Contains(strings.ToLower(e.Msg), lower) &&
+			!strings.Contains(strings.ToLower(string(e.Attrs)), lower) {
+			return false
+		}
 	}
 	return true
 }

@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS applog_events (
         to_tsvector('simple', coalesce(service,'') || ' ' ||
                               coalesce(component,'') || ' ' ||
                               coalesce(host,'') || ' ' ||
-                              coalesce(msg,''))
+                              coalesce(msg,'') || ' ' ||
+                              coalesce(attrs::text,''))
     ) STORED
 ) WITH (
     tsdb.hypertable,
