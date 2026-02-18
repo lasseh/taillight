@@ -119,37 +119,43 @@ watch(() => props.id, async (id) => {
           <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
             Details
           </h3>
-          <dl class="grid grid-cols-[auto_1fr] text-sm">
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">received</dt>
-            <dd class="text-t-fg border-t-border border-b px-4 py-1.5 font-mono">{{ formatDateTime(event.received_at) }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">timestamp</dt>
-            <dd class="text-t-fg border-t-border border-b px-4 py-1.5 font-mono">{{ formatDateTime(event.timestamp) }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">level</dt>
-            <dd class="border-t-border border-b px-4 py-1.5 font-mono" :class="lvlClass">{{ event.level }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">host</dt>
-            <dd class="border-t-border border-b px-4 py-1.5 font-mono">
+          <div class="divide-t-border divide-y text-sm">
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">received</span>
+              <span class="text-t-fg font-mono">{{ formatDateTime(event.received_at) }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">timestamp</span>
+              <span class="text-t-fg font-mono">{{ formatDateTime(event.timestamp) }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">level</span>
+              <span class="font-mono" :class="lvlClass">{{ event.level }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">host</span>
               <RouterLink
                 v-if="event.host"
                 :to="{ name: 'applog-device-detail', params: { hostname: event.host } }"
-                class="text-t-teal hover:underline"
+                class="text-t-teal font-mono hover:underline"
               >
                 {{ event.host }} <span class="text-t-fg-dark text-xs">&rarr;</span>
               </RouterLink>
-              <span v-else class="text-t-teal">–</span>
-            </dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">service</dt>
-            <dd class="text-t-purple border-t-border border-b px-4 py-1.5 font-mono">{{ event.service || '–' }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">component</dt>
-            <dd class="text-t-yellow border-t-border border-b px-4 py-1.5 font-mono">{{ event.component || '–' }}</dd>
-
-            <dt class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-right">source</dt>
-            <dd class="text-t-blue border-t-border border-b px-4 py-1.5 font-mono">{{ event.source || '–' }}</dd>
-          </dl>
+              <span v-else class="text-t-teal font-mono">–</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">service</span>
+              <span class="text-t-purple font-mono">{{ event.service || '–' }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">component</span>
+              <span class="text-t-yellow font-mono">{{ event.component || '–' }}</span>
+            </div>
+            <div class="flex gap-2 px-4 py-1.5">
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">source</span>
+              <span class="text-t-blue font-mono">{{ event.source || '–' }}</span>
+            </div>
+          </div>
         </div>
 
         <!-- Attrs -->
