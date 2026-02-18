@@ -47,6 +47,17 @@ retention:
   rsyslog_stats_days: 30
   metrics_days: 30
 
+# SMTP settings for the email notification backend.
+# The email backend is only enabled when smtp.host is set.
+smtp:
+  # host: "smtp.example.com"  # SMTP server hostname.
+  # port: 587                 # SMTP server port (default 587).
+  # username: ""              # SMTP username.
+  # password: ""              # SMTP password.
+  # from: "taillight@localhost"  # Sender address.
+  # tls: true                 # Use STARTTLS (default true).
+  # auth_type: "plain"        # Auth: "plain", "crammd5", or "" (no auth).
+
 # Notification system — alert operators when log events match configurable rules.
 # Channels (Slack, webhooks) and rules are managed via the API or the ALERTS UI tab.
 notification:

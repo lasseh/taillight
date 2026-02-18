@@ -28,6 +28,7 @@ type Config struct {
 	Analysis               AnalysisConfig
 	Notification           NotificationConfig
 	Retention              RetentionConfig
+	SMTP                   SMTPConfig
 }
 
 // RetentionConfig controls how long data is kept in each hypertable.
@@ -38,6 +39,17 @@ type RetentionConfig struct {
 	NotificationLogDays int // Default 30.
 	RsyslogStatsDays    int // Default 30.
 	MetricsDays         int // Default 30.
+}
+
+// SMTPConfig holds SMTP connection settings for the email notification backend.
+type SMTPConfig struct {
+	Host     string // SMTP server hostname.
+	Port     int    // SMTP server port (default 587).
+	Username string // SMTP username.
+	Password string // SMTP password.
+	From     string // Sender address (default "taillight@localhost").
+	TLS      bool   // Use STARTTLS (default true).
+	AuthType string // Auth mechanism: "plain", "crammd5", or "" (no auth).
 }
 
 // NotificationConfig configures the pluggable notification engine.
@@ -110,6 +122,11 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("retention.notification_log_days", 30)
 	v.SetDefault("retention.rsyslog_stats_days", 30)
 	v.SetDefault("retention.metrics_days", 30)
+	v.SetDefault("smtp.host", "")
+	v.SetDefault("smtp.port", 587)
+	v.SetDefault("smtp.from", "taillight@localhost")
+	v.SetDefault("smtp.tls", true)
+	v.SetDefault("smtp.auth_type", "plain")
 	v.SetDefault("notification.enabled", false)
 	v.SetDefault("notification.rule_refresh_interval", "30s")
 	v.SetDefault("notification.dispatch_workers", 4)
@@ -181,6 +198,15 @@ func Load(configFile ...string) (Config, error) {
 			DefaultCooldown:     v.GetDuration("notification.default_cooldown"),
 			DefaultMaxCooldown:  v.GetDuration("notification.default_max_cooldown"),
 			SendTimeout:         v.GetDuration("notification.send_timeout"),
+		},
+		SMTP: SMTPConfig{
+			Host:     v.GetString("smtp.host"),
+			Port:     v.GetInt("smtp.port"),
+			Username: v.GetString("smtp.username"),
+			Password: v.GetString("smtp.password"),
+			From:     v.GetString("smtp.from"),
+			TLS:      v.GetBool("smtp.tls"),
+			AuthType: v.GetString("smtp.auth_type"),
 		},
 		Retention: RetentionConfig{
 			SyslogDays:          max(v.GetInt("retention.syslog_days"), 1),
