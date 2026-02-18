@@ -35,6 +35,31 @@ const highlightedRaw = computed(() =>
   event.value?.raw_message ? highlight(event.value.raw_message) : '',
 )
 
+const copyText = computed(() => {
+  if (!event.value) return ''
+  const e = event.value
+  const lines = [
+    `severity: ${e.severity_label} (${e.severity})`,
+    `message: ${e.message}`,
+    `received: ${formatDateTime(e.received_at)}`,
+    `reported: ${formatDateTime(e.reported_at)}`,
+    `hostname: ${e.hostname || '–'}`,
+    `ip: ${e.fromhost_ip || '–'}`,
+    `program: ${e.programname || '–'}`,
+    `tag: ${e.syslogtag || '–'}`,
+    `msgid: ${e.msgid || '–'}`,
+    `facility: ${e.facility_label} (${e.facility})`,
+  ]
+  if (e.structured_data) lines.push(`structured data: ${e.structured_data}`)
+  if (e.raw_message) lines.push(`raw message: ${e.raw_message}`)
+  return lines.join('\n')
+})
+
+function onCopy(ev: ClipboardEvent) {
+  ev.preventDefault()
+  ev.clipboardData?.setData('text/plain', copyText.value)
+}
+
 let fetchVersion = 0
 
 watch(() => props.id, async (id) => {
@@ -113,7 +138,7 @@ watch(() => props.id, async (id) => {
         list-label="go to syslog"
       />
 
-      <div v-else-if="event" class="mx-auto max-w-7xl space-y-4">
+      <div v-else-if="event" class="mx-auto max-w-7xl space-y-4" @copy="onCopy">
         <!-- Header: severity + message -->
         <div
           class="bg-t-bg-dark rounded border-l-2 p-4"

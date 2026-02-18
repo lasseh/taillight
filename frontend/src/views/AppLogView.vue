@@ -25,6 +25,29 @@ const lvlClass = computed(() =>
   event.value ? (levelColorClass[event.value.level] ?? 'text-t-fg') : 'text-t-fg',
 )
 
+const copyText = computed(() => {
+  if (!event.value) return ''
+  const e = event.value
+  const lines = [
+    `level: ${e.level}`,
+    `message: ${e.msg}`,
+    `received: ${formatDateTime(e.received_at)}`,
+    `timestamp: ${formatDateTime(e.timestamp)}`,
+    `host: ${e.host || '–'}`,
+    `service: ${e.service || '–'}`,
+    `component: ${e.component || '–'}`,
+    `source: ${e.source || '–'}`,
+  ]
+  if (e.attrs && Object.keys(e.attrs).length > 0)
+    lines.push(`attrs: ${JSON.stringify(e.attrs, null, 2)}`)
+  return lines.join('\n')
+})
+
+function onCopy(ev: ClipboardEvent) {
+  ev.preventDefault()
+  ev.clipboardData?.setData('text/plain', copyText.value)
+}
+
 let fetchVersion = 0
 
 watch(() => props.id, async (id) => {
@@ -99,7 +122,7 @@ watch(() => props.id, async (id) => {
         list-label="go to applogs"
       />
 
-      <div v-else-if="event" class="mx-auto max-w-7xl space-y-4">
+      <div v-else-if="event" class="mx-auto max-w-7xl space-y-4" @copy="onCopy">
         <!-- Header: level + message -->
         <div
           class="bg-t-bg-dark rounded border-l-2 p-4"
