@@ -11,7 +11,7 @@ defineProps<{
 
 <template>
   <div class="bg-t-bg-dark border-t-border rounded border p-4">
-    <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Severity Distribution' }}</h3>
+    <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Severity Distribution' }}</h3>
     <div class="space-y-2">
       <div
         v-for="item in items"

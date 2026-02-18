@@ -106,7 +106,7 @@ onUnmounted(() => {
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <!-- Info panel -->
           <div class="bg-t-bg-dark border-t-border rounded border">
-            <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+            <h3 class="text-t-teal border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
               Overview (7 days)
             </h3>
             <dl class="grid grid-cols-[auto_1fr] text-sm">
@@ -133,7 +133,7 @@ onUnmounted(() => {
 
         <!-- Top messages -->
         <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">
+          <h3 class="text-t-teal border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">
             Top Messages
           </h3>
           <div>
