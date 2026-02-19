@@ -44,11 +44,6 @@ export function formatNumber(n: number): string {
   return n.toString()
 }
 
-/** Truncate a string to a maximum length, appending '…' if truncated. */
-export function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) + '…' : s
-}
-
 /** Format an ISO timestamp as a human-readable relative time string. */
 export function formatRelativeTime(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime()

@@ -3,7 +3,7 @@ import { ref, computed, nextTick, toRef, inject, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { AppLogEvent } from '@/types/applog'
 import { levelColorClass, levelBgClass } from '@/lib/applog-constants'
-import { formatTime, formatAttrs, truncate } from '@/lib/format'
+import { formatTime, formatAttrs } from '@/lib/format'
 import AppLogDetail from '@/components/AppLogDetail.vue'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
 
@@ -70,7 +70,7 @@ const copyText = computed(() => {
       </button>
       <span class="text-t-purple shrink-0 truncate" :style="{ width: 'var(--col-svc, 14ch)' }">{{ event.service }}</span>
       <span class="text-t-yellow shrink-0 truncate" :style="{ width: 'var(--col-comp, 14ch)' }">{{ event.component }}</span>
-      <span class="text-t-fg min-w-0 flex-1 truncate">{{ truncate(event.msg, 200) }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></span>
+      <span class="text-t-fg min-w-0 flex-1 truncate">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></span>
     </div>
     <AppLogDetail v-if="expanded" :event="event" />
   </div>

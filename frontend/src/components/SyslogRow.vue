@@ -4,7 +4,7 @@ import type { Ref } from 'vue'
 import type { SyslogEvent } from '@/types/syslog'
 import { severityColorClass, severityBgClass } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
-import { formatTime, truncate } from '@/lib/format'
+import { formatTime } from '@/lib/format'
 import SyslogDetail from '@/components/SyslogDetail.vue'
 import { useSyslogFilterStore } from '@/stores/syslog-filters'
 
@@ -35,7 +35,7 @@ const sevClass = computed(() => severityColorClass[event.value.severity] ?? 'tex
 const sevBgClass = computed(() => severityBgClass[event.value.severity] ?? '')
 
 const highlightedMessage = computed(() =>
-  highlightMessage(event.value.id, truncate(event.value.message, 200)),
+  highlightMessage(event.value.id, event.value.message),
 )
 
 const copyText = computed(() => {
