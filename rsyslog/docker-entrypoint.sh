@@ -9,7 +9,20 @@ PGSQL_DB="${PGSQL_DB:-taillight}"
 PGSQL_USER="${PGSQL_USER:-taillight}"
 PGSQL_PASSWORD="${PGSQL_PASSWORD:-taillight}"
 
-for conf in /etc/rsyslog.d/conf.d/02-outputs.conf /etc/rsyslog.d/conf.d/03-operational-logging.conf; do
+# Stage config in a writable directory.
+# The image or volume-mounted config may live on a read-only filesystem,
+# so we always work on copies under /tmp.
+RUNTIME_DIR=/tmp/rsyslog
+mkdir -p "$RUNTIME_DIR/conf.d"
+
+cp /etc/rsyslog.conf "$RUNTIME_DIR/rsyslog.conf"
+cp /etc/rsyslog.d/conf.d/* "$RUNTIME_DIR/conf.d/"
+
+# Point includes at the writable copies
+sed -i 's|/etc/rsyslog.d/conf.d/|/tmp/rsyslog/conf.d/|g' "$RUNTIME_DIR/rsyslog.conf"
+
+# Substitute PGSQL_* variables in ompgsql config files
+for conf in "$RUNTIME_DIR/conf.d/02-outputs.conf" "$RUNTIME_DIR/conf.d/03-operational-logging.conf"; do
     [ -f "$conf" ] || continue
     sed -i \
         -e "s|server=\"postgres\"|server=\"${PGSQL_SERVER}\"|g" \
@@ -19,5 +32,10 @@ for conf in /etc/rsyslog.d/conf.d/02-outputs.conf /etc/rsyslog.d/conf.d/03-opera
         -e "s|pwd=\"taillight\"|pwd=\"${PGSQL_PASSWORD}\"|g" \
         "$conf"
 done
+
+# If invoked as rsyslogd, use the processed runtime config
+if [ "$1" = "rsyslogd" ]; then
+    exec rsyslogd -n -f "$RUNTIME_DIR/rsyslog.conf"
+fi
 
 exec "$@"
