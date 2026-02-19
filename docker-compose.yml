@@ -4,7 +4,7 @@ services:
     command: ["postgres", "-c", "shared_preload_libraries=timescaledb,pg_stat_statements"]
     logging:
       options:
-        tag: taillight-postgres
+        tag: postgres
     environment:
       POSTGRES_DB: taillight
       POSTGRES_USER: taillight
@@ -30,7 +30,7 @@ services:
     build: ./api
     logging:
       options:
-        tag: taillight-api
+        tag: api
     ports:
       - "${API_HOST_PORT:-8080}:8080"
     environment:
@@ -57,7 +57,7 @@ services:
     build: ./rsyslog
     logging:
       options:
-        tag: taillight-rsyslog
+        tag: rsyslog
     ports:
       # Uses 1514 to avoid conflicts during development.
       # Change to 514 in production so devices can send to the standard syslog port.
@@ -85,7 +85,7 @@ services:
     build: ./frontend
     logging:
       options:
-        tag: taillight-frontend
+        tag: frontend
     ports:
       - "${FRONTEND_HOST_PORT:-3000}:80"
     environment:
