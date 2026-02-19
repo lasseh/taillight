@@ -153,7 +153,7 @@ function hideTooltip() {
       >{{ h.label }}</span>
     </div>
 
-    <div class="flex gap-[2px]">
+    <div class="flex gap-2">
       <!-- Day labels (left sidebar) -->
       <div class="heatmap-day-labels">
         <span v-for="(lbl, i) in rowLabels" :key="i" class="text-t-fg-dark text-[10px]">
@@ -215,7 +215,7 @@ function hideTooltip() {
 
 .heatmap-hours {
   display: grid;
-  margin-left: 52px; /* align with grid after day labels */
+  margin-left: 58px; /* align with grid after day labels (48px + 8px gap + 2px) */
   margin-bottom: 2px;
   height: 14px;
 }
