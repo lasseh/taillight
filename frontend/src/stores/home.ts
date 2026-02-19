@@ -1,6 +1,8 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
+import { useSyslogStream } from '@/composables/useSyslogStream'
+import { useAppLogStream } from '@/composables/useAppLogStream'
 import type { SyslogSummary, AppLogSummary, VolumeBucket } from '@/types/stats'
 import type { SyslogEvent } from '@/types/syslog'
 import type { AppLogEvent } from '@/types/applog'
@@ -8,6 +10,7 @@ import type { AppLogEvent } from '@/types/applog'
 const SUMMARY_REFRESH_INTERVAL = 30_000 // 30 seconds
 const MAX_RECENT_EVENTS = 10
 const HIGH_SEVERITY_MAX = 2 // syslog: crit and above
+const HIGH_APPLOG_LEVELS = new Set(['FATAL', 'ERROR', 'WARN'])
 
 // Map range labels to milliseconds for computing `from` timestamps.
 const rangeDurations: Record<string, number> = {
@@ -54,6 +57,28 @@ export const useHomeStore = defineStore('home', () => {
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
   let fetchVersion = 0
+  let unsubSyslog: (() => void) | null = null
+  let unsubApplog: (() => void) | null = null
+  const syslogSeenIds = new Set<number>()
+  const applogSeenIds = new Set<number>()
+
+  // ── SSE handlers: prepend matching live events ──
+
+  function onSyslogEvent(event: SyslogEvent) {
+    if (event.severity > HIGH_SEVERITY_MAX) return
+    if (syslogSeenIds.has(event.id)) return
+    syslogSeenIds.add(event.id)
+    recentSyslogEvents.value = [event, ...recentSyslogEvents.value].slice(0, MAX_RECENT_EVENTS)
+  }
+
+  function onApplogEvent(event: AppLogEvent) {
+    if (!HIGH_APPLOG_LEVELS.has(event.level)) return
+    if (applogSeenIds.has(event.id)) return
+    applogSeenIds.add(event.id)
+    recentApplogEvents.value = [event, ...recentApplogEvents.value].slice(0, MAX_RECENT_EVENTS)
+  }
+
+  // ── Fetchers ──
 
   async function fetchSummaries() {
     if (!loaded.value) {
@@ -91,7 +116,10 @@ export const useHomeStore = defineStore('home', () => {
         new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS), from }),
       )
       if (version !== fetchVersion) return
-      recentSyslogEvents.value = (syslogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+      const events = (syslogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+      recentSyslogEvents.value = events
+      syslogSeenIds.clear()
+      for (const e of events) syslogSeenIds.add(e.id)
     } catch {
       // Non-critical — keep existing data
     }
@@ -101,7 +129,10 @@ export const useHomeStore = defineStore('home', () => {
         new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS), from }),
       )
       if (version !== fetchVersion) return
-      recentApplogEvents.value = (applogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+      const events = (applogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+      recentApplogEvents.value = events
+      applogSeenIds.clear()
+      for (const e of events) applogSeenIds.add(e.id)
     } catch {
       // Non-critical — keep existing data
     }
@@ -129,16 +160,33 @@ export const useHomeStore = defineStore('home', () => {
     }
   }
 
-  function refresh() {
+  /** Summaries and heatmaps poll; recent events stay live via SSE. */
+  function refreshPolled() {
     fetchSummaries()
-    fetchRecentEvents()
     fetchHeatmaps()
+  }
+
+  function subscribeStreams() {
+    const syslog = useSyslogStream()
+    const applog = useAppLogStream()
+    unsubSyslog = syslog.subscribe(onSyslogEvent)
+    unsubApplog = applog.subscribe(onApplogEvent)
+  }
+
+  function unsubscribeStreams() {
+    unsubSyslog?.()
+    unsubApplog?.()
+    unsubSyslog = null
+    unsubApplog = null
   }
 
   function startRefresh() {
     stopRefresh()
-    refresh()
-    refreshTimer = setInterval(refresh, SUMMARY_REFRESH_INTERVAL)
+    fetchSummaries()
+    fetchRecentEvents()
+    fetchHeatmaps()
+    subscribeStreams()
+    refreshTimer = setInterval(refreshPolled, SUMMARY_REFRESH_INTERVAL)
   }
 
   function setRange(r: string) {
@@ -146,7 +194,11 @@ export const useHomeStore = defineStore('home', () => {
     localStorage.setItem('home-range', r)
     recentSyslogEvents.value = []
     recentApplogEvents.value = []
-    refresh()
+    syslogSeenIds.clear()
+    applogSeenIds.clear()
+    fetchSummaries()
+    fetchRecentEvents()
+    fetchHeatmaps()
   }
 
   function stopRefresh() {
@@ -154,6 +206,7 @@ export const useHomeStore = defineStore('home', () => {
       clearInterval(refreshTimer)
       refreshTimer = null
     }
+    unsubscribeStreams()
   }
 
   return {
