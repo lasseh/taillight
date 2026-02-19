@@ -236,11 +236,6 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
 
           <!-- Two Column Layout -->
           <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <!-- Heatmap -->
-            <div class="bg-t-bg-dark border-t-border rounded border p-4">
-              <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
-            </div>
-
             <!-- Top Hosts -->
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
               <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Hosts</h3>
@@ -263,6 +258,11 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
                   <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(host.count) }}</span>
                 </RouterLink>
               </div>
+            </div>
+
+            <!-- Heatmap -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
             </div>
           </div>
 
@@ -330,11 +330,6 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
 
           <!-- Two Column Layout -->
           <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <!-- Heatmap -->
-            <div class="bg-t-bg-dark border-t-border rounded border p-4">
-              <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-magenta" label="applog events" />
-            </div>
-
             <!-- Top Services -->
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
               <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Services</h3>
@@ -357,6 +352,11 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
                   <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(service.count) }}</span>
                 </RouterLink>
               </div>
+            </div>
+
+            <!-- Heatmap -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-magenta" label="applog events" />
             </div>
           </div>
 
