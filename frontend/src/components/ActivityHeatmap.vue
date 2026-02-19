@@ -185,7 +185,7 @@ function formatHour(h: number): string {
 
 .heatmap-header {
   display: grid;
-  grid-template-columns: 32px repeat(7, 1fr);
+  grid-template-columns: 32px repeat(7, 11px);
   gap: 2px;
   margin-bottom: 2px;
 }
@@ -204,7 +204,7 @@ function formatHour(h: number): string {
 
 .heatmap-body {
   display: grid;
-  grid-template-columns: 32px repeat(7, 1fr);
+  grid-template-columns: 32px repeat(7, 11px);
   gap: 2px;
 }
 
@@ -217,11 +217,10 @@ function formatHour(h: number): string {
 }
 
 .heatmap-cell {
-  aspect-ratio: 1;
-  width: 100%;
+  width: 11px;
+  height: 11px;
   border-radius: 2px;
   transition: outline 0.1s;
-  min-height: 8px;
 }
 
 .heatmap-cell:hover {
