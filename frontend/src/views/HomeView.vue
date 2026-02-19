@@ -134,49 +134,6 @@ function getSeverityBgClass(level: string): string {
   return levelBgColorClass[level] ?? severityBgClassByLabel[level.toLowerCase()] ?? 'bg-t-fg'
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Fake heatmap data (placeholder until real API)
-// ═══════════════════════════════════════════════════════════════════════════
-
-function generateFakeHeatmap(seed: number): Record<string, number> {
-  const data: Record<string, number> = {}
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-
-  // Simple seeded pseudo-random
-  let s = seed
-  function rand() {
-    s = (s * 1664525 + 1013904223) & 0x7fffffff
-    return s / 0x7fffffff
-  }
-
-  // 7 days × 48 half-hour slots, keyed as "YYYY-MM-DD HH:mm"
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today.getTime() - i * 86_400_000)
-    const dow = d.getDay()
-    const iso = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-
-    for (let slot = 0; slot < 48; slot++) {
-      const h = Math.floor(slot / 2)
-      const m = (slot % 2) * 30
-      // Base rate: higher on weekdays
-      let base = dow === 0 || dow === 6 ? 2 : 8
-      // Diurnal pattern: peak during business hours, low at night
-      if (h >= 9 && h <= 17) base *= 3
-      else if (h >= 6 && h <= 8) base *= 1.5
-      else if (h >= 18 && h <= 22) base *= 1.2
-      // Random variation
-      const count = Math.floor(base * (0.1 + rand() * 1.9))
-      data[`${iso} ${pad2(h)}:${pad2(m)}`] = rand() < 0.05 ? 0 : count
-    }
-  }
-
-  return data
-}
-
-const fakeSyslogHeatmap = generateFakeHeatmap(42)
-const fakeApplogHeatmap = generateFakeHeatmap(137)
 </script>
 
 <template>
@@ -440,13 +397,13 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
           <!-- Syslog Heatmap -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">Syslog Volume</h3>
-            <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
+            <ActivityHeatmap :data="home.syslogHeatmap" color-var="--color-t-teal" label="syslog events" />
           </div>
 
           <!-- Applog Heatmap -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <h3 class="text-t-magenta mb-3 text-xs font-semibold uppercase tracking-wide">Applog Volume</h3>
-            <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-magenta" label="applog events" />
+            <ActivityHeatmap :data="home.applogHeatmap" color-var="--color-t-magenta" label="applog events" />
           </div>
         </div>
       </section>
