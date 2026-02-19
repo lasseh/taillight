@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test
+.PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test rsyslog-reload
 
 ##@ General
 help: ## Show this help
@@ -40,5 +40,8 @@ frontend-dev: ## Start frontend dev server
 
 rsyslog-test: ## Validate rsyslog config
 	$(MAKE) -C rsyslog test
+
+rsyslog-reload: ## Rebuild and restart rsyslog container
+	docker compose up -d --build rsyslog
 
 .DEFAULT_GOAL := help
