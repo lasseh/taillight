@@ -2,174 +2,156 @@
 import { computed, ref } from 'vue'
 
 const props = withDefaults(defineProps<{
-  /** Map of ISO date string (YYYY-MM-DD) to count */
+  /** Map of "YYYY-MM-DD HH:mm" to count (30-min buckets, e.g. "2026-02-19 14:00") */
   data: Record<string, number>
-  /** CSS color variable name for the heatmap accent, e.g. '--color-t-teal' */
+  /** CSS color variable name for the heatmap accent */
   colorVar?: string
-  /** Label shown in tooltip, e.g. 'syslog events' */
+  /** Label shown in tooltip */
   label?: string
 }>(), {
   colorVar: '--color-t-teal',
   label: 'events',
 })
 
-// ── Build the grid: 53 columns x 7 rows, covering ~1 year ending today ──
+// ── Build the grid: 48 columns x 7 rows, covering 7 days in 30-min slots ──
+
+const SLOTS_PER_DAY = 48 // 24h × 2 half-hour slots
+const DAY_MS = 86_400_000
+const SLOT_MS = 1_800_000 // 30 minutes
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 interface Cell {
-  date: string       // YYYY-MM-DD
+  key: string        // "YYYY-MM-DD HH:mm"
   count: number
-  level: number      // 0-4 intensity
-  dayOfWeek: number  // 0=Sun, 6=Sat
-  weekIndex: number
+  level: number      // 0-4
+  dayIndex: number   // 0-6 (row)
+  slotIndex: number  // 0-47 (column)
+  tipText: string
 }
 
-const DAY_MS = 86_400_000
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
 
-const grid = computed(() => {
+function fmtDate(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+/** The 7 days, oldest first. */
+const days = computed(() => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const todayDow = today.getDay() // 0=Sun
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today.getTime() - (6 - i) * DAY_MS)
+    return {
+      date: d,
+      iso: fmtDate(d),
+      label: i === 6 ? 'Today' : i === 5 ? 'Yest' : DAYS[d.getDay()],
+      shortDate: `${d.getMonth() + 1}/${d.getDate()}`,
+    }
+  })
+})
 
-  // Start from the Sunday of the week 52 weeks ago
-  const startOffset = todayDow + 52 * 7
-  const startDate = new Date(today.getTime() - startOffset * DAY_MS)
-
-  const totalDays = startOffset + todayDow + 1 // include today
+const grid = computed(() => {
   const cells: Cell[] = []
   const counts: number[] = []
 
-  for (let i = 0; i <= startOffset + todayDow; i++) {
-    const d = new Date(startDate.getTime() + i * DAY_MS)
-    const iso = formatDate(d)
-    const count = props.data[iso] ?? 0
-    counts.push(count)
-    cells.push({
-      date: iso,
-      count,
-      level: 0, // computed below
-      dayOfWeek: d.getDay(),
-      weekIndex: Math.floor(i / 7),
-    })
+  for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
+    const day = days.value[dayIdx]
+    for (let slot = 0; slot < SLOTS_PER_DAY; slot++) {
+      const h = Math.floor(slot / 2)
+      const m = (slot % 2) * 30
+      const key = `${day.iso} ${pad2(h)}:${pad2(m)}`
+      const count = props.data[key] ?? 0
+      counts.push(count)
+      cells.push({
+        key,
+        count,
+        level: 0,
+        dayIndex: dayIdx,
+        slotIndex: slot,
+        tipText: `${day.label} ${day.shortDate}, ${pad2(h)}:${pad2(m)}`,
+      })
+    }
   }
 
-  // Compute levels based on percentile thresholds (GitHub style)
+  // Percentile-based levels (GitHub style)
   const nonZero = counts.filter(c => c > 0).sort((a, b) => a - b)
-  let thresholds = [0, 0, 0, 0]
   if (nonZero.length > 0) {
-    const p25 = nonZero[Math.floor(nonZero.length * 0.25)] ?? 1
-    const p50 = nonZero[Math.floor(nonZero.length * 0.50)] ?? 1
-    const p75 = nonZero[Math.floor(nonZero.length * 0.75)] ?? 1
-    thresholds = [1, p25, p50, p75]
-  }
-
-  for (const cell of cells) {
-    if (cell.count === 0) {
-      cell.level = 0
-    } else if (cell.count < thresholds[1]) {
-      cell.level = 1
-    } else if (cell.count < thresholds[2]) {
-      cell.level = 2
-    } else if (cell.count < thresholds[3]) {
-      cell.level = 3
-    } else {
-      cell.level = 4
+    const t = [
+      1,
+      nonZero[Math.floor(nonZero.length * 0.25)] ?? 1,
+      nonZero[Math.floor(nonZero.length * 0.50)] ?? 1,
+      nonZero[Math.floor(nonZero.length * 0.75)] ?? 1,
+    ]
+    for (const cell of cells) {
+      if (cell.count === 0) cell.level = 0
+      else if (cell.count < t[1]) cell.level = 1
+      else if (cell.count < t[2]) cell.level = 2
+      else if (cell.count < t[3]) cell.level = 3
+      else cell.level = 4
     }
   }
 
   return cells
 })
 
-// ── Month labels positioned at the first week that starts in that month ──
+// ── Hour labels positioned at even-hour boundaries ──
 
-const monthLabels = computed(() => {
-  const labels: { label: string; weekIndex: number }[] = []
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  let lastMonth = -1
-
-  for (const cell of grid.value) {
-    if (cell.dayOfWeek !== 0) continue // only check Sundays (start of week column)
-    const month = parseInt(cell.date.slice(5, 7), 10) - 1
-    if (month !== lastMonth) {
-      labels.push({ label: months[month], weekIndex: cell.weekIndex })
-      lastMonth = month
-    }
+const hourLabels = computed(() => {
+  const labels: { label: string; slotIndex: number }[] = []
+  for (let h = 0; h < 24; h += 3) {
+    labels.push({ label: `${pad2(h)}`, slotIndex: h * 2 })
   }
-
   return labels
-})
-
-const totalWeeks = computed(() => {
-  if (grid.value.length === 0) return 0
-  return grid.value[grid.value.length - 1].weekIndex + 1
 })
 
 const totalCount = computed(() => grid.value.reduce((sum, c) => sum + c.count, 0))
 
 // ── Tooltip ──
 
-const tooltip = ref<{ x: number; y: number; date: string; count: number } | null>(null)
+const tooltip = ref<{ x: number; y: number; cell: Cell } | null>(null)
 
 function showTooltip(event: MouseEvent, cell: Cell) {
   const rect = (event.target as HTMLElement).getBoundingClientRect()
-  tooltip.value = {
-    x: rect.left + rect.width / 2,
-    y: rect.top - 8,
-    date: cell.date,
-    count: cell.count,
-  }
+  tooltip.value = { x: rect.left + rect.width / 2, y: rect.top - 8, cell }
 }
 
 function hideTooltip() {
   tooltip.value = null
 }
-
-function formatDate(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-function formatTooltipDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00')
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-}
 </script>
 
 <template>
   <div class="heatmap-wrap">
-    <!-- Month labels -->
-    <div class="heatmap-months" :style="{ gridTemplateColumns: `repeat(${totalWeeks}, 1fr)` }">
+    <!-- Hour labels (top, replacing month labels) -->
+    <div class="heatmap-hours" :style="{ gridTemplateColumns: `repeat(${SLOTS_PER_DAY}, 1fr)` }">
       <span
-        v-for="m in monthLabels"
-        :key="m.weekIndex"
+        v-for="h in hourLabels"
+        :key="h.slotIndex"
         class="text-t-fg-dark text-[10px]"
-        :style="{ gridColumnStart: m.weekIndex + 1 }"
-      >{{ m.label }}</span>
+        :style="{ gridColumnStart: h.slotIndex + 1 }"
+      >{{ h.label }}</span>
     </div>
 
     <div class="flex gap-[2px]">
-      <!-- Day-of-week labels -->
+      <!-- Day labels (left sidebar) -->
       <div class="heatmap-day-labels">
-        <span></span>
-        <span class="text-t-fg-dark text-[10px]">Mon</span>
-        <span></span>
-        <span class="text-t-fg-dark text-[10px]">Wed</span>
-        <span></span>
-        <span class="text-t-fg-dark text-[10px]">Fri</span>
-        <span></span>
+        <span v-for="(day, i) in days" :key="i" class="text-t-fg-dark text-[10px]">
+          {{ day.label }}
+        </span>
       </div>
 
       <!-- Grid -->
-      <div class="heatmap-grid" :style="{ gridTemplateColumns: `repeat(${totalWeeks}, 1fr)` }">
+      <div class="heatmap-grid" :style="{ gridTemplateColumns: `repeat(${SLOTS_PER_DAY}, 1fr)` }">
         <div
           v-for="(cell, i) in grid"
           :key="i"
           class="heatmap-cell"
           :data-level="cell.level"
           :style="{
-            gridColumn: cell.weekIndex + 1,
-            gridRow: cell.dayOfWeek + 1,
+            gridColumn: cell.slotIndex + 1,
+            gridRow: cell.dayIndex + 1,
             '--heatmap-color': `var(${colorVar})`,
           }"
           @mouseenter="showTooltip($event, cell)"
@@ -180,7 +162,7 @@ function formatTooltipDate(iso: string): string {
 
     <!-- Legend -->
     <div class="mt-2 flex items-center justify-between">
-      <span class="text-t-fg-dark text-[10px]">{{ totalCount.toLocaleString() }} {{ label }} in the last year</span>
+      <span class="text-t-fg-dark text-[10px]">{{ totalCount.toLocaleString() }} {{ label }} in 7 days</span>
       <div class="flex items-center gap-1">
         <span class="text-t-fg-dark text-[10px]">Less</span>
         <div class="heatmap-cell legend" data-level="0" :style="{ '--heatmap-color': `var(${colorVar})` }"></div>
@@ -192,15 +174,15 @@ function formatTooltipDate(iso: string): string {
       </div>
     </div>
 
-    <!-- Tooltip (teleported to body would be ideal, but inline is fine for now) -->
+    <!-- Tooltip -->
     <Teleport to="body">
       <div
         v-if="tooltip"
         class="heatmap-tooltip"
         :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
       >
-        <strong>{{ tooltip.count.toLocaleString() }} {{ label }}</strong>
-        <span>{{ formatTooltipDate(tooltip.date) }}</span>
+        <strong>{{ tooltip.cell.count.toLocaleString() }} {{ label }}</strong>
+        <span>{{ tooltip.cell.tipText }}</span>
       </div>
     </Teleport>
   </div>
@@ -212,9 +194,9 @@ function formatTooltipDate(iso: string): string {
   overflow-y: hidden;
 }
 
-.heatmap-months {
+.heatmap-hours {
   display: grid;
-  margin-left: 30px; /* align with grid after day labels */
+  margin-left: 38px; /* align with grid after day labels */
   margin-bottom: 2px;
   height: 14px;
 }
@@ -223,7 +205,7 @@ function formatTooltipDate(iso: string): string {
   display: grid;
   grid-template-rows: repeat(7, 1fr);
   gap: 2px;
-  width: 26px;
+  width: 34px;
   flex-shrink: 0;
 }
 
@@ -265,7 +247,7 @@ function formatTooltipDate(iso: string): string {
   outline: none;
 }
 
-/* Intensity levels using the theme color variable */
+/* Intensity levels */
 .heatmap-cell[data-level="0"] {
   background-color: var(--color-t-bg-highlight);
 }
