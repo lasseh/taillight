@@ -150,24 +150,23 @@ function generateFakeHeatmap(seed: number): Record<string, number> {
     return s / 0x7fffffff
   }
 
-  // 7 days x 24 hours, keyed as "YYYY-MM-DD HH"
-  for (let i = 6; i >= 0; i--) {
+  for (let i = 365; i >= 0; i--) {
     const d = new Date(today.getTime() - i * 86_400_000)
     const dow = d.getDay()
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
-    for (let h = 0; h < 24; h++) {
-      const hh = String(h).padStart(2, '0')
-      // Base rate: higher during business hours, lower on weekends
-      let base = dow === 0 || dow === 6 ? 5 : 15
-      // Diurnal pattern: peak at 10-16, low at 0-6
-      if (h >= 9 && h <= 17) base *= 3
-      else if (h >= 6 && h <= 8) base *= 1.5
-      else if (h >= 18 && h <= 22) base *= 1.2
-      // Random variation
-      const count = Math.floor(base * (0.1 + rand() * 1.9))
-      // ~5% chance of zero
-      data[`${iso} ${hh}`] = rand() < 0.05 ? 0 : count
+    // Base rate: higher on weekdays
+    let base = dow === 0 || dow === 6 ? 20 : 80
+    // Monthly variation (simulate busier months)
+    const month = d.getMonth()
+    if (month >= 9 || month <= 1) base *= 1.4 // busier in Oct-Feb
+    // Random variation
+    const count = Math.floor(base * (0.2 + rand() * 1.8))
+    // ~10% chance of zero days
+    if (rand() < 0.1) {
+      data[iso] = 0
+    } else {
+      data[iso] = count
     }
   }
 
