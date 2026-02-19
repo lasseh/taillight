@@ -1,7 +1,13 @@
 services:
   postgres:
     image: timescale/timescaledb:latest-pg18
-    command: ["postgres", "-c", "shared_preload_libraries=timescaledb,pg_stat_statements"]
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=timescaledb,pg_stat_statements
+      # Strip timestamp from log lines — syslog header already carries it.
+      - -c
+      - log_line_prefix=[%p]
     logging:
       options:
         tag: postgres
