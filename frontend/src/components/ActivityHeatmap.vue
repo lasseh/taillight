@@ -13,18 +13,18 @@ const props = withDefaults(defineProps<{
   label: 'events',
 })
 
-// ── Rolling heatmap: 48 columns × 7 rows = 336 slots flowing left→right, top→bottom ──
-// Last cell (bottom-right) = current 30-min slot ("now")
+// ── Calendar heatmap: 48 columns (00:00–23:30) × 7 rows (full days) ──
+// Each row is one calendar day. Today's future slots are dimmed.
 
 const COLS = 48
-const TOTAL_SLOTS = 336 // 7 × 48
+const ROWS = 7
 const SLOT_MS = 30 * 60 * 1000
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 interface Cell {
   key: string        // "YYYY-MM-DD HH:mm"
   count: number
-  level: number      // 0-4
+  level: number      // 0-4, or -1 for future slots
   row: number        // 0-6
   col: number        // 0-47
   tipText: string
@@ -41,31 +41,41 @@ function floor30(d: Date): Date {
   return out
 }
 
+/** Start of day (00:00:00.000) for a given Date. */
+function startOfDay(d: Date): Date {
+  const out = new Date(d)
+  out.setHours(0, 0, 0, 0)
+  return out
+}
+
 const grid = computed(() => {
   const now = floor30(new Date())
-  const startTime = new Date(now.getTime() - (TOTAL_SLOTS - 1) * SLOT_MS)
+  const today = startOfDay(now)
+  // Row 0 = 6 days ago, row 6 = today
+  const firstDay = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000)
 
   const cells: Cell[] = []
   const counts: number[] = []
 
-  for (let i = 0; i < TOTAL_SLOTS; i++) {
-    const t = new Date(startTime.getTime() + i * SLOT_MS)
-    const key = `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`
-    const count = props.data[key] ?? 0
-    counts.push(count)
+  for (let row = 0; row < ROWS; row++) {
+    const dayStart = new Date(firstDay.getTime() + row * 24 * 60 * 60 * 1000)
+    for (let col = 0; col < COLS; col++) {
+      const t = new Date(dayStart.getTime() + col * SLOT_MS)
+      const key = `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`
 
-    const row = Math.floor(i / COLS)
-    const col = i % COLS
+      const isFuture = t.getTime() > now.getTime()
+      const count = isFuture ? 0 : (props.data[key] ?? 0)
+      counts.push(count)
 
-    // Tooltip: "Thu 2/13, 15:30"
-    const isToday = t.getDate() === now.getDate() && t.getMonth() === now.getMonth() && t.getFullYear() === now.getFullYear()
-    const dayLabel = isToday ? 'Today' : DAYS[t.getDay()]
-    const tipText = `${dayLabel} ${t.getMonth() + 1}/${t.getDate()}, ${pad2(t.getHours())}:${pad2(t.getMinutes())}`
+      const isToday = row === ROWS - 1
+      const dayLabel = isToday ? 'Today' : DAYS[t.getDay()]
+      const tipText = `${dayLabel} ${t.getMonth() + 1}/${t.getDate()}, ${pad2(t.getHours())}:${pad2(t.getMinutes())}`
 
-    cells.push({ key, count, level: 0, row, col, tipText })
+      cells.push({ key, count, level: isFuture ? -1 : 0, row, col, tipText })
+    }
   }
 
-  // Percentile-based levels (GitHub style)
+  // Percentile-based levels (GitHub style) — only for non-future cells
   const nonZero = counts.filter(c => c > 0).sort((a, b) => a - b)
   if (nonZero.length > 0) {
     const t = [
@@ -75,6 +85,7 @@ const grid = computed(() => {
       nonZero[Math.floor(nonZero.length * 0.75)] ?? 1,
     ]
     for (const cell of cells) {
+      if (cell.level === -1) continue // skip future
       if (cell.count === 0) cell.level = 0
       else if (cell.count < t[1]) cell.level = 1
       else if (cell.count < t[2]) cell.level = 2
@@ -86,19 +97,13 @@ const grid = computed(() => {
   return cells
 })
 
-// ── Hour labels (top): every 3 hours, shifted by current time ──
+// ── Hour labels (top): fixed at every 3 hours (00, 03, 06, …, 21) ──
 
 const hourLabels = computed(() => {
-  const now = floor30(new Date())
-  const startTime = new Date(now.getTime() - (TOTAL_SLOTS - 1) * SLOT_MS)
-  const startSlotH = startTime.getHours()
-  const startSlotM = startTime.getMinutes()
-
   const labels: { label: string; col: number }[] = []
   for (let col = 0; col < COLS; col++) {
-    const totalMin = (startSlotH * 60 + startSlotM) + col * 30
-    const h = Math.floor(totalMin / 60) % 24
-    const m = totalMin % 60
+    const h = Math.floor(col / 2)
+    const m = (col % 2) * 30
     if (h % 3 === 0 && m === 0) {
       labels.push({ label: pad2(h), col })
     }
@@ -109,13 +114,12 @@ const hourLabels = computed(() => {
 // ── Row (day) labels: "Thu 12" format with day name + day-of-month ──
 
 const rowLabels = computed(() => {
-  const now = floor30(new Date())
-  const startTime = new Date(now.getTime() - (TOTAL_SLOTS - 1) * SLOT_MS)
-  const today = new Date()
+  const today = startOfDay(new Date())
+  const firstDay = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000)
 
-  return Array.from({ length: 7 }, (_, row) => {
-    const t = new Date(startTime.getTime() + row * COLS * SLOT_MS)
-    const isToday = t.getDate() === today.getDate() && t.getMonth() === today.getMonth() && t.getFullYear() === today.getFullYear()
+  return Array.from({ length: ROWS }, (_, row) => {
+    const t = new Date(firstDay.getTime() + row * 24 * 60 * 60 * 1000)
+    const isToday = row === ROWS - 1
     const dayName = isToday ? 'Today' : DAYS[t.getDay()]
     return `${dayName} ${t.getDate()}`
   })
@@ -264,6 +268,10 @@ function hideTooltip() {
 }
 
 /* Intensity levels */
+.heatmap-cell[data-level="-1"] {
+  background-color: transparent;
+}
+
 .heatmap-cell[data-level="0"] {
   background-color: var(--color-t-bg-highlight);
 }
