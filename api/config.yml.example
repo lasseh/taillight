@@ -1,14 +1,15 @@
-# Taillight Config
-database_url: "postgres://user:password@localhost:5432/taillight"
-listen_addr: ":8080"
-log_level: "info"
-
-# Enable authentication (login, sessions, API keys).
-# Set to false for deployments behind a firewall where all users should have access.
-auth_enabled: true
+# Taillight API configuration
+#
+# Per-deployment settings (database, ports, log level, auth toggle) live in
+# the root .env file and are passed as environment variables via docker-compose.
+# This file holds application tuning that rarely changes between environments.
+#
+# Viper priority: defaults → this file → environment variables.
+# Settings like DATABASE_URL, LISTEN_ADDR, LOG_LEVEL, AUTH_ENABLED are set
+# in .env / docker-compose.yml and always override values here.
 
 # Require authentication on read endpoints (syslog, applog, meta, stats, SSE).
-# Only takes effect when auth_enabled is true.
+# Only takes effect when AUTH_ENABLED is true (set in .env).
 auth_read_endpoints: true
 
 # CORS allowed origins. Defaults to localhost dev origins when empty.
@@ -32,7 +33,7 @@ notification_buffer_size: 8192
 # Ship the API's own logs to its applog ingest endpoint.
 # Logs remain on stdout regardless; this adds a second destination.
 logshipper:
-  enabled: false
+  enabled: true
   service: "taillight"
   component: "api"
   # host: ""             # Override hostname (defaults to os.Hostname()).
