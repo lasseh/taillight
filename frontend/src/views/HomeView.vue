@@ -5,9 +5,8 @@ import { useHomeStore } from '@/stores/home'
 import { useTheme } from '@/composables/useTheme'
 import { useNewFlash } from '@/composables/useNewFlash'
 import { formatTime, formatAttrs, formatNumber } from '@/lib/format'
-import { severityColorClassByLabel, severityBgClassByLabel } from '@/lib/constants'
-import { LEVEL_RANK, levelColorClass, levelBgColorClass } from '@/lib/applog-constants'
-import SeverityDistribution from '@/components/SeverityDistribution.vue'
+import { severityColorClassByLabel } from '@/lib/constants'
+import { levelColorClass } from '@/lib/applog-constants'
 import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
 import ActivityHeatmap from '@/components/ActivityHeatmap.vue'
 
@@ -55,14 +54,6 @@ const syslogErrors = computed(() => {
   if (!home.syslogSummary) return 0
   return (home.syslogSummary.severity_breakdown ?? [])
     .find(s => s.severity === 3)?.count ?? 0
-})
-
-// Applog: level distribution sorted by severity (highest first)
-const sortedLevelBreakdown = computed(() => {
-  if (!home.applogSummary) return []
-  return [...(home.applogSummary.level_breakdown ?? [])].sort(
-    (a, b) => (LEVEL_RANK[a.level] ?? 99) - (LEVEL_RANK[b.level] ?? 99),
-  )
 })
 
 // Applog: extract fatal count from level_breakdown
@@ -128,10 +119,6 @@ onUnmounted(() => {
 
 function getSeverityColorClass(level: string): string {
   return levelColorClass[level] ?? severityColorClassByLabel[level.toLowerCase()] ?? 'text-t-fg'
-}
-
-function getSeverityBgClass(level: string): string {
-  return levelBgColorClass[level] ?? severityBgClassByLabel[level.toLowerCase()] ?? 'bg-t-fg'
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -247,15 +234,12 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
             </div>
           </div>
 
-          <!-- Heatmap -->
-          <div class="bg-t-bg-dark border-t-border mb-4 rounded border p-4">
-            <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
-          </div>
-
           <!-- Two Column Layout -->
           <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <!-- Severity Distribution -->
-            <SeverityDistribution :items="home.syslogSummary!.severity_breakdown" />
+            <!-- Heatmap -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
+            </div>
 
             <!-- Top Hosts -->
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
@@ -344,34 +328,11 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
             </div>
           </div>
 
-          <!-- Heatmap -->
-          <div class="bg-t-bg-dark border-t-border mb-4 rounded border p-4">
-            <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-magenta" label="applog events" />
-          </div>
-
           <!-- Two Column Layout -->
           <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <!-- Level Distribution -->
+            <!-- Heatmap -->
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
-              <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Level Distribution</h3>
-              <div class="space-y-2">
-                <div
-                  v-for="item in sortedLevelBreakdown"
-                  :key="item.level"
-                  class="group flex cursor-pointer items-center gap-2"
-                >
-                  <span class="w-16 shrink-0 text-xs uppercase" :class="getSeverityColorClass(item.level)">{{ item.level }}</span>
-                  <div class="bg-t-bg-highlight h-2 flex-1 overflow-hidden rounded">
-                    <div
-                      class="h-full rounded transition-all group-hover:opacity-80"
-                      :class="getSeverityBgClass(item.level)"
-                      :style="{ width: `${Math.min(item.pct * 1.3, 100)}%`, opacity: 0.7 }"
-                    ></div>
-                  </div>
-                  <span class="text-t-fg-dark w-8 text-right text-xs">{{ item.pct.toFixed(0) }}%</span>
-                  <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(item.count) }}</span>
-                </div>
-              </div>
+              <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-magenta" label="applog events" />
             </div>
 
             <!-- Top Services -->
