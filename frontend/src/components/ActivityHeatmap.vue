@@ -213,20 +213,22 @@ function hideTooltip() {
 .heatmap-day-labels {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  margin-left: 30px; /* align with grid after time labels */
+  gap: 2px;
+  margin-left: 22px; /* align with grid after time labels */
   margin-bottom: 2px;
   height: 14px;
 }
 
 .heatmap-day-labels span {
   text-align: center;
+  white-space: nowrap;
 }
 
 .heatmap-time-labels {
   display: grid;
-  grid-template-rows: repeat(48, 1fr);
+  grid-template-rows: repeat(48, 8px);
   gap: 2px;
-  width: 26px;
+  width: 18px;
   flex-shrink: 0;
 }
 
@@ -234,23 +236,22 @@ function hideTooltip() {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-right: 4px;
-  height: 11px;
+  padding-right: 3px;
+  line-height: 8px;
 }
 
 .heatmap-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  grid-template-rows: repeat(48, 1fr);
+  grid-template-rows: repeat(48, 8px);
   gap: 2px;
   flex: 1;
   min-width: 0;
 }
 
 .heatmap-cell {
-  aspect-ratio: 1;
-  min-height: 0;
-  border-radius: 2px;
+  height: 8px;
+  border-radius: 1px;
   transition: outline 0.1s;
 }
 
