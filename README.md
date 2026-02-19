@@ -64,6 +64,25 @@ docker compose up -d
 
 This starts PostgreSQL (TimescaleDB), the API, rsyslog (with ompgsql), and the frontend. The frontend is available at `http://localhost:3000`, the API at `http://localhost:8080`.
 
+### Port Configuration
+
+All host ports are configurable via a `.env` file. Copy the example and adjust as needed:
+
+```sh
+cp .env.example .env
+```
+
+Default ports:
+
+| Service    | Host Port | Container Port | Variable             |
+|------------|-----------|----------------|----------------------|
+| PostgreSQL | 5432      | 5432           | `POSTGRES_HOST_PORT` |
+| API        | 8080      | 8080           | `API_HOST_PORT`      |
+| rsyslog    | 1514      | 514            | `RSYSLOG_HOST_PORT`  |
+| Frontend   | 3000      | 80             | `FRONTEND_HOST_PORT` |
+
+**Host ports vs internal ports:** Changing a host port only affects how you reach the service from your machine. Container-to-container communication always uses internal ports. For example, setting `POSTGRES_HOST_PORT=15432` lets you connect from the host via `localhost:15432`, but the API still reaches postgres on port `5432` inside Docker.
+
 ### Create a user
 
 ```sh

@@ -10,6 +10,8 @@ RUN echo 'dbconfig-common dbconfig-common/dbconfig-install boolean false' | debc
 COPY rsyslog.conf /etc/rsyslog.conf
 COPY conf.d/ /etc/rsyslog.d/conf.d/
 COPY filters/ /etc/rsyslog.d/filters/
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Create spool and log directories
 RUN mkdir -p /var/spool/rsyslog /var/log/network
@@ -19,4 +21,5 @@ RUN rsyslogd -N1 -f /etc/rsyslog.conf
 
 EXPOSE 514/udp 514/tcp 1514/udp
 
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["rsyslogd", "-n", "-f", "/etc/rsyslog.conf"]

@@ -29,6 +29,17 @@ services:
       - "514:514/udp"
       - "514:514/tcp"
 
+  # Uncomment below to run rsyslog with host networking (e.g. when rsyslog
+  # must bind to specific interfaces or reach a postgres on the host).
+  # Host networking bypasses Docker DNS, so you must set PGSQL_SERVER to
+  # the real IP/hostname (e.g. 127.0.0.1) instead of the service name.
+  #
+  # rsyslog:
+  #   network_mode: host
+  #   environment:
+  #     PGSQL_SERVER: "127.0.0.1"
+  #     PGSQL_PASSWORD: "${POSTGRES_PASSWORD:-taillight}"
+
   api:
     volumes:
       - ../company-repo/config.yml:/config.yml:ro
