@@ -1,3 +1,4 @@
+# Taillight Config
 database_url: "postgres://user:password@localhost:5432/taillight"
 listen_addr: ":8080"
 log_level: "info"
