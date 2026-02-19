@@ -212,45 +212,44 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
         </div>
 
         <template v-else>
-          <!-- Summary Cards -->
-          <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-4">
-            <!-- Total -->
-            <div class="bg-t-bg-dark border-t-border rounded border p-4">
-              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total {{ rangeLabel }}</div>
-              <div class="text-t-teal text-2xl font-bold tabular-nums">{{ formatNumber(home.syslogSummary!.total) }}</div>
-              <div class="mt-1 flex items-center gap-1 text-xs tabular-nums">
+          <!-- Stats Bar -->
+          <div class="bg-t-bg-dark border-t-border mb-4 flex divide-x divide-t-border overflow-hidden rounded border tabular-nums">
+            <!-- Total (hero) -->
+            <div class="flex w-36 shrink-0 flex-col justify-center px-4 py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Total {{ rangeLabel }}</div>
+              <div class="text-t-teal text-2xl font-bold">{{ formatNumber(home.syslogSummary!.total) }}</div>
+              <div class="flex items-center gap-1 text-[10px]">
                 <span :class="home.syslogSummary!.trend >= 0 ? 'text-t-green' : 'text-t-red'">
                   {{ home.syslogSummary!.trend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(home.syslogSummary!.trend).toFixed(1) }}%
                 </span>
-                <span class="text-t-fg-dark">vs prev {{ rangeLabel }}</span>
+                <span class="text-t-fg-dark">vs prev</span>
               </div>
             </div>
+            <!-- Emerg -->
+            <div class="flex flex-1 flex-col items-center justify-center py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Emerg</div>
+              <div class="text-sev-emerg text-xl font-bold leading-snug">{{ formatNumber(syslogEmerg) }}</div>
+            </div>
+            <!-- Alert -->
+            <div class="flex flex-1 flex-col items-center justify-center py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Alert</div>
+              <div class="text-sev-alert text-xl font-bold leading-snug">{{ formatNumber(syslogAlert) }}</div>
+            </div>
+            <!-- Crit -->
+            <div class="flex flex-1 flex-col items-center justify-center py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Crit</div>
+              <div class="text-sev-crit text-xl font-bold leading-snug">{{ formatNumber(syslogCriticals) }}</div>
+            </div>
+            <!-- Error -->
+            <div class="flex flex-1 flex-col items-center justify-center py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Error</div>
+              <div class="text-sev-err text-xl font-bold leading-snug">{{ formatNumber(syslogErrors) }}</div>
+            </div>
+          </div>
 
-            <!-- Severity Breakdown -->
-            <div class="bg-t-bg-dark border-t-border flex divide-x divide-t-border overflow-hidden rounded border tabular-nums">
-              <div class="flex flex-1 flex-col items-center justify-center py-3">
-                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Emerg</div>
-                <div class="text-sev-emerg text-xl font-bold leading-snug">{{ formatNumber(syslogEmerg) }}</div>
-              </div>
-              <div class="flex flex-1 flex-col items-center justify-center py-3">
-                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Alert</div>
-                <div class="text-sev-alert text-xl font-bold leading-snug">{{ formatNumber(syslogAlert) }}</div>
-              </div>
-              <div class="flex flex-1 flex-col items-center justify-center py-3">
-                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Crit</div>
-                <div class="text-sev-crit text-xl font-bold leading-snug">{{ formatNumber(syslogCriticals) }}</div>
-              </div>
-              <div class="flex flex-1 flex-col items-center justify-center py-3">
-                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Error</div>
-                <div class="text-sev-err text-xl font-bold leading-snug">{{ formatNumber(syslogErrors) }}</div>
-              </div>
-            </div>
-
-            <!-- Syslog Heatmap -->
-            <div class="bg-t-bg-dark border-t-border col-span-1 rounded border p-4 md:col-span-2">
-              <h3 class="text-t-teal mb-2 text-[10px] font-semibold uppercase tracking-wide">Volume</h3>
-              <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
-            </div>
+          <!-- Heatmap -->
+          <div class="bg-t-bg-dark border-t-border mb-4 rounded border p-4">
+            <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
           </div>
 
           <!-- Two Column Layout -->
@@ -310,45 +309,44 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
         </div>
 
         <template v-else>
-          <!-- Summary Cards -->
-          <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-4">
-            <!-- Total -->
-            <div class="bg-t-bg-dark border-t-border rounded border p-4">
-              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total {{ rangeLabel }}</div>
-              <div class="text-t-teal text-2xl font-bold tabular-nums">{{ formatNumber(home.applogSummary!.total) }}</div>
-              <div class="mt-1 flex items-center gap-1 text-xs tabular-nums">
+          <!-- Stats Bar -->
+          <div class="bg-t-bg-dark border-t-border mb-4 flex divide-x divide-t-border overflow-hidden rounded border tabular-nums">
+            <!-- Total (hero) -->
+            <div class="flex w-36 shrink-0 flex-col justify-center px-4 py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Total {{ rangeLabel }}</div>
+              <div class="text-t-teal text-2xl font-bold">{{ formatNumber(home.applogSummary!.total) }}</div>
+              <div class="flex items-center gap-1 text-[10px]">
                 <span :class="home.applogSummary!.trend >= 0 ? 'text-t-green' : 'text-t-red'">
                   {{ home.applogSummary!.trend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(home.applogSummary!.trend).toFixed(1) }}%
                 </span>
-                <span class="text-t-fg-dark">vs prev {{ rangeLabel }}</span>
+                <span class="text-t-fg-dark">vs prev</span>
               </div>
             </div>
+            <!-- Fatal -->
+            <div class="flex flex-1 flex-col items-center justify-center py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Fatal</div>
+              <div class="text-sev-emerg text-xl font-bold leading-snug">{{ formatNumber(applogFatal) }}</div>
+            </div>
+            <!-- Error -->
+            <div class="flex flex-1 flex-col items-center justify-center py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Error</div>
+              <div class="text-sev-err text-xl font-bold leading-snug">{{ formatNumber(applogErrors) }}</div>
+            </div>
+            <!-- Warn -->
+            <div class="flex flex-1 flex-col items-center justify-center py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Warn</div>
+              <div class="text-sev-warning text-xl font-bold leading-snug">{{ formatNumber(home.applogSummary!.warnings) }}</div>
+            </div>
+            <!-- Info -->
+            <div class="flex flex-1 flex-col items-center justify-center py-3">
+              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Info</div>
+              <div class="text-sev-info text-xl font-bold leading-snug">{{ formatNumber(applogInfo) }}</div>
+            </div>
+          </div>
 
-            <!-- Level Breakdown -->
-            <div class="bg-t-bg-dark border-t-border flex divide-x divide-t-border overflow-hidden rounded border tabular-nums">
-              <div class="flex flex-1 flex-col items-center justify-center py-3">
-                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Fatal</div>
-                <div class="text-sev-emerg text-xl font-bold leading-snug">{{ formatNumber(applogFatal) }}</div>
-              </div>
-              <div class="flex flex-1 flex-col items-center justify-center py-3">
-                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Error</div>
-                <div class="text-sev-err text-xl font-bold leading-snug">{{ formatNumber(applogErrors) }}</div>
-              </div>
-              <div class="flex flex-1 flex-col items-center justify-center py-3">
-                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Warn</div>
-                <div class="text-sev-warning text-xl font-bold leading-snug">{{ formatNumber(home.applogSummary!.warnings) }}</div>
-              </div>
-              <div class="flex flex-1 flex-col items-center justify-center py-3">
-                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Info</div>
-                <div class="text-sev-info text-xl font-bold leading-snug">{{ formatNumber(applogInfo) }}</div>
-              </div>
-            </div>
-
-            <!-- Applog Heatmap -->
-            <div class="bg-t-bg-dark border-t-border col-span-1 rounded border p-4 md:col-span-2">
-              <h3 class="text-t-magenta mb-2 text-[10px] font-semibold uppercase tracking-wide">Volume</h3>
-              <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-magenta" label="applog events" />
-            </div>
+          <!-- Heatmap -->
+          <div class="bg-t-bg-dark border-t-border mb-4 rounded border p-4">
+            <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-magenta" label="applog events" />
           </div>
 
           <!-- Two Column Layout -->
