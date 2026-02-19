@@ -14,7 +14,7 @@ UDP/TCP input (514, 1514)
   -> capture critical severity (emerg/alert/crit) before any filtering
   -> filter by $msgid        (fastest, exact event name match)
   -> route UI_COMMIT events  (Oxidized, Resin, commit log)
-  -> filter by $programname  (daemon-level drops)
+  -> filter by $.prog        (daemon-level drops)
   -> filter by facility      (local7 info noise)
   -> filter by severity      (drop debug globally)
   -> filter by hostname/IP   (optional, all commented out)
@@ -108,7 +108,7 @@ Filters are applied cheapest-first:
 |---|---|---|
 | `05-by-msgid.conf` | `$msgid ==` exact match | Chassis polls, RPD scheduler, RT_FLOW sessions, SNMP traps, config audit, LLDP neighbor-up, PFE stats, license checks, BGP I/O, kernel routine |
 | `06-ui-commit-trigger.conf` | `$msgid ==` | Routes UI_COMMIT/UI_COMMIT_COMPLETED to commit log, Oxidized, and Resin |
-| `10-by-programname.conf` | `$programname ==` | cron, ntpd, mib2d, dcd, lacpd, cosd, alarmd, sshd, pfed |
+| `10-by-programname.conf` | `$.prog ==` | cron, ntpd, mib2d, dcd, lacpd, cosd, alarmd, sshd, pfed |
 | `30-by-facility.conf` | `$syslogfacility ==` | local7 info-level messages |
 | `40-by-severity.conf` | `$syslogseverity ==` | All debug (severity 7) |
 | `50-by-hostname.conf` | `$hostname`/`$fromhost-ip` | Nothing (examples only) |

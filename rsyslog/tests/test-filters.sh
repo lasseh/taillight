@@ -156,11 +156,19 @@ global(maxMessageSize="64k")
 module(load="imudp")
 module(load="mmpstrucdata")
 template(name="TestOutput" type="string"
-    string="KEPT: %msgid% | %programname% | %msg:2:\$%\n")
+    string="KEPT: %msgid% | %$.prog% | %msg:2:\$%\n")
 input(type="imudp" port="$TEST_PORT" ruleset="test_behavioral")
 
 ruleset(name="test_behavioral") {
     action(type="mmpstrucdata")
+
+    # Unify program name: RFC 5424 $app-name, RFC 3164 $programname
+    if (\$app-name != "") then {
+        set \$.prog = \$app-name;
+    } else {
+        set \$.prog = \$programname;
+    }
+
 $(cat "$PROJECT_DIR/filters/05-by-msgid.conf")
 $(cat "$PROJECT_DIR/filters/10-by-programname.conf")
 $(cat "$PROJECT_DIR/filters/30-by-facility.conf")
