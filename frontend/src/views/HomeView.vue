@@ -443,8 +443,8 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
 
           <!-- Applog Heatmap -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
-            <h3 class="text-t-magenta mb-3 text-xs font-semibold uppercase tracking-wide">Applog Volume</h3>
-            <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-purple" label="applog events" />
+            <h3 class="text-sev-alert mb-3 text-xs font-semibold uppercase tracking-wide">Applog Volume</h3>
+            <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-sev-alert" label="applog events" />
           </div>
         </div>
       </section>
