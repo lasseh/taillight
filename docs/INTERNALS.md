@@ -1,921 +1,708 @@
-# Taillight Internals
+# Internals
 
-Deep-dive reference for developers who want to understand, debug, or extend
-Taillight's backend and frontend internals.
+This document covers the internal implementation details of the taillight backend. It is aimed at contributors and developers who want to understand how the code works, why specific design decisions were made, and how the major subsystems fit together.
 
----
-
-## Table of Contents
-
-1. [LISTEN/NOTIFY Listener](#1-listennotify-listener)
-2. [SSE Broker Pattern](#2-sse-broker-pattern)
-3. [SSE Handler Lifecycle](#3-sse-handler-lifecycle)
-4. [Applog Ingest Pipeline](#4-applog-ingest-pipeline)
-5. [TimescaleDB Schema Design](#5-timescaledb-schema-design)
-6. [Meta Cache System](#6-meta-cache-system)
-7. [Cursor-Based Pagination](#7-cursor-based-pagination)
-8. [Authentication System](#8-authentication-system)
-9. [Frontend Store Architecture](#9-frontend-store-architecture)
-10. [rsyslog Filter Pipeline](#10-rsyslog-filter-pipeline)
-11. [LLM Analysis Subsystem](#11-llm-analysis-subsystem)
-12. [Log Shipper](#12-log-shipper)
-13. [Prometheus Metrics](#13-prometheus-metrics)
+All file paths are relative to `api/` unless otherwise noted.
 
 ---
 
-## 1. LISTEN/NOTIFY Listener
+## Handler Pattern
 
-**Source:** `api/internal/postgres/listener.go`
+Every HTTP handler in taillight follows the same structure. A handler struct holds a store interface and exposes methods with the standard `http.HandlerFunc` signature.
 
-The `Listener` is the bridge between PostgreSQL and the SSE brokers. It holds a
-**dedicated `pgx.Conn`** (separate from the connection pool) that runs
-`LISTEN syslog_ingest` and `LISTEN applog_ingest`. A separate connection is
-required because `WaitForNotification` blocks the connection for the entire
-lifetime of the listener -- sharing a pool connection would starve normal
-queries.
+### Store interfaces
 
-### Connection Lifecycle
-
-```
-connect() -> LISTEN syslog_ingest -> LISTEN applog_ingest -> recv loop
-```
-
-The `recv` goroutine calls `conn.WaitForNotification(ctx)` in a tight loop.
-Each notification payload is the row ID as text, which is parsed into an `int64`
-and sent to a buffered channel:
+Each handler domain defines its own store interface in a dedicated file. This keeps handler packages testable without pulling in the full `postgres.Store`:
 
 ```go
-type Notification struct {
-    Channel string  // "syslog_ingest" or "applog_ingest"
-    ID      int64
+// internal/handler/store.go
+type SyslogStore interface {
+    GetSyslog(ctx context.Context, id int64) (model.SyslogEvent, error)
+    ListSyslogs(ctx context.Context, f model.SyslogFilter, cursor *model.Cursor, limit int) ([]model.SyslogEvent, *model.Cursor, error)
+    ListSyslogsSince(ctx context.Context, f model.SyslogFilter, sinceID int64, limit int) ([]model.SyslogEvent, error)
+    // ...
+}
+
+type AppLogStore interface {
+    GetAppLog(ctx context.Context, id int64) (model.AppLogEvent, error)
+    ListAppLogs(ctx context.Context, f model.AppLogFilter, cursor *model.Cursor, limit int) ([]model.AppLogEvent, *model.Cursor, error)
+    // ...
 }
 ```
 
-### Auto-Reconnect
+A separate `StatsStore` interface in `internal/handler/stats.go` covers volume and summary queries. The concrete `postgres.Store` satisfies all of these interfaces.
 
-On connection loss, the listener enters an exponential backoff loop:
+### Constructor pattern
 
-| Parameter | Value |
-|-----------|-------|
-| Initial backoff | 1 second |
-| Maximum backoff | 30 seconds |
-| Backoff multiplier | 2x |
-| Jitter | random 0 to backoff/2 |
-
-The jitter prevents thundering herd when multiple instances reconnect
-simultaneously. Each reconnect attempt increments the
-`taillight_listener_reconnects_total` Prometheus counter.
-
-### Channel Utilization Monitoring
-
-A separate goroutine polls the notification channel every 30 seconds. If the
-buffer is more than 80% full, a warning is logged with the current length and
-capacity. This provides an early signal that the SSE brokers or downstream
-consumers are not keeping up.
+Handlers are created with a `New*Handler(store)` constructor that accepts only the store interface:
 
 ```go
-usage := float64(len(ch)) / float64(cap(ch))
-if usage > 0.8 {
-    l.logger.Warn("notification channel near capacity", ...)
+// internal/handler/syslog.go
+type SyslogHandler struct {
+    store SyslogStore
+}
+
+func NewSyslogHandler(store SyslogStore) *SyslogHandler {
+    return &SyslogHandler{store: store}
 }
 ```
 
-The buffer size defaults to 1024 and is configurable via the
-`notification_buffer_size` config key.
+SSE handlers additionally take the broker and a logger:
 
-### Graceful Shutdown
+```go
+func NewSyslogSSEHandler(b *broker.SyslogBroker, s SyslogStore, l *slog.Logger) *SyslogSSEHandler
+```
 
-`Shutdown(ctx)` cancels the listener context, which unblocks
-`WaitForNotification` and causes the recv goroutine to close the channel and
-return. The dedicated connection is then closed explicitly.
+### Request-scoped logging
+
+The `RequestLogger` middleware (`internal/handler/request_id.go`) creates a logger enriched with the chi request ID and stores it in the request context:
+
+```go
+func RequestLogger(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        reqID := middleware.GetReqID(r.Context())
+        logger := slog.Default().With("request_id", reqID)
+        ctx := context.WithValue(r.Context(), ctxKeyLogger{}, logger)
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}
+```
+
+Handlers retrieve it with `LoggerFromContext(r.Context())`, which falls back to `slog.Default()` if no logger is in the context.
+
+### Response helpers
+
+All JSON responses go through helpers in `internal/handler/response.go`:
+
+| Helper | Purpose |
+|--------|---------|
+| `writeJSON(w, v)` | 200 OK + JSON body |
+| `writeJSONStatus(w, status, v)` | Custom status + JSON body |
+| `writeError(w, status, code, msg)` | Error envelope via `httputil.WriteError` |
+| `emptySlice[T](s)` | Ensures nil slices serialize as `[]` instead of `null` |
+| `mustJSON(v)` | Marshal or return `nil, false` (used in SSE handlers) |
+
+List endpoints wrap results in a `listResponse` envelope with `data`, `cursor`, and `has_more` fields. Single-item endpoints use `itemResponse` with just `data`.
+
+### Filter parsing
+
+Filters are parsed from HTTP query parameters in the model package:
+
+- `model.ParseSyslogFilter(r)` -- extracts hostname, programname, severity, facility, search, time range, etc.
+- `model.ParseAppLogFilter(r)` -- extracts service, component, host, level, search, time range
+- `model.ParseCursor(r)` -- decodes the `cursor` query param
+- `model.ParseLimit(r, default, max)` -- extracts and clamps the `limit` param
+
+All string filter parameters are capped at 500 characters. Typed parameters (severity, facility, level) are validated and return errors for invalid values.
 
 ---
 
-## 2. SSE Broker Pattern
+## SSE Broker System
 
-**Source:** `api/internal/broker/syslog_broker.go`, `api/internal/broker/applog_broker.go`
+The broker system fans out database events to connected SSE clients with per-client filtering. There are two parallel implementations: `SyslogBroker` and `AppLogBroker` (`internal/broker/`). They share the same architecture.
 
-`SyslogBroker` and `ApplogBroker` are structurally identical fan-out
-dispatchers. Each holds a map of subscriptions protected by an `RWMutex`:
+### Data structures
+
+```
+SyslogBroker
+  mu          sync.RWMutex
+  subscribers map[*SyslogSubscription]struct{}
+  logger      *slog.Logger
+
+SyslogSubscription
+  ch     chan SyslogMessage    // buffered, cap=64
+  filter model.SyslogFilter
+```
+
+Subscribers are tracked in a map keyed by pointer. This gives O(1) subscribe/unsubscribe and avoids index management.
+
+### Subscribe / Unsubscribe lifecycle
+
+1. **Subscribe**: Creates a `SyslogSubscription` with a buffered channel (capacity 64) and the client's filter. Acquires write lock, checks the subscriber count against the 1000-client limit, adds the subscription, releases the lock, and increments `metrics.SSEClientsActive`.
+
+2. **Unsubscribe**: Acquires write lock, checks if the subscription exists (idempotent), removes it, closes the channel, releases the lock, and decrements the gauge. The close signals the SSE handler's event loop to exit.
+
+### Per-client filter matching
+
+Each filter type implements a `Matches(event)` method that checks all non-zero fields against the event. The syslog filter checks hostname (with wildcard support), fromhost_ip, programname, severity, severity_max, facility, syslogtag, msgid, and search (case-insensitive substring). The applog filter checks service, component, host (with wildcard), level (rank-based: "WARN" matches WARN, ERROR, FATAL), and search (against both msg and attrs).
+
+Time filters (`From`/`To`) are intentionally excluded from `Matches()` -- live SSE clients receive future events, so filtering by time range would be wrong.
+
+Wildcard matching (`matchWildcard` in `internal/model/syslog.go`) supports `*` as a glob character with case-insensitive comparison. The first segment anchors at the start, the last segment anchors at the end, and `*` matches any sequence in between.
+
+### Broadcasting
 
 ```go
-type SyslogBroker struct {
-    mu          sync.RWMutex
-    subscribers map[*SyslogSubscription]struct{}
-    logger      *slog.Logger
+func (b *SyslogBroker) Broadcast(event model.SyslogEvent) {
+    if b.Len() == 0 {
+        return                          // early exit: no subscribers
+    }
+    data, err := json.Marshal(event)    // marshal once for all clients
+    msg := SyslogMessage{ID: event.ID, Data: data}
+    metrics.EventsBroadcastTotal.Inc()
+
+    b.mu.RLock()                        // read lock: concurrent reads OK
+    defer b.mu.RUnlock()
+    for sub := range b.subscribers {
+        if !sub.filter.Matches(event) {
+            continue                    // skip non-matching clients
+        }
+        select {
+        case sub.ch <- msg:             // non-blocking send
+        default:
+            metrics.EventsDroppedTotal.Inc()
+        }
+    }
 }
-```
-
-Using the subscription pointer as the map key avoids needing a separate ID
-allocator -- each subscription is inherently unique by its memory address.
-
-### Subscription Structure
-
-Each subscription pairs a buffered channel (capacity 64) with a filter:
-
-```go
-type SyslogSubscription struct {
-    ch     chan SyslogMessage  // buffered, 64
-    filter model.SyslogFilter
-}
-```
-
-The buffer size (64) is a tradeoff: large enough to absorb short bursts without
-blocking the broadcast goroutine, small enough that a stalled client doesn't
-consume unbounded memory.
-
-### Broadcast Path
-
-```
-Broadcast(event) -> marshal JSON once -> RLock -> iterate subscribers
-    -> filter.Matches() -> non-blocking send -> RUnlock
 ```
 
 Key details:
+- The event is JSON-marshaled once, then the same `[]byte` is shared across all subscriptions.
+- A read lock (`RLock`) is held during broadcast so subscribes/unsubscribes block but multiple broadcasts can proceed concurrently.
+- The send is non-blocking: if a client's 64-message buffer is full, the event is dropped and a metric is incremented. This prevents one slow client from blocking all others.
 
-- **Marshal once**: the event is JSON-serialized a single time, then the
-  `[]byte` is sent to all matching subscribers. This avoids O(N) marshaling.
-- **Filter first**: `filter.Matches()` runs before the channel send, so
-  non-matching events never touch the channel.
-- **Non-blocking send**: uses `select { case ch <- msg: default: drop }`.
-  If the channel is full, the event is dropped and both a metric
-  (`taillight_events_dropped_total`) and a warning log are emitted.
-- **Early exit**: if `b.Len() == 0`, the broadcast returns immediately without
-  marshaling.
+### Limits and metrics
 
-### Slow Client Handling
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `subscriptionBufferSize` | 64 | Per-client channel buffer |
+| `maxSubscribers` | 1000 | Maximum concurrent SSE clients per broker |
 
-Slow clients (those whose channel fills up) simply lose events. There is no
-disconnect, no backpressure to PostgreSQL, and no retry -- the broker logs a
-warning and increments a counter. The SSE handler on the client side will
-reconnect with `Last-Event-ID` if it detects a gap.
-
-### Shutdown
-
-`Shutdown()` takes a write lock, closes all subscription channels, and clears
-the map. Each SSE handler detects the channel closure and returns, cleanly
-ending the HTTP response.
+Metrics tracked: `SSEClientsActive` (gauge), `EventsBroadcastTotal` (counter), `EventsDroppedTotal` (counter), with parallel `AppLog*` variants.
 
 ---
 
-## 3. SSE Handler Lifecycle
+## LISTEN/NOTIFY Pipeline
 
-**Source:** `api/internal/handler/syslog_sse.go`, `api/internal/handler/applog_sse.go`
+Events flow from PostgreSQL to Go through the `Listener` (`internal/postgres/listener.go`), which uses PostgreSQL's LISTEN/NOTIFY mechanism to receive real-time notifications when new rows are inserted.
 
-The SSE handlers follow a careful protocol to avoid race conditions between
-historical backfill and live events.
+### Why a dedicated connection
 
-### Subscribe-Before-Backfill
+The Listener uses a bare `pgx.Conn` -- not a connection from the pool. This is because `WaitForNotification` is a blocking call that holds the connection indefinitely. Using a pool connection would tie up a slot and eventually starve other queries. The dedicated connection is created via `pgx.Connect()` and managed separately from the `pgxpool.Pool`.
 
-```go
-sub := h.broker.Subscribe(filter)
-defer h.broker.Unsubscribe(sub)
-lastBackfilledID := h.backfill(w, r, filter, flusher)
+### Architecture
+
+```
+PostgreSQL                        Go Listener                    Brokers
+  INSERT → trigger →            ┌──────────────┐
+  pg_notify('syslog_ingest',    │  pgx.Conn    │
+            new_id)  ─────────► │  LISTEN      │──► Notification{channel, id}
+                                │  channel     │         │
+                                └──────────────┘         ▼
+                                                   store.GetSyslog(id)
+                                                         │
+                                                         ▼
+                                                  broker.Broadcast(event)
 ```
 
-The subscription is created **before** the backfill query runs. This ensures
-that events inserted between the end of the backfill query and the start of
-live streaming are captured in the subscription channel rather than lost.
+### Notification flow
 
-The `lastBackfilledID` is used to deduplicate: any live event with
-`msg.ID <= lastBackfilledID` is skipped.
+1. **Receive**: `conn.WaitForNotification(ctx)` blocks until a notification arrives. The payload is the row ID as a string.
 
-### Backfill Strategy
+2. **Parse**: The payload is parsed to `int64`. Invalid payloads are logged and skipped.
 
-Two modes, selected by the presence of `Last-Event-ID`:
+3. **Track**: `lastSeenID` is updated atomically for gap-fill on reconnection.
 
-| Condition | Query | Order |
-|-----------|-------|-------|
-| `Last-Event-ID` present | `ListSyslogsSince(sinceID, limit)` | ASC (chronological) |
-| No `Last-Event-ID` | `ListSyslogs(filter, nil, 100)` | Reversed to ASC |
+4. **Dispatch**: A `Notification{Channel, ID}` is sent on a buffered channel. The consumer (in `serve.go`) fetches the full event by ID from the store and broadcasts it to the appropriate broker.
 
-Both paths cap backfill at 100 events. The `Last-Event-ID` header is the
-primary mechanism; a `lastEventId` query parameter is also accepted as a
-fallback for clients that cannot set custom headers (e.g., `EventSource`
-without polyfill).
+### Reconnection with gap fill
 
-### Main Loop
+When the connection drops:
 
-The handler enters a three-way select:
+1. The old connection is closed.
+2. `reconnect()` attempts to re-establish the connection with exponential backoff (1s initial, 30s max) plus random jitter to avoid thundering herd.
+3. After reconnecting, `fillGap()` queries for all event IDs greater than `lastSeenID` (up to 10,000) and pushes them into the notification channel. This ensures no events are lost during the disconnect window.
+4. `metrics.ListenerReconnectsTotal` is incremented on each attempt.
+
+### Channel monitoring
+
+A background goroutine checks the notification channel utilization every 30 seconds. If the buffer exceeds 80% capacity, a warning is logged. This indicates event bursts are outpacing consumption and the buffer size may need to be increased.
+
+---
+
+## SSE Handler Lifecycle
+
+Both `SyslogSSEHandler.Stream` and `AppLogSSEHandler.Stream` (`internal/handler/syslog_sse.go`, `applog_sse.go`) follow the same lifecycle:
+
+### 1. Setup
 
 ```go
-select {
-case msg, ok := <-sub.Chan():
-    // Live event from broker
-case <-heartbeat.C:
-    // 15-second keepalive
-case <-r.Context().Done():
-    // Client disconnected
+flusher, ok := w.(http.Flusher)     // verify streaming support
+filter, err := model.ParseSyslogFilter(r)
+
+w.Header().Set("Content-Type", "text/event-stream")
+w.Header().Set("Cache-Control", "no-cache")
+w.Header().Set("Connection", "keep-alive")
+w.Header().Set("X-Accel-Buffering", "no")  // disable nginx buffering
+```
+
+### 2. Subscribe before backfill
+
+```go
+sub, err := h.broker.Subscribe(filter)
+defer h.broker.Unsubscribe(sub)
+```
+
+The subscription is created **before** the backfill query. This is critical: if we queried first and subscribed second, events arriving between the query and the subscribe would be lost. Subscribing first means those events land in the channel buffer and are delivered after the backfill.
+
+### 3. Backfill
+
+The backfill logic handles two cases:
+
+**With `Last-Event-ID`** (client reconnecting): Queries `ListSyslogsSince(sinceID, limit=100)` to fetch events after the last one the client received. Results are already in chronological order (ASC).
+
+**Without `Last-Event-ID`** (fresh connection): Queries `ListSyslogs(filter, nil, limit=100)` to get the most recent events, then sends them oldest-first by iterating in reverse.
+
+The backfill returns the highest event ID sent, which is used for duplicate suppression.
+
+### 4. Event loop
+
+```go
+heartbeat := time.NewTicker(15 * time.Second)
+defer heartbeat.Stop()
+
+for {
+    select {
+    case msg, ok := <-sub.Chan():
+        if !ok { return }                          // channel closed (broker shutdown)
+        if msg.ID <= lastBackfilledID { continue }  // duplicate suppression
+        writeSSEEvent(w, msg.ID, "syslog", msg.Data)
+        flusher.Flush()
+    case <-heartbeat.C:
+        fmt.Fprint(w, "event: heartbeat\ndata: \n\n")
+        flusher.Flush()
+    case <-r.Context().Done():
+        return                                      // client disconnected
+    }
 }
 ```
 
-### SSE Wire Format
+### 5. SSE frame format
 
 ```
 id: 12345
 event: syslog
-data: {"id":12345,"hostname":"router1",...}
+data: {"id":12345,"hostname":"router-1",...}
 
 ```
 
-For applog events, `event: applog` is used instead. Heartbeats use:
+Each frame includes the event ID (for `Last-Event-ID` reconnection), the event type (`syslog` or `applog`), and the JSON payload.
 
-```
-event: heartbeat
-data:
+### 6. Heartbeat
 
-```
+A `:keepalive` comment (actually `event: heartbeat`) is sent every 15 seconds. This serves two purposes: it keeps the connection alive through proxies and load balancers, and it detects dead connections early (the write will fail if the client has disconnected).
 
-### HTTP Headers
+### 7. Duplicate suppression
 
-| Header | Value | Purpose |
-|--------|-------|---------|
-| `Content-Type` | `text/event-stream` | SSE standard |
-| `Cache-Control` | `no-cache` | Prevent proxy caching |
-| `Connection` | `keep-alive` | Keep TCP alive |
-| `X-Accel-Buffering` | `no` | Disable nginx response buffering |
+Events that arrive on the broker channel with `ID <= lastBackfilledID` are skipped. This handles the overlap window between the backfill query and the subscription becoming active.
 
 ---
 
-## 4. Applog Ingest Pipeline
+## Cursor-Based Pagination
 
-**Source:** `api/internal/handler/applog_ingest.go`
+Taillight uses keyset (cursor) pagination instead of OFFSET-based pagination. The implementation lives in `internal/model/syslog.go` and `internal/postgres/store.go`.
 
-Unlike syslog events (which arrive via rsyslog's ompgsql and trigger
-LISTEN/NOTIFY), applog events are pushed directly via HTTP.
+### Cursor encoding
 
-### Request Flow
-
-```
-POST /api/v1/applog/ingest
-  -> MaxBytesReader (5 MB cap)
-  -> JSON decode
-  -> Validate (max 1000 entries, field lengths, level normalization)
-  -> Batch INSERT with RETURNING *
-  -> Direct broadcast to ApplogBroker
-  -> 202 Accepted
-```
-
-### Validation Limits
-
-| Field | Max Length |
-|-------|-----------|
-| Batch size | 1000 entries |
-| Body size | 5 MB |
-| Service | 128 chars |
-| Component | 128 chars |
-| Host | 256 chars |
-| Source | 256 chars |
-| Message | 64 KB |
-| Attrs (JSON) | 64 KB |
-
-### Level Normalization
-
-Incoming levels are mapped to a canonical set:
-
-| Input | Canonical |
-|-------|-----------|
-| `TRACE` | `DEBUG` |
-| `DEBUG` | `DEBUG` |
-| `INFO` | `INFO` |
-| `WARN`, `WARNING` | `WARN` |
-| `ERROR` | `ERROR` |
-| `FATAL`, `CRITICAL`, `PANIC` | `FATAL` |
-
-### Why No LISTEN/NOTIFY for Applog
-
-The ingest handler broadcasts directly to the `ApplogBroker` after the batch
-INSERT returns. This avoids the round-trip through PostgreSQL's notification
-system, which would cause duplicate broadcasts (once from the handler, once
-from the trigger). The syslog path uses LISTEN/NOTIFY because events arrive
-from rsyslog -- an external process that writes directly to the database --
-where no in-process broker is available.
-
-### Batch INSERT
-
-Uses the pgx `Batch` API to queue individual `INSERT ... RETURNING *`
-statements, sent in a single round-trip. The RETURNING clause populates the
-auto-generated `id` and `received_at` fields, which are needed for SSE
-broadcast and client deduplication.
-
----
-
-## 5. TimescaleDB Schema Design
-
-**Source:** `api/migrations/000001_init_schema.up.sql`
-
-### Hypertable Configuration
-
-| Table | Partition Column | Chunk Interval | Segment By | Order By |
-|-------|-----------------|----------------|------------|----------|
-| `syslog_events` | `received_at` | 1 day | `hostname` | `received_at DESC` |
-| `applog_events` | `received_at` | 1 day | `service` | `received_at DESC, id DESC` |
-| `rsyslog_stats` | `collected_at` | 1 day | `origin` | `collected_at DESC` |
-
-The `segment_by` column determines columnstore grouping within each chunk.
-Queries filtered by `hostname` (syslog) or `service` (applog) can skip
-irrelevant segments entirely.
-
-### No PRIMARY KEY
-
-TimescaleDB requires the partition column to be included in any unique
-constraint. Since we use `received_at` partitioning but `id` as the logical
-identifier, a traditional `PRIMARY KEY (id)` is not possible. Instead, we rely
-on `BIGINT GENERATED ALWAYS AS IDENTITY` for uniqueness and a B-tree index on
-`(id)` for single-row lookups.
-
-### Compression and Retention
-
-| Policy | syslog_events | applog_events | rsyslog_stats |
-|--------|---------------|---------------|---------------|
-| Columnstore compression | After 1 day | After 1 day | After 1 day |
-| Retention (chunk drop) | 90 days | 90 days | 30 days |
-
-Compression converts row-oriented chunks to columnar storage, typically
-achieving 10-20x compression. The default TimescaleDB 7-day policy is replaced
-with 1-day to compress data sooner.
-
-### Index Strategy
-
-**syslog_events:**
-
-| Index | Columns | Purpose |
-|-------|---------|---------|
-| `idx_syslog_received_id` | `(received_at DESC, id DESC)` | Cursor pagination |
-| `idx_syslog_id` | `(id)` | Single event lookup |
-| `idx_syslog_host_received` | `(hostname, received_at DESC)` | Host filter |
-| `idx_syslog_severity_received` | `(severity, received_at DESC, id DESC) WHERE severity <= 3` | Partial index for errors |
-| `idx_syslog_programname` | `(programname)` | Program filter |
-| `idx_syslog_facility` | `(facility)` | Facility filter |
-| `idx_syslog_fromhost_ip` | `(fromhost_ip)` | IP filter |
-| `idx_syslog_syslogtag` | `(syslogtag)` | Tag filter |
-| `idx_syslog_message_trgm` | `GIN (message gin_trgm_ops)` | ILIKE substring search |
-
-**applog_events:**
-
-| Index | Columns | Purpose |
-|-------|---------|---------|
-| `idx_applog_received_id` | `(received_at DESC, id DESC)` | Cursor pagination |
-| `idx_applog_service_received` | `(service, received_at DESC)` | Service filter |
-| `idx_applog_level_received` | `(level, received_at DESC)` | Level filter |
-| `idx_applog_attrs` | `GIN (attrs jsonb_path_ops)` | JSONB attribute queries |
-| `idx_applog_search` | `GIN (search_vector)` | Full-text search |
-
-The partial index on severity (`WHERE severity <= 3`) covers only error-level
-and above events. This keeps the index small while accelerating the most common
-alerting queries.
-
-### Full-Text Search
-
-Applog uses a generated `tsvector` column:
-
-```sql
-search_vector tsvector GENERATED ALWAYS AS (
-    to_tsvector('simple', coalesce(service,'') || ' ' ||
-                          coalesce(component,'') || ' ' ||
-                          coalesce(host,'') || ' ' ||
-                          coalesce(msg,''))
-) STORED
-```
-
-Queries use `plainto_tsquery('simple', ?)` for natural word matching. Syslog
-uses trigram-based `ILIKE` search instead, because syslog messages often
-contain structured tokens (e.g., `CHASSISD_BLOWERS_SPEED`) that benefit from
-substring matching rather than word-boundary tokenization.
-
-### Autovacuum Tuning
-
-```sql
-ALTER TABLE syslog_events SET (
-    autovacuum_vacuum_scale_factor = 0.05,
-    autovacuum_analyze_scale_factor = 0.02
-);
-```
-
-The defaults (20% / 10%) are far too lazy for a high-insert append-only table.
-Lowering to 5% / 2% ensures statistics stay current and dead tuples are cleaned
-promptly.
-
----
-
-## 6. Meta Cache System
-
-**Source:** `api/migrations/000001_init_schema.up.sql` (triggers), `api/internal/postgres/store.go` (queries)
-
-### Problem
-
-Filter dropdowns need the set of distinct hostnames, program names, services,
-etc. Running `SELECT DISTINCT hostname FROM syslog_events` on a multi-million
-row hypertable is prohibitively slow, even with indexes.
-
-### Solution
-
-Three cache tables maintain the set of known values:
-
-| Table | Key | Populated By |
-|-------|-----|-------------|
-| `syslog_meta_cache` | `(column_name, value)` composite PK | `cache_syslog_meta()` trigger |
-| `syslog_facility_cache` | `facility` PK | `cache_syslog_facility()` trigger |
-| `applog_meta_cache` | `(column_name, value)` composite PK | `cache_applog_meta()` trigger |
-
-Each trigger fires on `AFTER INSERT` and does `INSERT ... ON CONFLICT DO NOTHING`.
-This is effectively free for existing values (the conflict is a no-op) and
-costs only one small write for genuinely new values.
-
-### Queried Columns
-
-- **syslog**: `hostname`, `programname`, `syslogtag` (plus `facility` in its
-  own table)
-- **applog**: `service`, `component`, `host`
-
-The Go store validates the requested column against a hardcoded allowlist
-before interpolating it into a query:
+A cursor encodes two values: the `received_at` timestamp (as Unix nanoseconds) and the row `id`:
 
 ```go
-var allowedMetaColumns = map[string]struct{}{
-    "hostname":    {},
-    "programname": {},
-    "syslogtag":   {},
-}
-```
-
-### Tradeoff
-
-Meta cache values are never deleted. If a hostname stops sending logs, its
-entry persists in the cache even after the underlying data ages out past the
-90-day retention window. This is an accepted tradeoff -- stale filter options
-are preferable to slow DISTINCT queries.
-
----
-
-## 7. Cursor-Based Pagination
-
-**Source:** `api/internal/model/syslog.go` (Cursor type), `api/internal/postgres/store.go` (query)
-
-### Why Keyset Pagination
-
-Traditional `OFFSET`-based pagination degrades as offset grows (the database
-must scan and discard rows). Keyset pagination uses an indexed WHERE clause that
-seeks directly to the correct position, making page N as fast as page 1.
-
-### Cursor Encoding
-
-A cursor encodes a `(received_at, id)` pair as base64:
-
-```go
+// Encode: "{unix_nanos},{id}" → base64url
 func (c Cursor) Encode() string {
     raw := fmt.Sprintf("%d,%d", c.ReceivedAt.UnixNano(), c.ID)
     return base64.URLEncoding.EncodeToString([]byte(raw))
 }
-```
 
-The timestamp is stored as nanoseconds since epoch to preserve full precision.
-The base64 encoding makes the cursor opaque to clients -- they should not parse
-or construct cursors manually.
-
-### Query Pattern
-
-```sql
-SELECT ... FROM syslog_events
-WHERE (received_at, id) < ($cursor_ts, $cursor_id)
-  AND <filter conditions>
-ORDER BY received_at DESC, id DESC
-LIMIT $limit + 1
-```
-
-The `LIMIT + 1` trick: request one extra row. If we get it, there are more
-pages (`has_more = true`), and we trim the result to `$limit`. The last
-included row's `(received_at, id)` becomes the next cursor.
-
-### Response Envelope
-
-```json
-{
-  "data": [...],
-  "cursor": "base64-encoded-cursor",
-  "has_more": true
+// Decode: base64url → parse nanos + id
+func DecodeCursor(s string) (Cursor, error) {
+    raw, err := base64.URLEncoding.DecodeString(s)
+    parts := strings.SplitN(string(raw), ",", 2)
+    nanos, _ := strconv.ParseInt(parts[0], 10, 64)
+    id, _ := strconv.ParseInt(parts[1], 10, 64)
+    return Cursor{ReceivedAt: time.Unix(0, nanos), ID: id}, nil
 }
 ```
 
----
+### Keyset pagination query
 
-## 8. Authentication System
-
-**Source:** `api/internal/auth/` (middleware, crypto), `api/internal/handler/auth.go` (endpoints), `api/internal/postgres/auth_store.go` (storage)
-
-### Auth Method Priority
-
-The `SessionOrAPIKey` middleware tries three methods in order:
-
-1. **Session cookie** (`tl_session`) -- SHA-256 hash the cookie value, look up
-   in `sessions` table joined with `users`
-2. **DB API key** (`Authorization: Bearer tl_...`) -- SHA-256 hash the token,
-   look up in `api_keys` table joined with `users`
-3. **Config static key** -- constant-time compare against keys defined in
-   `config.yml`
-
-On success, the authenticated `*model.User` is stored in the request context
-via `auth.WithUser()`. Config keys do not have a user context (`UserFromContext`
-returns nil).
-
-### Session Management
-
-| Parameter | Value |
-|-----------|-------|
-| Cookie name | `tl_session` |
-| Token size | 32 random bytes, base64-encoded |
-| Storage | SHA-256 hash of token |
-| Expiry | 30 days |
-| Max per user | 10 (oldest pruned on login) |
-| Flags | HttpOnly, SameSite=Lax, Secure (auto-detected) |
-
-Session `last_seen_at` is updated asynchronously via a fire-and-forget
-background goroutine to avoid adding latency to every authenticated request:
+The store uses tuple comparison for stable, index-friendly pagination:
 
 ```go
-go func() {
-    _, _ = s.pool.Exec(context.Background(),
-        `UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`, tokenHash)
-}()
+if cursor != nil {
+    qb = qb.Where("(received_at, id) < (?, ?)", cursor.ReceivedAt, cursor.ID)
+}
+qb = qb.OrderBy("received_at DESC", "id DESC").Limit(uint64(limit + 1))
 ```
 
-### API Keys
+PostgreSQL evaluates `(received_at, id) < (cursor_time, cursor_id)` as a composite comparison. Combined with `ORDER BY received_at DESC, id DESC`, this gives stable ordering without the problems of OFFSET.
 
-- **Format**: `tl_` prefix + 43 base62 characters (total 46 characters)
-- **Storage**: SHA-256 hash (never store the raw key)
-- **Display prefix**: first 10 characters stored for UI display (`tl_Ab3xY...`)
-- **Expiry**: optional, checked at lookup time
-- **Revocation**: `revoked_at` timestamp; revoked keys are excluded by a
-  partial unique index: `WHERE revoked_at IS NULL`
+### has_more detection
 
-`last_used_at` is updated asynchronously on each use, same pattern as sessions.
+The query requests `limit + 1` rows. If more rows are returned than the limit, a next cursor is constructed from the last included row:
 
-### Timing Safety
-
-Several measures prevent timing-based enumeration:
-
-1. **Unknown username**: `DummyCheckPassword()` burns the same bcrypt CPU time
-   as a real check, then returns "invalid credentials"
-2. **Inactive account**: bcrypt runs **before** checking `is_active`, so the
-   response time is identical for active and inactive accounts
-3. **Config keys**: `constantTimeMatch()` uses `crypto/subtle.ConstantTimeCompare`
-   and always iterates all keys (never short-circuits on match)
-
-### Admin Role
-
-The `is_admin` boolean on the `users` table gates two endpoints:
-
-- `PATCH /api/v1/auth/users/{id}/active` -- enable/disable accounts
-- `GET /api/v1/auth/users` -- list all users
-
-API key revocation requires either ownership or admin status.
-
----
-
-## 9. Frontend Store Architecture
-
-**Source:** `frontend/src/stores/event-store-factory.ts`, `frontend/src/stores/filter-store-factory.ts`, `frontend/src/composables/useEventStream.ts`
-
-### Event Store Factory
-
-`createEventStore<TEvent>()` produces a generic Pinia store that manages the
-full lifecycle for both syslog and applog event lists:
-
-```
-Enter -> Reset state -> Load initial page (100 events) -> Mark initial load complete -> Start accepting SSE events
-```
-
-Key implementation details:
-
-- **shallowRef for events**: The events array uses `shallowRef` instead of
-  `ref` to skip Vue's deep reactivity tracking. Events are immutable once
-  received, so deep observation is wasted work. Mutations happen by replacing
-  the entire array (`events.value = [...events.value, event]`).
-
-- **Deduplication via `_knownIds` Set**: Every event ID (from both history loads
-  and SSE) is tracked in a `Set<number>`. When the set exceeds 10,000 entries,
-  the oldest 5,000 are trimmed to prevent unbounded growth:
-
-  ```typescript
-  if (_knownIds.size > 10000) {
-      const iter = _knownIds.values()
-      for (let i = 0; i < 5000; i++) {
-          _knownIds.delete(iter.next().value!)
-      }
-  }
-  ```
-
-- **AbortController for history requests**: When filters change, any in-flight
-  `loadHistory` request is aborted via `AbortController` before starting a new
-  one. This prevents stale responses from overwriting fresher data.
-
-- **Filter watch triggers re-enter**: A `watch` on `activeFilters` calls
-  `enter()` (which resets and reloads) whenever the user changes any filter.
-
-### Filter Store Factory
-
-`createFilterStore<K>(id, filterKeys, routeName)` produces a Pinia store that
-keeps filter state bidirectionally synced with URL query parameters:
-
-- **Read from URL**: `initFromURL()` reads query params into the reactive
-  `filters` object on mount
-- **Write to URL**: a `watch` on `filters` calls `router.replace()` to update
-  the URL without navigation
-- **activeFilters computed**: omits empty values, so the URL stays clean
-
-### SSE Composables
-
-`createEventStream<T>(path, eventName)` is a module-level singleton that
-manages a single `EventSource` connection:
-
-| Parameter | Value |
-|-----------|-------|
-| Initial backoff | 1 second |
-| Maximum backoff | 30 seconds |
-| Heartbeat timeout | 35 seconds (2x server's 15s heartbeat) |
-
-Reconnect uses the `lastEventId` query parameter to resume from the last
-received event. A watchdog timer checks every 5 seconds whether a heartbeat
-or event has been received within the timeout window; if not, the connection
-is torn down and rescheduled.
-
-`useSyslogStream()` and `useAppLogStream()` are thin wrappers that instantiate
-the singleton for each event type:
-
-```typescript
-const stream = createEventStream<SyslogEvent>('/api/v1/syslog/stream', 'syslog')
-```
-
-### Theme System
-
-19 themes defined in `frontend/src/lib/themes.ts` (14 dark, 5 light), each
-providing an `id`, `name`, and `chartColors` array. Themes are applied via a
-`data-theme` attribute on the root element, which CSS custom properties key off
-of. Severity colors are overridden for light themes to maintain contrast.
-
----
-
-## 10. rsyslog Filter Pipeline
-
-**Source:** `rsyslog/conf.d/20-ruleset.conf`, `rsyslog/filters/`
-
-### Processing Order
-
-The `network_devices` ruleset processes messages through a layered filter chain,
-ordered cheapest-first to reject noise as early as possible:
-
-```
-Phase 0: mmpstrucdata (parse RFC 5424 structured data)
-Phase 1: Filters
-   1. Critical severity capture (sev <= 2 always logged)
-   2. $msgid event name filter (fastest, most precise)
-   3. UI_COMMIT trigger routing
-   4. $programname filter (daemon-level drops)
-   5. Facility filter
-   6. Severity threshold filter (drops debug globally)
-   7. Hostname/IP filter
-Phase 2: Output routing
-   -> LibreNMS (omprog)
-   -> Local per-host files (omfile DynaFile)
-   -> PostgreSQL (ompgsql, optional)
-   -> Remote forwarding (omfwd, optional)
-```
-
-### Exception Keywords
-
-Every filter that drops messages checks for exception keywords first. This
-prevents accidentally silencing genuine problems:
-
-```
-if ($msgid == "CHASSISD_BLOWERS_SPEED" or ...) then {
-    if (not re_match(tolower($msg), "major|critical|alarm|failed")) then { stop }
+```go
+if len(events) > limit {
+    last := events[limit-1]
+    nextCursor = &model.Cursor{ReceivedAt: last.ReceivedAt, ID: last.ID}
+    events = events[:limit]
 }
 ```
 
-The `re_match(tolower($msg), ...)` pattern is used because rsyslog's POSIX ERE
-does not support `(?i)` for case-insensitive matching.
+### Why keyset over OFFSET
 
-Common exception keywords: `error`, `fail`, `critical`, `down`, `denied`,
-`alarm`, `panic`, `trap`.
-
-### Critical Severity Capture
-
-Before any filters run, severity <= 2 (crit, alert, emerg) is routed to
-`/var/log/network/critical_logs.log`. This ensures critical events are never
-silently dropped by downstream filters.
-
-### Queue Configuration
-
-The main ruleset uses a disk-assisted LinkedList queue:
-
-```
-queue.type="LinkedList"
-queue.size="10000"
-queue.maxDiskSpace="1g"
-queue.saveOnShutdown="on"
-queue.workerThreads="2"
-```
-
-### impstats Telemetry
-
-The `impstats` module reports throughput counters every 60 seconds with
-`resetCounters=on`, meaning each snapshot contains **deltas** (not cumulative
-totals). The `operational_stats` ruleset parses the JSON stats, filters idle
-components (submitted=0, size=0, no discards), and logs active stats to stdout.
-Stats are also optionally written to the `rsyslog_stats` hypertable for the
-backend dashboard.
+- **Stable results**: OFFSET skips rows by position, so inserts/deletes between pages cause items to be skipped or duplicated. Keyset pagination anchors to a specific row.
+- **O(1) seek**: The database uses the index to jump directly to the cursor position. OFFSET must scan and discard rows, making deep pages increasingly expensive.
+- **No count needed**: The `limit + 1` trick determines `has_more` without a separate `COUNT(*)` query.
 
 ---
 
-## 11. LLM Analysis Subsystem
+## Authentication System
 
-**Source:** `api/internal/analyzer/`
+The auth system (`internal/auth/`) supports two authentication methods: session cookies and API keys. Both store only hashed tokens in the database.
 
-### Architecture
+### Password hashing
 
-The analysis subsystem is optional -- it requires a running Ollama instance.
-When enabled, it follows this pipeline:
+Passwords are hashed with bcrypt at cost 12:
 
-```
-Scheduler (configurable time, default 03:00)
-  -> Analyzer.Run()
-    -> Ping Ollama (availability check)
-    -> Gather data (top msgids, severity comparison, error hosts, new msgids, event clusters)
-    -> Build prompt (system + user messages)
-    -> Call Ollama chat API
-    -> Store report in analysis_reports table
+```go
+const bcryptCost = 12
+
+func HashPassword(password string) (string, error) {
+    hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+    return string(hash), nil
+}
 ```
 
-### Data Gathering
+To prevent timing-based username enumeration, a `DummyCheckPassword` function compares against a pre-computed dummy hash when the user is not found. This ensures the response time is the same whether the user exists or not.
 
-The analyzer queries multiple facets of recent log activity to build context
-for the LLM:
+### Session tokens
 
-| Query | Purpose |
-|-------|---------|
-| `GetTopMsgIDs` | Most frequent event types with severity breakdown |
-| `GetSeverityComparison` | Current vs baseline severity distribution |
-| `GetTopErrorHosts` | Hosts producing the most errors |
-| `GetNewMsgIDs` | Event types seen for the first time |
-| `GetEventClusters` | Time windows with correlated events across hosts |
-| `LookupJuniperRefs` | Juniper syslog reference entries for context |
+1. Generate 32 random bytes.
+2. Encode as base64url -- this is the raw token sent to the client as a cookie (`tl_session`).
+3. Compute SHA-256 hex digest of the raw token -- this hash is stored in the `sessions` table.
 
-### Report Storage
+```go
+func GenerateSessionToken() (raw, hash string, err error) {
+    b := make([]byte, 32)
+    rand.Read(b)
+    raw = base64.URLEncoding.EncodeToString(b)
+    hash = HashToken(raw)   // SHA-256 hex
+    return raw, hash, nil
+}
+```
 
-Reports are stored in the `analysis_reports` table with metadata:
+On authentication, the middleware extracts the cookie, hashes it, and looks up the session by hash. Sessions have an `expires_at` and a `last_seen_at` that is touched asynchronously (fire-and-forget goroutine) on each request.
 
-| Field | Description |
-|-------|-------------|
-| `model` | Ollama model name |
-| `period_start`, `period_end` | Analysis time window |
-| `report` | Generated markdown text |
-| `prompt_tokens` | Input token count |
-| `completion_tokens` | Output token count |
-| `duration_ms` | Total run time |
-| `status` | `completed` or `failed` |
+Session management includes pruning (keep N most recent per user) and cleanup of expired sessions.
 
-### Configuration
+### API keys
 
-| Parameter | Default | Config Key |
-|-----------|---------|------------|
-| Ollama URL | `http://localhost:11434` | `analysis.ollama_url` |
-| Model | `llama3` | `analysis.model` |
-| Temperature | 0.3 | `analysis.temperature` |
-| Context window | 8192 | `analysis.num_ctx` |
-| Schedule | `03:00` | `analysis.schedule_at` |
+API keys use a `tl_` prefix followed by 43 base62 characters (0-9, A-Z, a-z), generated using `crypto/rand`:
+
+```go
+const apiKeyPrefix = "tl_"
+const apiKeyLen    = 43
+
+func GenerateAPIKey() (fullKey, hash, prefix string, err error) {
+    chars := make([]byte, apiKeyLen)
+    for i := range chars {
+        n, _ := rand.Int(rand.Reader, big.NewInt(62))
+        chars[i] = base62Chars[n.Int64()]
+    }
+    fullKey = apiKeyPrefix + string(chars)
+    hash = HashToken(fullKey)        // SHA-256 hex
+    prefix = fullKey[:10]            // display prefix
+    return fullKey, hash, prefix, nil
+}
+```
+
+The full key is shown once at creation time. The database stores only the SHA-256 hash and a 10-character display prefix for identification.
+
+API keys have scopes (`read`, `ingest`, `admin`), optional expiration, and can be revoked. `last_used_at` is touched asynchronously on each use.
+
+### Middleware chain
+
+The `SessionOrAPIKey` middleware tries authentication in order:
+
+1. **Session cookie**: Extract `tl_session` cookie -> SHA-256 hash -> look up in `sessions` table (joined with `users`). If valid and the user is active, store user in context.
+
+2. **Bearer API key**: Extract `Authorization: Bearer tl_...` header -> SHA-256 hash -> look up in `api_keys` table (joined with `users`). If valid, not revoked, not expired, and user is active, store user and scopes in context.
+
+3. If neither succeeds, return 401 Unauthorized.
+
+### Scope enforcement
+
+`RequireScope(scope)` middleware checks API key scopes. Session-based auth (nil scopes) gets full access. The `admin` scope grants access to everything:
+
+```go
+func hasScope(scopes []string, target string) bool {
+    for _, s := range scopes {
+        if s == target || s == "admin" {
+            return true
+        }
+    }
+    return false
+}
+```
+
+Routes are grouped by scope in `serve.go`: `read` for GET endpoints, `ingest` for the POST ingest endpoint, and `admin` for write operations.
 
 ---
 
-## 12. Log Shipper
+## Data Access Layer
 
-**Source:** `api/pkg/logshipper/handler.go`, `api/pkg/logshipper/multi.go`
+The store (`internal/postgres/store.go`, `applog_store.go`) uses pgx with the squirrel query builder.
 
-> **Using logshipper in your own Go app?** See
-> [`api/pkg/logshipper/README.md`](../api/pkg/logshipper/README.md) for install,
-> quick-start, `MultiHandler`, and config reference.
+### Query building
 
-The log shipper is a standard `slog.Handler` that batches and ships log entries
-to Taillight's applog ingest endpoint. It can be embedded in any Go application
-that uses `log/slog`. Taillight itself uses it in "eat your own dog food" mode
--- its own logs appear in its own UI.
+A global `psq` builder configured for PostgreSQL dollar-sign placeholders:
 
-### Architecture
-
-```
-slog.Logger
-  -> MultiHandler
-    -> slog.TextHandler (console output)
-    -> logshipper.Handler
-      -> buffered channel (1024)
-      -> batch loop (100 entries or 1s flush)
-      -> POST /api/v1/applog/ingest
+```go
+var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 ```
 
-### Handler Implementation
+Filters are applied dynamically. Each non-zero filter field adds a WHERE clause:
 
-The `Handler` implements `slog.Handler` and converts each `slog.Record` into a
-`logEntry` struct, then pushes it to a buffered channel:
+```go
+func applySyslogFilter(qb sq.SelectBuilder, f model.SyslogFilter) sq.SelectBuilder {
+    if f.Hostname != "" {
+        if strings.Contains(f.Hostname, "*") {
+            pattern := strings.ReplaceAll(escapeLike(f.Hostname), "*", "%")
+            qb = qb.Where("hostname ILIKE ?", pattern)
+        } else {
+            qb = qb.Where(sq.Eq{"hostname": f.Hostname})
+        }
+    }
+    // severity, facility, search, time range, etc.
+    return qb
+}
+```
+
+Wildcard hostnames (`*`) are converted to ILIKE patterns with `%`. All other string fields use exact equality.
+
+### LIKE escaping
+
+The `escapeLike` helper escapes `%`, `_`, and `\` so they are treated as literal characters in LIKE/ILIKE clauses:
+
+```go
+func escapeLike(s string) string {
+    s = strings.ReplaceAll(s, `\`, `\\`)
+    s = strings.ReplaceAll(s, `%`, `\%`)
+    s = strings.ReplaceAll(s, `_`, `\_`)
+    return s
+}
+```
+
+This prevents SQL injection through filter parameters that reach LIKE clauses.
+
+### Full-text search
+
+Syslog search uses case-insensitive `ILIKE` with `%` wrapping:
+
+```go
+qb = qb.Where("message ILIKE ?", "%"+escaped+"%")
+```
+
+Applog search uses PostgreSQL's `tsvector`/`tsquery` for indexed full-text search:
+
+```go
+qb = qb.Where("search_vector @@ plainto_tsquery('simple', ?)", f.Search)
+```
+
+The `search_vector` column is maintained by a database trigger. The `'simple'` dictionary avoids stemming, which is appropriate for log messages.
+
+### Batch insert
+
+Applog ingest uses pgx's `Batch` API to insert multiple rows in a single round-trip:
+
+```go
+func (s *Store) InsertLogBatch(ctx context.Context, events []model.AppLogEvent) ([]model.AppLogEvent, error) {
+    batch := &pgx.Batch{}
+    for _, e := range events {
+        batch.Queue(insertSQL, e.Timestamp, e.Level, e.Service, ...)
+    }
+    results := s.pool.SendBatch(ctx, batch)
+    // scan RETURNING rows...
+}
+```
+
+Each INSERT uses `RETURNING *` so the caller gets back the populated `id` and `received_at` without additional queries.
+
+### Meta caching
+
+Distinct values for filter dropdowns (hostnames, programs, services, etc.) come from materialized cache tables (`syslog_meta_cache`, `applog_meta_cache`) rather than live `SELECT DISTINCT` queries. This avoids expensive sequential scans on large hypertables. Only whitelisted columns are allowed:
+
+```go
+var allowedMetaColumns = map[string]struct{}{
+    "hostname": {}, "programname": {}, "syslogtag": {},
+}
+```
+
+### Batch queries for device summaries
+
+Device summary endpoints use pgx's `SendBatch` to run 4 queries in a single database round-trip: last-seen time, severity/level breakdown, top normalized messages, and recent critical/error logs. This reduces latency compared to sequential queries.
+
+---
+
+## Metrics Collection
+
+Taillight exposes Prometheus metrics (`internal/metrics/`) covering HTTP, SSE, database, and notification subsystems.
+
+### HTTP metrics
+
+The `HTTPMetrics` middleware (`internal/metrics/middleware.go`) wraps each request and records:
+
+- `taillight_http_requests_total{method, path, status}` -- counter
+- `taillight_http_request_duration_seconds{method, path}` -- histogram
+
+The `path` label uses the chi route pattern (e.g., `/api/v1/syslog/{id}`) rather than the actual URL, keeping metric cardinality bounded.
+
+### SSE metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `sse_clients_active` | gauge | Current syslog SSE connections |
+| `applog_sse_clients_active` | gauge | Current applog SSE connections |
+| `events_broadcast_total` | counter | Syslog events broadcast |
+| `events_dropped_total` | counter | Syslog events dropped (slow clients) |
+| `applog_events_broadcast_total` | counter | Applog events broadcast |
+| `applog_events_dropped_total` | counter | Applog events dropped |
+
+### Database pool metrics
+
+Scraped from the pgxpool stats:
+
+- `db_pool_active_conns` -- active connections
+- `db_pool_idle_conns` -- idle connections
+- `db_pool_total_conns` -- total connections
+
+### Ingest metrics
+
+- `applog_ingest_total` -- total log entries ingested
+- `applog_ingest_batches_total` -- ingest POST requests
+- `applog_ingest_errors_total` -- failed ingest requests
+
+### Notification metrics
+
+- `notification_rules_evaluated_total` -- events x rules evaluated
+- `notification_rules_matched_total` -- rule matches
+- `notification_dispatched_total` -- notifications sent to dispatch queue
+- `notification_sent_total{channel_type, status}` -- delivery outcomes
+- `notification_suppressed_total{reason}` -- suppressed by cooldown/rate limit
+- `notification_send_duration_seconds` -- send latency histogram
+- `notification_dispatch_queue_length` -- current queue depth
+
+### Snapshot API
+
+The `metrics.Snapshot()` function (`internal/metrics/collector.go`) reads current values from Prometheus gauges and counters and returns a `model.MetricsSnapshot` struct. This is used by the internal metrics API endpoint to serve a JSON summary without requiring Prometheus.
+
+---
+
+## Log Shipper
+
+The log shipper (`pkg/logshipper/`) is a `slog.Handler` that sends taillight's own application logs to its applog ingest endpoint. This allows taillight to monitor itself.
+
+### How it works
+
+```go
+shipper := logshipper.New(logshipper.Config{
+    Endpoint:  "http://localhost:8080/api/v1/applog/ingest",
+    APIKey:    "tl_...",
+    Service:   "taillight",
+    MinLevel:  slog.LevelInfo,
+    BatchSize: 100,
+})
+```
+
+The handler implements the `slog.Handler` interface. When `Handle` is called, it converts the `slog.Record` into a `logEntry` struct and pushes it to a buffered channel (default capacity 1024).
+
+### Batching
+
+A background goroutine consumes from the channel and batches entries:
+
+- **Size-triggered flush**: When the batch reaches `BatchSize` (default 100), it is sent immediately.
+- **Time-triggered flush**: A ticker fires every `FlushPeriod` (default 1 second) and flushes whatever has accumulated.
+- **Shutdown flush**: On `Shutdown()`, the channel is drained and a final flush is performed using a fresh `context.Background()`.
+
+### Backpressure
+
+The channel send is non-blocking:
 
 ```go
 select {
 case h.ch <- entry:
 default:
-    h.dropped.Add(1)  // atomic counter, no blocking
+    h.dropped.Add(1)   // ring buffer behavior: drop on full
 }
 ```
 
-If the channel is full, the entry is silently dropped and counted. This is
-critical to avoid backpressure from log shipping affecting the application.
+If the ingest endpoint is down or slow, the buffer fills and new entries are dropped. The `Dropped()` counter tracks how many entries were lost. Failed sends also increment `SendFailed()`, and the batch is capped at `BatchSize * 10` to prevent unbounded memory growth.
 
-### Batch Loop
+### Level mapping
 
-A background goroutine consumes from the channel and flushes in two cases:
+The shipper maps `slog.Level` values to taillight's five canonical levels:
 
-1. **Batch full**: when the buffer reaches `BatchSize` (default 100)
-2. **Timer fires**: every `FlushPeriod` (default 1 second)
-
-On shutdown, the channel is drained with a fresh `context.Background()` to
-ensure remaining entries are flushed even if the parent context is cancelled.
+| slog.Level | Taillight Level |
+|------------|-----------------|
+| < LevelInfo | DEBUG |
+| LevelInfo | INFO |
+| LevelWarn | WARN |
+| LevelError | ERROR |
+| >= LevelFatal (12) | FATAL |
 
 ### MultiHandler
 
-`MultiHandler` fans out each log record to multiple `slog.Handler`
-implementations. It checks `Enabled()` on each handler individually and clones
-the record before passing to each handler to prevent mutation conflicts.
+The `logshipper.MultiHandler` fans out records to multiple `slog.Handler` implementations. This is used to send logs to both the console (text handler) and the shipper simultaneously:
 
-### Configuration
+```go
+logger := slog.New(logshipper.MultiHandler(
+    slog.NewTextHandler(os.Stdout, nil),
+    shipper,
+))
+```
 
-| Parameter | Default | Config Key |
-|-----------|---------|------------|
-| Enabled | false | `logshipper.enabled` |
-| Service | `taillight` | `logshipper.service` |
-| Component | `server` | `logshipper.component` |
-| Min level | INFO | `logshipper.min_level` |
-| Batch size | 100 | `logshipper.batch_size` |
-| Flush period | 1 second | `logshipper.flush_period` |
-| Buffer size | 1024 | `logshipper.buffer_size` |
+### slog.Handler contract
 
-### Infinite Recursion Prevention
-
-The log shipper must not log its own ingest requests, as that would create an
-infinite loop (log -> ship -> ingest -> log -> ship -> ...). This is handled by
-a `SkipPath` middleware that suppresses logging for the ingest endpoint.
+The shipper correctly implements `WithAttrs` and `WithGroup` by creating new `Handler` instances that share the same channel and done signal but carry their own pre-resolved attributes and group prefixes. Attributes are resolved through nested groups, with special handling for `time.Duration` (string representation), `error` (`.Error()`), and `fmt.Stringer` types.
 
 ---
 
-## 13. Prometheus Metrics
+## Key Design Decisions
 
-**Source:** `api/internal/metrics/metrics.go`
+### Why SSE over WebSockets
 
-All metrics use the `taillight_` namespace and are registered via `promauto`
-(auto-registering with the default Prometheus registry).
+Server-Sent Events were chosen over WebSockets for the real-time streaming:
 
-### HTTP Metrics
+- **Simpler protocol**: SSE is plain HTTP with a `text/event-stream` Content-Type. No upgrade handshake, no frame masking, no ping/pong management.
+- **Automatic reconnection**: The `EventSource` browser API handles reconnection natively, including sending `Last-Event-ID` to resume from where the client left off.
+- **HTTP/2 compatible**: SSE connections multiplex over a single TCP connection with HTTP/2, eliminating the "6 connections per domain" limit.
+- **One-directional by design**: Log viewing is inherently read-only. The client never needs to send data over the streaming connection; filter changes open a new connection.
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `http_requests_total` | Counter | method, path, status | Request count |
-| `http_request_duration_seconds` | Histogram | method, path | Latency (default buckets) |
+### Why cursor pagination over OFFSET
 
-### SSE Metrics
+- OFFSET pagination becomes unstable with real-time data: new events push existing ones to different positions, causing duplicates or gaps when paginating.
+- OFFSET performance degrades linearly with page depth (must scan and discard N rows). Keyset pagination uses an index seek, which is O(1) regardless of depth.
+- The `limit + 1` trick for `has_more` avoids a second COUNT query.
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `sse_clients_active` | Gauge | -- | Connected syslog SSE clients |
-| `events_broadcast_total` | Counter | -- | Syslog events broadcast |
-| `events_dropped_total` | Counter | -- | Syslog events dropped (slow clients) |
-| `applog_sse_clients_active` | Gauge | -- | Connected applog SSE clients |
-| `applog_events_broadcast_total` | Counter | -- | Applog events broadcast |
-| `applog_events_dropped_total` | Counter | -- | Applog events dropped |
+### Why a dedicated LISTEN connection
 
-### Ingest Metrics
+`WaitForNotification` blocks until a notification arrives. If this ran on a pooled connection, that connection would be held indefinitely, reducing the pool's effective size. With a dedicated connection, the pool remains fully available for query workload. The tradeoff is managing reconnection separately, but this is handled by the `Listener`'s reconnect loop with exponential backoff and gap fill.
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `applog_ingest_total` | Counter | -- | Total log entries ingested |
-| `applog_ingest_batches_total` | Counter | -- | Ingest POST requests |
-| `applog_ingest_errors_total` | Counter | -- | Failed ingest requests |
+### Why per-client filtering in the broker
 
-### Infrastructure Metrics
+Instead of creating separate database subscriptions per filter, all events are broadcast through a single broker and filters are applied in memory. This means:
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `listener_reconnects_total` | Counter | -- | LISTEN/NOTIFY reconnection attempts |
-| `notifications_received_total` | Counter | channel | Notifications by channel |
-| `db_pool_active_conns` | Gauge | -- | Active pool connections |
-| `db_pool_idle_conns` | Gauge | -- | Idle pool connections |
-| `db_pool_total_conns` | Gauge | -- | Total pool connections |
+- Only one LISTEN connection per event type regardless of how many clients are connected.
+- Only one database fetch per event (by ID) regardless of client count.
+- Filter evaluation is cheap (field comparisons) compared to the cost of additional database queries.
+- Adding or removing clients doesn't change the database load.
 
-### Analysis Metrics
+### Why TimescaleDB
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `analysis_runs_total` | Counter | status | Analysis runs (completed/failed) |
-| `analysis_duration_seconds` | Histogram | -- | Run duration (30s-600s buckets) |
+The `syslog_events` and `applog_events` tables are TimescaleDB hypertables, which provide:
 
-### Metrics Server
-
-An optional separate metrics server can be configured via `metrics_addr`. When
-set, Prometheus metrics are served on a dedicated port, keeping the metrics
-endpoint separate from the main API (useful for firewall rules and service
-mesh configurations).
+- **Time-based partitioning**: Data is automatically chunked by time interval. Old chunks can be dropped efficiently for retention.
+- **Compression**: Older chunks are compressed, reducing storage by 90%+ for log data.
+- **Retention policies**: `add_retention_policy` automatically drops data older than the configured threshold.
+- **time_bucket**: The volume/heatmap queries use `time_bucket()` for efficient time-series aggregation.
+- **Standard PostgreSQL**: All existing pgx queries, indexes, and extensions work unchanged.

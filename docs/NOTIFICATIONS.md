@@ -1,140 +1,325 @@
 # Notification System
 
-Taillight's notification system alerts operators when log events match configurable rules. It supports Slack incoming webhooks and generic HTTP webhooks, with built-in anti-spam protections to prevent alert fatigue.
+Taillight includes a pluggable notification engine that evaluates incoming syslog and applog events against user-defined rules and dispatches alerts to Slack, webhooks, or email. This document covers configuration, rule management, anti-spam mechanisms, and the full API reference.
 
 ## Overview
 
+The notification pipeline has four stages:
+
 ```
-Log event arrives
-  -> Engine evaluates all enabled rules
-    -> Rule filters match? (hostname, severity, search, etc.)
-      -> Burst window collects events for N seconds
-        -> Cooldown check (suppress if recently fired)
-          -> Rate limiter (per-channel token bucket)
-            -> Circuit breaker (back off on repeated failures)
-              -> Backend sends notification (Slack / Webhook)
-                -> Result logged to notification_log audit table
+Event arrives (syslog or applog)
+  |
+  v
+Rule evaluation — each enabled rule's filter is tested against the event
+  |
+  v
+GroupTracker — burst accumulation, cooldown, and escalation
+  |
+  v
+Dispatch workers — send to backends (Slack, webhook, email)
+  with per-channel rate limiting and circuit breakers
 ```
 
-**Key concepts:**
+1. **Rule evaluation.** When a syslog or applog event arrives, the engine iterates over all enabled rules of the matching event kind and tests the event against each rule's filter fields. If the event satisfies a rule, it enters the group tracker.
 
-| Concept | Description |
-|---------|-------------|
-| **Channel** | A configured notification destination (Slack webhook, HTTP endpoint) |
-| **Rule** | A set of filter conditions + linked channels. When a matching event arrives, the linked channels are notified |
-| **Burst window** | Collects multiple matching events into a single notification (default: 30s) |
-| **Cooldown** | Suppresses repeat notifications for the same rule after firing (default: 5m) |
-| **Rate limiter** | Per-channel token bucket to prevent flooding backends |
-| **Circuit breaker** | Stops sending to a channel after 5 consecutive failures, retries after 60s |
+2. **Group tracking.** Events are grouped by rule ID and a configurable group key (default: hostname for syslog, host for applog). The group tracker implements burst accumulation and cooldown to prevent alert storms.
 
-## Enabling Notifications
+3. **Dispatch.** When a group flushes (burst window expires or cooldown fires a digest), the engine resolves the rule's associated channels and places a dispatch job on a buffered queue. A pool of dispatch workers processes jobs concurrently.
 
-Add the following to `api/config.yml`:
+4. **Backend delivery.** Each dispatch worker sends the notification to each channel's backend. Per-channel rate limiting and circuit breakers protect against downstream failures.
+
+Every send attempt (success or failure) is logged to the `notification_log` table for auditing.
+
+## Configuration
+
+Notification settings live in `config.yml` under the `notification` key. SMTP settings for the email backend live under the `smtp` key.
 
 ```yaml
 notification:
   enabled: true
+  rule_refresh_interval: 30s
+  dispatch_workers: 4
+  dispatch_buffer: 1024
+  default_burst_window: 30s
+  default_cooldown: 5m
+  default_max_cooldown: 1h
+  send_timeout: 10s
+
+smtp:
+  host: "smtp.example.com"
+  port: 587
+  username: "alerts@example.com"
+  password: "secret"
+  from: "taillight@example.com"
+  tls: true
+  auth_type: "plain"
 ```
 
-That's the only required change. All other settings have sensible defaults:
+### Notification settings
 
-```yaml
-notification:
-  enabled: true
-  rule_refresh_interval: 30s    # How often rules/channels are reloaded from the database
-  dispatch_workers: 4           # Number of concurrent notification sender goroutines
-  dispatch_buffer: 1024         # Size of the internal dispatch queue
-  default_burst_window: 30s     # Default burst collection window per rule
-  default_cooldown: 5m          # Default post-send cooldown per rule
-  send_timeout: 10s             # HTTP timeout for each backend send
-  global_rate_limit: 100        # Reserved for future use
+| Key | Default | Description |
+|-----|---------|-------------|
+| `notification.enabled` | `false` | Master switch. When false, no rules are evaluated and no alerts are sent. |
+| `notification.rule_refresh_interval` | `30s` | How often the engine reloads rules and channels from the database. Changes made via the API take effect within this interval. |
+| `notification.dispatch_workers` | `4` | Number of concurrent goroutines processing the dispatch queue. Increase if you have many channels or slow backends. |
+| `notification.dispatch_buffer` | `1024` | Size of the internal dispatch queue. If the queue fills up, new notifications are dropped with a warning log. |
+| `notification.default_burst_window` | `30s` | Default burst accumulation window applied when a rule does not specify its own `burst_window`. |
+| `notification.default_cooldown` | `1m` | Default minimum time between alerts for the same rule+group, applied when a rule does not specify `cooldown_seconds`. |
+| `notification.default_max_cooldown` | `1h` | Maximum cooldown duration after exponential backoff escalation. Applied when a rule does not specify `max_cooldown_seconds`. |
+| `notification.send_timeout` | `10s` | HTTP timeout for each individual backend send operation. |
+
+### SMTP settings
+
+The email backend is only registered when `smtp.host` is set. If `smtp.host` is empty, email channels cannot be created.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `smtp.host` | `""` | SMTP server hostname. Empty disables the email backend. |
+| `smtp.port` | `587` | SMTP server port. |
+| `smtp.username` | `""` | SMTP authentication username. |
+| `smtp.password` | `""` | SMTP authentication password. |
+| `smtp.from` | `taillight@localhost` | Sender address for outgoing email. |
+| `smtp.tls` | `true` | Use STARTTLS when connecting to the SMTP server. |
+| `smtp.auth_type` | `plain` | Authentication mechanism: `plain`, `crammd5`, or `""` (no auth). |
+
+## Channels
+
+A channel defines a notification destination. Each channel has a type, a name, and a type-specific configuration object.
+
+### Slack
+
+Sends notifications via Slack Incoming Webhooks. Messages use Block Kit with color-coded attachments based on event severity.
+
+Channel config:
+
+```json
+{
+  "webhook_url": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+}
 ```
 
-After enabling, run the database migration:
+Requirements:
+- `webhook_url` must use HTTPS.
 
-```sh
-./taillight migrate up
+Severity color mapping for syslog events:
+- Emergency, Alert, Critical (0-2): red
+- Error (3): orange
+- Warning (4): yellow
+- Notice, Info (5-6): green
+- Debug (7): gray
+
+Applog level colors: FATAL = red, ERROR = orange, WARN = yellow, others = green.
+
+Rate limit: 1 notification/second with burst of 3.
+
+### Webhook
+
+Sends an HTTP POST (configurable method) to a custom URL with a JSON payload. Supports custom headers and Go template-based payload customization.
+
+Channel config:
+
+```json
+{
+  "url": "https://alerting.example.com/hook",
+  "method": "POST",
+  "headers": {
+    "Authorization": "Bearer my-token",
+    "X-Source": "taillight"
+  },
+  "template": ""
+}
 ```
 
-This creates four tables: `notification_channels`, `notification_rules`, `notification_rule_channels`, and `notification_log` (a TimescaleDB hypertable with 7-day chunks and 30-day retention).
+Fields:
+- `url` (required) — the endpoint to call. Must be HTTP or HTTPS. Internal/private IP ranges are blocked (SSRF protection).
+- `method` (optional) — HTTP method, defaults to `POST`.
+- `headers` (optional) — additional HTTP headers to include in the request.
+- `template` (optional) — a Go `text/template` string for custom payload formatting. When empty, the default template is used.
 
-## Using the Web UI
+Default payload format:
 
-Navigate to **ALERTS** in the top navigation bar. The page has three tabs:
+```json
+{
+  "source": "taillight",
+  "rule": "critical-syslog",
+  "kind": "syslog",
+  "event_count": 5,
+  "is_digest": false,
+  "group_key": "router1",
+  "window_seconds": 30,
+  "timestamp": "2025-01-15T10:30:00Z",
+  "hostname": "router1",
+  "program": "rpd",
+  "severity": 2,
+  "severity_label": "critical",
+  "message": "BGP peer 10.0.0.2 state changed to DOWN"
+}
+```
 
-### Channels Tab
+For applog events the syslog fields are replaced with `service`, `level`, `host`, and `message`.
 
-Channels define where notifications are sent. Click **+ add channel** to create one.
+The template has access to the full `Payload` struct and a `marshal` function for JSON-safe string escaping.
 
-**Slack channel:**
-1. Enter a name (e.g. `ops-slack`)
-2. Select type **Slack**
-3. Paste the Slack incoming webhook URL
-4. Click **create channel**
-5. Click **test** to verify it works
+Rate limit: 5 notifications/second with burst of 10.
 
-**Webhook channel:**
-1. Enter a name (e.g. `pagerduty-webhook`)
-2. Select type **Webhook**
-3. Enter the destination URL
-4. Optionally change the HTTP method (POST or PUT)
-5. Optionally add custom headers as JSON (e.g. `{"Authorization": "Bearer ..."}`)
-6. Optionally provide a custom Go `text/template` for the request body
-7. Click **create channel**
+### Email
 
-Each channel shows an enable/disable status dot, type badge, and last updated time. Use the **test** button to send a synthetic notification without creating a rule.
+Sends HTML email via SMTP. Requires global SMTP settings in `config.yml` (see Configuration above).
 
-### Rules Tab
+Channel config:
 
-Rules define which events trigger notifications. Click **+ add rule** to create one.
+```json
+{
+  "to": ["oncall@example.com", "team-lead@example.com"],
+  "subject_template": "[ALERT] Server issue detected"
+}
+```
 
-1. **Name** — a descriptive label (e.g. `critical-bgp-alerts`)
-2. **Event Kind** — choose Syslog or AppLog
-3. **Filters** — vary by event kind (see below)
-4. **Message Search** — substring search in the message body (shared between both kinds)
-5. **Channels** — select one or more channels to notify
-6. **Anti-Spam** — configure burst window and cooldown durations
+Fields:
+- `to` (required) — list of recipient email addresses. Each must be a valid RFC 5322 address.
+- `subject_template` (optional) — static subject line override. When empty, the subject is auto-generated as `[Taillight] <hostname> - <SEVERITY>`.
 
-**Syslog filters:**
+Emails are sent as `text/html` with a responsive layout including a severity-colored header bar, the log message in a monospace block, and a footer with the rule name and timestamp.
 
-| Filter | Description | Example |
-|--------|-------------|---------|
-| Hostname | Exact match or glob pattern | `router*`, `switch1.dc1.example.com` |
-| Program | Exact match | `rpd`, `sshd`, `mgd` |
-| Severity (exact) | Match a specific syslog severity level | `3` (Error) |
-| Severity max | Match this severity and all more severe (lower numbers are more severe) | `4` (Warning) matches 0-4 |
-| Syslog Tag | Exact match on the syslog tag field | `rpd[1234]` |
-| Message ID | Exact match on structured data message ID | `BGP_PREFIX_THRESH_EXCEEDED` |
+## Rules
 
-**AppLog filters:**
+A rule defines when to trigger a notification. Rules match events by type (syslog or applog) and a set of filter fields.
 
-| Filter | Description | Example |
-|--------|-------------|---------|
-| Service | Exact match on service name | `api-gateway` |
-| Component | Exact match on component | `auth` |
-| Host | Exact match on host | `web1.example.com` |
-| Level (minimum) | Match this level and all more severe | `WARN` matches WARN, ERROR, FATAL |
+### Rule structure
 
-All filters are AND-combined: every non-empty filter must match for the rule to fire. Leave a filter empty to skip it.
+```json
+{
+  "name": "critical-syslog",
+  "enabled": true,
+  "event_kind": "syslog",
+  "hostname": "router*",
+  "severity": 2,
+  "channel_ids": [1, 3],
+  "burst_window": 30,
+  "cooldown_seconds": 300,
+  "max_cooldown_seconds": 3600,
+  "group_by": "hostname,programname"
+}
+```
 
-Each rule row shows its event kind badge, linked channels, burst/cooldown settings, and a summary of active filters.
+### Filter fields
 
-### Log Tab
+**Syslog rules** (`event_kind: "syslog"`):
 
-The notification log shows the audit trail of all notification attempts. Filter by:
+| Field | Type | Description |
+|-------|------|-------------|
+| `hostname` | string | Exact match or wildcard (e.g. `router*`). |
+| `programname` | string | Exact match on the program name. |
+| `severity` | int | Exact syslog severity (0=emergency through 7=debug). |
+| `severity_max` | int | Maximum severity level. Events with severity > this value are excluded. Useful for matching "warning and above" by setting `severity_max: 4`. |
+| `facility` | int | Exact syslog facility code. |
+| `syslogtag` | string | Exact match on the syslog tag. |
+| `msgid` | string | Exact match on the structured data message ID. |
+| `search` | string | Case-insensitive substring search within the message body. |
 
-- **Time range** — 1h, 6h, 24h, 7d, or 30d
-- **Rule** — filter to a specific rule
-- **Channel** — filter to a specific channel
-- **Status** — `sent`, `failed`, `rate_limited`, or `circuit_open`
+**Applog rules** (`event_kind: "applog"`):
 
-Each entry shows the timestamp, status, rule name, channel name, event count (how many events were in the burst), duration, and failure reason (if applicable).
+| Field | Type | Description |
+|-------|------|-------------|
+| `service` | string | Exact match on the service name. |
+| `component` | string | Exact match on the component name. |
+| `host` | string | Exact match or wildcard (e.g. `web-*`). |
+| `level` | string | Minimum log level. Matches events at this level or above (TRACE < DEBUG < INFO < WARN < ERROR < FATAL). |
+| `search` | string | Case-insensitive substring search within the message and attributes. |
 
-The log is stored in a TimescaleDB hypertable with automatic 30-day retention.
+All filter fields are optional. An empty filter matches all events of that kind. Multiple fields are AND-combined: the event must satisfy every non-empty field.
+
+### Group-by
+
+The `group_by` field controls how events are grouped for burst/cooldown tracking. It is a comma-separated list of field names.
+
+For syslog: `hostname`, `programname`, `syslogtag`, `severity`. Default: `hostname`.
+
+For applog: `host`, `service`, `component`, `level`. Default: `host`.
+
+Example: `group_by: "hostname,programname"` means events from the same host and program are grouped together, so a burst of `rpd` errors on `router1` does not suppress `sshd` errors on the same host.
+
+### Channel association
+
+Rules are linked to channels via the `channel_ids` array. When a rule fires, the notification is sent to all enabled channels in the list. Channel associations are stored in a separate join table (`notification_rule_channels`) and managed transactionally.
+
+## Anti-Spam Mechanisms
+
+The notification system has multiple layers to prevent alert fatigue.
+
+### Burst window
+
+When an event first matches a rule, the engine does not immediately send a notification. Instead, it starts accumulating matching events for the duration of the burst window (default 30 seconds, configurable per rule via `burst_window`).
+
+When the burst window expires, the engine sends a single notification containing the first matched event and the total event count.
+
+```
+Time  Event    Action
+0s    match    Start burst window (30s)
+5s    match    Accumulate (count=2)
+12s   match    Accumulate (count=3)
+30s   --       Burst window expires: send notification (3 events)
+```
+
+### Cooldown
+
+After the burst window fires, the engine enters a cooldown period (default 5 minutes, configurable per rule via `cooldown_seconds`). During cooldown, matching events continue to accumulate silently.
+
+When the cooldown expires:
+- **If events accumulated:** send a digest notification summarizing the count, then start a new cooldown with doubled duration.
+- **If no events accumulated:** the group resets to idle (clean slate for the next match).
+
+```
+Time    Event    Action
+0s      match    Start burst window (30s)
+30s     --       Send initial notification (burst flush)
+30s     --       Start cooldown (5m)
+1m      match    Accumulate silently
+3m      match    Accumulate silently
+5m30s   --       Cooldown expires: 2 events accumulated -> send digest
+5m30s   --       Start new cooldown (10m, doubled)
+15m30s  --       Cooldown expires: 0 events -> reset to idle
+```
+
+### Max cooldown (exponential backoff cap)
+
+Each time a cooldown fires with accumulated events, the cooldown duration doubles. This prevents a continuously triggering rule from sending a digest every few minutes for hours. The escalation is capped at `max_cooldown_seconds` (default 1 hour).
+
+Cooldown progression example (base cooldown 5m, max cooldown 1h):
+- 1st cooldown: 5 minutes
+- 2nd cooldown: 10 minutes
+- 3rd cooldown: 20 minutes
+- 4th cooldown: 40 minutes
+- 5th cooldown: 60 minutes (capped at max)
+- 6th+ cooldown: 60 minutes (stays at max)
+
+Once a cooldown expires with zero accumulated events, the group is deleted entirely. The next matching event starts fresh.
+
+### Per-channel rate limiting
+
+Each channel has a token bucket rate limiter that caps how fast notifications can be sent to a particular destination, regardless of how many rules target it.
+
+| Channel type | Rate | Burst |
+|-------------|------|-------|
+| Slack | 1/second | 3 |
+| Webhook | 5/second | 10 |
+| Email | 5/second | 10 |
+
+If a notification is rate-limited, it is silently dropped (logged as suppressed).
+
+### Circuit breakers
+
+Each channel has a circuit breaker (powered by `sony/gobreaker`) that protects against cascading failures when a backend is down.
+
+- **Closed** (normal): notifications flow through.
+- **Open** (tripped): after 5 consecutive failures, the breaker opens. All notifications to this channel are immediately rejected for 60 seconds.
+- **Half-open** (probing): after 60 seconds, the breaker allows up to 2 probe requests through. If they succeed, the breaker closes. If they fail, it re-opens.
+
+Circuit breaker events are logged and counted in Prometheus metrics (`notif_suppressed_total{reason="circuit_breaker"}`).
 
 ## API Reference
 
-All endpoints are under `/api/v1/notifications/`. The notification API works with or without authentication (follows the same auth model as the rest of the API).
+All notification endpoints live under `/api/v1/notifications/`. Read endpoints (GET) require the `read` scope. Write endpoints (POST, PUT, DELETE) require the `admin` scope.
 
 ### Channels
 
@@ -144,6 +329,12 @@ All endpoints are under `/api/v1/notifications/`. The notification API works wit
 GET /api/v1/notifications/channels
 ```
 
+```sh
+curl -s http://localhost:8080/api/v1/notifications/channels | jq
+```
+
+Response:
+
 ```json
 {
   "data": [
@@ -151,32 +342,14 @@ GET /api/v1/notifications/channels
       "id": 1,
       "name": "ops-slack",
       "type": "slack",
-      "config": {"webhook_url": "https://hooks.slack.com/services/T.../B.../xxx"},
+      "config": {"webhook_url": "https://hooks.slack.com/services/..."},
       "enabled": true,
-      "created_at": "2025-02-10T12:00:00Z",
-      "updated_at": "2025-02-10T12:00:00Z"
+      "created_at": "2025-01-15T10:00:00Z",
+      "updated_at": "2025-01-15T10:00:00Z"
     }
   ]
 }
 ```
-
-#### Create channel
-
-```
-POST /api/v1/notifications/channels
-Content-Type: application/json
-
-{
-  "name": "ops-slack",
-  "type": "slack",
-  "enabled": true,
-  "config": {
-    "webhook_url": "https://hooks.slack.com/services/T.../B.../xxx"
-  }
-}
-```
-
-Returns `201 Created` with the created channel.
 
 #### Get channel
 
@@ -184,20 +357,46 @@ Returns `201 Created` with the created channel.
 GET /api/v1/notifications/channels/{id}
 ```
 
+```sh
+curl -s http://localhost:8080/api/v1/notifications/channels/1 | jq
+```
+
+#### Create channel
+
+```
+POST /api/v1/notifications/channels
+```
+
+```sh
+curl -s -X POST http://localhost:8080/api/v1/notifications/channels \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "ops-slack",
+    "type": "slack",
+    "config": {"webhook_url": "https://hooks.slack.com/services/T00/B00/xxx"},
+    "enabled": true
+  }' | jq
+```
+
+Returns `201 Created` with the created channel including its assigned `id`.
+
+The channel config is validated against the backend before insertion. For Slack, the `webhook_url` must use HTTPS. For webhooks, the `url` is validated against SSRF blocklists. For email, all addresses in `to` must be valid RFC 5322 addresses.
+
 #### Update channel
 
 ```
 PUT /api/v1/notifications/channels/{id}
-Content-Type: application/json
+```
 
-{
-  "name": "ops-slack-renamed",
-  "type": "slack",
-  "enabled": false,
-  "config": {
-    "webhook_url": "https://hooks.slack.com/services/T.../B.../new"
-  }
-}
+```sh
+curl -s -X PUT http://localhost:8080/api/v1/notifications/channels/1 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "ops-slack-updated",
+    "type": "slack",
+    "config": {"webhook_url": "https://hooks.slack.com/services/T00/B00/new"},
+    "enabled": true
+  }' | jq
 ```
 
 #### Delete channel
@@ -206,32 +405,42 @@ Content-Type: application/json
 DELETE /api/v1/notifications/channels/{id}
 ```
 
-Returns `204 No Content`.
+```sh
+curl -s -X DELETE http://localhost:8080/api/v1/notifications/channels/1
+```
+
+Returns `204 No Content` on success. Returns `404` if the channel does not exist.
 
 #### Test channel
-
-Send a synthetic test notification to verify the channel works:
 
 ```
 POST /api/v1/notifications/channels/{id}/test
 ```
 
+Sends a test notification to the channel, bypassing burst/cooldown. Useful for validating that Slack webhooks, webhook endpoints, or SMTP settings are working.
+
+```sh
+curl -s -X POST http://localhost:8080/api/v1/notifications/channels/1/test | jq
+```
+
+Response:
+
 ```json
 {
   "success": true,
   "status_code": 200,
-  "duration_ms": 142
+  "duration_ms": 245
 }
 ```
 
-On failure:
+If the send fails:
 
 ```json
 {
   "success": false,
   "status_code": 403,
   "error": "slack webhook returned status 403",
-  "duration_ms": 89
+  "duration_ms": 120
 }
 ```
 
@@ -243,6 +452,12 @@ On failure:
 GET /api/v1/notifications/rules
 ```
 
+```sh
+curl -s http://localhost:8080/api/v1/notifications/rules | jq
+```
+
+Response:
+
 ```json
 {
   "data": [
@@ -251,38 +466,19 @@ GET /api/v1/notifications/rules
       "name": "critical-syslog",
       "enabled": true,
       "event_kind": "syslog",
-      "hostname": "router*",
+      "hostname": "",
       "severity_max": 3,
       "channel_ids": [1, 2],
       "burst_window": 30,
       "cooldown_seconds": 300,
-      "created_at": "2025-02-10T12:00:00Z",
-      "updated_at": "2025-02-10T12:00:00Z"
+      "max_cooldown_seconds": 3600,
+      "group_by": "hostname",
+      "created_at": "2025-01-15T10:00:00Z",
+      "updated_at": "2025-01-15T10:00:00Z"
     }
   ]
 }
 ```
-
-#### Create rule
-
-```
-POST /api/v1/notifications/rules
-Content-Type: application/json
-
-{
-  "name": "critical-syslog",
-  "enabled": true,
-  "event_kind": "syslog",
-  "hostname": "router*",
-  "severity_max": 3,
-  "search": "BGP",
-  "channel_ids": [1],
-  "burst_window": 30,
-  "cooldown_seconds": 300
-}
-```
-
-Returns `201 Created` with the created rule.
 
 #### Get rule
 
@@ -290,22 +486,54 @@ Returns `201 Created` with the created rule.
 GET /api/v1/notifications/rules/{id}
 ```
 
+#### Create rule
+
+```
+POST /api/v1/notifications/rules
+```
+
+Required fields: `name`, `event_kind` (must be `syslog` or `applog`).
+
+```sh
+curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "critical-syslog",
+    "enabled": true,
+    "event_kind": "syslog",
+    "severity_max": 3,
+    "channel_ids": [1],
+    "burst_window": 30,
+    "cooldown_seconds": 300,
+    "max_cooldown_seconds": 3600,
+    "group_by": "hostname"
+  }' | jq
+```
+
+Returns `201 Created` with the created rule.
+
 #### Update rule
 
 ```
 PUT /api/v1/notifications/rules/{id}
-Content-Type: application/json
-
-{
-  "name": "critical-syslog-updated",
-  "enabled": true,
-  "event_kind": "syslog",
-  "severity_max": 4,
-  "channel_ids": [1, 2],
-  "burst_window": 60,
-  "cooldown_seconds": 600
-}
 ```
+
+```sh
+curl -s -X PUT http://localhost:8080/api/v1/notifications/rules/1 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "critical-syslog-updated",
+    "enabled": true,
+    "event_kind": "syslog",
+    "severity_max": 2,
+    "channel_ids": [1, 2],
+    "burst_window": 60,
+    "cooldown_seconds": 600,
+    "max_cooldown_seconds": 3600
+  }' | jq
+```
+
+Updating a rule replaces its channel associations entirely. Include all desired `channel_ids` in the update payload.
 
 #### Delete rule
 
@@ -313,345 +541,218 @@ Content-Type: application/json
 DELETE /api/v1/notifications/rules/{id}
 ```
 
-Returns `204 No Content`.
+```sh
+curl -s -X DELETE http://localhost:8080/api/v1/notifications/rules/1
+```
 
-### Notification Log
+Returns `204 No Content` on success.
+
+### Notification log
 
 #### List log entries
 
 ```
-GET /api/v1/notifications/log?from=2025-02-10T00:00:00Z&to=2025-02-10T23:59:59Z
+GET /api/v1/notifications/log
 ```
 
-Optional query parameters:
+Query parameters (all optional):
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `from` | RFC3339 timestamp | Start of time range |
-| `to` | RFC3339 timestamp | End of time range |
-| `rule_id` | integer | Filter by rule ID |
-| `channel_id` | integer | Filter by channel ID |
-| `status` | string | Filter by status (`sent`, `failed`, `suppressed`, `rate_limited`, `circuit_open`) |
+| `rule_id` | int | Filter by rule ID. |
+| `channel_id` | int | Filter by channel ID. |
+| `status` | string | Filter by status: `sent` or `failed`. |
+| `from` | RFC 3339 | Start of time range. |
+| `to` | RFC 3339 | End of time range. |
+
+Returns the most recent 500 entries, newest first.
+
+```sh
+curl -s 'http://localhost:8080/api/v1/notifications/log?status=failed&from=2025-01-15T00:00:00Z' | jq
+```
+
+Response:
 
 ```json
 {
   "data": [
     {
       "id": 42,
-      "created_at": "2025-02-10T14:30:00Z",
+      "created_at": "2025-01-15T10:31:00Z",
       "rule_id": 1,
       "channel_id": 1,
       "event_kind": "syslog",
-      "event_id": 12345,
-      "status": "sent",
-      "event_count": 7,
-      "status_code": 200,
-      "duration_ms": 142
+      "event_id": 98765,
+      "status": "failed",
+      "reason": "slack webhook returned status 403",
+      "event_count": 3,
+      "status_code": 403,
+      "duration_ms": 120,
+      "payload": {"kind": "syslog", "rule_name": "critical-syslog", "...": "..."}
     }
   ]
 }
 ```
 
-## Channel Configuration
-
-### Slack
-
-The Slack backend uses [Incoming Webhooks](https://api.slack.com/messaging/webhooks). Messages are formatted using Block Kit with severity-colored attachments.
-
-**Config fields:**
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `webhook_url` | Yes | The Slack incoming webhook URL (must use HTTPS) |
-
-**Example config:**
-
-```json
-{
-  "webhook_url": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
-}
-```
-
-**How to get a webhook URL:**
-
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app (or select existing)
-2. Click **Incoming Webhooks** and activate it
-3. Click **Add New Webhook to Workspace** and select a channel
-4. Copy the webhook URL
-
-**Message format:**
-
-Slack notifications include:
-- A severity-colored sidebar (red for critical, orange for error, yellow for warning, green for info)
-- A header with the rule name
-- A field grid showing host, program, severity, and facility (syslog) or service, level, host, component (applog)
-- The log message in a code block
-- A footer with timestamp and event count
-
-### Webhook
-
-The generic webhook backend sends an HTTP request with a JSON body to any URL. It supports custom templates for the request body.
-
-**Config fields:**
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `url` | Yes | The destination URL |
-| `method` | No | HTTP method (default: `POST`) |
-| `headers` | No | Custom HTTP headers as a JSON object |
-| `template` | No | Go `text/template` for the request body |
-
-**Example — simple webhook:**
-
-```json
-{
-  "url": "https://example.com/alerts"
-}
-```
-
-**Example — webhook with auth header:**
-
-```json
-{
-  "url": "https://api.pagerduty.com/v2/enqueue",
-  "headers": {
-    "Authorization": "Token token=YOUR_PAGERDUTY_TOKEN"
-  }
-}
-```
-
-**Example — webhook with custom template:**
-
-```json
-{
-  "url": "https://example.com/alerts",
-  "headers": {"Content-Type": "application/json"},
-  "template": "{\"text\": \"Alert: {{.RuleName}} - {{.EventCount}} events\", \"severity\": \"{{if .SyslogEvent}}{{.SyslogEvent.SeverityLabel}}{{else}}{{.AppLogEvent.Level}}{{end}}\"}"
-}
-```
-
-**Default template** (used when no custom template is provided):
-
-```json
-{
-  "source": "taillight",
-  "rule": "{{.RuleName}}",
-  "kind": "{{.Kind}}",
-  "event_count": {{.EventCount}},
-  "timestamp": "{{.Timestamp.Format \"2006-01-02T15:04:05Z07:00\"}}",
-  "hostname": "{{.SyslogEvent.Hostname}}",
-  "program": "{{.SyslogEvent.Programname}}",
-  "severity": {{.SyslogEvent.Severity}},
-  "severity_label": "{{.SyslogEvent.SeverityLabel}}",
-  "message": {{marshal .SyslogEvent.Message}}
-}
-```
-
-**Template variables** (available in Go `text/template`):
-
-| Variable | Type | Description |
-|----------|------|-------------|
-| `.RuleName` | string | Name of the matched rule |
-| `.Kind` | string | `"syslog"` or `"applog"` |
-| `.EventCount` | int | Number of events in the burst window |
-| `.Timestamp` | time.Time | Timestamp of the first event |
-| `.SyslogEvent` | pointer | Syslog event data (nil for applog rules) |
-| `.AppLogEvent` | pointer | AppLog event data (nil for syslog rules) |
-
-**SyslogEvent fields:** `.Hostname`, `.Programname`, `.Severity`, `.SeverityLabel`, `.Facility`, `.FacilityLabel`, `.SyslogTag`, `.MsgID`, `.Message`
-
-**AppLogEvent fields:** `.Service`, `.Component`, `.Host`, `.Level`, `.Msg`
-
-The `marshal` template function is available for JSON-safe string escaping.
-
-## Anti-Spam Protection
-
-The notification engine has four layers of protection to prevent alert storms:
-
-### Layer 1: Burst Window
-
-When a rule matches an event, the engine doesn't immediately send a notification. Instead, it opens a **burst window** (default: 30 seconds) and collects all matching events during that period. When the window closes, a single notification is sent with the first event's details and the total event count.
-
-This means if 100 syslog events match a rule within 30 seconds, you get one notification that says "100 events matched" rather than 100 individual notifications.
-
-Configure per-rule with the `burst_window` field (in seconds). Set to `0` to use the server default.
-
-### Layer 2: Cooldown
-
-After a notification fires, the rule enters a **cooldown period** (default: 5 minutes). During cooldown, matching events are counted but no notification is sent. When the cooldown expires, a summary is logged: "47 events suppressed during cooldown."
-
-Configure per-rule with the `cooldown_seconds` field. Set to `0` to use the server default.
-
-### Layer 3: Per-Channel Rate Limiting
-
-Each channel has a token-bucket rate limiter that prevents flooding the backend:
-
-| Channel Type | Rate | Burst |
-|-------------|------|-------|
-| Slack | 1 req/sec | 3 |
-| Webhook | 5 req/sec | 10 |
-
-Rate-limited notifications are logged with status `rate_limited`.
-
-### Layer 4: Circuit Breaker
-
-Each channel has a circuit breaker that opens after **5 consecutive failures**, preventing further sends for 60 seconds. After the timeout, the breaker enters half-open state and allows 2 trial requests. If they succeed, the circuit closes; if they fail, it re-opens.
-
-Circuit-broken notifications are logged with status `circuit_open`.
-
 ## Examples
 
-### Example 1: Alert on critical syslog events from routers
+### Alert on all critical syslog events via Slack
 
-Goal: Get a Slack notification when any router sends an error-level or worse syslog message.
-
-**Step 1: Create a Slack channel**
+Create a Slack channel:
 
 ```sh
-curl -X POST http://localhost:8080/api/v1/notifications/channels \
+curl -s -X POST http://localhost:8080/api/v1/notifications/channels \
   -H 'Content-Type: application/json' \
   -d '{
-    "name": "network-ops",
+    "name": "ops-slack",
     "type": "slack",
-    "enabled": true,
-    "config": {
-      "webhook_url": "https://hooks.slack.com/services/T.../B.../xxx"
-    }
-  }'
+    "config": {"webhook_url": "https://hooks.slack.com/services/T00/B00/xxx"},
+    "enabled": true
+  }' | jq '.data.id'
+# Returns: 1
 ```
 
-**Step 2: Create a rule**
+Test the channel:
 
 ```sh
-curl -X POST http://localhost:8080/api/v1/notifications/rules \
+curl -s -X POST http://localhost:8080/api/v1/notifications/channels/1/test | jq
+```
+
+Create a rule matching severity 0-3 (emergency through error):
+
+```sh
+curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
   -H 'Content-Type: application/json' \
   -d '{
-    "name": "router-critical",
+    "name": "critical-alerts",
     "enabled": true,
     "event_kind": "syslog",
-    "hostname": "router*",
     "severity_max": 3,
     "channel_ids": [1],
-    "burst_window": 60,
-    "cooldown_seconds": 300
-  }'
+    "burst_window": 30,
+    "cooldown_seconds": 300,
+    "group_by": "hostname"
+  }' | jq
 ```
 
-This rule:
-- Matches syslog events from any host starting with `router`
-- Only fires for severity 0 (Emergency) through 3 (Error)
-- Collects events for 60 seconds before sending
-- Waits 5 minutes between notifications
+This will:
+1. Accumulate matching events for 30 seconds before sending the first alert.
+2. After the initial alert, suppress for 5 minutes.
+3. If events keep arriving, send digests with exponentially increasing intervals up to 1 hour.
 
-### Example 2: Alert on application errors
+### Webhook integration for a specific host
 
-Goal: Get a Slack and webhook notification when the `api-gateway` service logs ERROR or FATAL messages.
+Create a webhook channel that posts to your incident management system:
 
 ```sh
-# Create a webhook channel for PagerDuty
-curl -X POST http://localhost:8080/api/v1/notifications/channels \
+curl -s -X POST http://localhost:8080/api/v1/notifications/channels \
   -H 'Content-Type: application/json' \
   -d '{
-    "name": "pagerduty",
+    "name": "pagerduty-hook",
     "type": "webhook",
-    "enabled": true,
     "config": {
       "url": "https://events.pagerduty.com/v2/enqueue",
-      "headers": {"Authorization": "Token token=YOUR_TOKEN"}
-    }
-  }'
-
-# Create a rule that sends to both channels
-curl -X POST http://localhost:8080/api/v1/notifications/rules \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "api-gateway-errors",
-    "enabled": true,
-    "event_kind": "applog",
-    "service": "api-gateway",
-    "level": "ERROR",
-    "channel_ids": [1, 2],
-    "burst_window": 30,
-    "cooldown_seconds": 600
-  }'
+      "headers": {"Authorization": "Bearer pdkey123"}
+    },
+    "enabled": true
+  }' | jq '.data.id'
+# Returns: 2
 ```
 
-### Example 3: Alert on specific BGP messages
-
-Goal: Catch BGP-related syslog messages from any host.
+Create a rule targeting a specific host:
 
 ```sh
-curl -X POST http://localhost:8080/api/v1/notifications/rules \
+curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
   -H 'Content-Type: application/json' \
   -d '{
-    "name": "bgp-alerts",
+    "name": "core-router-down",
     "enabled": true,
     "event_kind": "syslog",
-    "programname": "rpd",
-    "search": "BGP",
-    "channel_ids": [1],
-    "burst_window": 30,
-    "cooldown_seconds": 300
-  }'
+    "hostname": "core-rtr-*",
+    "severity_max": 3,
+    "search": "down",
+    "channel_ids": [2],
+    "burst_window": 10,
+    "cooldown_seconds": 600
+  }' | jq
 ```
 
-This matches syslog events where the program is `rpd` AND the message contains "BGP".
+### Email alerts on high applog error rate
 
-## Prometheus Metrics
+Create an email channel:
 
-The notification engine exports the following metrics:
+```sh
+curl -s -X POST http://localhost:8080/api/v1/notifications/channels \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "oncall-email",
+    "type": "email",
+    "config": {
+      "to": ["oncall@example.com", "team-lead@example.com"]
+    },
+    "enabled": true
+  }' | jq '.data.id'
+# Returns: 3
+```
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `taillight_notif_rules_evaluated_total` | counter | Total number of rule evaluations |
-| `taillight_notif_rules_matched_total` | counter | Total number of rule matches |
-| `taillight_notif_dispatched_total` | counter | Total notifications queued for dispatch |
-| `taillight_notif_sent_total` | counter (labels: `channel_type`, `status`) | Total notifications sent (success/failed) |
-| `taillight_notif_suppressed_total` | counter (labels: `reason`) | Suppressed notifications (cooldown/rate_limit/circuit_breaker) |
-| `taillight_notif_send_duration_seconds` | histogram | Backend send latency |
-| `taillight_notif_dispatch_queue_length` | gauge | Current dispatch queue depth |
+Create a rule matching ERROR-level applog events with a longer burst window to batch spikes:
 
-## Database Schema
+```sh
+curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "applog-errors",
+    "enabled": true,
+    "event_kind": "applog",
+    "level": "ERROR",
+    "service": "payment-api",
+    "channel_ids": [3],
+    "burst_window": 60,
+    "cooldown_seconds": 900,
+    "max_cooldown_seconds": 3600,
+    "group_by": "host,component"
+  }' | jq
+```
 
-The notification system adds four tables:
+This groups errors by host and component, accumulates for 60 seconds before the initial email, then sends digests at 15 minute/30 minute/1 hour intervals while errors continue.
 
-**notification_channels** — configured backends
+## Troubleshooting
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | bigint | Auto-generated primary key |
-| `name` | text | Unique channel name |
-| `type` | text | `slack` or `webhook` |
-| `config` | jsonb | Backend-specific configuration |
-| `enabled` | boolean | Whether the channel is active |
-| `created_at` | timestamptz | Creation timestamp |
-| `updated_at` | timestamptz | Last update timestamp |
+### Notifications not sending
 
-**notification_rules** — alert conditions
+1. **Check the master switch.** Ensure `notification.enabled: true` in `config.yml`. When disabled, the engine does not start and no rules are evaluated.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | bigint | Auto-generated primary key |
-| `name` | text | Unique rule name |
-| `enabled` | boolean | Whether the rule is active |
-| `event_kind` | text | `syslog` or `applog` |
-| `hostname`, `programname`, etc. | text/smallint | Filter fields (null = don't filter) |
-| `burst_window` | integer | Seconds to collect events (default: 30) |
-| `cooldown_seconds` | integer | Seconds between notifications (default: 300) |
+2. **Check channel configuration.** Use the test endpoint to validate connectivity:
+   ```sh
+   curl -s -X POST http://localhost:8080/api/v1/notifications/channels/1/test | jq
+   ```
 
-**notification_rule_channels** — many-to-many join table (rule_id, channel_id)
+3. **Check the rule is enabled.** Rules have an `enabled` field that must be `true`.
 
-**notification_log** — TimescaleDB hypertable audit trail
+4. **Check the notification log.** Look for failed entries:
+   ```sh
+   curl -s 'http://localhost:8080/api/v1/notifications/log?status=failed' | jq
+   ```
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | bigint | Auto-generated |
-| `created_at` | timestamptz | Partition column (7-day chunks, 30-day retention) |
-| `rule_id` | bigint | Which rule triggered |
-| `channel_id` | bigint | Which channel was targeted |
-| `status` | text | `sent`, `suppressed`, or `failed` |
-| `reason` | text | Failure/suppression reason |
-| `event_count` | int | Events in the burst window |
-| `status_code` | integer | HTTP status from the backend |
-| `duration_ms` | integer | Send duration in milliseconds |
-| `payload` | jsonb | Full notification payload for debugging |
+5. **Check rule refresh timing.** After creating or updating a rule via the API, it takes up to `rule_refresh_interval` (default 30s) for the engine to pick up the change.
+
+### Too many alerts
+
+- **Increase `burst_window`.** A longer burst window accumulates more events into a single notification. Try 60-120 seconds instead of 30.
+- **Increase `cooldown_seconds`.** A longer cooldown reduces digest frequency. Try 900 (15 minutes) or 1800 (30 minutes).
+- **Set `max_cooldown_seconds`.** This caps the exponential backoff. A value of 3600 (1 hour) means at most one digest per hour during sustained events.
+- **Use `group_by` wisely.** Grouping by `hostname,programname` creates separate tracking per host-program pair. If you want fewer notifications, group by hostname only.
+
+### Slow dispatch / backed-up queue
+
+- **Increase `dispatch_workers`.** Default is 4. If you have many channels or slow backends, try 8-16.
+- **Check `dispatch_buffer`.** If you see "dispatch queue full" warnings in the logs, increase the buffer size.
+- **Check backend health.** A slow or failing backend can back up workers. Look for circuit breaker events in the logs.
+- **Reduce `send_timeout`.** If a backend is unresponsive, a lower timeout (e.g. 5s) frees up workers faster.
+
+### SMTP issues
+
+- **Connection refused.** Verify `smtp.host` and `smtp.port` are correct and reachable from the Taillight server.
+- **TLS errors.** If your SMTP server does not support STARTTLS, set `smtp.tls: false`. If using a self-signed certificate, the connection will fail (Go's TLS client verifies server certificates).
+- **Authentication failures.** Check `smtp.auth_type` matches your server's requirements. Use `plain` for most providers, `crammd5` for servers that require it, or `""` for relay servers that do not require auth.
+- **Sender rejected.** Some SMTP servers require the `smtp.from` address to match an authorized sender. Verify with your email provider.

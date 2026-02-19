@@ -324,10 +324,8 @@ Juniper syslog XLSX files are not included in the repository. Download them from
 
 - [Overview](docs/OVERVIEW.md) -- features, quickstart, configuration, CLI reference
 - [Architecture](docs/ARCHITECTURE.md) -- system design, data flow diagrams, deployment topology
-- [Internals](docs/INTERNALS.md) -- deep dive into SSE brokers, LISTEN/NOTIFY, schema, auth, frontend stores
+- [Internals](docs/INTERNALS.md) -- deep dive into SSE brokers, LISTEN/NOTIFY, pagination, auth
 - [Notifications](docs/NOTIFICATIONS.md) -- notification system setup, channels, rules, anti-spam, and API reference
-- [Notification Design](docs/NOTIFICATION_SYSTEM_DESIGN.md) -- original system design document and architecture decisions
-- [AI Analysis Setup](docs/ai-analysis-setup.md) -- local Ollama-based AI briefings from syslog data
 - [API Reference](api/API.md) -- HTTP endpoints
 - [rsyslog README](rsyslog/README.md) -- rsyslog configuration and deployment
 
