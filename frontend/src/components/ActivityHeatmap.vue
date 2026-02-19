@@ -13,24 +13,20 @@ const props = withDefaults(defineProps<{
   label: 'events',
 })
 
-// ── Build the grid: 48 columns x 7 rows, covering 7 days in 30-min slots ──
+// ── Rolling heatmap: 48 columns × 7 rows = 336 slots flowing left→right, top→bottom ──
+// Last cell (bottom-right) = current 30-min slot ("now")
 
-const SLOTS_PER_DAY = 48 // 24h × 2 half-hour slots
-const DAY_MS = 86_400_000
+const COLS = 48
+const TOTAL_SLOTS = 336 // 7 × 48
+const SLOT_MS = 30 * 60 * 1000
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-interface DayInfo {
-  iso: string
-  label: string
-  shortDate: string
-}
 
 interface Cell {
   key: string        // "YYYY-MM-DD HH:mm"
   count: number
   level: number      // 0-4
-  dayIndex: number   // 0-6 (row)
-  slotIndex: number  // 0-47 (column)
+  row: number        // 0-6
+  col: number        // 0-47
   tipText: string
 }
 
@@ -38,46 +34,35 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-function fmtDate(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+/** Floor a Date to the previous 30-min boundary. */
+function floor30(d: Date): Date {
+  const out = new Date(d)
+  out.setMinutes(Math.floor(out.getMinutes() / 30) * 30, 0, 0)
+  return out
 }
 
-function buildDays(): DayInfo[] {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today.getTime() - (6 - i) * DAY_MS)
-    return {
-      iso: fmtDate(d),
-      label: i === 6 ? 'Today' : i === 5 ? 'Yest' : DAYS[d.getDay()],
-      shortDate: `${d.getMonth() + 1}/${d.getDate()}`,
-    }
-  })
-}
-
-// grid depends on props.data (reactive), so days are recomputed each time data changes.
 const grid = computed(() => {
-  const dayInfos = buildDays()
+  const now = floor30(new Date())
+  const startTime = new Date(now.getTime() - (TOTAL_SLOTS - 1) * SLOT_MS)
+
   const cells: Cell[] = []
   const counts: number[] = []
 
-  for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
-    const day = dayInfos[dayIdx]
-    for (let slot = 0; slot < SLOTS_PER_DAY; slot++) {
-      const h = Math.floor(slot / 2)
-      const m = (slot % 2) * 30
-      const key = `${day.iso} ${pad2(h)}:${pad2(m)}`
-      const count = props.data[key] ?? 0
-      counts.push(count)
-      cells.push({
-        key,
-        count,
-        level: 0,
-        dayIndex: dayIdx,
-        slotIndex: slot,
-        tipText: `${day.label} ${day.shortDate}, ${pad2(h)}:${pad2(m)}`,
-      })
-    }
+  for (let i = 0; i < TOTAL_SLOTS; i++) {
+    const t = new Date(startTime.getTime() + i * SLOT_MS)
+    const key = `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`
+    const count = props.data[key] ?? 0
+    counts.push(count)
+
+    const row = Math.floor(i / COLS)
+    const col = i % COLS
+
+    // Tooltip: "Thu 2/13, 15:30"
+    const isToday = t.getDate() === now.getDate() && t.getMonth() === now.getMonth() && t.getFullYear() === now.getFullYear()
+    const dayLabel = isToday ? 'Today' : DAYS[t.getDay()]
+    const tipText = `${dayLabel} ${t.getMonth() + 1}/${t.getDate()}, ${pad2(t.getHours())}:${pad2(t.getMinutes())}`
+
+    cells.push({ key, count, level: 0, row, col, tipText })
   }
 
   // Percentile-based levels (GitHub style)
@@ -101,24 +86,42 @@ const grid = computed(() => {
   return cells
 })
 
-// ── Hour labels positioned at even-hour boundaries ──
+// ── Hour labels: every 3 hours, shifted by current time ──
 
 const hourLabels = computed(() => {
-  const labels: { label: string; slotIndex: number }[] = []
-  for (let h = 0; h < 24; h += 3) {
-    labels.push({ label: `${pad2(h)}`, slotIndex: h * 2 })
+  const now = floor30(new Date())
+  const startTime = new Date(now.getTime() - (TOTAL_SLOTS - 1) * SLOT_MS)
+  const startSlotH = startTime.getHours()
+  const startSlotM = startTime.getMinutes()
+
+  // Find the first column that lands on a 3-hour boundary
+  const labels: { label: string; col: number }[] = []
+  for (let col = 0; col < COLS; col++) {
+    const totalMin = (startSlotH * 60 + startSlotM) + col * 30
+    const h = Math.floor(totalMin / 60) % 24
+    const m = totalMin % 60
+    if (h % 3 === 0 && m === 0) {
+      labels.push({ label: pad2(h), col })
+    }
   }
   return labels
 })
 
-const totalCount = computed(() => grid.value.reduce((sum, c) => sum + c.count, 0))
+// ── Row (day) labels: day name of the first slot in each row ──
 
-// Day labels derived alongside grid (recomputes when props.data changes).
-const dayLabels = computed(() => {
-  // Touch props.data so this recomputes when data refreshes (and the date may have changed).
-  void props.data
-  return buildDays()
+const rowLabels = computed(() => {
+  const now = floor30(new Date())
+  const startTime = new Date(now.getTime() - (TOTAL_SLOTS - 1) * SLOT_MS)
+  const today = new Date()
+
+  return Array.from({ length: 7 }, (_, row) => {
+    const t = new Date(startTime.getTime() + row * COLS * SLOT_MS)
+    const isToday = t.getDate() === today.getDate() && t.getMonth() === today.getMonth() && t.getFullYear() === today.getFullYear()
+    return isToday ? 'Today' : DAYS[t.getDay()]
+  })
 })
+
+const totalCount = computed(() => grid.value.reduce((sum, c) => sum + c.count, 0))
 
 // ── Tooltip ──
 
@@ -136,34 +139,34 @@ function hideTooltip() {
 
 <template>
   <div class="heatmap-wrap">
-    <!-- Hour labels (top, replacing month labels) -->
-    <div class="heatmap-hours" :style="{ gridTemplateColumns: `repeat(${SLOTS_PER_DAY}, 1fr)` }">
+    <!-- Hour labels (top) -->
+    <div class="heatmap-hours" :style="{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }">
       <span
         v-for="h in hourLabels"
-        :key="h.slotIndex"
+        :key="h.col"
         class="text-t-fg-dark text-[10px]"
-        :style="{ gridColumnStart: h.slotIndex + 1 }"
+        :style="{ gridColumnStart: h.col + 1 }"
       >{{ h.label }}</span>
     </div>
 
     <div class="flex gap-[2px]">
       <!-- Day labels (left sidebar) -->
       <div class="heatmap-day-labels">
-        <span v-for="(day, i) in dayLabels" :key="i" class="text-t-fg-dark text-[10px]">
-          {{ day.label }}
+        <span v-for="(lbl, i) in rowLabels" :key="i" class="text-t-fg-dark text-[10px]">
+          {{ lbl }}
         </span>
       </div>
 
       <!-- Grid -->
-      <div class="heatmap-grid" :style="{ gridTemplateColumns: `repeat(${SLOTS_PER_DAY}, 1fr)` }">
+      <div class="heatmap-grid" :style="{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }">
         <div
           v-for="(cell, i) in grid"
           :key="i"
           class="heatmap-cell"
           :data-level="cell.level"
           :style="{
-            gridColumn: cell.slotIndex + 1,
-            gridRow: cell.dayIndex + 1,
+            gridColumn: cell.col + 1,
+            gridRow: cell.row + 1,
             '--heatmap-color': `var(${colorVar})`,
           }"
           @mouseenter="showTooltip($event, cell)"
