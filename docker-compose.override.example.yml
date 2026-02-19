@@ -42,16 +42,16 @@ services:
   #     PGSQL_SERVER: "127.0.0.1"
   #     PGSQL_PASSWORD: "${POSTGRES_PASSWORD:-taillight}"
 
-  api:
-    volumes:
-      - ../company-repo/config.yml:/config.yml:ro
-
-  postgres:
-    ports:
-      - "127.0.0.1:5432:5432"
-
-  frontend:
-    ports:
-      - "80:80"
-    environment:
-      API_URL: ""  # Empty = relative URLs (works behind nginx)
+  # api:
+  #   volumes:
+  #     - ../company-repo/config.yml:/config.yml:ro
+  #
+  # postgres:
+  #   ports:
+  #     - "127.0.0.1:5432:5432"
+  #
+  # frontend:
+  #   ports:
+  #     - "80:80"
+  #   environment:
+  #     API_URL: ""  # Empty = relative URLs (works behind nginx)
