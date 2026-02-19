@@ -9,6 +9,7 @@ import { severityColorClassByLabel, severityBgClassByLabel } from '@/lib/constan
 import { LEVEL_RANK, levelColorClass, levelBgColorClass } from '@/lib/applog-constants'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
+import ActivityHeatmap from '@/components/ActivityHeatmap.vue'
 
 defineOptions({ name: 'HomeView' })
 
@@ -132,6 +133,48 @@ function getSeverityColorClass(level: string): string {
 function getSeverityBgClass(level: string): string {
   return levelBgColorClass[level] ?? severityBgClassByLabel[level.toLowerCase()] ?? 'bg-t-fg'
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fake heatmap data (placeholder until real API)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function generateFakeHeatmap(seed: number): Record<string, number> {
+  const data: Record<string, number> = {}
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Simple seeded pseudo-random
+  let s = seed
+  function rand() {
+    s = (s * 1664525 + 1013904223) & 0x7fffffff
+    return s / 0x7fffffff
+  }
+
+  for (let i = 365; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 86_400_000)
+    const dow = d.getDay()
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+    // Base rate: higher on weekdays
+    let base = dow === 0 || dow === 6 ? 20 : 80
+    // Monthly variation (simulate busier months)
+    const month = d.getMonth()
+    if (month >= 9 || month <= 1) base *= 1.4 // busier in Oct-Feb
+    // Random variation
+    const count = Math.floor(base * (0.2 + rand() * 1.8))
+    // ~10% chance of zero days
+    if (rand() < 0.1) {
+      data[iso] = 0
+    } else {
+      data[iso] = count
+    }
+  }
+
+  return data
+}
+
+const fakeSyslogHeatmap = generateFakeHeatmap(42)
+const fakeApplogHeatmap = generateFakeHeatmap(137)
 </script>
 
 <template>
@@ -383,6 +426,27 @@ function getSeverityBgClass(level: string): string {
             </div>
           </div>
         </template>
+      </section>
+      <!-- ═══════════════════════════ ACTIVITY HEATMAPS ═══════════════════════════ -->
+      <section>
+        <h2 class="text-t-fg-dark mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
+          <span>Activity</span>
+          <span class="bg-t-border h-px flex-1"></span>
+        </h2>
+
+        <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <!-- Syslog Heatmap -->
+          <div class="bg-t-bg-dark border-t-border rounded border p-4">
+            <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">Syslog Volume</h3>
+            <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
+          </div>
+
+          <!-- Applog Heatmap -->
+          <div class="bg-t-bg-dark border-t-border rounded border p-4">
+            <h3 class="text-t-magenta mb-3 text-xs font-semibold uppercase tracking-wide">Applog Volume</h3>
+            <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-purple" label="applog events" />
+          </div>
+        </div>
       </section>
     </template>
   </div>
