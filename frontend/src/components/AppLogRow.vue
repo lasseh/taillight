@@ -62,13 +62,14 @@ const copyText = computed(() => {
       <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.timestamp) }}</span>
       <span class="w-[8ch] shrink-0 uppercase" :class="lvlClass">{{ event.level }}</span>
       <button
-        class="text-t-teal w-[20ch] shrink-0 truncate text-left hover:underline"
+        class="text-t-teal shrink-0 truncate text-left hover:underline"
+        :style="{ width: 'var(--col-host, 20ch)' }"
         @click.stop="filterStore.filters.host = event.host"
       >
         {{ event.host }}
       </button>
-      <span class="text-t-purple w-[14ch] shrink-0 truncate">{{ event.service }}</span>
-      <span class="text-t-yellow w-[14ch] shrink-0 truncate">{{ event.component }}</span>
+      <span class="text-t-purple shrink-0 truncate" :style="{ width: 'var(--col-svc, 14ch)' }">{{ event.service }}</span>
+      <span class="text-t-yellow shrink-0 truncate" :style="{ width: 'var(--col-comp, 14ch)' }">{{ event.component }}</span>
       <span class="text-t-fg min-w-0 flex-1 truncate">{{ truncate(event.msg, 200) }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></span>
     </div>
     <AppLogDetail v-if="expanded" :event="event" />
