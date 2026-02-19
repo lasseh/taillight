@@ -125,8 +125,6 @@ const rowLabels = computed(() => {
   })
 })
 
-const totalCount = computed(() => grid.value.reduce((sum, c) => sum + c.count, 0))
-
 // ── Tooltip ──
 
 const tooltip = ref<{ x: number; y: number; cell: Cell } | null>(null)
@@ -180,8 +178,7 @@ function hideTooltip() {
     </div>
 
     <!-- Legend -->
-    <div class="mt-2 flex items-center justify-between">
-      <span class="text-t-fg-dark text-[10px]">{{ totalCount.toLocaleString() }} {{ label }} in 7 days</span>
+    <div class="mt-2 flex items-center justify-end">
       <div class="flex items-center gap-1">
         <span class="text-t-fg-dark text-[10px]">Less</span>
         <div class="heatmap-cell legend" data-level="0" :style="{ '--heatmap-color': `var(${colorVar})` }"></div>
