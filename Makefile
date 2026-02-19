@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test rsyslog-reload
+.PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test rsyslog-reload psql
 
 ##@ General
 help: ## Show this help
@@ -43,5 +43,8 @@ rsyslog-test: ## Validate rsyslog config
 
 rsyslog-reload: ## Rebuild and restart rsyslog container
 	docker compose up -d --build rsyslog
+
+psql: ## Connect to the database via psql
+	docker compose exec postgres psql -U taillight -d taillight
 
 .DEFAULT_GOAL := help
