@@ -17,8 +17,13 @@ const props = withDefaults(defineProps<{
 
 const SLOTS_PER_DAY = 48 // 24h × 2 half-hour slots
 const DAY_MS = 86_400_000
-const SLOT_MS = 1_800_000 // 30 minutes
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+interface DayInfo {
+  iso: string
+  label: string
+  shortDate: string
+}
 
 interface Cell {
   key: string        // "YYYY-MM-DD HH:mm"
@@ -37,27 +42,27 @@ function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
-/** The 7 days, oldest first. */
-const days = computed(() => {
+function buildDays(): DayInfo[] {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today.getTime() - (6 - i) * DAY_MS)
     return {
-      date: d,
       iso: fmtDate(d),
       label: i === 6 ? 'Today' : i === 5 ? 'Yest' : DAYS[d.getDay()],
       shortDate: `${d.getMonth() + 1}/${d.getDate()}`,
     }
   })
-})
+}
 
+// grid depends on props.data (reactive), so days are recomputed each time data changes.
 const grid = computed(() => {
+  const dayInfos = buildDays()
   const cells: Cell[] = []
   const counts: number[] = []
 
   for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
-    const day = days.value[dayIdx]
+    const day = dayInfos[dayIdx]
     for (let slot = 0; slot < SLOTS_PER_DAY; slot++) {
       const h = Math.floor(slot / 2)
       const m = (slot % 2) * 30
@@ -108,6 +113,13 @@ const hourLabels = computed(() => {
 
 const totalCount = computed(() => grid.value.reduce((sum, c) => sum + c.count, 0))
 
+// Day labels derived alongside grid (recomputes when props.data changes).
+const dayLabels = computed(() => {
+  // Touch props.data so this recomputes when data refreshes (and the date may have changed).
+  void props.data
+  return buildDays()
+})
+
 // ── Tooltip ──
 
 const tooltip = ref<{ x: number; y: number; cell: Cell } | null>(null)
@@ -137,7 +149,7 @@ function hideTooltip() {
     <div class="flex gap-[2px]">
       <!-- Day labels (left sidebar) -->
       <div class="heatmap-day-labels">
-        <span v-for="(day, i) in days" :key="i" class="text-t-fg-dark text-[10px]">
+        <span v-for="(day, i) in dayLabels" :key="i" class="text-t-fg-dark text-[10px]">
           {{ day.label }}
         </span>
       </div>
