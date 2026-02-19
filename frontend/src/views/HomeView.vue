@@ -217,8 +217,8 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
             <!-- Total -->
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total {{ rangeLabel }}</div>
-              <div class="text-t-teal text-2xl font-bold">{{ formatNumber(home.syslogSummary!.total) }}</div>
-              <div class="mt-1 flex items-center gap-1 text-xs">
+              <div class="text-t-teal text-2xl font-bold tabular-nums">{{ formatNumber(home.syslogSummary!.total) }}</div>
+              <div class="mt-1 flex items-center gap-1 text-xs tabular-nums">
                 <span :class="home.syslogSummary!.trend >= 0 ? 'text-t-green' : 'text-t-red'">
                   {{ home.syslogSummary!.trend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(home.syslogSummary!.trend).toFixed(1) }}%
                 </span>
@@ -226,23 +226,23 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
               </div>
             </div>
 
-            <!-- Severity Breakdown (merged 2x2) -->
-            <div class="bg-t-bg-dark border-t-border grid grid-cols-2 grid-rows-2 overflow-hidden rounded border">
-              <div class="border-t-border flex flex-col items-center justify-center border-r border-b p-2">
+            <!-- Severity Breakdown -->
+            <div class="bg-t-bg-dark border-t-border flex divide-x divide-t-border overflow-hidden rounded border tabular-nums">
+              <div class="flex flex-1 flex-col items-center justify-center py-3">
                 <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Emerg</div>
-                <div class="text-sev-emerg text-lg font-bold leading-tight">{{ formatNumber(syslogEmerg) }}</div>
+                <div class="text-sev-emerg text-xl font-bold leading-snug">{{ formatNumber(syslogEmerg) }}</div>
               </div>
-              <div class="border-t-border flex flex-col items-center justify-center border-b p-2">
+              <div class="flex flex-1 flex-col items-center justify-center py-3">
                 <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Alert</div>
-                <div class="text-sev-alert text-lg font-bold leading-tight">{{ formatNumber(syslogAlert) }}</div>
+                <div class="text-sev-alert text-xl font-bold leading-snug">{{ formatNumber(syslogAlert) }}</div>
               </div>
-              <div class="border-t-border flex flex-col items-center justify-center border-r p-2">
-                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Critical</div>
-                <div class="text-sev-crit text-lg font-bold leading-tight">{{ formatNumber(syslogCriticals) }}</div>
+              <div class="flex flex-1 flex-col items-center justify-center py-3">
+                <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Crit</div>
+                <div class="text-sev-crit text-xl font-bold leading-snug">{{ formatNumber(syslogCriticals) }}</div>
               </div>
-              <div class="flex flex-col items-center justify-center p-2">
+              <div class="flex flex-1 flex-col items-center justify-center py-3">
                 <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Error</div>
-                <div class="text-sev-err text-lg font-bold leading-tight">{{ formatNumber(syslogErrors) }}</div>
+                <div class="text-sev-err text-xl font-bold leading-snug">{{ formatNumber(syslogErrors) }}</div>
               </div>
             </div>
 
@@ -315,8 +315,8 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
             <!-- Total -->
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total {{ rangeLabel }}</div>
-              <div class="text-t-teal text-2xl font-bold">{{ formatNumber(home.applogSummary!.total) }}</div>
-              <div class="mt-1 flex items-center gap-1 text-xs">
+              <div class="text-t-teal text-2xl font-bold tabular-nums">{{ formatNumber(home.applogSummary!.total) }}</div>
+              <div class="mt-1 flex items-center gap-1 text-xs tabular-nums">
                 <span :class="home.applogSummary!.trend >= 0 ? 'text-t-green' : 'text-t-red'">
                   {{ home.applogSummary!.trend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(home.applogSummary!.trend).toFixed(1) }}%
                 </span>
@@ -324,23 +324,23 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
               </div>
             </div>
 
-            <!-- Level Breakdown (merged 2x2) -->
-            <div class="bg-t-bg-dark border-t-border grid grid-cols-2 grid-rows-2 overflow-hidden rounded border">
-              <div class="border-t-border flex flex-col items-center justify-center border-r border-b p-2">
+            <!-- Level Breakdown -->
+            <div class="bg-t-bg-dark border-t-border flex divide-x divide-t-border overflow-hidden rounded border tabular-nums">
+              <div class="flex flex-1 flex-col items-center justify-center py-3">
                 <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Fatal</div>
-                <div class="text-sev-emerg text-lg font-bold leading-tight">{{ formatNumber(applogFatal) }}</div>
+                <div class="text-sev-emerg text-xl font-bold leading-snug">{{ formatNumber(applogFatal) }}</div>
               </div>
-              <div class="border-t-border flex flex-col items-center justify-center border-b p-2">
+              <div class="flex flex-1 flex-col items-center justify-center py-3">
                 <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Error</div>
-                <div class="text-sev-err text-lg font-bold leading-tight">{{ formatNumber(applogErrors) }}</div>
+                <div class="text-sev-err text-xl font-bold leading-snug">{{ formatNumber(applogErrors) }}</div>
               </div>
-              <div class="border-t-border flex flex-col items-center justify-center border-r p-2">
+              <div class="flex flex-1 flex-col items-center justify-center py-3">
                 <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Warn</div>
-                <div class="text-sev-warning text-lg font-bold leading-tight">{{ formatNumber(home.applogSummary!.warnings) }}</div>
+                <div class="text-sev-warning text-xl font-bold leading-snug">{{ formatNumber(home.applogSummary!.warnings) }}</div>
               </div>
-              <div class="flex flex-col items-center justify-center p-2">
+              <div class="flex flex-1 flex-col items-center justify-center py-3">
                 <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Info</div>
-                <div class="text-sev-info text-lg font-bold leading-tight">{{ formatNumber(applogInfo) }}</div>
+                <div class="text-sev-info text-xl font-bold leading-snug">{{ formatNumber(applogInfo) }}</div>
               </div>
             </div>
 
