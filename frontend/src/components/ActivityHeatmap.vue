@@ -78,18 +78,15 @@ const grid = computed(() => {
   // Percentile-based levels (GitHub style) — only for non-future cells
   const nonZero = counts.filter(c => c > 0).sort((a, b) => a - b)
   if (nonZero.length > 0) {
-    const t = [
-      1,
-      nonZero[Math.floor(nonZero.length * 0.25)] ?? 1,
-      nonZero[Math.floor(nonZero.length * 0.50)] ?? 1,
-      nonZero[Math.floor(nonZero.length * 0.75)] ?? 1,
-    ]
+    const p25 = nonZero[Math.floor(nonZero.length * 0.25)] ?? 1
+    const p50 = nonZero[Math.floor(nonZero.length * 0.50)] ?? 1
+    const p75 = nonZero[Math.floor(nonZero.length * 0.75)] ?? 1
     for (const cell of cells) {
       if (cell.level === -1) continue // skip future
       if (cell.count === 0) cell.level = 0
-      else if (cell.count < t[1]) cell.level = 1
-      else if (cell.count < t[2]) cell.level = 2
-      else if (cell.count < t[3]) cell.level = 3
+      else if (cell.count < p25) cell.level = 1
+      else if (cell.count < p50) cell.level = 2
+      else if (cell.count < p75) cell.level = 3
       else cell.level = 4
     }
   }
