@@ -13,11 +13,13 @@ const props = withDefaults(defineProps<{
   label: 'events',
 })
 
-// ── Rolling heatmap: 48 columns × 7 rows = 336 slots flowing left→right, top→bottom ──
-// Last cell (bottom-right) = current 30-min slot ("now")
+// ── Rolling heatmap: 7 columns (days) × 48 rows (30-min slots) = 336 cells ──
+// Time flows top→bottom within each column, then left→right to the next day.
+// Last cell (col 6, row 47) = current 30-min slot ("now")
 
-const COLS = 48
-const TOTAL_SLOTS = 336 // 7 × 48
+const DAY_COLS = 7
+const TIME_ROWS = 48
+const TOTAL_SLOTS = DAY_COLS * TIME_ROWS // 336
 const SLOT_MS = 30 * 60 * 1000
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -25,8 +27,8 @@ interface Cell {
   key: string        // "YYYY-MM-DD HH:mm"
   count: number
   level: number      // 0-4
-  row: number        // 0-6
-  col: number        // 0-47
+  row: number        // 0-47 (time slot within day)
+  col: number        // 0-6  (day)
   tipText: string
 }
 
@@ -54,8 +56,8 @@ const grid = computed(() => {
     const count = props.data[key] ?? 0
     counts.push(count)
 
-    const row = Math.floor(i / COLS)
-    const col = i % COLS
+    const col = Math.floor(i / TIME_ROWS)
+    const row = i % TIME_ROWS
 
     // Tooltip: "Thu 2/13, 15:30"
     const isToday = t.getDate() === now.getDate() && t.getMonth() === now.getMonth() && t.getFullYear() === now.getFullYear()
@@ -86,38 +88,35 @@ const grid = computed(() => {
   return cells
 })
 
-// ── Hour labels: every 3 hours, shifted by current time ──
+// ── Time labels (left, Y-axis): hour every 3 hours across 48 rows ──
 
-const hourLabels = computed(() => {
+const timeLabels = computed(() => {
   const now = floor30(new Date())
   const startTime = new Date(now.getTime() - (TOTAL_SLOTS - 1) * SLOT_MS)
-  const startSlotH = startTime.getHours()
-  const startSlotM = startTime.getMinutes()
+  const startH = startTime.getHours()
+  const startM = startTime.getMinutes()
 
-  // Find the first column that lands on a 3-hour boundary
-  const labels: { label: string; col: number }[] = []
-  for (let col = 0; col < COLS; col++) {
-    const totalMin = (startSlotH * 60 + startSlotM) + col * 30
+  const labels: { label: string; row: number }[] = []
+  for (let row = 0; row < TIME_ROWS; row++) {
+    const totalMin = (startH * 60 + startM) + row * 30
     const h = Math.floor(totalMin / 60) % 24
     const m = totalMin % 60
     if (h % 3 === 0 && m === 0) {
-      labels.push({ label: pad2(h), col })
+      labels.push({ label: pad2(h), row })
     }
   }
   return labels
 })
 
-// ── Row (day) labels: day name of the first slot in each row ──
+// ── Day labels (top, X-axis): day name + day-of-month for each column ──
 
-const rowLabels = computed(() => {
+const dayLabels = computed(() => {
   const now = floor30(new Date())
   const startTime = new Date(now.getTime() - (TOTAL_SLOTS - 1) * SLOT_MS)
-  const today = new Date()
 
-  return Array.from({ length: 7 }, (_, row) => {
-    const t = new Date(startTime.getTime() + row * COLS * SLOT_MS)
-    const isToday = t.getDate() === today.getDate() && t.getMonth() === today.getMonth() && t.getFullYear() === today.getFullYear()
-    return isToday ? 'Today' : DAYS[t.getDay()]
+  return Array.from({ length: DAY_COLS }, (_, col) => {
+    const t = new Date(startTime.getTime() + col * TIME_ROWS * SLOT_MS)
+    return `${DAYS[t.getDay()]} ${t.getDate()}`
   })
 })
 
@@ -139,26 +138,28 @@ function hideTooltip() {
 
 <template>
   <div class="heatmap-wrap">
-    <!-- Hour labels (top) -->
-    <div class="heatmap-hours" :style="{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }">
+    <!-- Day labels (top, X-axis) -->
+    <div class="heatmap-day-labels">
       <span
-        v-for="h in hourLabels"
-        :key="h.col"
+        v-for="(lbl, i) in dayLabels"
+        :key="i"
         class="text-t-fg-dark text-[10px]"
-        :style="{ gridColumnStart: h.col + 1 }"
-      >{{ h.label }}</span>
+      >{{ lbl }}</span>
     </div>
 
     <div class="flex gap-[2px]">
-      <!-- Day labels (left sidebar) -->
-      <div class="heatmap-day-labels">
-        <span v-for="(lbl, i) in rowLabels" :key="i" class="text-t-fg-dark text-[10px]">
-          {{ lbl }}
-        </span>
+      <!-- Time labels (left sidebar, Y-axis) -->
+      <div class="heatmap-time-labels">
+        <span
+          v-for="h in timeLabels"
+          :key="h.row"
+          class="text-t-fg-dark text-[10px]"
+          :style="{ gridRowStart: h.row + 1 }"
+        >{{ h.label }}</span>
       </div>
 
       <!-- Grid -->
-      <div class="heatmap-grid" :style="{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }">
+      <div class="heatmap-grid">
         <div
           v-for="(cell, i) in grid"
           :key="i"
@@ -209,22 +210,27 @@ function hideTooltip() {
   overflow-y: hidden;
 }
 
-.heatmap-hours {
+.heatmap-day-labels {
   display: grid;
-  margin-left: 38px; /* align with grid after day labels */
+  grid-template-columns: repeat(7, 1fr);
+  margin-left: 30px; /* align with grid after time labels */
   margin-bottom: 2px;
   height: 14px;
 }
 
-.heatmap-day-labels {
+.heatmap-day-labels span {
+  text-align: center;
+}
+
+.heatmap-time-labels {
   display: grid;
-  grid-template-rows: repeat(7, 1fr);
+  grid-template-rows: repeat(48, 1fr);
   gap: 2px;
-  width: 34px;
+  width: 26px;
   flex-shrink: 0;
 }
 
-.heatmap-day-labels span {
+.heatmap-time-labels span {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -234,16 +240,16 @@ function hideTooltip() {
 
 .heatmap-grid {
   display: grid;
-  grid-template-rows: repeat(7, 1fr);
-  grid-auto-flow: column;
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(48, 1fr);
   gap: 2px;
   flex: 1;
   min-width: 0;
 }
 
 .heatmap-cell {
-  width: 11px;
-  height: 11px;
+  aspect-ratio: 1;
+  min-height: 0;
   border-radius: 2px;
   transition: outline 0.1s;
 }
@@ -254,6 +260,8 @@ function hideTooltip() {
 }
 
 .heatmap-cell.legend {
+  width: 11px;
+  height: 11px;
   cursor: default;
   flex-shrink: 0;
 }
