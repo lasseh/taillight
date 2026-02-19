@@ -35,7 +35,7 @@ async function fetchData() {
   } catch (e) {
     // Only set error state on initial load; silently ignore refresh failures.
     if (!summary.value) {
-      if (e instanceof ApiError && e.code !== 'unknown') {
+      if (e instanceof ApiError) {
         errorStatus.value = e.status
         error.value = e.message
       } else {

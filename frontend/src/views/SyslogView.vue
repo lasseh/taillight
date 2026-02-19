@@ -88,7 +88,7 @@ watch(() => props.id, async (id) => {
     }
   } catch (e) {
     if (version !== fetchVersion) return
-    if (e instanceof ApiError && e.code !== 'unknown') {
+    if (e instanceof ApiError) {
       errorStatus.value = e.status
       error.value = e.message
     } else {
