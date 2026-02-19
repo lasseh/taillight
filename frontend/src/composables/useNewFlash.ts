@@ -10,7 +10,7 @@ const GRACE_PERIOD = 2000
  * Skips the initial load via a grace period.
  */
 export function useNewFlash<T extends { id: number }>(source: Ref<T[]> | (() => T[])) {
-  const newIds = reactive(new Set<number>())
+  const ids = reactive(new Set<number>())
   let timers: Record<number, ReturnType<typeof setTimeout>> = {}
   let ready = false
   let readyTimer: ReturnType<typeof setTimeout> | null = null
@@ -27,9 +27,9 @@ export function useNewFlash<T extends { id: number }>(source: Ref<T[]> | (() => 
       const prevIds = new Set((prev ?? []).map(e => e.id))
       for (const e of curr) {
         if (!prevIds.has(e.id)) {
-          newIds.add(e.id)
+          ids.add(e.id)
           timers[e.id] = setTimeout(() => {
-            newIds.delete(e.id)
+            ids.delete(e.id)
             delete timers[e.id]
           }, FLASH_DURATION)
         }
@@ -37,11 +37,21 @@ export function useNewFlash<T extends { id: number }>(source: Ref<T[]> | (() => 
     },
   )
 
+  /** Re-enter the grace period so the next data swap doesn't flash. */
+  function reset() {
+    ready = false
+    if (readyTimer) clearTimeout(readyTimer)
+    readyTimer = null
+    Object.values(timers).forEach(clearTimeout)
+    timers = {}
+    ids.clear()
+  }
+
   onScopeDispose(() => {
     Object.values(timers).forEach(clearTimeout)
     timers = {}
     if (readyTimer) clearTimeout(readyTimer)
   })
 
-  return newIds
+  return { ids, reset }
 }

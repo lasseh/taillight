@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useElementSize } from '@vueuse/core'
 import { useHomeStore } from '@/stores/home'
 import { useTheme } from '@/composables/useTheme'
@@ -111,8 +111,14 @@ const visibleServices = computed(() => {
 })
 
 // Track new event IDs for flash highlight
-const newSyslogIds = useNewFlash(() => home.recentSyslogEvents)
-const newApplogIds = useNewFlash(() => home.recentApplogEvents)
+const { ids: newSyslogIds, reset: resetSyslogFlash } = useNewFlash(() => home.recentSyslogEvents)
+const { ids: newApplogIds, reset: resetApplogFlash } = useNewFlash(() => home.recentApplogEvents)
+
+// Suppress flash when switching time range (data swap, not new events)
+watch(() => home.range, () => {
+  resetSyslogFlash()
+  resetApplogFlash()
+})
 
 onMounted(() => {
   home.startRefresh()
