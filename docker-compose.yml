@@ -21,6 +21,7 @@ services:
       timeout: 3s
       retries: 5
       start_period: 30s
+    restart: unless-stopped
 
   api:
     build: ./api
@@ -44,6 +45,7 @@ services:
       timeout: 3s
       retries: 5
       start_period: 15s
+    restart: unless-stopped
 
   rsyslog:
     build: ./rsyslog
@@ -86,6 +88,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+    restart: unless-stopped
 
   # Uncomment to test the full reverse proxy setup locally.
   # Routes all traffic through a single port (80) like production.
