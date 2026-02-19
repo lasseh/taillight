@@ -58,20 +58,13 @@ rsyslog (ompgsql) -> PostgreSQL -> LISTEN/NOTIFY -> Go SSE backend -> browser Ev
 ### Docker Compose (full stack)
 
 ```sh
+cp .env.example .env   # review and adjust for your environment
 docker compose up -d
 ```
 
 This starts PostgreSQL (TimescaleDB), the API, rsyslog (with ompgsql), and the frontend. The frontend is available at `http://localhost:3000`, the API at `http://localhost:8080`.
 
-### Port Configuration
-
-All host ports are configurable via a `.env` file. Copy the example and adjust as needed:
-
-```sh
-cp .env.example .env
-```
-
-Default ports:
+### Default ports
 
 | Service    | Host Port | Container Port | Variable             |
 |------------|-----------|----------------|----------------------|
@@ -80,7 +73,7 @@ Default ports:
 | rsyslog    | 1514      | 514            | `RSYSLOG_HOST_PORT`  |
 | Frontend   | 3000      | 80             | `FRONTEND_HOST_PORT` |
 
-**Host ports vs internal ports:** Changing a host port only affects how you reach the service from your machine. Container-to-container communication always uses internal ports. For example, setting `POSTGRES_HOST_PORT=15432` lets you connect from the host via `localhost:15432`, but the API still reaches postgres on port `5432` inside Docker.
+Host ports only affect access from the host machine. Container-to-container communication always uses internal ports.
 
 ### Create a user
 
@@ -164,30 +157,47 @@ npm run dev
 
 ## Configuration
 
-The API reads `api/config.yml`:
+Configuration is split across two files to keep deployment simple:
+
+### `.env` — per-deployment settings
+
+Passwords, ports, and feature toggles that change between environments. Docker Compose reads this automatically and passes values as environment variables.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `POSTGRES_PASSWORD` | `taillight` | Database password (shared by all containers) |
+| `POSTGRES_HOST_PORT` | `5432` | Host port for PostgreSQL |
+| `API_HOST_PORT` | `8080` | Host port for the API |
+| `RSYSLOG_HOST_PORT` | `1514` | Host port for syslog (set to `514` in production) |
+| `FRONTEND_HOST_PORT` | `3000` | Host port for the web UI |
+| `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, `error` |
+| `AUTH_ENABLED` | `false` | Enable authentication (sessions + API keys) |
+| `API_URL` | *(empty)* | Frontend API URL (empty = same-origin proxy via nginx) |
+
+### `api/config.yml` — application tuning
+
+Settings that rarely change between environments: CORS origins, connection pool sizes, retention policies, notification engine, SMTP, and AI analysis.
 
 ```yaml
-database_url: "postgres://user:password@host:port/dbname"
-listen_addr: ":8080"
-log_level: "info"
-
-# CORS allowed origins (optional)
-# Leave empty to allow all origins (dev mode)
+# CORS allowed origins (empty = allow all, for dev)
 cors_allowed_origins:
   - "https://taillight.example.com"
 
-# Database connection pool settings
+# Database pool
 db_max_conns: 10
 db_min_conns: 2
+
+# Data retention (days)
+retention:
+  syslog_days: 90
+  applog_days: 90
 ```
 
-Environment variables override config file values:
+Environment variables always override config file values (Viper priority: defaults → config.yml → env vars). Settings like `DATABASE_URL`, `LISTEN_ADDR`, `LOG_LEVEL`, and `AUTH_ENABLED` are set in `.env` and should not be added to `config.yml`.
 
-| Variable | Config Key | Description |
-|----------|------------|-------------|
-| `DATABASE_URL` | `database_url` | PostgreSQL connection string |
-| `LISTEN_ADDR` | `listen_addr` | HTTP listen address |
-| `LOG_LEVEL` | `log_level` | Log level (debug, info, warn, error) |
+### Company-specific deployments
+
+For site-specific rsyslog filters, custom config, and production ports, use `docker-compose.override.yml`. See `docker-compose.override.example.yml` for a reference layout.
 
 ## Production Deployment (nginx)
 
