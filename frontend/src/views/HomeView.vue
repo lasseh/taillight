@@ -5,8 +5,9 @@ import { useHomeStore } from '@/stores/home'
 import { useTheme } from '@/composables/useTheme'
 import { useNewFlash } from '@/composables/useNewFlash'
 import { formatTime, formatAttrs, formatNumber } from '@/lib/format'
-import { severityColorClassByLabel } from '@/lib/constants'
-import { levelColorClass } from '@/lib/applog-constants'
+import { severityColorClassByLabel, severityBgClassByLabel } from '@/lib/constants'
+import { LEVEL_RANK, levelColorClass, levelBgColorClass } from '@/lib/applog-constants'
+import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
 import ActivityHeatmap from '@/components/ActivityHeatmap.vue'
 
@@ -54,6 +55,14 @@ const syslogErrors = computed(() => {
   if (!home.syslogSummary) return 0
   return (home.syslogSummary.severity_breakdown ?? [])
     .find(s => s.severity === 3)?.count ?? 0
+})
+
+// Applog: level distribution sorted by severity (highest first)
+const sortedLevelBreakdown = computed(() => {
+  if (!home.applogSummary) return []
+  return [...(home.applogSummary.level_breakdown ?? [])].sort(
+    (a, b) => (LEVEL_RANK[a.level] ?? 99) - (LEVEL_RANK[b.level] ?? 99),
+  )
 })
 
 // Applog: extract fatal count from level_breakdown
@@ -119,6 +128,10 @@ onUnmounted(() => {
 
 function getSeverityColorClass(level: string): string {
   return levelColorClass[level] ?? severityColorClassByLabel[level.toLowerCase()] ?? 'text-t-fg'
+}
+
+function getSeverityBgClass(level: string): string {
+  return levelBgColorClass[level] ?? severityBgClassByLabel[level.toLowerCase()] ?? 'bg-t-fg'
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -199,43 +212,53 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
         </div>
 
         <template v-else>
-          <!-- Stats Bar -->
-          <div class="bg-t-bg-dark border-t-border mb-4 flex divide-x divide-t-border overflow-hidden rounded border tabular-nums">
-            <!-- Total (hero) -->
-            <div class="flex w-36 shrink-0 flex-col justify-center px-4 py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Total {{ rangeLabel }}</div>
+          <!-- Summary Cards -->
+          <div class="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+            <!-- Total -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total {{ rangeLabel }}</div>
               <div class="text-t-teal text-2xl font-bold">{{ formatNumber(home.syslogSummary!.total) }}</div>
-              <div class="flex items-center gap-1 text-[10px]">
+              <div class="mt-1 flex items-center gap-1 text-xs">
                 <span :class="home.syslogSummary!.trend >= 0 ? 'text-t-green' : 'text-t-red'">
                   {{ home.syslogSummary!.trend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(home.syslogSummary!.trend).toFixed(1) }}%
                 </span>
-                <span class="text-t-fg-dark">vs prev</span>
+                <span class="text-t-fg-dark">vs prev {{ rangeLabel }}</span>
               </div>
             </div>
-            <!-- Emerg -->
-            <div class="flex flex-1 flex-col items-center justify-center py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Emerg</div>
-              <div class="text-sev-emerg text-xl font-bold leading-snug">{{ formatNumber(syslogEmerg) }}</div>
+
+            <!-- Emerg & Alert -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Emerg & Alert</div>
+              <div class="text-2xl font-bold"><span class="text-sev-emerg">{{ formatNumber(syslogEmerg) }}</span> <span class="text-t-fg-dark">/</span> <span class="text-sev-alert">{{ formatNumber(syslogAlert) }}</span></div>
+              <div class="text-t-fg-dark mt-1 text-xs">
+                {{ home.syslogSummary!.total > 0 ? ((syslogEmergAlert / home.syslogSummary!.total) * 100).toFixed(1) : 0 }}% of total
+              </div>
             </div>
-            <!-- Alert -->
-            <div class="flex flex-1 flex-col items-center justify-center py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Alert</div>
-              <div class="text-sev-alert text-xl font-bold leading-snug">{{ formatNumber(syslogAlert) }}</div>
+
+            <!-- Criticals -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Criticals</div>
+              <div class="text-sev-crit text-2xl font-bold">{{ formatNumber(syslogCriticals) }}</div>
+              <div class="text-t-fg-dark mt-1 text-xs">
+                {{ home.syslogSummary!.total > 0 ? ((syslogCriticals / home.syslogSummary!.total) * 100).toFixed(1) : 0 }}% of total
+              </div>
             </div>
-            <!-- Crit -->
-            <div class="flex flex-1 flex-col items-center justify-center py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Crit</div>
-              <div class="text-sev-crit text-xl font-bold leading-snug">{{ formatNumber(syslogCriticals) }}</div>
-            </div>
-            <!-- Error -->
-            <div class="flex flex-1 flex-col items-center justify-center py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Error</div>
-              <div class="text-sev-err text-xl font-bold leading-snug">{{ formatNumber(syslogErrors) }}</div>
+
+            <!-- Errors -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Errors</div>
+              <div class="text-sev-err text-2xl font-bold">{{ formatNumber(syslogErrors) }}</div>
+              <div class="text-t-fg-dark mt-1 text-xs">
+                {{ home.syslogSummary!.total > 0 ? ((syslogErrors / home.syslogSummary!.total) * 100).toFixed(1) : 0 }}% of total
+              </div>
             </div>
           </div>
 
           <!-- Two Column Layout -->
           <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <!-- Severity Distribution -->
+            <SeverityDistribution :items="home.syslogSummary!.severity_breakdown" />
+
             <!-- Top Hosts -->
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
               <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Hosts</h3>
@@ -258,11 +281,6 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
                   <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(host.count) }}</span>
                 </RouterLink>
               </div>
-            </div>
-
-            <!-- Heatmap -->
-            <div class="bg-t-bg-dark border-t-border rounded border p-4">
-              <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
             </div>
           </div>
 
@@ -293,43 +311,73 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
         </div>
 
         <template v-else>
-          <!-- Stats Bar -->
-          <div class="bg-t-bg-dark border-t-border mb-4 flex divide-x divide-t-border overflow-hidden rounded border tabular-nums">
-            <!-- Total (hero) -->
-            <div class="flex w-36 shrink-0 flex-col justify-center px-4 py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Total {{ rangeLabel }}</div>
+          <!-- Summary Cards -->
+          <div class="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+            <!-- Total -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total {{ rangeLabel }}</div>
               <div class="text-t-teal text-2xl font-bold">{{ formatNumber(home.applogSummary!.total) }}</div>
-              <div class="flex items-center gap-1 text-[10px]">
+              <div class="mt-1 flex items-center gap-1 text-xs">
                 <span :class="home.applogSummary!.trend >= 0 ? 'text-t-green' : 'text-t-red'">
                   {{ home.applogSummary!.trend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(home.applogSummary!.trend).toFixed(1) }}%
                 </span>
-                <span class="text-t-fg-dark">vs prev</span>
+                <span class="text-t-fg-dark">vs prev {{ rangeLabel }}</span>
               </div>
             </div>
-            <!-- Fatal -->
-            <div class="flex flex-1 flex-col items-center justify-center py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Fatal</div>
-              <div class="text-sev-emerg text-xl font-bold leading-snug">{{ formatNumber(applogFatal) }}</div>
+
+            <!-- Fatal & Errors -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Fatal & Errors</div>
+              <div class="text-2xl font-bold"><span class="text-sev-emerg">{{ formatNumber(applogFatal) }}</span> <span class="text-t-fg-dark">/</span> <span class="text-sev-alert">{{ formatNumber(applogErrors) }}</span></div>
+              <div class="text-t-fg-dark mt-1 text-xs">
+                {{ home.applogSummary!.total > 0 ? ((applogFatalErrors / home.applogSummary!.total) * 100).toFixed(1) : 0 }}% of total
+              </div>
             </div>
-            <!-- Error -->
-            <div class="flex flex-1 flex-col items-center justify-center py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Error</div>
-              <div class="text-sev-err text-xl font-bold leading-snug">{{ formatNumber(applogErrors) }}</div>
+
+            <!-- Warnings -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Warnings</div>
+              <div class="text-sev-crit text-2xl font-bold">{{ formatNumber(home.applogSummary!.warnings) }}</div>
+              <div class="text-t-fg-dark mt-1 text-xs">
+                {{ home.applogSummary!.total > 0 ? ((home.applogSummary!.warnings / home.applogSummary!.total) * 100).toFixed(1) : 0 }}% of total
+              </div>
             </div>
-            <!-- Warn -->
-            <div class="flex flex-1 flex-col items-center justify-center py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Warn</div>
-              <div class="text-sev-warning text-xl font-bold leading-snug">{{ formatNumber(home.applogSummary!.warnings) }}</div>
-            </div>
+
             <!-- Info -->
-            <div class="flex flex-1 flex-col items-center justify-center py-3">
-              <div class="text-t-fg-dark text-[10px] uppercase tracking-wide">Info</div>
-              <div class="text-sev-info text-xl font-bold leading-snug">{{ formatNumber(applogInfo) }}</div>
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Info</div>
+              <div class="text-sev-notice text-2xl font-bold">{{ formatNumber(applogInfo) }}</div>
+              <div class="text-t-fg-dark mt-1 text-xs">
+                {{ home.applogSummary!.total > 0 ? ((applogInfo / home.applogSummary!.total) * 100).toFixed(1) : 0 }}% of total
+              </div>
             </div>
           </div>
 
           <!-- Two Column Layout -->
           <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <!-- Level Distribution -->
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Level Distribution</h3>
+              <div class="space-y-2">
+                <div
+                  v-for="item in sortedLevelBreakdown"
+                  :key="item.level"
+                  class="group flex cursor-pointer items-center gap-2"
+                >
+                  <span class="w-16 shrink-0 text-xs uppercase" :class="getSeverityColorClass(item.level)">{{ item.level }}</span>
+                  <div class="bg-t-bg-highlight h-2 flex-1 overflow-hidden rounded">
+                    <div
+                      class="h-full rounded transition-all group-hover:opacity-80"
+                      :class="getSeverityBgClass(item.level)"
+                      :style="{ width: `${Math.min(item.pct * 1.3, 100)}%`, opacity: 0.7 }"
+                    ></div>
+                  </div>
+                  <span class="text-t-fg-dark w-8 text-right text-xs">{{ item.pct.toFixed(0) }}%</span>
+                  <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(item.count) }}</span>
+                </div>
+              </div>
+            </div>
+
             <!-- Top Services -->
             <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
               <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Services</h3>
@@ -352,11 +400,6 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
                   <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(service.count) }}</span>
                 </RouterLink>
               </div>
-            </div>
-
-            <!-- Heatmap -->
-            <div class="bg-t-bg-dark border-t-border rounded border p-4">
-              <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-magenta" label="applog events" />
             </div>
           </div>
 
@@ -383,6 +426,27 @@ const fakeApplogHeatmap = generateFakeHeatmap(137)
             </div>
           </div>
         </template>
+      </section>
+      <!-- ═══════════════════════════ ACTIVITY HEATMAPS ═══════════════════════════ -->
+      <section>
+        <h2 class="text-t-fg-dark mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
+          <span>Activity</span>
+          <span class="bg-t-border h-px flex-1"></span>
+        </h2>
+
+        <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <!-- Syslog Heatmap -->
+          <div class="bg-t-bg-dark border-t-border rounded border p-4">
+            <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">Syslog Volume</h3>
+            <ActivityHeatmap :data="fakeSyslogHeatmap" color-var="--color-t-teal" label="syslog events" />
+          </div>
+
+          <!-- Applog Heatmap -->
+          <div class="bg-t-bg-dark border-t-border rounded border p-4">
+            <h3 class="text-t-magenta mb-3 text-xs font-semibold uppercase tracking-wide">Applog Volume</h3>
+            <ActivityHeatmap :data="fakeApplogHeatmap" color-var="--color-t-magenta" label="applog events" />
+          </div>
+        </div>
       </section>
     </template>
   </div>
