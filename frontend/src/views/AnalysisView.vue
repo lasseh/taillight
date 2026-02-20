@@ -41,7 +41,11 @@ async function fetchReportList() {
       selectedId.value = first.id
     }
   } catch (e) {
-    listError.value = e instanceof Error ? e.message : 'Failed to load reports'
+    if (e instanceof ApiError && e.status === 404) {
+      reports.value = []
+    } else {
+      listError.value = e instanceof Error ? e.message : 'Failed to load reports'
+    }
   } finally {
     listLoading.value = false
   }
@@ -252,7 +256,7 @@ function formatPeriod(start: string, end: string): string {
           <!-- Empty state -->
           <div
             v-if="!listLoading && reports.length === 0"
-            class="text-t-fg-dark flex flex-col items-center gap-2 py-20 text-sm"
+            class="text-t-fg-dark flex flex-col items-center gap-3 py-20 text-sm"
           >
             <svg class="h-8 w-8 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -261,7 +265,13 @@ function formatPeriod(start: string, end: string): string {
               <line x1="16" y1="17" x2="8" y2="17" />
               <polyline points="10 9 9 9 8 9" />
             </svg>
-            <span>No analysis reports available</span>
+            <span class="text-t-fg font-medium">No analysis reports yet</span>
+            <p class="max-w-sm text-center text-xs leading-relaxed">
+              To enable AI-powered syslog analysis, configure the
+              <code class="text-t-teal bg-t-bg-highlight rounded px-1 py-0.5 text-[0.6875rem] border border-t-border">analysis</code>
+              section in your <code class="text-t-teal bg-t-bg-highlight rounded px-1 py-0.5 text-[0.6875rem] border border-t-border">config.yml</code>
+              with an Ollama endpoint and model, then restart Taillight.
+            </p>
           </div>
 
         </template>
