@@ -161,6 +161,17 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         >
           ALERTS
         </router-link>
+        <router-link
+          to="/analysis"
+          class="px-2 py-0.5 text-xs transition-colors"
+          :class="
+            route.name === 'analysis'
+              ? 'bg-t-bg-highlight text-t-orange'
+              : 'text-t-fg-dark hover:text-t-orange'
+          "
+        >
+          ANALYSIS
+        </router-link>
       </div>
 
       <!-- Desktop: settings menu -->
@@ -347,6 +358,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             @click="closeMobileMenu"
           >
             ALERTS
+          </router-link>
+          <router-link
+            to="/analysis"
+            class="px-2 py-1.5 text-xs transition-colors"
+            :class="
+              route.name === 'analysis'
+                ? 'bg-t-bg-highlight text-t-orange'
+                : 'text-t-fg-dark hover:text-t-orange'
+            "
+            @click="closeMobileMenu"
+          >
+            ANALYSIS
           </router-link>
         </div>
 
