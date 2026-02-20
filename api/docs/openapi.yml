@@ -32,6 +32,10 @@ tags:
     description: Rsyslog daemon statistics
   - name: Metrics
     description: Taillight internal metrics
+  - name: Notifications
+    description: Alert channels, rules, and delivery log
+  - name: Device
+    description: Per-host device detail views
   - name: Analysis
     description: LLM-generated analysis reports
   - name: Health
@@ -259,6 +263,41 @@ paths:
       responses:
         "200":
           description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /auth/sessions/revoke-all:
+    post:
+      operationId: logoutAll
+      tags: [Auth]
+      summary: Revoke all sessions for current user
+      description: Logs out all sessions including the current one and clears the session cookie.
+      responses:
+        "200":
+          description: All sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/users/{id}/revoke-sessions:
+    post:
+      operationId: revokeUserSessions
+      tags: [Auth]
+      summary: Revoke all sessions for a user (admin)
+      parameters:
+        - $ref: "#/components/parameters/UUID"
+      responses:
+        "200":
+          description: User sessions revoked
           content:
             application/json:
               schema:
@@ -724,6 +763,311 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+
+  # ── Notifications ───────────────────────────────────────────────────────
+  /notifications/channels:
+    get:
+      operationId: listChannels
+      tags: [Notifications]
+      summary: List notification channels
+      responses:
+        "200":
+          description: Channel list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NotificationChannel"
+    post:
+      operationId: createChannel
+      tags: [Notifications]
+      summary: Create notification channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelInput"
+      responses:
+        "201":
+          description: Channel created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationChannel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /notifications/channels/{id}:
+    get:
+      operationId: getChannel
+      tags: [Notifications]
+      summary: Get notification channel
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Channel detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationChannel"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateChannel
+      tags: [Notifications]
+      summary: Update notification channel
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelInput"
+      responses:
+        "200":
+          description: Channel updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationChannel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteChannel
+      tags: [Notifications]
+      summary: Delete notification channel
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "204":
+          description: Channel deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /notifications/channels/{id}/test:
+    post:
+      operationId: testChannel
+      tags: [Notifications]
+      summary: Send test notification
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestChannelResult"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Notification engine not enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /notifications/rules:
+    get:
+      operationId: listRules
+      tags: [Notifications]
+      summary: List notification rules
+      responses:
+        "200":
+          description: Rule list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NotificationRule"
+    post:
+      operationId: createRule
+      tags: [Notifications]
+      summary: Create notification rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationRuleInput"
+      responses:
+        "201":
+          description: Rule created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /notifications/rules/{id}:
+    get:
+      operationId: getRule
+      tags: [Notifications]
+      summary: Get notification rule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Rule detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationRule"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateRule
+      tags: [Notifications]
+      summary: Update notification rule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationRuleInput"
+      responses:
+        "200":
+          description: Rule updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteRule
+      tags: [Notifications]
+      summary: Delete notification rule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "204":
+          description: Rule deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /notifications/log:
+    get:
+      operationId: listNotificationLog
+      tags: [Notifications]
+      summary: List notification delivery log
+      parameters:
+        - name: rule_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by rule ID
+        - name: channel_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by channel ID
+        - name: status
+          in: query
+          schema:
+            type: string
+          description: Filter by delivery status
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NotificationLogEntry"
+
+  # ── Device ─────────────────────────────────────────────────────────────
+  /device/{hostname}:
+    get:
+      operationId: getDeviceSummary
+      tags: [Device]
+      summary: Syslog device detail
+      description: Aggregated summary for a single syslog device by hostname.
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Device summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeviceSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /applog/device/{hostname}:
+    get:
+      operationId: getAppLogDeviceSummary
+      tags: [Device]
+      summary: AppLog device detail
+      description: Aggregated summary for a single application log host.
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: AppLog device summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AppLogDeviceSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   # ── AppLog Stats ────────────────────────────────────────────────────────
   /applog/stats/volume:
@@ -1191,11 +1535,17 @@ components:
 
     CreateKeyRequest:
       type: object
-      required: [name]
+      required: [name, scopes]
       properties:
         name:
           type: string
           maxLength: 255
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [read, ingest, admin]
+          description: At least one scope required
         expires_at:
           type: string
           format: date-time
@@ -1214,6 +1564,11 @@ components:
           type: string
         key_prefix:
           type: string
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [read, ingest, admin]
         expires_at:
           type: string
           format: date-time
@@ -1557,6 +1912,317 @@ components:
         value:
           type: number
           format: double
+
+    # ── Notifications ────────────────────────────────────────────────────
+    NotificationChannel:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          enum: [slack, webhook, email]
+        config:
+          type: object
+          additionalProperties: true
+          description: Backend-specific configuration (webhook URL, Slack token, SMTP settings, etc.)
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    NotificationChannelInput:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [slack, webhook, email]
+        config:
+          type: object
+          additionalProperties: true
+        enabled:
+          type: boolean
+
+    NotificationRule:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        enabled:
+          type: boolean
+        event_kind:
+          type: string
+          enum: [syslog, applog]
+        hostname:
+          type: string
+        programname:
+          type: string
+        severity:
+          type: integer
+          nullable: true
+        severity_max:
+          type: integer
+          nullable: true
+        facility:
+          type: integer
+          nullable: true
+        syslogtag:
+          type: string
+        msgid:
+          type: string
+        service:
+          type: string
+        component:
+          type: string
+        host:
+          type: string
+        level:
+          type: string
+        search:
+          type: string
+        channel_ids:
+          type: array
+          items:
+            type: integer
+        burst_window:
+          type: integer
+          description: Number of events before triggering a burst notification
+        cooldown_seconds:
+          type: integer
+          description: Minimum seconds between notifications for this rule
+        group_by:
+          type: string
+          description: Field to group events by (e.g. hostname, service)
+        max_cooldown_seconds:
+          type: integer
+          description: Maximum cooldown after exponential backoff
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    NotificationRuleInput:
+      type: object
+      required: [name, event_kind]
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        event_kind:
+          type: string
+          enum: [syslog, applog]
+        hostname:
+          type: string
+        programname:
+          type: string
+        severity:
+          type: integer
+          nullable: true
+        severity_max:
+          type: integer
+          nullable: true
+        facility:
+          type: integer
+          nullable: true
+        syslogtag:
+          type: string
+        msgid:
+          type: string
+        service:
+          type: string
+        component:
+          type: string
+        host:
+          type: string
+        level:
+          type: string
+        search:
+          type: string
+        channel_ids:
+          type: array
+          items:
+            type: integer
+        burst_window:
+          type: integer
+        cooldown_seconds:
+          type: integer
+        group_by:
+          type: string
+        max_cooldown_seconds:
+          type: integer
+
+    NotificationLogEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        rule_id:
+          type: integer
+        channel_id:
+          type: integer
+        event_kind:
+          type: string
+        event_id:
+          type: integer
+        status:
+          type: string
+        reason:
+          type: string
+          nullable: true
+        event_count:
+          type: integer
+        status_code:
+          type: integer
+          nullable: true
+        duration_ms:
+          type: integer
+        payload:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+    TestChannelResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        status_code:
+          type: integer
+        error:
+          type: string
+          nullable: true
+        duration_ms:
+          type: integer
+
+    # ── Device ───────────────────────────────────────────────────────────
+    DeviceSummary:
+      type: object
+      properties:
+        hostname:
+          type: string
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        total_count:
+          type: integer
+        critical_count:
+          type: integer
+        severity_breakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeverityCount"
+        top_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopMessage"
+        critical_logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SyslogEvent"
+
+    SeverityCount:
+      type: object
+      properties:
+        severity:
+          type: integer
+        label:
+          type: string
+        count:
+          type: integer
+        pct:
+          type: number
+          format: double
+
+    TopMessage:
+      type: object
+      properties:
+        pattern:
+          type: string
+        sample:
+          type: string
+        count:
+          type: integer
+        latest_id:
+          type: integer
+        latest_at:
+          type: string
+          format: date-time
+        severity:
+          type: integer
+        severity_label:
+          type: string
+
+    AppLogDeviceSummary:
+      type: object
+      properties:
+        host:
+          type: string
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        total_count:
+          type: integer
+        error_count:
+          type: integer
+        level_breakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/LevelCount"
+        top_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppLogTopMessage"
+        error_logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppLogEvent"
+
+    LevelCount:
+      type: object
+      properties:
+        level:
+          type: string
+        count:
+          type: integer
+        pct:
+          type: number
+          format: double
+
+    AppLogTopMessage:
+      type: object
+      properties:
+        pattern:
+          type: string
+        sample:
+          type: string
+        count:
+          type: integer
+        latest_id:
+          type: integer
+        latest_at:
+          type: string
+          format: date-time
+        level:
+          type: string
 
     # ── Analysis ──────────────────────────────────────────────────────────
     ReportSummary:

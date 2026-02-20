@@ -203,8 +203,7 @@ npm install && npm run dev
 - [Architecture](docs/ARCHITECTURE.md) — system design, data flow, deployment topology
 - [Internals](docs/INTERNALS.md) — SSE brokers, LISTEN/NOTIFY, pagination, auth
 - [Notifications](docs/NOTIFICATIONS.md) — notification setup, channels, rules, anti-spam
-- [API Reference](api/API.md) — HTTP endpoints
-- [Interactive API Docs](http://localhost:8080/api/docs) — Scalar UI (when running locally)
+- [Interactive API Docs](http://localhost:8080/api/docs) — Scalar/OpenAPI UI (when running locally)
 - [rsyslog Config](rsyslog/README.md) — rsyslog deployment and filtering
 - [nginx Examples](docs/nginx-reverse-proxy.conf.example) — production reverse proxy config
 
