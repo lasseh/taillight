@@ -15,11 +15,11 @@ type AppLogEvent struct {
 	Timestamp  time.Time       `json:"timestamp"`
 	Level      string          `json:"level"`
 	Service    string          `json:"service"`
-	Component  string          `json:"component,omitempty"`
-	Host       string          `json:"host,omitempty"`
+	Component  string          `json:"component,omitzero"`
+	Host       string          `json:"host,omitzero"`
 	Msg        string          `json:"msg"`
-	Source     string          `json:"source,omitempty"`
-	Attrs      json.RawMessage `json:"attrs,omitempty"`
+	Source     string          `json:"source,omitzero"`
+	Attrs      json.RawMessage `json:"attrs,omitzero"`
 }
 
 // ValidAppLogLevels is the set of canonical log levels and their ranks.
