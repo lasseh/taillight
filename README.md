@@ -60,8 +60,6 @@ Lightweight, real-time log viewer for network operations teams. Stream syslog an
 - One-click switching from the settings menu, persisted to localStorage
 - Every theme includes matched chart colors for consistent data visualization
 
-![Theme picker](docs/screenshots/themes.png)
-
 ### Operations
 
 - TimescaleDB hypertables with compression and configurable retention policies
