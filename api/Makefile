@@ -12,7 +12,7 @@ else
   TEST_CMD := $(GO) test
 endif
 
-.PHONY: build build-linux build-shipper test lint tidy vulncheck generate coverage clean help migrate-up migrate-down migrate-version
+.PHONY: build build-linux build-shipper test lint fix tidy vulncheck generate coverage clean help migrate-up migrate-down migrate-version
 
 ##@ General
 help: ## Show this help
@@ -40,6 +40,9 @@ coverage: ## Run tests with coverage
 	$(GO) tool cover -html=coverage.out -o coverage.html
 
 ##@ Utility
+fix: ## Apply Go version modernizations (go fix)
+	$(GO) fix ./...
+
 tidy: ## Verify go.mod and go.sum are tidy
 	$(GO) mod tidy
 	@git diff --exit-code go.mod go.sum || (echo "go.mod/go.sum not tidy" && exit 1)

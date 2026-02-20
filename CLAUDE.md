@@ -14,6 +14,7 @@ All Go commands run from `api/` via Make. The root Makefile delegates to compone
 make build          # build binary
 make test           # run tests with -race
 make lint           # golangci-lint run ./...
+make fix            # apply Go version modernizations (go fix)
 make coverage       # tests + coverage HTML report
 make tidy           # go mod tidy + verify clean
 
