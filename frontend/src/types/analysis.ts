@@ -22,3 +22,15 @@ export interface AnalysisReportSummary {
   duration_ms: number
   status: string
 }
+
+export interface AnalysisReportListResponse {
+  data: AnalysisReportSummary[]
+}
+
+export interface AnalysisReportResponse {
+  data: AnalysisReport
+}
+
+export interface AnalysisTriggerResponse {
+  data: { report_id: number }
+}

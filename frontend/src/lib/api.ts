@@ -6,6 +6,7 @@ import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } 
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse } from '@/types/auth'
 import type { ChannelListResponse, ChannelResponse, RuleListResponse, RuleResponse, LogListResponse, TestChannelResult, NotificationChannel, NotificationRule } from '@/types/notification'
 import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
+import type { AnalysisReportListResponse, AnalysisReportResponse, AnalysisTriggerResponse } from '@/types/analysis'
 import { config } from './config'
 
 /** Shape of the JSON error body returned by the API. */
@@ -47,13 +48,13 @@ async function fetchAPI<T>(path: string, signal?: AbortSignal): Promise<T> {
   return handleResponse(res)
 }
 
-async function postAPI<T>(path: string, body: unknown): Promise<T> {
+async function postAPI<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const url = `${config.apiUrl}${path}`
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15000),
+    signal: signal ?? AbortSignal.timeout(15000),
     credentials: 'include',
   })
   return handleResponse(res)
@@ -271,5 +272,23 @@ export const api = {
 
   listNotificationLog(params: URLSearchParams): Promise<LogListResponse> {
     return fetchAPI(`/api/v1/notifications/log?${params}`)
+  },
+
+  // Analysis
+  listAnalysisReports(limit?: number): Promise<AnalysisReportListResponse> {
+    const q = limit ? `?limit=${limit}` : ''
+    return fetchAPI(`/api/v1/analysis/reports${q}`)
+  },
+
+  getAnalysisReport(id: number): Promise<AnalysisReportResponse> {
+    return fetchAPI(`/api/v1/analysis/reports/${id}`)
+  },
+
+  getLatestAnalysisReport(): Promise<AnalysisReportResponse> {
+    return fetchAPI('/api/v1/analysis/reports/latest')
+  },
+
+  triggerAnalysis(signal?: AbortSignal): Promise<AnalysisTriggerResponse> {
+    return postAPI('/api/v1/analysis/reports/trigger', {}, signal)
   },
 }
