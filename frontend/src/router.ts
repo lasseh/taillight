@@ -93,7 +93,7 @@ router.beforeEach(async (to) => {
   }
 
   if (!auth.user && !to.meta.public) {
-    return { name: 'login' }
+    return { name: 'login', query: { redirect: to.fullPath } }
   }
 
   if (auth.user && to.name === 'login') {

@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/lib/api'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
+
+const redirectTarget = computed(() => {
+  const r = route.query.redirect
+  return typeof r === 'string' && r.startsWith('/') ? r : '/'
+})
 
 const username = ref('')
 const password = ref('')
@@ -30,7 +36,7 @@ function startRetryTimer() {
     if (auth.user) {
       clearInterval(retryTimer)
       retryTimer = undefined
-      router.replace('/')
+      router.replace(redirectTarget.value)
     }
   }, 2000)
 }
@@ -38,7 +44,7 @@ function startRetryTimer() {
 async function handleRetry() {
   await auth.init()
   if (auth.user) {
-    router.replace('/')
+    router.replace(redirectTarget.value)
     return
   }
   if (!auth.apiError) return
@@ -65,7 +71,7 @@ async function handleSubmit() {
   loading.value = true
   try {
     await auth.login(username.value, password.value)
-    router.push('/')
+    router.push(redirectTarget.value)
   } catch (e) {
     if (e instanceof ApiError && e.status >= 502 && e.status <= 504) {
       error.value = 'API is unreachable — it may be down or restarting'
