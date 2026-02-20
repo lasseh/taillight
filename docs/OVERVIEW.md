@@ -609,8 +609,6 @@ For production, consider `timescaledb-backup` or WAL archiving for point-in-time
 
 - [Architecture](ARCHITECTURE.md) -- system design, data flow diagrams, deployment topology
 - [Internals](INTERNALS.md) -- deep dive into SSE brokers, LISTEN/NOTIFY, schema, auth, frontend stores
-- [Notifications](NOTIFICATIONS.md) -- notification system setup, channels, rules, anti-spam, and API reference
-- [Notification Design](NOTIFICATION_SYSTEM_DESIGN.md) -- original system design document and architecture decisions
-- [AI Analysis Setup](ai-analysis-setup.md) -- local Ollama-based AI briefings from syslog data
+- [Notifications](NOTIFICATIONS.md) -- notification system setup, channels, rules, anti-spam
 - [Interactive API Docs](http://localhost:8080/api/docs) -- Scalar/OpenAPI UI (when running locally)
 - [rsyslog Configuration](../rsyslog/README.md) -- rsyslog setup and deployment
