@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/lib/api'
@@ -8,10 +8,12 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
-const redirectTarget = computed(() => {
+// Capture once at setup time so it doesn't change when the route changes
+// mid-navigation (e.g. retry timer firing after handleSubmit already navigated).
+const redirectTarget = (() => {
   const r = route.query.redirect
   return typeof r === 'string' && r.startsWith('/') ? r : '/'
-})
+})()
 
 const username = ref('')
 const password = ref('')
@@ -36,7 +38,7 @@ function startRetryTimer() {
     if (auth.user) {
       clearInterval(retryTimer)
       retryTimer = undefined
-      router.replace(redirectTarget.value)
+      router.replace(redirectTarget)
     }
   }, 2000)
 }
@@ -44,7 +46,7 @@ function startRetryTimer() {
 async function handleRetry() {
   await auth.init()
   if (auth.user) {
-    router.replace(redirectTarget.value)
+    router.replace(redirectTarget)
     return
   }
   if (!auth.apiError) return
@@ -71,7 +73,7 @@ async function handleSubmit() {
   loading.value = true
   try {
     await auth.login(username.value, password.value)
-    router.push(redirectTarget.value)
+    router.push(redirectTarget)
   } catch (e) {
     if (e instanceof ApiError && e.status >= 502 && e.status <= 504) {
       error.value = 'API is unreachable — it may be down or restarting'
