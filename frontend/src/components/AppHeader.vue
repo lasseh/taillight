@@ -52,6 +52,12 @@ function goToApiKeys() {
   router.push({ name: 'api-keys' })
 }
 
+function goToAnalysis() {
+  menuOpen.value = false
+  closeMobileMenu()
+  router.push({ name: 'analysis' })
+}
+
 async function handleLogout() {
   menuOpen.value = false
   closeMobileMenu()
@@ -161,24 +167,13 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         >
           ALERTS
         </router-link>
-        <router-link
-          to="/analysis"
-          class="px-2 py-0.5 text-xs transition-colors"
-          :class="
-            route.name === 'analysis'
-              ? 'bg-t-bg-highlight text-t-orange'
-              : 'text-t-fg-dark hover:text-t-orange'
-          "
-        >
-          ANALYSIS
-        </router-link>
       </div>
 
       <!-- Desktop: settings menu -->
       <div ref="menuRef" class="relative hidden md:block">
         <button
           class="text-t-fg-dark hover:text-t-fg flex items-center gap-1 px-1.5 py-0.5 text-xs transition-colors"
-          :class="menuOpen || String(route.name).startsWith('settings') || route.name === 'api-keys' ? 'text-t-fg' : ''"
+          :class="menuOpen || String(route.name).startsWith('settings') || route.name === 'api-keys' || route.name === 'analysis' ? 'text-t-fg' : ''"
           @click.stop="menuOpen = !menuOpen"
         >
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -224,6 +219,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
                   <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
                 </svg>
                 <span>API Keys</span>
+              </button>
+              <button
+                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
+                @click="goToAnalysis"
+              >
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
+                <span>Analysis Reports</span>
               </button>
             </div>
 
@@ -359,18 +366,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           >
             ALERTS
           </router-link>
-          <router-link
-            to="/analysis"
-            class="px-2 py-1.5 text-xs transition-colors"
-            :class="
-              route.name === 'analysis'
-                ? 'bg-t-bg-highlight text-t-orange'
-                : 'text-t-fg-dark hover:text-t-orange'
-            "
-            @click="closeMobileMenu"
-          >
-            ANALYSIS
-          </router-link>
         </div>
 
         <!-- User label -->
@@ -408,6 +403,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
               </svg>
               <span>API Keys</span>
+            </button>
+            <button
+              class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
+              @click="goToAnalysis"
+            >
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <span>Analysis Reports</span>
             </button>
           </div>
         </template>
