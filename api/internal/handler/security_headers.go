@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -9,14 +10,11 @@ import (
 // The corsOrigins parameter is used to build the CSP connect-src directive so
 // that cross-origin API requests from allowed origins are not blocked.
 func SecurityHeaders(corsOrigins []string) func(http.Handler) http.Handler {
-	connectSrc := "'self'"
-	for _, o := range corsOrigins {
-		if o == "*" {
-			connectSrc = "*"
-			break
-		}
-	}
-	if connectSrc != "*" {
+	var connectSrc string
+	if slices.Contains(corsOrigins, "*") {
+		connectSrc = "*"
+	} else {
+		connectSrc = "'self'"
 		for _, o := range corsOrigins {
 			if !strings.Contains(connectSrc, o) {
 				connectSrc += " " + o
