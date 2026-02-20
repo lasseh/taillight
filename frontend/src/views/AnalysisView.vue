@@ -332,36 +332,40 @@ function formatPeriod(start: string, end: string): string {
 <style scoped>
 /* Theme-aware prose styling for rendered markdown */
 .prose {
-  color: var(--t-fg);
-  line-height: 1.7;
+  color: var(--color-t-fg);
+  line-height: 1.75;
 }
 
+/* ── Headings ── */
 .prose :deep(h1) {
-  color: var(--t-fg);
+  color: var(--color-t-fg);
   font-size: 1.25rem;
   font-weight: 700;
   margin-top: 0;
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--t-border);
+  margin-bottom: 1rem;
+  padding-bottom: 0.625rem;
+  border-bottom: 2px solid var(--color-t-orange);
 }
 
 .prose :deep(h2) {
-  color: var(--t-orange);
+  color: var(--color-t-orange);
   font-size: 1rem;
   font-weight: 600;
-  margin-top: 1.75rem;
-  margin-bottom: 0.5rem;
+  margin-top: 2rem;
+  margin-bottom: 0.625rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid var(--color-t-border);
 }
 
 .prose :deep(h3) {
-  color: var(--t-fg);
+  color: var(--color-t-teal);
   font-size: 0.875rem;
   font-weight: 600;
-  margin-top: 1.25rem;
+  margin-top: 1.5rem;
   margin-bottom: 0.375rem;
 }
 
+/* ── Body text ── */
 .prose :deep(p) {
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
@@ -377,83 +381,110 @@ function formatPeriod(start: string, end: string): string {
 }
 
 .prose :deep(li) {
-  margin-top: 0.125rem;
-  margin-bottom: 0.125rem;
+  margin-top: 0.1875rem;
+  margin-bottom: 0.1875rem;
 }
 
 .prose :deep(li::marker) {
-  color: var(--t-fg-dark);
+  color: var(--color-t-fg-dark);
 }
 
+/* ── Inline emphasis ── */
 .prose :deep(strong) {
-  color: var(--t-fg);
+  color: var(--color-t-fg);
   font-weight: 600;
 }
 
+.prose :deep(em) {
+  color: var(--color-t-fg-dark);
+  font-style: italic;
+}
+
+/* ── Inline code ── */
 .prose :deep(code) {
-  color: var(--t-teal);
-  background: var(--t-bg-highlight);
+  color: var(--color-t-teal);
+  background: var(--color-t-bg-highlight);
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
   font-size: 0.75rem;
+  border: 1px solid var(--color-t-border);
 }
 
+/* ── Code blocks ── */
 .prose :deep(pre) {
-  background: var(--t-bg-dark);
-  border: 1px solid var(--t-border);
+  background: var(--color-t-bg-dark);
+  border: 1px solid var(--color-t-border);
   border-radius: 0.375rem;
-  padding: 0.75rem 1rem;
+  padding: 0.875rem 1rem;
   overflow-x: auto;
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
 .prose :deep(pre code) {
   background: none;
   padding: 0;
-  color: var(--t-fg);
+  border: none;
+  color: var(--color-t-fg);
 }
 
+/* ── Horizontal rules ── */
 .prose :deep(hr) {
   border: none;
-  border-top: 1px solid var(--t-border);
-  margin: 1.25rem 0;
+  border-top: 1px solid var(--color-t-border);
+  margin: 1.5rem 0;
 }
 
+/* ── Tables ── */
 .prose :deep(table) {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.75rem;
   margin-top: 0.75rem;
   margin-bottom: 0.75rem;
+  border: 1px solid var(--color-t-border);
+  border-radius: 0.375rem;
+  overflow: hidden;
 }
 
 .prose :deep(th) {
-  color: var(--t-fg-dark);
+  color: var(--color-t-orange);
   font-weight: 600;
   text-align: left;
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--t-border);
+  background: var(--color-t-bg-dark);
+  border-bottom: 1px solid var(--color-t-border);
 }
 
 .prose :deep(td) {
   padding: 0.375rem 0.75rem;
-  border-bottom: 1px solid var(--t-border);
+  border-bottom: 1px solid var(--color-t-border);
+}
+
+.prose :deep(tr:last-child td) {
+  border-bottom: none;
 }
 
 .prose :deep(tr:hover td) {
-  background: var(--t-bg-highlight);
+  background: var(--color-t-bg-highlight);
 }
 
+/* ── Links ── */
 .prose :deep(a) {
-  color: var(--t-blue);
+  color: var(--color-t-blue);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
+.prose :deep(a:hover) {
+  color: var(--color-t-teal);
+}
+
+/* ── Blockquotes ── */
 .prose :deep(blockquote) {
-  border-left: 3px solid var(--t-orange);
+  border-left: 3px solid var(--color-t-orange);
   padding-left: 1rem;
-  color: var(--t-fg-dark);
+  color: var(--color-t-fg-dark);
   margin: 0.75rem 0;
   font-size: 0.8125rem;
 }
