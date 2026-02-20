@@ -5,6 +5,7 @@
 # Features:
 #   - SSE streaming (proxy_buffering off, 24h read timeout)
 #   - Rate limiting on auth and API endpoints
+#   - TLS 1.2/1.3 with session resumption and OCSP stapling
 #   - HSTS and security headers
 #   - Gzip compression for JSON and static assets
 #   - HTTP → HTTPS redirect
@@ -30,10 +31,23 @@ server {
     http2 on;
     server_name taillight.example.com;
 
-    # TLS certs — protocols, session cache, OCSP stapling are set
-    # globally in conf.d/tls-intermediate.conf (or tls-modern.conf).
+    # ── TLS ──────────────────────────────────────────────────────────
+    # Remove this block if your nginx already sets TLS globally
+    # (e.g. conf.d/tls-intermediate.conf) to avoid shared zone conflicts.
     ssl_certificate     /etc/ssl/certs/taillight.pem;
     ssl_certificate_key /etc/ssl/private/taillight.key;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    resolver 1.1.1.1 8.8.8.8 valid=300s;
+    resolver_timeout 5s;
 
     # ── Security headers ─────────────────────────────────────────────
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
