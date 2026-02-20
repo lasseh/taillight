@@ -767,10 +767,7 @@ func (s *Store) UpsertJuniperRefs(ctx context.Context, refs []model.JuniperSyslo
 	var total int64
 
 	for i := 0; i < len(refs); i += batchSize {
-		end := i + batchSize
-		if end > len(refs) {
-			end = len(refs)
-		}
+		end := min(i+batchSize, len(refs))
 		batch := refs[i:end]
 
 		qb := psq.Insert("juniper_syslog_ref").

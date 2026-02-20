@@ -112,7 +112,7 @@ func TestBroadcast_FilteredOut(t *testing.T) {
 func TestBroadcast_FilterMatch(t *testing.T) {
 	b := newTestBroker()
 
-	sub := mustSubscribe(t, b, model.SyslogFilter{Hostname: "router1", Severity: intPtr(3)})
+	sub := mustSubscribe(t, b, model.SyslogFilter{Hostname: "router1", Severity: new(3)})
 	defer b.Unsubscribe(sub)
 
 	// Matching event.
@@ -207,5 +207,3 @@ func TestSubscribe_MaxSubscribers(t *testing.T) {
 		b.Unsubscribe(s)
 	}
 }
-
-func intPtr(n int) *int { return &n }

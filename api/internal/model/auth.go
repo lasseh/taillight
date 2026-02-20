@@ -16,7 +16,7 @@ type User struct {
 	IsAdmin      bool               `json:"is_admin"`
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
-	LastLoginAt  pgtype.Timestamptz `json:"last_login_at,omitempty"`
+	LastLoginAt  pgtype.Timestamptz `json:"last_login_at"`
 }
 
 // Session represents a row from the sessions table.
@@ -38,8 +38,8 @@ type APIKeyRow struct {
 	KeyHash    string             `json:"-"`
 	KeyPrefix  string             `json:"key_prefix"`
 	Scopes     []string           `json:"scopes"`
-	ExpiresAt  pgtype.Timestamptz `json:"expires_at,omitempty"`
-	RevokedAt  pgtype.Timestamptz `json:"revoked_at,omitempty"`
-	LastUsedAt pgtype.Timestamptz `json:"last_used_at,omitempty"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
 	CreatedAt  time.Time          `json:"created_at"`
 }

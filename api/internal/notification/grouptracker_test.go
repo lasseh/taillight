@@ -59,7 +59,7 @@ func TestGroupTracker_BurstAccumulation(t *testing.T) {
 	gt, mu, records := collectFlushes(t)
 	defer gt.Stop()
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		gt.Add(1, "host1", 100*time.Millisecond, 200*time.Millisecond, time.Second, Payload{RuleName: "test"})
 		time.Sleep(10 * time.Millisecond)
 	}

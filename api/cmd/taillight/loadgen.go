@@ -102,7 +102,7 @@ func formatRFC5424(facility, severity int, hostname, program, msgid, message str
 	}
 	// RFC 5424: <PRI>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID SD MSG
 	pid := 1000 + rand.IntN(64536)
-	return []byte(fmt.Sprintf("<%d>1 %s %s %s %d %s - %s\n", pri, ts, hostname, program, pid, msgid, message))
+	return fmt.Appendf(nil, "<%d>1 %s %s %s %d %s - %s\n", pri, ts, hostname, program, pid, msgid, message)
 }
 
 func runLoadgen(_ *cobra.Command, _ []string) error {

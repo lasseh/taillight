@@ -93,7 +93,7 @@ func (r Rule) groupByFields(defaultField string) []string {
 		return []string{defaultField}
 	}
 	var fields []string
-	for _, f := range strings.Split(gb, ",") {
+	for f := range strings.SplitSeq(gb, ",") {
 		f = strings.TrimSpace(f)
 		if f != "" {
 			fields = append(fields, f)

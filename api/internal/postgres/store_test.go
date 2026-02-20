@@ -33,8 +33,6 @@ func TestEscapeLike(t *testing.T) {
 	}
 }
 
-func intPtr(n int) *int { return &n }
-
 func TestApplySyslogFilter(t *testing.T) {
 	base := psq.Select("id").From("syslog_events")
 	now := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -77,19 +75,19 @@ func TestApplySyslogFilter(t *testing.T) {
 		},
 		{
 			name:     "severity exact",
-			filter:   model.SyslogFilter{Severity: intPtr(3)},
+			filter:   model.SyslogFilter{Severity: new(3)},
 			wantSQL:  []string{"severity"},
 			wantArgs: 1,
 		},
 		{
 			name:     "severity_max",
-			filter:   model.SyslogFilter{SeverityMax: intPtr(4)},
+			filter:   model.SyslogFilter{SeverityMax: new(4)},
 			wantSQL:  []string{"severity"},
 			wantArgs: 1,
 		},
 		{
 			name:     "facility",
-			filter:   model.SyslogFilter{Facility: intPtr(1)},
+			filter:   model.SyslogFilter{Facility: new(1)},
 			wantSQL:  []string{"facility"},
 			wantArgs: 1,
 		},
@@ -128,7 +126,7 @@ func TestApplySyslogFilter(t *testing.T) {
 			filter: model.SyslogFilter{
 				Hostname:    "web*",
 				Programname: "nginx",
-				SeverityMax: intPtr(4),
+				SeverityMax: new(4),
 				Search:      "timeout",
 				From:        &now,
 			},

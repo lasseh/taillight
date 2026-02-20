@@ -724,7 +724,7 @@ func TestGravatarURL(t *testing.T) {
 		email *string
 	}{
 		{name: "nil email", email: nil},
-		{name: "valid email", email: strPtr("user@example.com")},
+		{name: "valid email", email: new("user@example.com")},
 	}
 
 	for _, tt := range tests {
@@ -784,8 +784,4 @@ func TestIsSecureRequest(t *testing.T) {
 			}
 		})
 	}
-}
-
-func strPtr(s string) *string {
-	return &s
 }

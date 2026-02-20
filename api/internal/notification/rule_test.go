@@ -7,8 +7,6 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-func intPtr(v int) *int { return &v }
-
 func TestRule_MatchesSyslog(t *testing.T) {
 	event := model.SyslogEvent{
 		ID:            1,
@@ -60,22 +58,22 @@ func TestRule_MatchesSyslog(t *testing.T) {
 		},
 		{
 			name: "severity exact match",
-			rule: Rule{EventKind: EventKindSyslog, Severity: intPtr(3)},
+			rule: Rule{EventKind: EventKindSyslog, Severity: new(3)},
 			want: true,
 		},
 		{
 			name: "severity mismatch",
-			rule: Rule{EventKind: EventKindSyslog, Severity: intPtr(0)},
+			rule: Rule{EventKind: EventKindSyslog, Severity: new(0)},
 			want: false,
 		},
 		{
 			name: "severity_max match",
-			rule: Rule{EventKind: EventKindSyslog, SeverityMax: intPtr(4)},
+			rule: Rule{EventKind: EventKindSyslog, SeverityMax: new(4)},
 			want: true,
 		},
 		{
 			name: "severity_max excludes",
-			rule: Rule{EventKind: EventKindSyslog, SeverityMax: intPtr(2)},
+			rule: Rule{EventKind: EventKindSyslog, SeverityMax: new(2)},
 			want: false,
 		},
 		{
@@ -90,7 +88,7 @@ func TestRule_MatchesSyslog(t *testing.T) {
 		},
 		{
 			name: "combined filters match",
-			rule: Rule{EventKind: EventKindSyslog, Hostname: "router*", Programname: "rpd", SeverityMax: intPtr(3)},
+			rule: Rule{EventKind: EventKindSyslog, Hostname: "router*", Programname: "rpd", SeverityMax: new(3)},
 			want: true,
 		},
 		{

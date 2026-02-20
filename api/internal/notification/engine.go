@@ -69,9 +69,7 @@ func (e *Engine) Start(ctx context.Context) {
 	}
 
 	// Rule/channel refresh goroutine.
-	e.wg.Add(1)
-	go func() {
-		defer e.wg.Done()
+	e.wg.Go(func() {
 		ticker := time.NewTicker(e.cfg.RuleRefreshInterval)
 		defer ticker.Stop()
 		for {
@@ -84,15 +82,13 @@ func (e *Engine) Start(ctx context.Context) {
 				}
 			}
 		}
-	}()
+	})
 
 	// Dispatch workers.
 	for i := 0; i < e.cfg.DispatchWorkers; i++ {
-		e.wg.Add(1)
-		go func() {
-			defer e.wg.Done()
+		e.wg.Go(func() {
 			e.dispatchWorker(ctx)
-		}()
+		})
 	}
 
 	e.logger.Info("notification engine started",

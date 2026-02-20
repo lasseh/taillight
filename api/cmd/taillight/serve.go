@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -357,13 +358,7 @@ func setupRouter(
 
 	// CORS credentials + wildcard origin is rejected by browsers (spec violation),
 	// so only allow credentials when origins are explicitly listed.
-	hasWildcard := false
-	for _, o := range corsOrigins {
-		if o == "*" {
-			hasWildcard = true
-			break
-		}
-	}
+	hasWildcard := slices.Contains(corsOrigins, "*")
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},

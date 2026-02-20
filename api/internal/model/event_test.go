@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-func intPtr(n int) *int { return &n }
-
 func TestSeverityLabel(t *testing.T) {
 	tests := []struct {
 		code int
@@ -76,20 +74,20 @@ func TestSyslogFilter_Matches(t *testing.T) {
 		{"fromhost_ip mismatch", SyslogFilter{FromhostIP: "10.0.0.2"}, false},
 		{"programname match", SyslogFilter{Programname: "rpd"}, true},
 		{"programname mismatch", SyslogFilter{Programname: "sshd"}, false},
-		{"severity exact match", SyslogFilter{Severity: intPtr(3)}, true},
-		{"severity exact mismatch", SyslogFilter{Severity: intPtr(4)}, false},
-		{"severity_max includes", SyslogFilter{SeverityMax: intPtr(3)}, true},
-		{"severity_max excludes", SyslogFilter{SeverityMax: intPtr(2)}, false},
-		{"facility match", SyslogFilter{Facility: intPtr(23)}, true},
-		{"facility mismatch", SyslogFilter{Facility: intPtr(0)}, false},
+		{"severity exact match", SyslogFilter{Severity: new(3)}, true},
+		{"severity exact mismatch", SyslogFilter{Severity: new(4)}, false},
+		{"severity_max includes", SyslogFilter{SeverityMax: new(3)}, true},
+		{"severity_max excludes", SyslogFilter{SeverityMax: new(2)}, false},
+		{"facility match", SyslogFilter{Facility: new(23)}, true},
+		{"facility mismatch", SyslogFilter{Facility: new(0)}, false},
 		{"syslogtag match", SyslogFilter{SyslogTag: "rpd[1234]:"}, true},
 		{"syslogtag mismatch", SyslogFilter{SyslogTag: "sshd:"}, false},
 		{"msgid match", SyslogFilter{MsgID: "BGP_STATE"}, true},
 		{"msgid mismatch", SyslogFilter{MsgID: "OTHER"}, false},
 		{"search match case-insensitive", SyslogFilter{Search: "bgp peer"}, true},
 		{"search mismatch", SyslogFilter{Search: "ospf"}, false},
-		{"combined hostname+severity", SyslogFilter{Hostname: "router1", Severity: intPtr(3)}, true},
-		{"combined hostname mismatch+severity match", SyslogFilter{Hostname: "router2", Severity: intPtr(3)}, false},
+		{"combined hostname+severity", SyslogFilter{Hostname: "router1", Severity: new(3)}, true},
+		{"combined hostname mismatch+severity match", SyslogFilter{Hostname: "router2", Severity: new(3)}, false},
 	}
 
 	for _, tt := range tests {

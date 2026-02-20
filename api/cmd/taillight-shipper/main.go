@@ -132,11 +132,9 @@ func run(_ *cobra.Command, _ []string) error {
 	for _, fc := range cfg.Files {
 		h := newHandler(fc.resolvedService(cfg.Service), fc.resolvedComponent(cfg.Component), fc.resolvedHost(host))
 		logger.Info("tailing file", "path", fc.Path, "service", fc.resolvedService(cfg.Service))
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			tailFile(ctx, fc.Path, h, logger)
-		}()
+		})
 	}
 
 	wg.Wait()

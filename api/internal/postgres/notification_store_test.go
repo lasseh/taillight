@@ -9,8 +9,8 @@ func TestDeref(t *testing.T) {
 		want  string
 	}{
 		{name: "nil returns empty", input: nil, want: ""},
-		{name: "non-nil returns value", input: strPtr("hello"), want: "hello"},
-		{name: "empty string pointer", input: strPtr(""), want: ""},
+		{name: "non-nil returns value", input: new("hello"), want: "hello"},
+		{name: "empty string pointer", input: new(""), want: ""},
 	}
 
 	for _, tt := range tests {
@@ -52,5 +52,3 @@ func TestNullIfEmpty(t *testing.T) {
 		})
 	}
 }
-
-func strPtr(s string) *string { return &s }
