@@ -9,7 +9,7 @@ Lightweight, real-time log viewer for network operations teams. Stream syslog an
 
 ![Syslog stream](docs/screenshots/syslog-stream.png)
 
-![Dashboard](docs/screenshots/dashboard.png)
+![Device detail](docs/screenshots/device.png)
 
 ## Why Taillight?
 
