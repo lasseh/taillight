@@ -53,6 +53,15 @@ Lightweight, real-time log viewer for network operations teams. Stream syslog an
 - Anomaly detection and trend summaries
 - On-demand analysis trigger via API
 
+### Themes
+
+- 19 built-in color themes — Tokyo Night, Dracula, Catppuccin, Nord, Solarized, Gruvbox, SynthWave 84, and more
+- 15 dark themes and 4 light themes
+- One-click switching from the settings menu, persisted to localStorage
+- Every theme includes matched chart colors for consistent data visualization
+
+![Theme picker](docs/screenshots/themes.png)
+
 ### Operations
 
 - TimescaleDB hypertables with compression and configurable retention policies
