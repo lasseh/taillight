@@ -312,11 +312,6 @@ func (v AppLogView) renderDetail(evt model.AppLogEvent) string {
 	return border.Render(content.String())
 }
 
-// EventCount returns the number of events.
-func (v AppLogView) EventCount() int {
-	return v.events.Len()
-}
-
 // IsPinned returns whether the view is auto-scrolling.
 func (v AppLogView) IsPinned() bool {
 	return v.pinned

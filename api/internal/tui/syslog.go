@@ -261,11 +261,6 @@ func (v SyslogView) renderDetail(evt model.SyslogEvent) string {
 	return border.Render(content.String())
 }
 
-// EventCount returns the number of events.
-func (v SyslogView) EventCount() int {
-	return v.events.Len()
-}
-
 // IsPinned returns whether the view is auto-scrolling.
 func (v SyslogView) IsPinned() bool {
 	return v.pinned

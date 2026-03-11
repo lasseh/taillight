@@ -421,21 +421,18 @@ func (m Model) renderJumpToLatest() string {
 }
 
 func (m Model) renderStatusBar() string {
-	var count int
 	var scrollPct int
 	switch m.activeTab {
 	case TabSyslog:
-		count = m.syslog.EventCount()
 		scrollPct = m.syslog.ScrollPercent()
 	case TabAppLog:
-		count = m.applog.EventCount()
 		scrollPct = m.applog.ScrollPercent()
 	}
 
-	// Left side: event count + scroll indicator.
-	left := fmt.Sprintf(" %d events", count)
+	// Left side: scroll indicator.
+	left := " "
 	if !m.isPinned() {
-		left += "  " + dimStyle.Render(fmt.Sprintf("[%d%%]", scrollPct))
+		left += dimStyle.Render(fmt.Sprintf("[%d%%]", scrollPct))
 	}
 
 	// Right side: key hints.
