@@ -1,6 +1,7 @@
 services:
   postgres:
     image: timescale/timescaledb:latest-pg18
+    hostname: postgres
     command:
       - postgres
       - -c
@@ -40,6 +41,7 @@ services:
 
   api:
     build: ./api
+    hostname: taillight-api
     logging:
       driver: json-file
       options:
@@ -68,6 +70,7 @@ services:
 
   rsyslog:
     build: ./rsyslog
+    hostname: taillight-rsyslog
     logging:
       driver: json-file
       options:
@@ -97,6 +100,7 @@ services:
 
   frontend:
     build: ./frontend
+    hostname: taillight-frontend
     logging:
       driver: json-file
       options:
