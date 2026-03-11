@@ -66,6 +66,89 @@ var filterBarStyle = lipgloss.NewStyle().
 var dimStyle = lipgloss.NewStyle().
 	Foreground(colorDim)
 
+// Help popup style.
+var helpPopupStyle = lipgloss.NewStyle().
+	Background(colorBarBg).
+	Foreground(colorFg).
+	Border(lipgloss.RoundedBorder()).
+	BorderForeground(colorBlue).
+	Padding(1, 2)
+
+var helpKeyStyle = lipgloss.NewStyle().
+	Foreground(colorBlue).
+	Bold(true).
+	Width(14)
+
+var helpDescStyle = lipgloss.NewStyle().
+	Foreground(colorFg)
+
+var helpSectionStyle = lipgloss.NewStyle().
+	Foreground(colorCyan).
+	Bold(true)
+
+// helpText is the rendered help popup content.
+var helpText = func() string {
+	title := lipgloss.NewStyle().
+		Foreground(colorBlue).
+		Bold(true).
+		Render("Keyboard Shortcuts")
+
+	sections := []struct {
+		name string
+		keys []struct{ key, desc string }
+	}{
+		{"Navigation", []struct{ key, desc string }{
+			{"Tab", "Switch between Syslog / AppLog"},
+			{"j / ↓", "Move cursor down"},
+			{"k / ↑", "Move cursor up"},
+			{"PgDn / PgUp", "Scroll by page"},
+			{"g / Home", "Jump to top"},
+			{"G / End", "Jump to bottom (re-pin)"},
+		}},
+		{"Actions", []struct{ key, desc string }{
+			{"Enter", "Toggle detail panel"},
+			{"/", "Open filter bar"},
+			{"Esc", "Close detail / filter"},
+		}},
+		{"Filter Syntax", []struct{ key, desc string }{
+			{"key:value", "Filter by field"},
+			{"bare text", "Full-text search"},
+		}},
+		{"Syslog Filters", []struct{ key, desc string }{
+			{"hostname:", "Filter by hostname"},
+			{"programname:", "Filter by program"},
+			{"severity:", "Filter by severity (0-7)"},
+			{"search:", "Search in message"},
+		}},
+		{"AppLog Filters", []struct{ key, desc string }{
+			{"service:", "Filter by service"},
+			{"component:", "Filter by component"},
+			{"host:", "Filter by host"},
+			{"level:", "Filter by level"},
+		}},
+		{"General", []struct{ key, desc string }{
+			{"?", "Toggle this help"},
+			{"q / Ctrl-C", "Quit"},
+		}},
+	}
+
+	var b strings.Builder
+	b.WriteString(title + "\n\n")
+
+	for i, sec := range sections {
+		b.WriteString(helpSectionStyle.Render(sec.name) + "\n")
+		for _, kv := range sec.keys {
+			b.WriteString(helpKeyStyle.Render(kv.key) + helpDescStyle.Render(kv.desc) + "\n")
+		}
+		if i < len(sections)-1 {
+			b.WriteByte('\n')
+		}
+	}
+
+	b.WriteString("\n" + dimStyle.Render("Press any key to close"))
+	return b.String()
+}()
+
 // Connected/disconnected indicators.
 var (
 	connectedStyle    = lipgloss.NewStyle().Foreground(colorGreen)

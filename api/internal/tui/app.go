@@ -25,6 +25,7 @@ type Model struct {
 	client    *SSEClient
 	width     int
 	height    int
+	showHelp  bool
 
 	syslogConnected bool
 	applogConnected bool
@@ -126,6 +127,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.clearFilter(msg)
 
 	case tea.KeyMsg:
+		// Help popup intercepts all keys.
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+
 		// If filter is active, all keys go to the filter.
 		if m.filter.IsActive() {
 			var cmd tea.Cmd
@@ -134,6 +141,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "?":
+			m.showHelp = true
+			return m, nil
 		case "q", "ctrl+c":
 			if m.syslogCancel != nil {
 				m.syslogCancel()
@@ -260,9 +270,82 @@ func (m Model) View() tea.View {
 	b.WriteByte('\n')
 	b.WriteString(m.renderStatusBar())
 
-	v := tea.NewView(b.String())
+	output := b.String()
+	if m.showHelp {
+		output = m.overlayHelp(output)
+	}
+
+	v := tea.NewView(output)
 	v.AltScreen = true
 	return v
+}
+
+func (m Model) overlayHelp(bg string) string {
+	help := helpPopupStyle.Render(helpText)
+	return placeOverlay(m.width, m.height, help, bg)
+}
+
+// placeOverlay centers overlay on top of background text.
+func placeOverlay(width, height int, overlay, bg string) string {
+	bgLines := strings.Split(bg, "\n")
+	for len(bgLines) < height {
+		bgLines = append(bgLines, "")
+	}
+
+	overlayLines := strings.Split(overlay, "\n")
+	oHeight := len(overlayLines)
+	oWidth := lipgloss.Width(overlay)
+
+	startY := max((height-oHeight)/2, 0)
+	startX := max((width-oWidth)/2, 0)
+
+	for i, line := range overlayLines {
+		y := startY + i
+		if y >= len(bgLines) {
+			break
+		}
+		row := bgLines[y]
+		// Pad row to width so overlay doesn't clip.
+		rowWidth := lipgloss.Width(row)
+		if rowWidth < startX+lipgloss.Width(line) {
+			row += strings.Repeat(" ", startX+lipgloss.Width(line)-rowWidth)
+		}
+		// Replace the middle section with the overlay line.
+		before := ansiTruncate(row, startX)
+		bgLines[y] = before + line
+	}
+
+	return strings.Join(bgLines[:height], "\n")
+}
+
+// ansiTruncate returns the first n visible characters of s, preserving ANSI codes.
+func ansiTruncate(s string, n int) string {
+	visible := 0
+	inEsc := false
+	var out strings.Builder
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+		}
+		if inEsc {
+			out.WriteRune(r)
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		if visible >= n {
+			break
+		}
+		out.WriteRune(r)
+		visible++
+	}
+	// Pad if string was shorter than n.
+	for visible < n {
+		out.WriteByte(' ')
+		visible++
+	}
+	return out.String()
 }
 
 func (m Model) renderHeader() string {
@@ -313,7 +396,7 @@ func (m Model) renderStatusBar() string {
 	}
 
 	left := fmt.Sprintf(" %d events%s", count, pinIndicator)
-	right := "[Tab] switch  [/] filter  [Enter] expand  [q] quit "
+	right := "[Tab] switch  [/] filter  [Enter] expand  [?] help  [q] quit "
 
 	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right), 1)
 
