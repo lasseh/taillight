@@ -210,7 +210,7 @@ func (v SyslogView) renderRow(evt model.SyslogEvent, _ int) string {
 	prog := programStyle.Render(truncate(evt.Programname, colProgramname))
 
 	msgWidth := max(v.width-colTimeSyslog-1-colSeverity-1-colHostname-1-colProgramname-2, colSyslogMinMsg)
-	msg := truncate(evt.Message, msgWidth)
+	msg := highlightMessage(evt.Message, msgWidth)
 
 	return fmt.Sprintf(" %s %s %-20s %-14s %s",
 		dimStyle.Render(ts), sevStyled, host, prog, msg)
@@ -253,9 +253,9 @@ func (v SyslogView) renderDetail(evt model.SyslogEvent) string {
 		)
 	}
 
-	// Row 3: Message.
+	// Row 3: Message (highlighted).
 	fmt.Fprintf(&content, "\n%s %s",
-		detailLabelStyle.Render("Message:"), evt.Message,
+		detailLabelStyle.Render("Message:"), applyHighlights(evt.Message),
 	)
 
 	return border.Render(content.String())
