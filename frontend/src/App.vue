@@ -122,7 +122,7 @@ onUnmounted(() => {
       <StatusBadge v-else :connected="connected" />
       <button
         v-if="showJumpToLatest"
-        class="text-t-yellow hover:text-t-fg absolute left-1/2 -translate-x-1/2 text-xs transition-colors"
+        class="text-t-teal hover:text-t-fg absolute left-1/2 -translate-x-1/2 text-xs transition-colors"
         @click="scrollStore.triggerJump(String(route.name))"
       >
         paused{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to latest (esc)
