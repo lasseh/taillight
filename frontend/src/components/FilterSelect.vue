@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 import type { FilterOption } from '@/types/syslog'
+import { wildcardMatch } from '@/lib/wildcard'
 
 const props = withDefaults(
   defineProps<{
@@ -37,9 +38,14 @@ watch(searchText, () => {
   highlightIndex.value = -1
 })
 
+const hasWildcard = computed(() => searchText.value.includes('*'))
+
 const filteredOptions = computed(() => {
   if (!props.searchable || !searchText.value) return props.options
   const q = searchText.value.toLowerCase()
+  if (hasWildcard.value) {
+    return props.options.filter((o) => wildcardMatch(o.value, searchText.value))
+  }
   return props.options.filter((o) => o.value.toLowerCase().includes(q))
 })
 
@@ -89,12 +95,14 @@ function onSearchKeydown(e: KeyboardEvent) {
   } else if (e.key === 'Enter') {
     e.preventDefault()
     if (highlightIndex.value === -1) {
-      // "all" row highlighted or no navigation yet — select "all" if empty, first match otherwise
-      const first = filteredOptions.value[0]
-      if (!searchText.value.trim()) {
+      const trimmed = searchText.value.trim()
+      if (!trimmed) {
         select('')
-      } else if (first) {
-        select(first.value)
+      } else if (hasWildcard.value) {
+        select(trimmed)
+      } else {
+        const first = filteredOptions.value[0]
+        if (first) select(first.value)
       }
     } else {
       const opt = filteredOptions.value[highlightIndex.value]
@@ -146,13 +154,31 @@ function onKeydown(e: KeyboardEvent) {
         </div>
         <div ref="listRef" class="max-h-64 overflow-y-auto py-1">
           <button
+            v-if="hasWildcard && searchText.trim()"
             type="button"
             role="option"
-            :aria-selected="!model"
+            :aria-selected="false"
             :data-highlighted="highlightIndex === -1 && searchable ? '' : undefined"
             class="flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors"
             :class="
               highlightIndex === -1 && searchable
+                ? 'bg-t-bg-hover text-t-terminal'
+                : 'text-t-terminal hover:bg-t-bg-hover'
+            "
+            @click="select(searchText.trim())"
+          >
+            <span class="truncate">{{ searchText.trim() }}</span>
+            <span class="text-t-fg-dark ml-auto text-[10px]">pattern</span>
+          </button>
+          <button
+            v-if="!hasWildcard || !searchText.trim()"
+            type="button"
+            role="option"
+            :aria-selected="!model"
+            :data-highlighted="highlightIndex === -1 && searchable && !hasWildcard ? '' : undefined"
+            class="flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors"
+            :class="
+              highlightIndex === -1 && searchable && !hasWildcard
                 ? 'bg-t-bg-hover text-t-fg'
                 : !model
                   ? 'bg-t-bg-highlight text-t-fg'
