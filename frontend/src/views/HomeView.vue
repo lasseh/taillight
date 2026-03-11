@@ -194,7 +194,7 @@ function getSeverityBgClass(level: string): string {
             <!-- Emerg & Alert -->
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Emerg & Alert</div>
-              <div class="text-2xl font-bold"><RouterLink :to="{ name: 'syslog', query: { severity_max: '0' } }" class="text-sev-emerg hover:underline">{{ formatNumber(syslogEmerg) }}</RouterLink> <span class="text-t-fg-dark">/</span> <RouterLink :to="{ name: 'syslog', query: { severity_max: '1' } }" class="text-sev-alert hover:underline">{{ formatNumber(syslogAlert) }}</RouterLink></div>
+              <div class="text-2xl font-bold"><RouterLink :to="{ name: 'syslog', query: { severity: '0' } }" class="text-sev-emerg hover:underline">{{ formatNumber(syslogEmerg) }}</RouterLink> <span class="text-t-fg-dark">/</span> <RouterLink :to="{ name: 'syslog', query: { severity: '1' } }" class="text-sev-alert hover:underline">{{ formatNumber(syslogAlert) }}</RouterLink></div>
               <div class="text-t-fg-dark mt-1 text-xs">
                 {{ home.syslogSummary!.total > 0 ? ((syslogEmergAlert / home.syslogSummary!.total) * 100).toFixed(1) : 0 }}% of total
               </div>
@@ -203,7 +203,7 @@ function getSeverityBgClass(level: string): string {
             <!-- Criticals -->
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Criticals</div>
-              <div class="text-2xl font-bold"><RouterLink :to="{ name: 'syslog', query: { severity_max: '2' } }" class="text-sev-crit hover:underline">{{ formatNumber(syslogCriticals) }}</RouterLink></div>
+              <div class="text-2xl font-bold"><RouterLink :to="{ name: 'syslog', query: { severity: '2' } }" class="text-sev-crit hover:underline">{{ formatNumber(syslogCriticals) }}</RouterLink></div>
               <div class="text-t-fg-dark mt-1 text-xs">
                 {{ home.syslogSummary!.total > 0 ? ((syslogCriticals / home.syslogSummary!.total) * 100).toFixed(1) : 0 }}% of total
               </div>
@@ -212,7 +212,7 @@ function getSeverityBgClass(level: string): string {
             <!-- Errors -->
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Errors</div>
-              <div class="text-2xl font-bold"><RouterLink :to="{ name: 'syslog', query: { severity_max: '3' } }" class="text-sev-err hover:underline">{{ formatNumber(syslogErrors) }}</RouterLink></div>
+              <div class="text-2xl font-bold"><RouterLink :to="{ name: 'syslog', query: { severity: '3' } }" class="text-sev-err hover:underline">{{ formatNumber(syslogErrors) }}</RouterLink></div>
               <div class="text-t-fg-dark mt-1 text-xs">
                 {{ home.syslogSummary!.total > 0 ? ((syslogErrors / home.syslogSummary!.total) * 100).toFixed(1) : 0 }}% of total
               </div>
