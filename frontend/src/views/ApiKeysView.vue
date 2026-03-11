@@ -22,7 +22,7 @@ const scopeOptions = [
   { label: 'read', value: 'read', desc: 'read all endpoints' },
   { label: 'admin', value: 'admin', desc: 'full access' },
 ]
-const newKeyScopes = ref<string[]>(['read'])
+const newKeyScopes = ref<string[]>(['ingest'])
 
 const expirationOptions = [
   { label: '30 days', value: '30d' },
@@ -263,16 +263,17 @@ onMounted(fetchKeys)
                     <button
                       v-for="opt in scopeOptions"
                       :key="opt.value"
-                      class="border px-3 py-1.5 text-sm transition-all"
+                      class="flex items-center gap-2 rounded border px-3 py-1.5 text-sm transition-all"
                       :class="
                         newKeyScopes.includes(opt.value)
-                          ? 'border-t-blue text-t-blue'
+                          ? 'bg-t-blue/15 border-t-blue text-t-blue'
                           : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
                       "
                       @click="toggleScope(opt.value)"
                     >
+                      <span class="w-4 text-center text-xs">{{ newKeyScopes.includes(opt.value) ? '✓' : '' }}</span>
                       {{ opt.label }}
-                      <span class="text-t-fg-gutter ml-1 text-xs">{{ opt.desc }}</span>
+                      <span class="text-t-fg-gutter text-xs">{{ opt.desc }}</span>
                     </button>
                   </div>
                 </label>
@@ -282,10 +283,10 @@ onMounted(fetchKeys)
                     <button
                       v-for="opt in expirationOptions"
                       :key="opt.value"
-                      class="border px-3 py-1.5 text-sm transition-all"
+                      class="rounded border px-3 py-1.5 text-sm transition-all"
                       :class="
                         newKeyExpires === opt.value
-                          ? 'border-t-blue text-t-blue'
+                          ? 'bg-t-blue/15 border-t-blue text-t-blue'
                           : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
                       "
                       @click="newKeyExpires = opt.value"
