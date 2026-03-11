@@ -40,6 +40,9 @@ api/.claude/
 frontend/.claude/
 CLAUDE.md
 
+# Internal notes
+FEATURES.md
+
 # Agent skills (auto-generated, not project code)
 **/.agents/
 
