@@ -186,10 +186,6 @@ watch(() => props.id, async (id) => {
               <span class="text-t-purple font-mono">{{ event.programname || '–' }}</span>
             </div>
             <div class="flex gap-2 px-4 py-1.5">
-              <span class="text-t-fg-dark w-24 shrink-0 text-right">tag</span>
-              <span class="text-t-fg font-mono">{{ event.syslogtag || '–' }}</span>
-            </div>
-            <div class="flex gap-2 px-4 py-1.5">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">msgid</span>
               <span class="text-t-fg font-mono">{{ event.msgid || '–' }}</span>
             </div>
