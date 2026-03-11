@@ -90,7 +90,7 @@ function applyFilter(field: Field) {
         :class="fieldColor(field)"
         @click.stop
       >
-        {{ event.host }}
+        {{ event.host }} →
       </RouterLink>
       <button
         v-else-if="field.filter"

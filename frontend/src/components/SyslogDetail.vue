@@ -101,7 +101,7 @@ function applyFilter(field: Field) {
         class="min-w-0 break-all hover:underline" :class="fieldColor(field)"
         @click.stop
       >
-        {{ event.hostname || '–' }}
+        {{ event.hostname || '–' }} →
       </RouterLink>
       <button
         v-else-if="field.filter"
