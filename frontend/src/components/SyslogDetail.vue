@@ -27,7 +27,6 @@ const fields: Field[] = [
   { label: 'msgid', key: 'msgid' },
   { label: 'severity', key: 'severity_label', filter: 'severity_max' },
   { label: 'facility', key: 'facility_label', color: 'text-t-orange', filter: 'facility' },
-  { label: 'tag', key: 'syslogtag', filter: 'syslogtag' },
 ]
 
 const borderClass = severityBorderClass[props.event.severity] ?? 'border-t-border'
