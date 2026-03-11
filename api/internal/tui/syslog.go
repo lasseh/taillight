@@ -15,15 +15,26 @@ const (
 	keyEnter  = "enter"
 )
 
+// Column widths for syslog view.
+const (
+	colTimeSyslog    = 8
+	colSeverity      = 8
+	colHostname      = 20
+	colProgramname   = 14
+	colSyslogMinMsg  = 10
+	detailHeightSlog = 8
+)
+
 // SyslogView displays syslog events in a scrollable table.
 type SyslogView struct {
-	events   *EventList[model.SyslogEvent]
-	cursor   int  // selected row index
-	offset   int  // first visible row
-	pinned   bool // auto-scroll to bottom
-	expanded bool // detail panel visible
-	width    int
-	height   int
+	events        *EventList[model.SyslogEvent]
+	cursor        int
+	offset        int
+	pinned        bool
+	expanded      bool
+	width         int
+	height        int
+	newSincePause int // events received while scrolled away
 }
 
 // NewSyslogView creates a new syslog view.
@@ -42,6 +53,8 @@ func (v SyslogView) Update(msg tea.Msg) (SyslogView, tea.Cmd) {
 		if v.pinned {
 			v.cursor = v.events.Len() - 1
 			v.ensureVisible()
+		} else {
+			v.newSincePause++
 		}
 	case tea.KeyMsg:
 		return v.handleKey(msg)
@@ -65,6 +78,7 @@ func (v SyslogView) handleKey(msg tea.KeyMsg) (SyslogView, tea.Cmd) {
 		}
 		if v.cursor >= v.events.Len()-1 {
 			v.pinned = true
+			v.newSincePause = 0
 		}
 		v.ensureVisible()
 	case "pgup":
@@ -81,6 +95,7 @@ func (v SyslogView) handleKey(msg tea.KeyMsg) (SyslogView, tea.Cmd) {
 		}
 		if v.cursor >= v.events.Len()-1 {
 			v.pinned = true
+			v.newSincePause = 0
 		}
 		v.ensureVisible()
 	case "home", "g":
@@ -92,6 +107,7 @@ func (v SyslogView) handleKey(msg tea.KeyMsg) (SyslogView, tea.Cmd) {
 			v.cursor = v.events.Len() - 1
 		}
 		v.pinned = true
+		v.newSincePause = 0
 		v.ensureVisible()
 	case keyEnter:
 		v.expanded = !v.expanded
@@ -102,9 +118,9 @@ func (v SyslogView) handleKey(msg tea.KeyMsg) (SyslogView, tea.Cmd) {
 }
 
 func (v SyslogView) visibleRows() int {
-	rows := v.height
+	rows := v.height - 1 // subtract column header row
 	if v.expanded {
-		rows -= 7 // detail panel height
+		rows -= detailHeightSlog
 	}
 	if rows < 1 {
 		rows = 1
@@ -138,15 +154,29 @@ func (v SyslogView) View() string {
 	}
 
 	var b strings.Builder
+
+	// Column headers.
+	b.WriteString(v.renderColumnHeader())
+	b.WriteByte('\n')
+
 	visible := v.visibleRows()
 	end := min(v.offset+visible, v.events.Len())
 
 	for i := v.offset; i < end; i++ {
 		evt := v.events.Get(i)
 		row := v.renderRow(evt, i)
-		if i == v.cursor {
+
+		switch {
+		case i == v.cursor:
 			row = selectedRowStyle.Width(v.width).Render(row)
+		case evt.Severity <= 1:
+			row = rowTintEmerg.Width(v.width).Render(row)
+		case evt.Severity <= 2:
+			row = rowTintCrit.Width(v.width).Render(row)
+		case i%2 == 0:
+			row = zebraStyle.Width(v.width).Render(row)
 		}
+
 		b.WriteString(row)
 		if i < end-1 || v.expanded {
 			b.WriteByte('\n')
@@ -160,19 +190,30 @@ func (v SyslogView) View() string {
 	return b.String()
 }
 
+func (v SyslogView) renderColumnHeader() string {
+	ts := columnHeaderStyle.Width(colTimeSyslog).Render("TIME")
+	sev := columnHeaderStyle.Width(colSeverity).Render("SEVERITY")
+	host := columnHeaderStyle.Width(colHostname).Render("HOSTNAME")
+	prog := columnHeaderStyle.Width(colProgramname).Render("PROGRAM")
+	msg := columnHeaderStyle.Render("MESSAGE")
+
+	header := fmt.Sprintf(" %s %s %s %s %s", ts, sev, host, prog, msg)
+	return dimStyle.Width(v.width).Render(header)
+}
+
 func (v SyslogView) renderRow(evt model.SyslogEvent, _ int) string {
 	ts := evt.ReceivedAt.Local().Format("15:04:05")
 	sev := model.SeverityLabel(evt.Severity)
-	sevStyled := SeverityStyle(evt.Severity).Width(8).Render(sev)
+	sevStyled := SeverityStyle(evt.Severity).Width(colSeverity).Render(sev)
 
-	hostname := truncate(evt.Hostname, 20)
-	program := truncate(evt.Programname, 14)
+	host := hostnameStyle.Render(truncate(evt.Hostname, colHostname))
+	prog := programStyle.Render(truncate(evt.Programname, colProgramname))
 
-	msgWidth := max(v.width-8-1-8-1-20-1-14-1, 10)
+	msgWidth := max(v.width-colTimeSyslog-1-colSeverity-1-colHostname-1-colProgramname-2, colSyslogMinMsg)
 	msg := truncate(evt.Message, msgWidth)
 
-	return fmt.Sprintf("%s %s %-20s %-14s %s",
-		dimStyle.Render(ts), sevStyled, hostname, program, msg)
+	return fmt.Sprintf(" %s %s %-20s %-14s %s",
+		dimStyle.Render(ts), sevStyled, host, prog, msg)
 }
 
 func (v SyslogView) renderDetail(evt model.SyslogEvent) string {
@@ -180,18 +221,44 @@ func (v SyslogView) renderDetail(evt model.SyslogEvent) string {
 		BorderForeground(SeverityBorderColor(evt.Severity)).
 		Width(v.width - 4)
 
-	content := fmt.Sprintf(
-		"%s %s  %s %s  %s %s  %s %s\n%s %s  %s %s\n%s %s",
-		dimStyle.Render("Time:"), evt.ReceivedAt.Local().Format("2006-01-02 15:04:05"),
-		dimStyle.Render("Hostname:"), evt.Hostname,
-		dimStyle.Render("Severity:"), SeverityStyle(evt.Severity).Render(model.SeverityLabel(evt.Severity)),
-		dimStyle.Render("Facility:"), model.FacilityLabel(evt.Facility),
-		dimStyle.Render("Program:"), evt.Programname,
-		dimStyle.Render("Tag:"), evt.SyslogTag,
-		dimStyle.Render("Message:"), evt.Message,
+	var content strings.Builder
+
+	// Row 1: Time, Severity, Facility.
+	fmt.Fprintf(&content, "%s %s  %s %s  %s %s\n",
+		detailLabelStyle.Render("Time:"), evt.ReceivedAt.Local().Format("2006-01-02 15:04:05"),
+		detailLabelStyle.Render("Severity:"), SeverityStyle(evt.Severity).Render(strings.ToUpper(model.SeverityLabel(evt.Severity))),
+		detailLabelStyle.Render("Facility:"), detailValueStyle.Render(model.FacilityLabel(evt.Facility)),
 	)
 
-	return border.Render(content)
+	// Row 2: Hostname, IP, Program, Tag.
+	fmt.Fprintf(&content, "%s %s",
+		detailLabelStyle.Render("Hostname:"), hostnameStyle.Render(evt.Hostname),
+	)
+	if evt.FromhostIP != "" {
+		fmt.Fprintf(&content, "  %s %s",
+			detailLabelStyle.Render("IP:"), detailValueStyle.Render(evt.FromhostIP),
+		)
+	}
+	fmt.Fprintf(&content, "  %s %s",
+		detailLabelStyle.Render("Program:"), programStyle.Render(evt.Programname),
+	)
+	if evt.SyslogTag != "" {
+		fmt.Fprintf(&content, "  %s %s",
+			detailLabelStyle.Render("Tag:"), detailValueStyle.Render(evt.SyslogTag),
+		)
+	}
+	if evt.MsgID != "" {
+		fmt.Fprintf(&content, "  %s %s",
+			detailLabelStyle.Render("MsgID:"), detailValueStyle.Render(evt.MsgID),
+		)
+	}
+
+	// Row 3: Message.
+	fmt.Fprintf(&content, "\n%s %s",
+		detailLabelStyle.Render("Message:"), evt.Message,
+	)
+
+	return border.Render(content.String())
 }
 
 // EventCount returns the number of events.
@@ -204,6 +271,28 @@ func (v SyslogView) IsPinned() bool {
 	return v.pinned
 }
 
+// NewSincePause returns how many events arrived while scrolled away.
+func (v SyslogView) NewSincePause() int {
+	return v.newSincePause
+}
+
+// ScrollPercent returns a 0-100 scroll position.
+func (v SyslogView) ScrollPercent() int {
+	total := v.events.Len()
+	if total == 0 {
+		return 100
+	}
+	visible := v.visibleRows()
+	if total <= visible {
+		return 100
+	}
+	maxOffset := total - visible
+	if maxOffset <= 0 {
+		return 100
+	}
+	return min(v.offset*100/maxOffset, 100)
+}
+
 // Clear removes all events.
 func (v *SyslogView) Clear() {
 	v.events.Clear()
@@ -211,6 +300,7 @@ func (v *SyslogView) Clear() {
 	v.offset = 0
 	v.pinned = true
 	v.expanded = false
+	v.newSincePause = 0
 }
 
 func truncate(s string, n int) string {

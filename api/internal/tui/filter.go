@@ -90,7 +90,7 @@ func (f FilterBar) Update(msg tea.Msg) (FilterBar, tea.Cmd) {
 func (f FilterBar) View(width int) string {
 	if !f.active {
 		if len(f.applied) > 0 {
-			return filterBarStyle.Width(width).Render("filter: " + formatParams(f.applied))
+			return filterBarStyle.Width(width).Render("filter: " + formatFilterTags(f.applied))
 		}
 		return ""
 	}
@@ -156,10 +156,12 @@ func parseFilter(input string, stream Stream) map[string]string {
 	return params
 }
 
-func formatParams(params map[string]string) string {
+// formatFilterTags renders applied filters as colored tag badges.
+func formatFilterTags(params map[string]string) string {
 	parts := make([]string, 0, len(params))
 	for k, v := range params {
-		parts = append(parts, k+":"+v)
+		tag := filterTagKeyStyle.Render(k+":") + filterTagValueStyle.Render(v)
+		parts = append(parts, tag)
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "  ")
 }
