@@ -372,8 +372,8 @@ function getSeverityBgClass(level: string): string {
           <div class="bg-t-bg-dark border-t-border rounded border">
             <h3 class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">Recent Errors</h3>
             <div>
-              <div v-if="home.recentApplogEvents.length === 0" class="text-t-fg-dark px-4 py-2 text-xs">
-                No recent error events
+              <div v-if="home.recentApplogEvents.length === 0" class="text-t-fg-dark px-4 py-2 text-center text-xs">
+                No recent error events (error, fatal, panic)
               </div>
               <router-link
                 v-for="event in home.recentApplogEvents"
