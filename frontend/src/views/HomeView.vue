@@ -302,7 +302,7 @@ function getSeverityBgClass(level: string): string {
             <!-- Warnings -->
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Warnings</div>
-              <div class="text-sev-crit text-2xl font-bold">{{ formatNumber(home.applogSummary!.warnings) }}</div>
+              <div class="text-2xl font-bold"><RouterLink :to="{ name: 'applog', query: { level: 'WARN' } }" class="text-sev-crit hover:underline">{{ formatNumber(home.applogSummary!.warnings) }}</RouterLink></div>
               <div class="text-t-fg-dark mt-1 text-xs">
                 {{ home.applogSummary!.total > 0 ? ((home.applogSummary!.warnings / home.applogSummary!.total) * 100).toFixed(1) : 0 }}% of total
               </div>
@@ -311,7 +311,7 @@ function getSeverityBgClass(level: string): string {
             <!-- Info -->
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Info</div>
-              <div class="text-sev-notice text-2xl font-bold">{{ formatNumber(applogInfo) }}</div>
+              <div class="text-2xl font-bold"><RouterLink :to="{ name: 'applog', query: { level: 'INFO' } }" class="text-sev-notice hover:underline">{{ formatNumber(applogInfo) }}</RouterLink></div>
               <div class="text-t-fg-dark mt-1 text-xs">
                 {{ home.applogSummary!.total > 0 ? ((applogInfo / home.applogSummary!.total) * 100).toFixed(1) : 0 }}% of total
               </div>
