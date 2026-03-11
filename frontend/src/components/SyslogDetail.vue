@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import type { SyslogEvent } from '@/types/syslog'
 import { severityBorderClass, severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
-import { formatTime } from '@/lib/format'
+import { formatDateTime } from '@/lib/format'
 import { useSyslogFilterStore } from '@/stores/syslog-filters'
 
 const props = defineProps<{
@@ -53,7 +53,7 @@ function onCopy(e: ClipboardEvent) {
 
 function fieldValue(field: Field): string {
   const val = props.event[field.key]
-  if (field.key === 'received_at' && typeof val === 'string') return formatTime(val)
+  if (field.key === 'received_at' && typeof val === 'string') return formatDateTime(val)
   return String(val ?? '–')
 }
 
