@@ -63,9 +63,9 @@ func AppLogLevelRank(level string) int {
 
 // AppLogFilter holds optional filter criteria for querying log events.
 type AppLogFilter struct {
-	Service   string
-	Component string
-	Host      string
+	Service    string
+	Component  string
+	Host       string
 	Level      string // Minimum level: WARN returns WARN+ERROR.
 	LevelExact string // Exact level match.
 	Search     string
