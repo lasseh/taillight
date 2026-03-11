@@ -209,6 +209,9 @@ func applyAppLogFilter(qb sq.SelectBuilder, f model.AppLogFilter) sq.SelectBuild
 			qb = qb.Where(sq.Eq{"host": f.Host})
 		}
 	}
+	if f.LevelExact != "" {
+		qb = qb.Where(sq.Eq{"level": f.LevelExact})
+	}
 	if f.Level != "" {
 		// Level filter means "at or above this level".
 		rank := model.AppLogLevelRank(f.Level)

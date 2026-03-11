@@ -7,6 +7,7 @@ const FILTER_KEYS = [
   'component',
   'host',
   'level',
+  'level_exact',
   'search',
 ] as const
 

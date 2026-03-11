@@ -66,10 +66,11 @@ type AppLogFilter struct {
 	Service   string
 	Component string
 	Host      string
-	Level     string // Minimum level: WARN returns WARN+ERROR.
-	Search    string
-	From      *time.Time
-	To        *time.Time
+	Level      string // Minimum level: WARN returns WARN+ERROR.
+	LevelExact string // Exact level match.
+	Search     string
+	From       *time.Time
+	To         *time.Time
 
 	searchLower  string // precomputed strings.ToLower(Search)
 	levelMinRank int    // precomputed AppLogLevelRank(Level)+1; 0 means not precomputed
@@ -87,6 +88,11 @@ func (f AppLogFilter) Matches(e AppLogEvent) bool {
 	}
 	if f.Host != "" && !matchField(e.Host, f.Host) {
 		return false
+	}
+	if f.LevelExact != "" {
+		if !strings.EqualFold(e.Level, f.LevelExact) {
+			return false
+		}
 	}
 	if f.Level != "" {
 		minRank := AppLogLevelRank(f.Level)
@@ -143,6 +149,13 @@ func ParseAppLogFilter(r *http.Request) (AppLogFilter, error) {
 		} else {
 			f.Level = normalized
 			f.levelMinRank = AppLogLevelRank(normalized) + 1 // store rank+1; 0 means not precomputed
+		}
+	}
+	if v := q.Get("level_exact"); v != "" {
+		if normalized, ok := NormalizeLevel(v); !ok {
+			errs = append(errs, "level_exact: must be one of DEBUG, INFO, WARN, ERROR, FATAL")
+		} else {
+			f.LevelExact = normalized
 		}
 	}
 	if v := q.Get("from"); v != "" {
