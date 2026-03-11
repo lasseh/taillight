@@ -33,14 +33,9 @@ const borderClass = severityBorderClass[props.event.severity] ?? 'border-t-borde
 const sevClass = severityColorClass[props.event.severity] ?? 'text-t-fg'
 
 const highlightedMsg = computed(() => highlight(props.event.message))
-const highlightedRaw = computed(() =>
-  props.event.raw_message ? highlight(props.event.raw_message) : '',
-)
-
 const copyText = computed(() => {
   const lines = fields.map((f) => `${f.label}: ${props.event[f.key] ?? '–'}`)
   lines.push(`message: ${props.event.message}`)
-  if (props.event.raw_message) lines.push(`raw message: ${props.event.raw_message}`)
   return lines.join('\n')
 })
 
@@ -124,10 +119,5 @@ function applyFilter(field: Field) {
       <span class="text-t-fg min-w-0 break-all font-mono text-xs" v-html="highlightedMsg"></span>
     </div>
 
-    <!-- raw message -->
-    <div v-if="event.raw_message" class="flex gap-2 py-0.5 text-sm">
-      <span class="text-t-fg-dark w-24 shrink-0 text-right">raw message</span>
-      <span class="text-t-fg min-w-0 break-all font-mono text-xs" v-html="highlightedRaw"></span>
-    </div>
   </div>
 </template>
