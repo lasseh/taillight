@@ -122,7 +122,7 @@ onUnmounted(() => {
       <StatusBadge v-else :connected="connected" />
       <button
         v-if="showJumpToLatest"
-        class="text-t-teal hover:text-t-fg absolute left-1/2 -translate-x-1/2 text-xs transition-colors"
+        class="text-t-teal hover:text-t-fg absolute left-1/2 -translate-x-1/2 text-xs animate-subtle-pulse transition-colors"
         @click="scrollStore.triggerJump(String(route.name))"
       >
         paused{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to latest (esc)
@@ -130,3 +130,13 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<style>
+@keyframes subtle-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-subtle-pulse {
+  animation: subtle-pulse 3s ease-in-out infinite;
+}
+</style>
