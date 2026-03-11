@@ -125,7 +125,7 @@ watch(() => props.id, async (id) => {
       />
 
       <div v-else-if="event" class="mx-auto max-w-7xl space-y-4" @copy="onCopy">
-        <!-- Message + Attributes -->
+        <!-- Message + Fields -->
         <div
           class="bg-t-bg-dark rounded border-l-2 p-4"
           :class="borderClass"
@@ -137,7 +137,7 @@ watch(() => props.id, async (id) => {
           </div>
           <p class="text-t-fg break-all font-mono text-sm leading-relaxed">{{ event.msg }}</p>
           <div v-if="event.attrs && Object.keys(event.attrs).length > 0" class="border-t-border mt-3 border-t pt-3">
-            <span class="text-t-fg-dark mb-1 block text-xs font-semibold uppercase tracking-wide">Attributes</span>
+            <span class="text-t-fg-dark mb-1 block text-xs font-semibold uppercase tracking-wide">Fields</span>
             <pre class="language-json text-t-fg overflow-x-auto font-mono text-xs leading-relaxed" v-html="highlightAttrs(event.attrs)"></pre>
           </div>
         </div>
