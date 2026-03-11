@@ -7,6 +7,7 @@ const FILTER_KEYS = [
   'programname',
   'syslogtag',
   'facility',
+  'severity',
   'severity_max',
   'search',
 ] as const

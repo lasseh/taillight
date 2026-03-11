@@ -13,6 +13,7 @@ function matchesFilters(event: SyslogEvent, filters: Record<string, string>): bo
   if (filters.programname && event.programname !== filters.programname) return false
   if (filters.syslogtag && event.syslogtag !== filters.syslogtag) return false
   if (filters.facility && event.facility !== Number(filters.facility)) return false
+  if (filters.severity && event.severity !== Number(filters.severity)) return false
   if (filters.severity_max && event.severity > Number(filters.severity_max)) return false
   if (filters.search && !event.message.toLowerCase().includes(filters.search.toLowerCase())) return false
   return true
