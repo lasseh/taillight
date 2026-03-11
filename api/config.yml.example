@@ -1,0 +1,88 @@
+# Taillight API configuration
+#
+# Per-deployment settings (database, ports, log level, auth toggle) live in
+# the root .env file and are passed as environment variables via docker-compose.
+# This file holds application tuning that rarely changes between environments.
+#
+# Viper priority: defaults → this file → environment variables.
+# Settings like DATABASE_URL, LISTEN_ADDR, LOG_LEVEL, AUTH_ENABLED are set
+# in .env / docker-compose.yml and always override values here.
+
+# Require authentication on read endpoints (syslog, applog, meta, stats, SSE).
+# Only takes effect when AUTH_ENABLED is true (set in .env).
+auth_read_endpoints: true
+
+# CORS allowed origins. Defaults to localhost dev origins when empty.
+# For production, specify the allowed origins explicitly.
+cors_allowed_origins:
+  # - "https://taillight.example.com"
+  # - "https://admin.example.com"
+
+# Serve /metrics on a separate listener (e.g. ":9090").
+# Empty disables the metrics endpoint entirely — safe default for public-facing deploys.
+metrics_addr: ""
+
+# Database connection pool settings.
+db_max_conns: 10
+db_min_conns: 2
+
+# Channel buffer for Postgres LISTEN/NOTIFY notifications.
+# Increase if you see "notification channel near capacity" warnings.
+notification_buffer_size: 8192
+
+# Number of worker goroutines consuming LISTEN/NOTIFY events.
+# Each worker fetches the syslog row from the DB and broadcasts it.
+# Increase if the notification channel still fills up under high volume.
+notification_workers: 4
+
+# Ship the API's own logs to its applog ingest endpoint.
+# Logs remain on stdout regardless; this adds a second destination.
+logshipper:
+  enabled: true
+  service: "taillight"
+  component: "api"
+  # host: ""             # Override hostname (defaults to os.Hostname()).
+  min_level: "warn"      # Only ship warn and above to avoid feedback loops (debug, info, warn, error).
+  # api_key: "changeme"  # Must match an entry in api_keys if auth is enabled.
+
+# Data retention periods (in days). Applied on startup as TimescaleDB retention policies.
+# Minimum 1 day. Defaults match the migration-level policies.
+retention:
+  syslog_days: 90
+  applog_days: 90
+  notification_log_days: 30
+  rsyslog_stats_days: 30
+  metrics_days: 30
+
+# SMTP settings for the email notification backend.
+# The email backend is only enabled when smtp.host is set.
+smtp:
+  # host: "smtp.example.com"  # SMTP server hostname.
+  # port: 587                 # SMTP server port (default 587).
+  # username: ""              # SMTP username.
+  # password: ""              # SMTP password.
+  # from: "taillight@localhost"  # Sender address.
+  # tls: true                 # Use STARTTLS (default true).
+  # auth_type: "plain"        # Auth: "plain", "crammd5", or "" (no auth).
+
+# Notification system — alert operators when log events match configurable rules.
+# Channels (Slack, webhooks) and rules are managed via the API or the ALERTS UI tab.
+notification:
+  enabled: false
+  # rule_refresh_interval: 30s    # How often rules/channels are reloaded from the database.
+  # dispatch_workers: 4           # Concurrent notification sender goroutines.
+  # dispatch_buffer: 1024         # Internal dispatch queue size.
+  # default_burst_window: 30s     # Collect matching events into one notification for this long.
+  # default_cooldown: 5m          # Suppress repeat notifications per rule after firing.
+  # send_timeout: 10s             # HTTP timeout for each backend send.
+  # global_rate_limit: 100        # Reserved for future use.
+
+# AI-powered daily syslog analysis using a local Ollama instance.
+# Produces a morning ops briefing covering incidents, anomalies, and correlations.
+analysis:
+  enabled: false
+  ollama_url: "http://localhost:11434"
+  model: "llama3.1:8b"          # Also try: mixtral:8x7b, llama3.1:70b
+  schedule_at: "06:00"          # Daily run time in UTC (HH:MM).
+  temperature: 0.3              # Low temperature for factual/deterministic output.
+  num_ctx: 8192                 # Context window size in tokens.

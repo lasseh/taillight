@@ -1,0 +1,162 @@
+/* PrismJS token → Tokyo Night color mapping */
+
+/* Base token text inherits --color-t-fg */
+.token {
+  color: var(--color-t-fg);
+}
+
+/* Severity levels */
+.token.level.error,
+.token.level.important {
+  color: var(--color-t-red);
+  font-weight: 600;
+}
+.token.level.warning {
+  color: var(--color-t-yellow);
+  font-weight: 600;
+}
+.token.level.info {
+  color: var(--color-t-teal);
+}
+.token.level.debug,
+.token.level.trace {
+  color: var(--color-t-fg-dark);
+}
+
+/* Strings */
+.token.string {
+  color: var(--color-t-green);
+}
+
+/* Constants: IPs, MACs, UUIDs, hashes, domains */
+.token.ip-address,
+.token.constant {
+  color: var(--color-t-teal);
+}
+.token.mac-address {
+  color: var(--color-t-purple);
+}
+.token.uuid,
+.token.hash {
+  color: var(--color-t-purple);
+}
+.token.domain {
+  color: var(--color-t-teal);
+}
+
+/* URLs and emails */
+.token.url {
+  color: var(--color-t-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* File paths */
+.token.file-path {
+  color: var(--color-t-blue);
+}
+
+/* Dates and times */
+.token.date,
+.token.time {
+  color: var(--color-t-fg-dark);
+}
+
+/* Numbers */
+.token.number {
+  color: var(--color-t-orange);
+}
+
+/* Booleans */
+.token.boolean {
+  color: var(--color-t-orange);
+}
+
+/* Properties (key: value) */
+.token.property {
+  color: var(--color-t-fg-dark);
+}
+
+/* Operators and punctuation */
+.token.operator {
+  color: var(--color-t-terminal);
+}
+.token.punctuation {
+  color: var(--color-t-terminal);
+}
+
+/* Separators */
+.token.separator {
+  color: var(--color-t-fg-gutter);
+}
+
+/* Exception / stack trace */
+.token.exception .token.keyword {
+  color: var(--color-t-red);
+}
+.token.exception .token.function {
+  color: var(--color-t-blue);
+}
+
+/* --- JSON tokens --- */
+
+/* JSON keys get a brighter color than generic properties */
+.language-json .token.property {
+  color: var(--color-t-purple);
+}
+
+/* null keyword */
+.token.null,
+.token.keyword {
+  color: var(--color-t-orange);
+}
+
+/* --- Juniper/JunOS tokens --- */
+
+/* Syslog event tags: RPD_BGP_NEIGHBOR_STATE_CHANGED */
+.token.junos-event-tag {
+  color: var(--color-t-yellow);
+}
+
+/* Interface names: ge-0/0/0, ae0, irb.100 */
+.token.junos-interface {
+  color: var(--color-t-teal);
+  font-weight: 600;
+}
+
+/* Routing protocols: BGP, OSPF, MPLS */
+.token.junos-protocol {
+  color: var(--color-t-blue);
+  font-weight: 600;
+}
+
+/* BGP states: Established, Idle, Active */
+.token.junos-bgp-state {
+  color: var(--color-t-green);
+}
+
+/* Firewall actions: accept, deny, reject */
+.token.junos-action {
+  color: var(--color-t-orange);
+  font-weight: 600;
+}
+
+/* Hardware: FPC, PIC, RE0 */
+.token.junos-hardware {
+  color: var(--color-t-purple);
+}
+
+/* JunOS daemon names: rpd, chassisd, mgd */
+.token.junos-process {
+  color: var(--color-t-purple);
+}
+
+/* Routing tables: inet.0, mpls.0 */
+.token.junos-table {
+  color: var(--color-t-teal);
+}
+
+/* ASN references: AS64512 */
+.token.junos-asn {
+  color: var(--color-t-orange);
+}

@@ -1,0 +1,59 @@
+# Company-specific overrides for Taillight.
+#
+# This file shows how to overlay site-specific configuration on top of
+# the base docker-compose.yml.  In a separate company repo you would
+# keep this file (renamed to docker-compose.override.yml), your custom
+# rsyslog config, and .env.
+#
+# Expected directory layout (sibling repos):
+#   taillight/                    # main taillight repo
+#   company-repo/                 # company-specific config repo
+#     docker-compose.override.yml
+#     .env                        # POSTGRES_PASSWORD=...
+#     config.yml                  # API configuration
+#     rsyslog.conf                # rsyslog main config
+#     conf.d/                     # rsyslog core config (modules, templates, outputs, etc.)
+#     filters/                    # rsyslog filter rules
+#
+# Usage (from the taillight repo root):
+#   cp ../company-repo/docker-compose.override.yml .
+#   docker compose up -d
+
+services:
+  rsyslog:
+    volumes:
+      - ../company-repo/rsyslog.conf:/etc/rsyslog.conf:ro
+      - ../company-repo/conf.d/:/etc/rsyslog.d/conf.d/:ro
+      - ../company-repo/filters/:/etc/rsyslog.d/filters/:ro
+    ports:
+      - "514:514/udp"
+      - "514:514/tcp"
+
+  # Uncomment below to run rsyslog with host networking (e.g. when rsyslog
+  # must bind to specific interfaces or reach a postgres on the host).
+  # Host networking bypasses Docker DNS, so you must override PGSQL_SERVER
+  # (and optionally PGSQL_PORT, PGSQL_DB, PGSQL_USER) with real values.
+  # The base docker-compose.yml only passes PGSQL_PASSWORD; entrypoint.sh
+  # defaults handle the rest for standard bridge networking.
+  #
+  # rsyslog:
+  #   network_mode: host
+  #   environment:
+  #     PGSQL_SERVER: "127.0.0.1"
+  #     PGSQL_PASSWORD: "${POSTGRES_PASSWORD:-taillight}"
+
+  # api:
+  #   volumes:
+  #     - ../company-repo/config.yml:/config.yml:ro
+  #
+  # postgres:
+  #   ports:
+  #     # No need for an override — set POSTGRES_BIND in .env instead:
+  #     #   POSTGRES_BIND=0.0.0.0:15432
+  #     - "0.0.0.0:15432:5432"
+  #
+  # frontend:
+  #   ports:
+  #     - "80:80"
+  #   environment:
+  #     API_URL: ""  # Empty = relative URLs (works behind nginx)

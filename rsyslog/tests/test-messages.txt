@@ -1,0 +1,40 @@
+# Messages that SHOULD be filtered (dropped)
+<165>1 2024-11-28T12:00:00.000Z juniper-mx1 sshd 1234 SSHD_LOGIN_ACCEPTED [junos@2636.1.1.1.2.18 username="admin"] Accepted publickey for admin from 10.0.0.1
+<165>1 2024-11-28T12:00:01.000Z juniper-mx1 chassisd 5678 CHASSISD_BLOWERS_SPEED [junos@2636.1.1.1.2.18] Fan speed normal at 50%
+<165>1 2024-11-28T12:00:02.000Z juniper-mx1 chassisd 5678 CHASSISD_TEMP_ZONE [junos@2636.1.1.1.2.18] Zone 1 temperature 42C
+<165>1 2024-11-28T12:00:03.000Z juniper-srx1 RT_FLOW 0 RT_FLOW_SESSION_CREATE [junos@2636.1.1.1.2.18] 10.0.1.1/1234->10.0.2.1/443 TCP
+<165>1 2024-11-28T12:00:04.000Z juniper-srx1 RT_FLOW 0 RT_FLOW_SESSION_CLOSE [junos@2636.1.1.1.2.18] 10.0.1.1/1234->10.0.2.1/443 TCP closed
+<165>1 2024-11-28T12:00:05.000Z juniper-mx1 rpd 1234 RPD_SCHED_CALLBACK [junos@2636.1.1.1.2.18] scheduled callback fired
+<165>1 2024-11-28T12:00:06.000Z juniper-mx1 rpd 1234 RPD_SCHED_MODULE_INFO [junos@2636.1.1.1.2.18] module status update
+<165>1 2024-11-28T12:00:07.000Z juniper-mx1 pfed 5678 PFED_FW_SYSLOG_IP [junos@2636.1.1.1.2.18] packet forwarding stats
+<165>1 2024-11-28T12:00:08.000Z juniper-mx1 mib2d 1234 MIB2D_POLL [junos@2636.1.1.1.2.18] SNMP polling interface ge-0/0/1
+<165>1 2024-11-28T12:00:09.000Z juniper-mx1 cron 9999 CRON_JOB [junos@2636.1.1.1.2.18] (root) CMD (/usr/local/bin/cleanup.sh)
+<165>1 2024-11-28T12:00:10.000Z juniper-mx1 ntpd 5678 NTP_SYNC [junos@2636.1.1.1.2.18] synchronized to 10.0.0.1, stratum 2
+<165>1 2024-11-28T12:00:11.000Z juniper-ex1 lacpd 1234 LACP_INTF [junos@2636.1.1.1.2.18] ae0 member ge-0/0/0 added
+<165>1 2024-11-28T12:00:12.000Z juniper-mx1 snmpd 5678 SNMPD_TRAP_COLD_START [junos@2636.1.1.1.2.18] trap generated
+<165>1 2024-11-28T12:00:13.000Z juniper-mx1 snmpd 5678 SNMPD_AUTH_FAILURE [junos@2636.1.1.1.2.18] community mismatch
+<165>1 2024-11-28T12:00:14.000Z juniper-mx1 dcd 1234 DCD_INTF_INIT [junos@2636.1.1.1.2.18] interface ge-0/0/1 speed 1000mbps
+<165>1 2024-11-28T12:00:15.000Z juniper-mx1 mgd 3046 UI_CFG_AUDIT_SET [junos@2636.1.1.1.2.18 username="admin"] config change
+<165>1 2024-11-28T12:00:17.000Z juniper-mx1 lldpd 2345 LLDP_NEIGHBOR_UP [junos@2636.1.1.1.2.18] neighbor discovered on ge-0/0/1: switch2.example.com
+
+# Messages that MUST NOT be filtered (important -- keep these)
+<161>1 2024-11-28T12:01:00.000Z juniper-mx1 sshd 1234 UI_LOGIN_EVENT [junos@2636.1.1.1.2.18 username="unknown"] Failed password for invalid user root from 10.99.0.1
+<161>1 2024-11-28T12:01:01.000Z juniper-mx1 chassisd 5678 CHASSISD_TEMP_ZONE [junos@2636.1.1.1.2.18] Major alarm: Zone 1 temperature 85C
+<161>1 2024-11-28T12:01:02.000Z juniper-srx1 RT_FLOW 0 RT_FLOW_SESSION_DENY [junos@2636.1.1.1.2.18] denied by policy block-all
+<161>1 2024-11-28T12:01:03.000Z juniper-mx1 rpd 1234 RPD_BGP_NEIGHBOR_STATE_CHANGED [junos@2636.1.1.1.2.18] BGP peer 10.0.0.2 Down - hold timer expired
+<161>1 2024-11-28T12:01:04.000Z juniper-mx1 pfed 5678 PFED_FW_ERROR [junos@2636.1.1.1.2.18] forwarding engine error failure
+<161>1 2024-11-28T12:01:05.000Z juniper-mx1 mib2d 1234 MIB2D_ERROR [junos@2636.1.1.1.2.18] error: failed to read interface counters
+<161>1 2024-11-28T12:01:06.000Z juniper-mx1 ntpd 5678 NTP_UNREACHABLE [junos@2636.1.1.1.2.18] no servers reachable
+<161>1 2024-11-28T12:01:07.000Z juniper-ex1 lacpd 1234 LACP_ERROR [junos@2636.1.1.1.2.18] ERROR: member interface ge-0/0/0 down
+<161>1 2024-11-28T12:01:08.000Z juniper-mx1 chassisd 5678 CHASSISD_PSU [junos@2636.1.1.1.2.18] Failed - power supply 1
+<161>1 2024-11-28T12:01:09.000Z juniper-mx1 mgd 3046 UI_COMMIT [junos@2636.1.1.1.2.18 username="admin"] commit failed: syntax error in config
+<165>1 2024-11-28T12:01:10.000Z juniper-mx1 rpd 5678 RPD_BGP_NEIGHBOR_STATE_CHANGED [junos@2636.1.1.1.2.18] BGP peer 10.0.0.3 (AS 65000) Established
+<161>1 2024-11-28T12:01:11.000Z juniper-mx1 rpd 5678 RPD_BGP_NEIGHBOR_STATE_CHANGED [junos@2636.1.1.1.2.18] BGP peer 10.0.0.4 Down: Hold Timer Expired
+<161>1 2024-11-28T12:01:12.000Z juniper-mx1 chassisd 5678 CHASSISD_FAN [junos@2636.1.1.1.2.18] Critical - fan tray 2 failed
+<160>1 2024-11-28T12:01:13.000Z juniper-mx1 kernel 0 KERNEL_PANIC [junos@2636.1.1.1.2.18] PANIC: unrecoverable error
+<165>1 2024-11-28T12:01:14.000Z juniper-mx1 license 0 LICENSE_EXPIRING [junos@2636.1.1.1.2.18] license expiring in 7 days
+<161>1 2024-11-28T12:01:15.000Z juniper-mx1 dcd 1234 DCD_INTF_INIT [junos@2636.1.1.1.2.18] failed to initialize interface ge-0/0/2
+
+# UI_COMMIT should route to Oxidized (not dropped, but forwarded then stopped)
+<165>1 2024-11-28T12:02:00.000Z juniper-mx1 mgd 3046 UI_COMMIT [junos@2636.1.1.1.2.18 username="admin"] User 'admin' requested commit
+<165>1 2024-11-28T12:02:01.000Z juniper-ex1 mgd 3046 UI_COMMIT_COMPLETED [junos@2636.1.1.1.2.18 username="admin"] commit complete

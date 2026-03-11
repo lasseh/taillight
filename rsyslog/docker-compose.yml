@@ -1,0 +1,16 @@
+services:
+  # Quick syntax validation using the official rsyslog image
+  validate:
+    image: rsyslog/rsyslog
+    volumes:
+      - ./rsyslog.conf:/etc/rsyslog.conf:ro
+      - ./conf.d:/etc/rsyslog.d/conf.d:ro
+      - ./filters:/etc/rsyslog.d/filters:ro
+    entrypoint: ["rsyslogd", "-N1", "-f", "/etc/rsyslog.conf"]
+
+  # Full test suite (syntax + behavioral tests)
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    entrypoint: ["bash", "/etc/rsyslog.d/tests/test-filters.sh"]

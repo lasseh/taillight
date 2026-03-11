@@ -1,0 +1,2260 @@
+openapi: "3.1.0"
+info:
+  title: Taillight API
+  description: |
+    Taillight is a centralized syslog and application-log viewer with real-time
+    streaming, analysis reports, and rsyslog/Juniper integration.
+  version: "1.0.0"
+  license:
+    name: GPL-3.0
+    url: https://www.gnu.org/licenses/gpl-3.0.html
+
+servers:
+  - url: /api/v1
+    description: Default API prefix
+
+tags:
+  - name: Auth
+    description: Authentication, user management, and API keys
+  - name: Syslog
+    description: Syslog event queries and streaming
+  - name: Syslog Metadata
+    description: Distinct values for syslog filter dropdowns
+  - name: AppLog
+    description: Application log queries, streaming, and ingestion
+  - name: AppLog Metadata
+    description: Distinct values for applog filter dropdowns
+  - name: Stats
+    description: Syslog and AppLog volume and summary statistics
+  - name: Juniper
+    description: Juniper syslog reference lookups
+  - name: Rsyslog
+    description: Rsyslog daemon statistics
+  - name: Metrics
+    description: Taillight internal metrics
+  - name: Notifications
+    description: Alert channels, rules, and delivery log
+  - name: Device
+    description: Per-host device detail views
+  - name: Analysis
+    description: LLM-generated analysis reports
+  - name: Health
+    description: Health check
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+security:
+  - session: []
+  - apiKey: []
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+  # ── Auth ────────────────────────────────────────────────────────────────
+  /auth/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: Log in
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Successful login (sets `tl_session` cookie)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [Auth]
+      summary: Log out
+      responses:
+        "200":
+          description: Session cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+
+  /auth/me:
+    get:
+      operationId: me
+      tags: [Auth]
+      summary: Current user info
+      responses:
+        "200":
+          description: Authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/me/email:
+    patch:
+      operationId: updateEmail
+      tags: [Auth]
+      summary: Update own email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/keys:
+    get:
+      operationId: listKeys
+      tags: [Auth]
+      summary: List API keys
+      responses:
+        "200":
+          description: API key list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/APIKeyInfo"
+    post:
+      operationId: createKey
+      tags: [Auth]
+      summary: Create API key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKeyRequest"
+      responses:
+        "201":
+          description: Key created (full key shown once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: Full API key — only shown at creation time
+                  key_info:
+                    $ref: "#/components/schemas/APIKeyInfo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /auth/keys/{id}:
+    delete:
+      operationId: revokeKey
+      tags: [Auth]
+      summary: Revoke an API key
+      parameters:
+        - $ref: "#/components/parameters/UUID"
+      responses:
+        "200":
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /auth/users:
+    get:
+      operationId: listUsers
+      tags: [Auth]
+      summary: List users (admin)
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminUser"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /auth/users/{id}/active:
+    patch:
+      operationId: setUserActive
+      tags: [Auth]
+      summary: Activate / deactivate user (admin)
+      parameters:
+        - $ref: "#/components/parameters/UUID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [active]
+              properties:
+                active:
+                  type: boolean
+      responses:
+        "200":
+          description: Status changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /auth/users/{id}/password:
+    patch:
+      operationId: updateUserPassword
+      tags: [Auth]
+      summary: Update user password
+      parameters:
+        - $ref: "#/components/parameters/UUID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        "200":
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /auth/sessions/revoke-all:
+    post:
+      operationId: logoutAll
+      tags: [Auth]
+      summary: Revoke all sessions for current user
+      description: Logs out all sessions including the current one and clears the session cookie.
+      responses:
+        "200":
+          description: All sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/users/{id}/revoke-sessions:
+    post:
+      operationId: revokeUserSessions
+      tags: [Auth]
+      summary: Revoke all sessions for a user (admin)
+      parameters:
+        - $ref: "#/components/parameters/UUID"
+      responses:
+        "200":
+          description: User sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── Syslog ──────────────────────────────────────────────────────────────
+  /syslog:
+    get:
+      operationId: listSyslog
+      tags: [Syslog]
+      summary: List syslog events
+      parameters:
+        - $ref: "#/components/parameters/SyslogHostname"
+        - $ref: "#/components/parameters/SyslogProgramname"
+        - $ref: "#/components/parameters/SyslogTag"
+        - $ref: "#/components/parameters/SyslogMsgID"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/FromHostIP"
+        - $ref: "#/components/parameters/Severity"
+        - $ref: "#/components/parameters/SeverityMax"
+        - $ref: "#/components/parameters/Facility"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated syslog events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SyslogEvent"
+                  cursor:
+                    type: string
+                    nullable: true
+                  has_more:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /syslog/{id}:
+    get:
+      operationId: getSyslog
+      tags: [Syslog]
+      summary: Get single syslog event
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Syslog event with optional Juniper reference
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/SyslogEvent"
+                      - type: object
+                        properties:
+                          juniper_ref:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/JuniperRef"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /syslog/stream:
+    get:
+      operationId: streamSyslog
+      tags: [Syslog]
+      summary: Stream syslog events (SSE)
+      description: |
+        Server-Sent Events stream. Backfills up to 100 recent events on
+        connect, then pushes new events in real time.
+
+        - Event name: `syslog`
+        - Heartbeat every 15 s: `event: heartbeat`
+      parameters:
+        - $ref: "#/components/parameters/SyslogHostname"
+        - $ref: "#/components/parameters/SyslogProgramname"
+        - $ref: "#/components/parameters/SyslogTag"
+        - $ref: "#/components/parameters/SyslogMsgID"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/FromHostIP"
+        - $ref: "#/components/parameters/Severity"
+        - $ref: "#/components/parameters/SeverityMax"
+        - $ref: "#/components/parameters/Facility"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: lastEventId
+          in: query
+          schema:
+            type: string
+          description: Resume from this event ID (alternative to `Last-Event-ID` header)
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream: {}
+
+  # ── Syslog Metadata ─────────────────────────────────────────────────────
+  /meta/hosts:
+    get:
+      operationId: syslogHosts
+      tags: [Syslog Metadata]
+      summary: Distinct hostnames
+      responses:
+        "200":
+          $ref: "#/components/responses/StringList"
+
+  /meta/programs:
+    get:
+      operationId: syslogPrograms
+      tags: [Syslog Metadata]
+      summary: Distinct program names
+      responses:
+        "200":
+          $ref: "#/components/responses/StringList"
+
+  /meta/facilities:
+    get:
+      operationId: syslogFacilities
+      tags: [Syslog Metadata]
+      summary: Facility codes in use
+      responses:
+        "200":
+          description: List of integer facility codes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: integer
+
+  /meta/tags:
+    get:
+      operationId: syslogTags
+      tags: [Syslog Metadata]
+      summary: Distinct syslog tags
+      responses:
+        "200":
+          $ref: "#/components/responses/StringList"
+
+  # ── Stats ───────────────────────────────────────────────────────────────
+  /stats/volume:
+    get:
+      operationId: syslogVolume
+      tags: [Stats]
+      summary: Syslog volume over time
+      parameters:
+        - $ref: "#/components/parameters/Interval"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Volume buckets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VolumeBucket"
+
+  /stats/summary:
+    get:
+      operationId: syslogSummary
+      tags: [Stats]
+      summary: Syslog summary
+      parameters:
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Summary statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SyslogSummary"
+
+  # ── Juniper ─────────────────────────────────────────────────────────────
+  /juniper/lookup:
+    get:
+      operationId: juniperLookup
+      tags: [Juniper]
+      summary: Juniper syslog reference lookup
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Juniper message ID to look up
+      responses:
+        "200":
+          description: Matching references
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JuniperRef"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # ── Rsyslog Stats ──────────────────────────────────────────────────────
+  /rsyslog/stats/summary:
+    get:
+      operationId: rsyslogSummary
+      tags: [Rsyslog]
+      summary: Rsyslog daemon summary
+      parameters:
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Rsyslog statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RsyslogSummary"
+
+  /rsyslog/stats/volume:
+    get:
+      operationId: rsyslogVolume
+      tags: [Rsyslog]
+      summary: Rsyslog time-series stats
+      parameters:
+        - $ref: "#/components/parameters/Interval"
+        - $ref: "#/components/parameters/Range"
+        - name: field
+          in: query
+          schema:
+            type: string
+            default: submitted
+          description: Metric field to retrieve
+      responses:
+        "200":
+          description: Time-series data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NamedTimeSeries"
+
+  # ── Taillight Metrics ──────────────────────────────────────────────────
+  /metrics/summary:
+    get:
+      operationId: metricsSummary
+      tags: [Metrics]
+      summary: Taillight internal metrics
+      parameters:
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Current metric values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TaillightMetrics"
+
+  /metrics/volume:
+    get:
+      operationId: metricsVolume
+      tags: [Metrics]
+      summary: Taillight metrics time-series
+      parameters:
+        - $ref: "#/components/parameters/Interval"
+        - $ref: "#/components/parameters/Range"
+        - name: field
+          in: query
+          schema:
+            type: string
+            default: events_broadcast
+          description: Metric field to retrieve
+      responses:
+        "200":
+          description: Time-series data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TimeSeries"
+
+  # ── AppLog ─────────────────────────────────────────────────────────────
+  /applog:
+    get:
+      operationId: listAppLog
+      tags: [AppLog]
+      summary: List application log events
+      parameters:
+        - $ref: "#/components/parameters/AppLogService"
+        - $ref: "#/components/parameters/AppLogComponent"
+        - $ref: "#/components/parameters/AppLogHost"
+        - $ref: "#/components/parameters/AppLogLevel"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated applog events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AppLogEvent"
+                  cursor:
+                    type: string
+                    nullable: true
+                  has_more:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /applog/{id}:
+    get:
+      operationId: getAppLog
+      tags: [AppLog]
+      summary: Get single application log event
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Application log event
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AppLogEvent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /applog/stream:
+    get:
+      operationId: streamAppLog
+      tags: [AppLog]
+      summary: Stream application log events (SSE)
+      description: |
+        Server-Sent Events stream. Backfills up to 100 recent events on
+        connect, then pushes new events in real time.
+
+        - Event name: `applog`
+        - Heartbeat every 15 s: `event: heartbeat`
+      parameters:
+        - $ref: "#/components/parameters/AppLogService"
+        - $ref: "#/components/parameters/AppLogComponent"
+        - $ref: "#/components/parameters/AppLogHost"
+        - $ref: "#/components/parameters/AppLogLevel"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: lastEventId
+          in: query
+          schema:
+            type: string
+          description: Resume from this event ID (alternative to `Last-Event-ID` header)
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream: {}
+
+  /applog/ingest:
+    post:
+      operationId: ingestAppLog
+      tags: [AppLog]
+      summary: Ingest application log batch
+      description: |
+        Accepts up to 1 000 log entries per request (max 5 MB body).
+        Entries are inserted atomically and broadcast to SSE clients.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestRequest"
+      responses:
+        "202":
+          description: Batch accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: integer
+                    description: Number of entries inserted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Request body exceeds 5 MB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── AppLog Metadata ─────────────────────────────────────────────────────
+  /applog/meta/services:
+    get:
+      operationId: applogServices
+      tags: [AppLog Metadata]
+      summary: Distinct service names
+      responses:
+        "200":
+          $ref: "#/components/responses/StringList"
+
+  /applog/meta/components:
+    get:
+      operationId: applogComponents
+      tags: [AppLog Metadata]
+      summary: Distinct component names
+      responses:
+        "200":
+          $ref: "#/components/responses/StringList"
+
+  /applog/meta/hosts:
+    get:
+      operationId: applogHosts
+      tags: [AppLog Metadata]
+      summary: Distinct hosts
+      responses:
+        "200":
+          $ref: "#/components/responses/StringList"
+
+  # ── Notifications ───────────────────────────────────────────────────────
+  /notifications/channels:
+    get:
+      operationId: listChannels
+      tags: [Notifications]
+      summary: List notification channels
+      responses:
+        "200":
+          description: Channel list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NotificationChannel"
+    post:
+      operationId: createChannel
+      tags: [Notifications]
+      summary: Create notification channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelInput"
+      responses:
+        "201":
+          description: Channel created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationChannel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /notifications/channels/{id}:
+    get:
+      operationId: getChannel
+      tags: [Notifications]
+      summary: Get notification channel
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Channel detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationChannel"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateChannel
+      tags: [Notifications]
+      summary: Update notification channel
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelInput"
+      responses:
+        "200":
+          description: Channel updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationChannel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteChannel
+      tags: [Notifications]
+      summary: Delete notification channel
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "204":
+          description: Channel deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /notifications/channels/{id}/test:
+    post:
+      operationId: testChannel
+      tags: [Notifications]
+      summary: Send test notification
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestChannelResult"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Notification engine not enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /notifications/rules:
+    get:
+      operationId: listRules
+      tags: [Notifications]
+      summary: List notification rules
+      responses:
+        "200":
+          description: Rule list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NotificationRule"
+    post:
+      operationId: createRule
+      tags: [Notifications]
+      summary: Create notification rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationRuleInput"
+      responses:
+        "201":
+          description: Rule created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /notifications/rules/{id}:
+    get:
+      operationId: getRule
+      tags: [Notifications]
+      summary: Get notification rule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Rule detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationRule"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateRule
+      tags: [Notifications]
+      summary: Update notification rule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationRuleInput"
+      responses:
+        "200":
+          description: Rule updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/NotificationRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteRule
+      tags: [Notifications]
+      summary: Delete notification rule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "204":
+          description: Rule deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /notifications/log:
+    get:
+      operationId: listNotificationLog
+      tags: [Notifications]
+      summary: List notification delivery log
+      parameters:
+        - name: rule_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by rule ID
+        - name: channel_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by channel ID
+        - name: status
+          in: query
+          schema:
+            type: string
+          description: Filter by delivery status
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NotificationLogEntry"
+
+  # ── Device ─────────────────────────────────────────────────────────────
+  /device/{hostname}:
+    get:
+      operationId: getDeviceSummary
+      tags: [Device]
+      summary: Syslog device detail
+      description: Aggregated summary for a single syslog device by hostname.
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Device summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeviceSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /applog/device/{hostname}:
+    get:
+      operationId: getAppLogDeviceSummary
+      tags: [Device]
+      summary: AppLog device detail
+      description: Aggregated summary for a single application log host.
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: AppLog device summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AppLogDeviceSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # ── AppLog Stats ────────────────────────────────────────────────────────
+  /applog/stats/volume:
+    get:
+      operationId: applogVolume
+      tags: [Stats]
+      summary: AppLog volume over time
+      parameters:
+        - $ref: "#/components/parameters/Interval"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Volume buckets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VolumeBucket"
+
+  /applog/stats/summary:
+    get:
+      operationId: applogSummary
+      tags: [Stats]
+      summary: AppLog summary
+      parameters:
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Summary statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AppLogSummary"
+
+  # ── Analysis ────────────────────────────────────────────────────────────
+  /analysis/reports:
+    get:
+      operationId: listReports
+      tags: [Analysis]
+      summary: List analysis reports
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: Report list (without full body)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReportSummary"
+
+  /analysis/reports/latest:
+    get:
+      operationId: latestReport
+      tags: [Analysis]
+      summary: Most recent report
+      responses:
+        "200":
+          description: Full report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Report"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /analysis/reports/{id}:
+    get:
+      operationId: getReport
+      tags: [Analysis]
+      summary: Get report by ID
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Full report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Report"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /analysis/reports/trigger:
+    post:
+      operationId: triggerReport
+      tags: [Analysis]
+      summary: Trigger analysis run
+      description: Manually starts an LLM analysis. May take several minutes.
+      responses:
+        "200":
+          description: Report generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      report_id:
+                        type: integer
+        "503":
+          description: Analysis not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Health ──────────────────────────────────────────────────────────────
+  /health:
+    servers:
+      - url: /
+        description: Health endpoint is at root, not under /api/v1
+    get:
+      operationId: health
+      tags: [Health]
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+        "503":
+          description: Unhealthy (database unreachable)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: unhealthy
+
+# ---------------------------------------------------------------------------
+# Components
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: tl_session
+      description: Session cookie set by POST /auth/login
+    apiKey:
+      type: http
+      scheme: bearer
+      description: "API key obtained from POST /auth/keys"
+
+  # ── Parameters ──────────────────────────────────────────────────────────
+  parameters:
+    UUID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    IntID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      description: Keyset pagination cursor
+
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 100
+
+    Search:
+      name: search
+      in: query
+      schema:
+        type: string
+        maxLength: 500
+      description: Case-insensitive substring search on message text
+
+    From:
+      name: from
+      in: query
+      schema:
+        type: string
+        format: date-time
+      description: Start time (inclusive)
+
+    To:
+      name: to
+      in: query
+      schema:
+        type: string
+        format: date-time
+      description: End time (inclusive)
+
+    Interval:
+      name: interval
+      in: query
+      schema:
+        type: string
+        enum: [1m, 5m, 15m, 30m, 1h, 6h, 1d]
+        default: "1h"
+
+    Range:
+      name: range
+      in: query
+      schema:
+        type: string
+        enum: [1h, 6h, 12h, 24h, 7d, 30d]
+        default: "24h"
+
+    # Syslog-specific
+    SyslogHostname:
+      name: hostname
+      in: query
+      schema:
+        type: string
+        maxLength: 500
+
+    SyslogProgramname:
+      name: programname
+      in: query
+      schema:
+        type: string
+        maxLength: 500
+
+    SyslogTag:
+      name: syslogtag
+      in: query
+      schema:
+        type: string
+        maxLength: 500
+
+    SyslogMsgID:
+      name: msgid
+      in: query
+      schema:
+        type: string
+        maxLength: 500
+
+    FromHostIP:
+      name: fromhost_ip
+      in: query
+      schema:
+        type: string
+        format: ipv4
+      description: Source IP address
+
+    Severity:
+      name: severity
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 7
+      description: Exact severity level (0=emerg .. 7=debug)
+
+    SeverityMax:
+      name: severity_max
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 7
+      description: Maximum severity level (returns this level and lower numeric values)
+
+    Facility:
+      name: facility
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 23
+
+    # AppLog-specific
+    AppLogService:
+      name: service
+      in: query
+      schema:
+        type: string
+        maxLength: 500
+
+    AppLogComponent:
+      name: component
+      in: query
+      schema:
+        type: string
+        maxLength: 500
+
+    AppLogHost:
+      name: host
+      in: query
+      schema:
+        type: string
+        maxLength: 500
+
+    AppLogLevel:
+      name: level
+      in: query
+      schema:
+        type: string
+        enum: [DEBUG, INFO, WARN, ERROR, FATAL]
+      description: Minimum log level (returns this level and above)
+
+  # ── Responses ───────────────────────────────────────────────────────────
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    StringList:
+      description: List of strings
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: array
+                items:
+                  type: string
+
+  # ── Schemas ─────────────────────────────────────────────────────────────
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+    StatusOK:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    # ── Auth ──────────────────────────────────────────────────────────────
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    UserResponse:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            username:
+              type: string
+            email:
+              type: string
+              nullable: true
+            is_admin:
+              type: boolean
+            gravatar_url:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+            last_login_at:
+              type: string
+              format: date-time
+              nullable: true
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        is_admin:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateKeyRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [read, ingest, admin]
+          description: At least one scope required
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    APIKeyInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        key_prefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [read, ingest, admin]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    # ── Syslog ────────────────────────────────────────────────────────────
+    SyslogEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        received_at:
+          type: string
+          format: date-time
+        reported_at:
+          type: string
+          format: date-time
+        hostname:
+          type: string
+        fromhost_ip:
+          type: string
+        programname:
+          type: string
+        msgid:
+          type: string
+        severity:
+          type: integer
+          minimum: 0
+          maximum: 7
+        severity_label:
+          type: string
+          enum: [emerg, alert, crit, err, warning, notice, info, debug]
+        facility:
+          type: integer
+          minimum: 0
+          maximum: 23
+        facility_label:
+          type: string
+        syslogtag:
+          type: string
+        structured_data:
+          type: string
+          nullable: true
+        message:
+          type: string
+        raw_message:
+          type: string
+          nullable: true
+
+    # ── AppLog ────────────────────────────────────────────────────────────
+    AppLogEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        received_at:
+          type: string
+          format: date-time
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [DEBUG, INFO, WARN, ERROR, FATAL]
+        service:
+          type: string
+        component:
+          type: string
+          nullable: true
+        host:
+          type: string
+          nullable: true
+        msg:
+          type: string
+        source:
+          type: string
+          nullable: true
+        attrs:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+    IngestRequest:
+      type: object
+      required: [logs]
+      properties:
+        logs:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/IngestEntry"
+
+    IngestEntry:
+      type: object
+      required: [timestamp, level, msg, service, host]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          description: "DEBUG, INFO, WARN, ERROR, or FATAL (also accepts TRACE, WARNING, CRITICAL, PANIC)"
+        msg:
+          type: string
+          maxLength: 65536
+        service:
+          type: string
+          maxLength: 128
+        component:
+          type: string
+          maxLength: 128
+        host:
+          type: string
+          maxLength: 256
+        source:
+          type: string
+          maxLength: 256
+        attrs:
+          type: object
+          additionalProperties: true
+
+    # ── Stats ─────────────────────────────────────────────────────────────
+    VolumeBucket:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        total:
+          type: integer
+        by_host:
+          type: object
+          additionalProperties:
+            type: integer
+
+    SyslogSummary:
+      type: object
+      properties:
+        total:
+          type: integer
+        trend:
+          type: number
+          format: double
+          description: Percentage change vs previous period
+        errors:
+          type: integer
+        warnings:
+          type: integer
+        severity_breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              severity:
+                type: integer
+              label:
+                type: string
+              count:
+                type: integer
+              pct:
+                type: number
+                format: double
+        top_hosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/NamedCount"
+
+    AppLogSummary:
+      type: object
+      properties:
+        total:
+          type: integer
+        trend:
+          type: number
+          format: double
+        errors:
+          type: integer
+        warnings:
+          type: integer
+        level_breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              level:
+                type: string
+              count:
+                type: integer
+              pct:
+                type: number
+                format: double
+        top_services:
+          type: array
+          items:
+            $ref: "#/components/schemas/NamedCount"
+
+    NamedCount:
+      type: object
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+        pct:
+          type: number
+          format: double
+
+    # ── Juniper ───────────────────────────────────────────────────────────
+    JuniperRef:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        message:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        severity:
+          type: string
+        cause:
+          type: string
+        action:
+          type: string
+        os:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    # ── Rsyslog ───────────────────────────────────────────────────────────
+    RsyslogSummary:
+      type: object
+      properties:
+        total_submitted:
+          type: integer
+        total_processed:
+          type: integer
+        total_failed:
+          type: integer
+        total_suspended:
+          type: integer
+        main_queue_size:
+          type: integer
+        main_queue_max_size:
+          type: integer
+        total_discarded:
+          type: integer
+        filter_rate:
+          type: number
+          format: double
+        failure_rate:
+          type: number
+          format: double
+        ingest_rate:
+          type: number
+          format: double
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              collected_at:
+                type: string
+                format: date-time
+              origin:
+                type: string
+              name:
+                type: string
+              stats:
+                type: object
+                additionalProperties: true
+
+    NamedTimeSeries:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        name:
+          type: string
+        value:
+          type: number
+          format: double
+
+    # ── Taillight Metrics ─────────────────────────────────────────────────
+    TaillightMetrics:
+      type: object
+      properties:
+        sse_clients_syslog:
+          type: integer
+        sse_clients_applog:
+          type: integer
+        db_pool_active:
+          type: integer
+        db_pool_idle:
+          type: integer
+        db_pool_total:
+          type: integer
+        events_broadcast:
+          type: integer
+        events_dropped:
+          type: integer
+        applog_events_broadcast:
+          type: integer
+        applog_events_dropped:
+          type: integer
+        applog_ingest_total:
+          type: integer
+        applog_ingest_errors:
+          type: integer
+        listener_reconnects:
+          type: integer
+        events_rate:
+          type: number
+          format: double
+        ingest_rate:
+          type: number
+          format: double
+
+    TimeSeries:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        value:
+          type: number
+          format: double
+
+    # ── Notifications ────────────────────────────────────────────────────
+    NotificationChannel:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          enum: [slack, webhook, email]
+        config:
+          type: object
+          additionalProperties: true
+          description: Backend-specific configuration (webhook URL, Slack token, SMTP settings, etc.)
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    NotificationChannelInput:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [slack, webhook, email]
+        config:
+          type: object
+          additionalProperties: true
+        enabled:
+          type: boolean
+
+    NotificationRule:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        enabled:
+          type: boolean
+        event_kind:
+          type: string
+          enum: [syslog, applog]
+        hostname:
+          type: string
+        programname:
+          type: string
+        severity:
+          type: integer
+          nullable: true
+        severity_max:
+          type: integer
+          nullable: true
+        facility:
+          type: integer
+          nullable: true
+        syslogtag:
+          type: string
+        msgid:
+          type: string
+        service:
+          type: string
+        component:
+          type: string
+        host:
+          type: string
+        level:
+          type: string
+        search:
+          type: string
+        channel_ids:
+          type: array
+          items:
+            type: integer
+        burst_window:
+          type: integer
+          description: Number of events before triggering a burst notification
+        cooldown_seconds:
+          type: integer
+          description: Minimum seconds between notifications for this rule
+        group_by:
+          type: string
+          description: Field to group events by (e.g. hostname, service)
+        max_cooldown_seconds:
+          type: integer
+          description: Maximum cooldown after exponential backoff
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    NotificationRuleInput:
+      type: object
+      required: [name, event_kind]
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        event_kind:
+          type: string
+          enum: [syslog, applog]
+        hostname:
+          type: string
+        programname:
+          type: string
+        severity:
+          type: integer
+          nullable: true
+        severity_max:
+          type: integer
+          nullable: true
+        facility:
+          type: integer
+          nullable: true
+        syslogtag:
+          type: string
+        msgid:
+          type: string
+        service:
+          type: string
+        component:
+          type: string
+        host:
+          type: string
+        level:
+          type: string
+        search:
+          type: string
+        channel_ids:
+          type: array
+          items:
+            type: integer
+        burst_window:
+          type: integer
+        cooldown_seconds:
+          type: integer
+        group_by:
+          type: string
+        max_cooldown_seconds:
+          type: integer
+
+    NotificationLogEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        rule_id:
+          type: integer
+        channel_id:
+          type: integer
+        event_kind:
+          type: string
+        event_id:
+          type: integer
+        status:
+          type: string
+        reason:
+          type: string
+          nullable: true
+        event_count:
+          type: integer
+        status_code:
+          type: integer
+          nullable: true
+        duration_ms:
+          type: integer
+        payload:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+    TestChannelResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        status_code:
+          type: integer
+        error:
+          type: string
+          nullable: true
+        duration_ms:
+          type: integer
+
+    # ── Device ───────────────────────────────────────────────────────────
+    DeviceSummary:
+      type: object
+      properties:
+        hostname:
+          type: string
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        total_count:
+          type: integer
+        critical_count:
+          type: integer
+        severity_breakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeverityCount"
+        top_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopMessage"
+        critical_logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SyslogEvent"
+
+    SeverityCount:
+      type: object
+      properties:
+        severity:
+          type: integer
+        label:
+          type: string
+        count:
+          type: integer
+        pct:
+          type: number
+          format: double
+
+    TopMessage:
+      type: object
+      properties:
+        pattern:
+          type: string
+        sample:
+          type: string
+        count:
+          type: integer
+        latest_id:
+          type: integer
+        latest_at:
+          type: string
+          format: date-time
+        severity:
+          type: integer
+        severity_label:
+          type: string
+
+    AppLogDeviceSummary:
+      type: object
+      properties:
+        host:
+          type: string
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        total_count:
+          type: integer
+        error_count:
+          type: integer
+        level_breakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/LevelCount"
+        top_messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppLogTopMessage"
+        error_logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppLogEvent"
+
+    LevelCount:
+      type: object
+      properties:
+        level:
+          type: string
+        count:
+          type: integer
+        pct:
+          type: number
+          format: double
+
+    AppLogTopMessage:
+      type: object
+      properties:
+        pattern:
+          type: string
+        sample:
+          type: string
+        count:
+          type: integer
+        latest_id:
+          type: integer
+        latest_at:
+          type: string
+          format: date-time
+        level:
+          type: string
+
+    # ── Analysis ──────────────────────────────────────────────────────────
+    ReportSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        generated_at:
+          type: string
+          format: date-time
+        model:
+          type: string
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+        duration_ms:
+          type: integer
+        status:
+          type: string
+
+    Report:
+      allOf:
+        - $ref: "#/components/schemas/ReportSummary"
+        - type: object
+          properties:
+            report:
+              type: string
+              description: Markdown-formatted analysis report

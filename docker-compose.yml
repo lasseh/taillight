@@ -1,0 +1,141 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg18
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=timescaledb,pg_stat_statements
+      # Strip timestamp from log lines — syslog header already carries it.
+      - -c
+      - log_line_prefix=[%p]
+    logging:
+      # json-file keeps container logs in Docker (docker logs still works) but
+      # prevents them from leaking into host syslog. Without this, hosts that
+      # forward syslog to taillight would create duplicates — the API already
+      # ships its own logs via the built-in logshipper to the applog stream.
+      driver: json-file
+      options:
+        tag: postgres
+    environment:
+      POSTGRES_DB: taillight
+      POSTGRES_USER: taillight
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      # Format: "<bind-address>:<host-port>:<container-port>"
+      # Default binds to loopback only. Set POSTGRES_BIND=0.0.0.0:5432 for remote access.
+      - "${POSTGRES_BIND:-127.0.0.1:5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - taillight
+    healthcheck:
+      # pg_isready only checks TCP; use psql to verify the database actually exists.
+      # This prevents the API from starting before init scripts finish.
+      test: ["CMD-SHELL", "psql -U taillight -d taillight -c 'SELECT 1'"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    logging:
+      driver: json-file
+      options:
+        tag: api
+    ports:
+      - "${API_HOST_PORT:-8080}:8080"
+    environment:
+      DATABASE_URL: postgres://taillight:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/taillight?sslmode=disable
+      LISTEN_ADDR: ":8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+    volumes:
+      - ./api/config.yml:/config.yml:ro
+    networks:
+      - taillight
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  rsyslog:
+    build: ./rsyslog
+    logging:
+      driver: json-file
+      options:
+        tag: rsyslog
+    ports:
+      # Uses 1514 to avoid conflicts during development.
+      # Change to 514 in production so devices can send to the standard syslog port.
+      - "${RSYSLOG_HOST_PORT:-1514}:514/udp"
+      - "${RSYSLOG_HOST_PORT:-1514}:514/tcp"
+    environment:
+      # Only the password needs passing; server/port/db/user defaults match
+      # docker-compose networking. Override all PGSQL_* vars in
+      # docker-compose.override.yml for host networking or external DB.
+      PGSQL_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    networks:
+      - taillight
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "logger -t healthcheck test"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  frontend:
+    build: ./frontend
+    logging:
+      driver: json-file
+      options:
+        tag: frontend
+    ports:
+      - "${FRONTEND_HOST_PORT:-3000}:8080"
+    environment:
+      # API_URL is empty by default — the frontend uses relative URLs,
+      # which works when nginx proxies both frontend and API on the same origin.
+      # For local dev without a reverse proxy, set: API_URL=http://localhost:8080
+      API_URL: ${API_URL:-}
+    networks:
+      - taillight
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # Uncomment to test the full reverse proxy setup locally.
+  # Routes all traffic through a single port (80) like production.
+  # See docs/nginx-reverse-proxy.conf.example for the production TLS version.
+  #
+  # proxy:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "8090:80"
+  #   volumes:
+  #     - ./docs/nginx-reverse-proxy-docker.conf:/etc/nginx/conf.d/default.conf:ro
+  #   networks:
+  #     - taillight
+  #   depends_on:
+  #     - api
+  #     - frontend
+
+volumes:
+  pgdata:
+
+networks:
+  taillight:
+    driver: bridge
