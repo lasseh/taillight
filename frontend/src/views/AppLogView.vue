@@ -125,18 +125,16 @@ watch(() => props.id, async (id) => {
       />
 
       <div v-else-if="event" class="mx-auto max-w-7xl space-y-4" @copy="onCopy">
-        <!-- Header: level + message -->
+        <!-- Message + Attributes -->
         <div
           class="bg-t-bg-dark rounded border-l-2 p-4"
           :class="borderClass"
         >
-          <div class="mb-2 flex items-center gap-2">
-            <span class="text-xs font-semibold uppercase" :class="lvlClass">
-              {{ event.level }}
-            </span>
-            <span class="text-t-fg-dark text-xs">#{{ event.id }}</span>
-          </div>
           <p class="text-t-fg break-all font-mono text-sm leading-relaxed">{{ event.msg }}</p>
+          <div v-if="event.attrs && Object.keys(event.attrs).length > 0" class="border-t-border mt-3 border-t pt-3">
+            <span class="text-t-fg-dark mb-1 block text-xs font-semibold uppercase tracking-wide">Attributes</span>
+            <pre class="language-json text-t-fg overflow-x-auto font-mono text-xs leading-relaxed" v-html="highlightAttrs(event.attrs)"></pre>
+          </div>
         </div>
 
         <!-- Metadata grid -->
@@ -181,14 +179,6 @@ watch(() => props.id, async (id) => {
               <span class="text-t-blue font-mono">{{ event.source || '–' }}</span>
             </div>
           </div>
-        </div>
-
-        <!-- Attrs -->
-        <div v-if="event.attrs && Object.keys(event.attrs).length > 0" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
-            Attributes
-          </h3>
-          <pre class="language-json text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed" v-html="highlightAttrs(event.attrs)"></pre>
         </div>
       </div>
     </div>
