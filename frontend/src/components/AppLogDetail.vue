@@ -3,18 +3,28 @@ import { computed } from 'vue'
 import type { AppLogEvent } from '@/types/applog'
 import { levelBorderClass, levelColorClass } from '@/lib/applog-constants'
 import { highlightAttrs } from '@/lib/format'
+import { useAppLogFilterStore } from '@/stores/applog-filters'
 
 const props = defineProps<{
   event: AppLogEvent
 }>()
 
-const fields: { label: string; key: keyof AppLogEvent; color?: string }[] = [
+const filterStore = useAppLogFilterStore()
+
+interface Field {
+  label: string
+  key: keyof AppLogEvent
+  color?: string
+  filter?: string // filter store key to set on click
+}
+
+const fields: Field[] = [
   { label: 'received', key: 'received_at' },
   { label: 'timestamp', key: 'timestamp' },
-  { label: 'level', key: 'level' },
+  { label: 'level', key: 'level', filter: 'level' },
   { label: 'host', key: 'host', color: 'text-t-teal' },
-  { label: 'service', key: 'service', color: 'text-t-purple' },
-  { label: 'component', key: 'component', color: 'text-t-yellow' },
+  { label: 'service', key: 'service', color: 'text-t-purple', filter: 'service' },
+  { label: 'component', key: 'component', color: 'text-t-yellow', filter: 'component' },
   { label: 'source', key: 'source', color: 'text-t-blue' },
 ]
 
@@ -36,11 +46,18 @@ function onCopy(e: ClipboardEvent) {
   e.clipboardData?.setData('text/plain', copyText.value)
 }
 
-function fieldColor(field: (typeof fields)[number]): string {
+function fieldColor(field: Field): string {
   if (field.key === 'level') return lvlClass
   return field.color ?? 'text-t-fg'
 }
 
+function applyFilter(field: Field) {
+  if (!field.filter) return
+  const value = props.event[field.key]
+  if (value != null) {
+    ;(filterStore.filters as Record<string, string>)[field.filter] = String(value)
+  }
+}
 </script>
 
 <template>
@@ -75,6 +92,13 @@ function fieldColor(field: (typeof fields)[number]): string {
       >
         {{ event.host }}
       </RouterLink>
+      <button
+        v-else-if="field.filter"
+        class="min-w-0 break-all text-left cursor-pointer hover:underline" :class="fieldColor(field)"
+        @click.stop="applyFilter(field)"
+      >
+        {{ event[field.key] ?? '–' }}
+      </button>
       <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{ event[field.key] ?? '–' }}</span>
     </div>
 

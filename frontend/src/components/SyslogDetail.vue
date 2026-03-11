@@ -3,21 +3,31 @@ import { computed } from 'vue'
 import type { SyslogEvent } from '@/types/syslog'
 import { severityBorderClass, severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
+import { useSyslogFilterStore } from '@/stores/syslog-filters'
 
 const props = defineProps<{
   event: SyslogEvent
 }>()
 
-const fields: { label: string; key: keyof SyslogEvent; color?: string }[] = [
+const filterStore = useSyslogFilterStore()
+
+interface Field {
+  label: string
+  key: keyof SyslogEvent
+  color?: string
+  filter?: string // filter store key to set on click
+}
+
+const fields: Field[] = [
   { label: 'received', key: 'received_at' },
   { label: 'reported', key: 'reported_at' },
   { label: 'hostname', key: 'hostname', color: 'text-t-teal' },
   { label: 'ip', key: 'fromhost_ip', color: 'text-t-blue' },
-  { label: 'program', key: 'programname', color: 'text-t-purple' },
+  { label: 'program', key: 'programname', color: 'text-t-purple', filter: 'programname' },
   { label: 'msgid', key: 'msgid' },
-  { label: 'severity', key: 'severity_label' },
-  { label: 'facility', key: 'facility_label', color: 'text-t-orange' },
-  { label: 'tag', key: 'syslogtag' },
+  { label: 'severity', key: 'severity_label', filter: 'severity_max' },
+  { label: 'facility', key: 'facility_label', color: 'text-t-orange', filter: 'facility' },
+  { label: 'tag', key: 'syslogtag', filter: 'syslogtag' },
 ]
 
 const borderClass = severityBorderClass[props.event.severity] ?? 'border-t-border'
@@ -42,9 +52,23 @@ function onCopy(e: ClipboardEvent) {
   e.clipboardData?.setData('text/plain', copyText.value)
 }
 
-function fieldColor(field: (typeof fields)[number]): string {
+function fieldColor(field: Field): string {
   if (field.key === 'severity_label') return sevClass
   return field.color ?? 'text-t-fg'
+}
+
+function applyFilter(field: Field) {
+  if (!field.filter) return
+  if (field.filter === 'severity_max') {
+    filterStore.filters.severity_max = String(props.event.severity)
+  } else if (field.filter === 'facility') {
+    filterStore.filters.facility = String(props.event.facility)
+  } else {
+    const value = props.event[field.key]
+    if (value != null) {
+      ;(filterStore.filters as Record<string, string>)[field.filter] = String(value)
+    }
+  }
 }
 </script>
 
@@ -79,6 +103,13 @@ function fieldColor(field: (typeof fields)[number]): string {
       >
         {{ event.hostname || '–' }}
       </RouterLink>
+      <button
+        v-else-if="field.filter"
+        class="min-w-0 break-all text-left cursor-pointer hover:underline" :class="fieldColor(field)"
+        @click.stop="applyFilter(field)"
+      >
+        {{ event[field.key] ?? '–' }}
+      </button>
       <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{ event[field.key] ?? '–' }}</span>
     </div>
 
