@@ -146,11 +146,10 @@ watch(() => props.id, async (id) => {
           class="bg-t-bg-dark rounded border-l-2 p-4"
           :class="borderClass"
         >
-          <div class="mb-2 flex items-center gap-2">
+          <div class="mb-2">
             <span class="text-xs font-semibold uppercase" :class="sevClass">
               {{ event.severity_label }}
             </span>
-            <span class="text-t-fg-dark text-xs">#{{ event.id }}</span>
           </div>
           <p class="text-t-fg break-all font-mono text-sm leading-relaxed" v-html="highlightedMsg" />
         </div>
