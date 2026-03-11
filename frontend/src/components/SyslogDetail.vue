@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { SyslogEvent } from '@/types/syslog'
 import { severityBorderClass, severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
+import { formatTime } from '@/lib/format'
 import { useSyslogFilterStore } from '@/stores/syslog-filters'
 
 const props = defineProps<{
@@ -19,8 +20,7 @@ interface Field {
 }
 
 const fields: Field[] = [
-  { label: 'received', key: 'received_at' },
-  { label: 'reported', key: 'reported_at' },
+  { label: 'time', key: 'received_at' },
   { label: 'hostname', key: 'hostname', color: 'text-t-teal' },
   { label: 'ip', key: 'fromhost_ip', color: 'text-t-blue' },
   { label: 'program', key: 'programname', color: 'text-t-purple', filter: 'programname' },
@@ -49,6 +49,12 @@ function onCopy(e: ClipboardEvent) {
   if (!sel.includes('\n')) return // single field: use browser default
   e.preventDefault()
   e.clipboardData?.setData('text/plain', copyText.value)
+}
+
+function fieldValue(field: Field): string {
+  const val = props.event[field.key]
+  if (field.key === 'received_at' && typeof val === 'string') return formatTime(val)
+  return String(val ?? '–')
 }
 
 function fieldColor(field: Field): string {
@@ -107,9 +113,9 @@ function applyFilter(field: Field) {
         class="min-w-0 break-all text-left cursor-pointer hover:underline" :class="fieldColor(field)"
         @click.stop="applyFilter(field)"
       >
-        {{ event[field.key] ?? '–' }}
+        {{ fieldValue(field) }}
       </button>
-      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{ event[field.key] ?? '–' }}</span>
+      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{ fieldValue(field) }}</span>
     </div>
 
     <!-- message -->
