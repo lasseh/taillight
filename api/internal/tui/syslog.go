@@ -197,7 +197,7 @@ func (v SyslogView) renderColumnHeader() string {
 	prog := columnHeaderStyle.Width(colProgramname).Render("PROGRAM")
 	msg := columnHeaderStyle.Render("MESSAGE")
 
-	header := fmt.Sprintf(" %s %s %s %s %s", ts, sev, host, prog, msg)
+	header := fmt.Sprintf(" %s  %s  %s  %s  %s", ts, sev, host, prog, msg)
 	return dimStyle.Width(v.width).Render(header)
 }
 
@@ -209,10 +209,10 @@ func (v SyslogView) renderRow(evt model.SyslogEvent, _ int) string {
 	host := hostnameStyle.Render(truncate(evt.Hostname, colHostname))
 	prog := programStyle.Render(truncate(evt.Programname, colProgramname))
 
-	msgWidth := max(v.width-colTimeSyslog-1-colSeverity-1-colHostname-1-colProgramname-2, colSyslogMinMsg)
+	msgWidth := max(v.width-colTimeSyslog-2-colSeverity-2-colHostname-2-colProgramname-2, colSyslogMinMsg)
 	msg := highlightMessage(evt.Message, msgWidth)
 
-	return fmt.Sprintf(" %s %s %-20s %-14s %s",
+	return fmt.Sprintf(" %s  %s  %-20s  %-14s  %s",
 		dimStyle.Render(ts), sevStyled, host, prog, msg)
 }
 

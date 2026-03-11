@@ -202,7 +202,7 @@ func (v AppLogView) renderColumnHeader() string {
 	comp := columnHeaderStyle.Width(colComponent).Render("COMPONENT")
 	msg := columnHeaderStyle.Render("MESSAGE")
 
-	header := fmt.Sprintf(" %s %s %s %s %s %s", ts, lvl, host, svc, comp, msg)
+	header := fmt.Sprintf(" %s  %s  %s  %s  %s  %s", ts, lvl, host, svc, comp, msg)
 	return dimStyle.Width(v.width).Render(header)
 }
 
@@ -215,20 +215,20 @@ func (v AppLogView) renderRow(evt model.AppLogEvent) string {
 	comp := componentStyle.Render(truncate(evt.Component, colComponent))
 
 	// Calculate remaining width for message + inline attrs.
-	fixedWidth := 1 + colTimeApplog + 1 + colLevel + 1 + colHost + 1 + colService + 1 + colComponent + 1
+	fixedWidth := 1 + colTimeApplog + 2 + colLevel + 2 + colHost + 2 + colService + 2 + colComponent + 2
 	remaining := max(v.width-fixedWidth, colApplogMinMsg)
 
 	// Render inline attrs if present.
 	attrsStr := renderInlineAttrs(evt.Attrs, remaining/3) // reserve 1/3 of remaining for attrs
 	if attrsStr != "" {
-		msgWidth := max(remaining-lipgloss.Width(attrsStr)-1, colApplogMinMsg)
+		msgWidth := max(remaining-lipgloss.Width(attrsStr)-2, colApplogMinMsg)
 		msg := truncate(evt.Msg, msgWidth)
-		return fmt.Sprintf(" %s %s %-16s %-14s %-12s %s %s",
+		return fmt.Sprintf(" %s  %s  %-16s  %-14s  %-12s  %s  %s",
 			dimStyle.Render(ts), lvl, host, svc, comp, msg, attrsStr)
 	}
 
 	msg := truncate(evt.Msg, remaining)
-	return fmt.Sprintf(" %s %s %-16s %-14s %-12s %s",
+	return fmt.Sprintf(" %s  %s  %-16s  %-14s  %-12s  %s",
 		dimStyle.Render(ts), lvl, host, svc, comp, msg)
 }
 
