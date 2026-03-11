@@ -130,6 +130,11 @@ watch(() => props.id, async (id) => {
           class="bg-t-bg-dark rounded border-l-2 p-4"
           :class="borderClass"
         >
+          <div class="mb-2">
+            <span class="text-xs font-semibold uppercase" :class="lvlClass">
+              {{ event.level }}
+            </span>
+          </div>
           <p class="text-t-fg break-all font-mono text-sm leading-relaxed">{{ event.msg }}</p>
           <div v-if="event.attrs && Object.keys(event.attrs).length > 0" class="border-t-border mt-3 border-t pt-3">
             <span class="text-t-fg-dark mb-1 block text-xs font-semibold uppercase tracking-wide">Attributes</span>
