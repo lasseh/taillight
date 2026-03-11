@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { AppLogEvent } from '@/types/applog'
 import { levelBorderClass, levelColorClass } from '@/lib/applog-constants'
-import { highlightAttrs } from '@/lib/format'
+import { formatDateTime, highlightAttrs } from '@/lib/format'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
 
 const props = defineProps<{
@@ -19,8 +19,7 @@ interface Field {
 }
 
 const fields: Field[] = [
-  { label: 'received', key: 'received_at' },
-  { label: 'timestamp', key: 'timestamp' },
+  { label: 'time', key: 'received_at' },
   { label: 'level', key: 'level', filter: 'level' },
   { label: 'host', key: 'host', color: 'text-t-teal' },
   { label: 'service', key: 'service', color: 'text-t-purple', filter: 'service' },
@@ -44,6 +43,12 @@ function onCopy(e: ClipboardEvent) {
   if (!sel.includes('\n')) return // single field: use browser default
   e.preventDefault()
   e.clipboardData?.setData('text/plain', copyText.value)
+}
+
+function fieldValue(field: Field): string {
+  const val = props.event[field.key]
+  if (field.key === 'received_at' && typeof val === 'string') return formatDateTime(val)
+  return String(val ?? '–')
 }
 
 function fieldColor(field: Field): string {
@@ -97,9 +102,9 @@ function applyFilter(field: Field) {
         class="min-w-0 break-all text-left cursor-pointer hover:underline" :class="fieldColor(field)"
         @click.stop="applyFilter(field)"
       >
-        {{ event[field.key] ?? '–' }}
+        {{ fieldValue(field) }}
       </button>
-      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{ event[field.key] ?? '–' }}</span>
+      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{ fieldValue(field) }}</span>
     </div>
 
     <!-- message -->
