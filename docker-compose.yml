@@ -89,6 +89,9 @@ services:
       # docker-compose networking. Override all PGSQL_* vars in
       # docker-compose.override.yml for host networking or external DB.
       PGSQL_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # Prevent rsyslog 8.2504+ from auto-loading imuxsock and /var/log/syslog
+      # rules when running as PID 1 (fails as non-root).
+      RSYSLOG_ENABLE_CONTAINER_DEFAULTS: "0"
     networks:
       - taillight
     depends_on:

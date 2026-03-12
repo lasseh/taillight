@@ -34,10 +34,11 @@ for conf in "$RUNTIME_DIR/conf.d/02-outputs.conf" "$RUNTIME_DIR/conf.d/03-operat
 done
 
 # If invoked as rsyslogd, use the processed runtime config.
-# -e: disable container-specific defaults (rsyslog 8.2504+ auto-loads imuxsock
-# and /var/log/syslog rules when running as PID 1, which fails as non-root).
+# RSYSLOG_ENABLE_CONTAINER_DEFAULTS=0 is set in docker-compose.yml to prevent
+# rsyslog 8.2504+ from auto-loading imuxsock and /var/log/syslog rules when
+# running as PID 1 (which fails as non-root).
 if [ "$1" = "rsyslogd" ]; then
-    exec rsyslogd -n -e -f "$RUNTIME_DIR/rsyslog.conf"
+    exec rsyslogd -n -f "$RUNTIME_DIR/rsyslog.conf"
 fi
 
 exec "$@"
