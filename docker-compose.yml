@@ -21,6 +21,10 @@ services:
       POSTGRES_DB: taillight
       POSTGRES_USER: taillight
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # PGDATA must match the volume mount path. The TimescaleDB pg18 image
+      # defaults to /var/lib/postgresql/18/docker, which falls outside the
+      # named volume and causes data loss on `docker compose down/up`.
+      PGDATA: /var/lib/postgresql/data
     ports:
       # Format: "<bind-address>:<host-port>:<container-port>"
       # Default binds to loopback only. Set POSTGRES_BIND=0.0.0.0:5432 for remote access.
