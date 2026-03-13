@@ -112,7 +112,12 @@ func (h *SyslogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 		// Resume from where the client left off.
 		events, err := h.store.ListSyslogsSince(r.Context(), filter, lastID, sseBackfillLimit)
 		if err != nil {
-			logger.Warn("syslog backfill since id failed", "last_event_id", lastID, "err", err)
+			// Client disconnect during backfill is expected; don't warn.
+			if r.Context().Err() != nil {
+				logger.Debug("syslog backfill canceled", "last_event_id", lastID, "err", err)
+			} else {
+				logger.Warn("syslog backfill since id failed", "last_event_id", lastID, "err", err)
+			}
 			return lastID
 		}
 		// Already in chronological order (ASC).
@@ -135,7 +140,11 @@ func (h *SyslogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 	// Default: send recent matching events.
 	recent, _, err := h.store.ListSyslogs(r.Context(), filter, nil, sseBackfillLimit)
 	if err != nil {
-		logger.Warn("syslog backfill failed", "err", err, "hostname", filter.Hostname, "programname", filter.Programname, "severity", filter.Severity)
+		if r.Context().Err() != nil {
+			logger.Debug("syslog backfill canceled", "err", err)
+		} else {
+			logger.Warn("syslog backfill failed", "err", err, "hostname", filter.Hostname, "programname", filter.Programname, "severity", filter.Severity)
+		}
 		return 0
 	}
 	// Send in chronological order (oldest first).

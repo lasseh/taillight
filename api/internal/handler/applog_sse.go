@@ -110,7 +110,11 @@ func (h *AppLogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 		// Resume from where the client left off.
 		events, err := h.store.ListAppLogsSince(r.Context(), filter, lastID, applogSSEBackfillLimit)
 		if err != nil {
-			logger.Warn("applog backfill since id failed", "last_event_id", lastID, "err", err)
+			if r.Context().Err() != nil {
+				logger.Debug("applog backfill canceled", "last_event_id", lastID, "err", err)
+			} else {
+				logger.Warn("applog backfill since id failed", "last_event_id", lastID, "err", err)
+			}
 			return lastID
 		}
 		// Already in chronological order (ASC).
@@ -133,7 +137,11 @@ func (h *AppLogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 	// Default: send recent matching events.
 	recent, _, err := h.store.ListAppLogs(r.Context(), filter, nil, applogSSEBackfillLimit)
 	if err != nil {
-		logger.Warn("applog backfill failed", "err", err, "service", filter.Service, "host", filter.Host, "level", filter.Level)
+		if r.Context().Err() != nil {
+			logger.Debug("applog backfill canceled", "err", err)
+		} else {
+			logger.Warn("applog backfill failed", "err", err, "service", filter.Service, "host", filter.Host, "level", filter.Level)
+		}
 		return 0
 	}
 	// Send in chronological order (oldest first).
