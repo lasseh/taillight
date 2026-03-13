@@ -100,7 +100,7 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("database_url", "postgres://taillight:changeme@localhost:15432/taillight")
 	v.SetDefault("listen_addr", ":8080")
 	v.SetDefault("log_level", "info")
-	v.SetDefault("db_max_conns", 10)
+	v.SetDefault("db_max_conns", 30)
 	v.SetDefault("db_min_conns", 2)
 	v.SetDefault("cors_allowed_origins", []string{})
 	v.SetDefault("auth_enabled", true)

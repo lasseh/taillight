@@ -48,8 +48,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LogLevel != slog.LevelInfo {
 		t.Errorf("LogLevel = %v, want %v", cfg.LogLevel, slog.LevelInfo)
 	}
-	if cfg.DBMaxConns != 10 {
-		t.Errorf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 10)
+	if cfg.DBMaxConns != 30 {
+		t.Errorf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 30)
 	}
 	if cfg.DBMinConns != 2 {
 		t.Errorf("DBMinConns = %d, want %d", cfg.DBMinConns, 2)

@@ -46,6 +46,13 @@ func (h *AppLogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	// Extend write deadline for long-lived SSE connection.
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil {
+		writeError(w, http.StatusInternalServerError, "streaming_unsupported", "streaming unsupported")
+		return
+	}
+
 	// Subscribe BEFORE backfill to avoid a race: events arriving between
 	// the backfill query and the subscribe call would otherwise be lost.
 	sub, err := h.broker.Subscribe(filter)
@@ -87,11 +94,13 @@ func (h *AppLogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			if msg.ID <= lastBackfilledID {
 				continue
 			}
+			_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
 			if err := writeSSEEvent(w, msg.ID, "applog", msg.Data); err != nil {
 				return
 			}
 			flusher.Flush()
 		case <-heartbeat.C:
+			_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
 			if _, err := fmt.Fprint(w, "event: heartbeat\ndata: \n\n"); err != nil {
 				return
 			}

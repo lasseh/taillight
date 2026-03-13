@@ -61,6 +61,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 	poolCfg.MaxConns = cfg.DBMaxConns
 	poolCfg.MinConns = cfg.DBMinConns
+	poolCfg.ConnConfig.RuntimeParams["statement_timeout"] = "60000"
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
@@ -136,6 +137,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		Addr:              cfg.ListenAddr,
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
 
@@ -250,7 +252,9 @@ func startBackgroundWorkers(
 			for n := range notifications {
 				metrics.NotificationsReceivedTotal.WithLabelValues(n.Channel).Inc()
 				if n.Channel == "syslog_ingest" {
-					event, err := store.GetSyslog(ctx, n.ID)
+					queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
+					event, err := store.GetSyslog(queryCtx, n.ID)
+					queryCancel()
 					if err != nil {
 						logger.Warn("fetch syslog event for broadcast", "id", n.ID, "err", err)
 						continue
@@ -283,11 +287,15 @@ func startBackgroundWorkers(
 
 				// Snapshot all metrics and persist.
 				snap := metrics.Snapshot()
-				if err := store.InsertMetricsSnapshot(ctx, snap); err != nil {
+				queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
+				if err := store.InsertMetricsSnapshot(queryCtx, snap); err != nil {
+					queryCancel()
 					if ctx.Err() != nil {
 						return // shutting down
 					}
 					logger.Warn("insert metrics snapshot", "err", err)
+				} else {
+					queryCancel()
 				}
 			}
 		}
@@ -302,7 +310,9 @@ func startBackgroundWorkers(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				n, err := authStore.CleanExpiredSessions(ctx)
+				queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
+				n, err := authStore.CleanExpiredSessions(queryCtx)
+				queryCancel()
 				if err != nil {
 					if ctx.Err() != nil {
 						return // shutting down
