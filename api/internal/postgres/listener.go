@@ -221,6 +221,9 @@ func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
 		lastID,
 	)
 	if err != nil {
+		if ctx.Err() != nil {
+			return // shutting down
+		}
 		l.logger.Error("gap fill query failed", "last_seen_id", lastID, "err", err)
 		return
 	}
@@ -230,6 +233,9 @@ func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
+			if ctx.Err() != nil {
+				return // shutting down
+			}
 			l.logger.Error("gap fill scan failed", "err", err)
 			return
 		}
@@ -242,6 +248,9 @@ func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
 		}
 	}
 	if err := rows.Err(); err != nil {
+		if ctx.Err() != nil {
+			return // shutting down
+		}
 		l.logger.Error("gap fill rows error", "err", err)
 		return
 	}

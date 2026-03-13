@@ -284,6 +284,9 @@ func startBackgroundWorkers(
 				// Snapshot all metrics and persist.
 				snap := metrics.Snapshot()
 				if err := store.InsertMetricsSnapshot(ctx, snap); err != nil {
+					if ctx.Err() != nil {
+						return // shutting down
+					}
 					logger.Warn("insert metrics snapshot", "err", err)
 				}
 			}
@@ -301,6 +304,9 @@ func startBackgroundWorkers(
 			case <-ticker.C:
 				n, err := authStore.CleanExpiredSessions(ctx)
 				if err != nil {
+					if ctx.Err() != nil {
+						return // shutting down
+					}
 					logger.Warn("clean expired sessions", "err", err)
 				} else if n > 0 {
 					logger.Info("cleaned expired sessions", "count", n)
