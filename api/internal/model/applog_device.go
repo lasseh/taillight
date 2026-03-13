@@ -14,6 +14,8 @@ type AppLogDeviceSummary struct {
 }
 
 // AppLogTopMessage holds a normalized message pattern with its count and a sample.
+// Level is a string (e.g. "ERROR") because applog events use freeform text
+// levels, unlike syslog's TopMessage.Severity which is an int (RFC 5424).
 type AppLogTopMessage struct {
 	Pattern  string    `json:"pattern"`
 	Sample   string    `json:"sample"`

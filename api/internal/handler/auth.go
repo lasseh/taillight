@@ -267,6 +267,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if !secure {
 		LoggerFromContext(r.Context()).Warn("setting session cookie without Secure flag")
 	}
+	// SameSite=Lax is used intentionally instead of adding a separate CSRF
+	// token. Lax prevents cross-site POST requests from sending the cookie,
+	// which covers the primary CSRF vector. If this application ever needs
+	// to support cross-origin POST requests with credentials (e.g. embedded
+	// forms from partner sites), a CSRF token should be added at that point.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    rawToken,
