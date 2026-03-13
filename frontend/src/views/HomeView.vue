@@ -197,8 +197,8 @@ function getSeverityBgClass(level: string): string {
 
         <template v-else>
           <!-- Summary Cards -->
-          <div v-if="isVisible('syslog-summary') || editing" class="relative mb-4">
-            <button v-if="editing" class="bg-t-red text-t-bg absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none" @click="hideWidget('syslog-summary')">x</button>
+          <div v-if="isVisible('syslog-summary')" class="relative mb-4">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-summary')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
               <!-- Total -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
@@ -242,8 +242,8 @@ function getSeverityBgClass(level: string): string {
           </div>
 
           <!-- Two Column Layout -->
-          <div v-if="isVisible('syslog-distribution') || editing" class="relative mb-4">
-            <button v-if="editing" class="bg-t-red text-t-bg absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none" @click="hideWidget('syslog-distribution')">x</button>
+          <div v-if="isVisible('syslog-distribution')" class="relative mb-4">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-distribution')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <!-- Severity Distribution -->
               <SeverityDistribution :items="home.syslogSummary!.severity_breakdown" />
@@ -275,8 +275,8 @@ function getSeverityBgClass(level: string): string {
           </div>
 
           <!-- Recent High-Severity Events -->
-          <div v-if="isVisible('syslog-recent') || editing" class="relative">
-            <button v-if="editing" class="bg-t-red text-t-bg absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none" @click="hideWidget('syslog-recent')">x</button>
+          <div v-if="isVisible('syslog-recent')" class="relative">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-recent')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <RecentCriticalLogs :events="home.recentSyslogEvents" show-hostname :flash-ids="newSyslogIds" />
           </div>
         </template>
@@ -305,8 +305,8 @@ function getSeverityBgClass(level: string): string {
 
         <template v-else>
           <!-- Summary Cards -->
-          <div v-if="isVisible('applog-summary') || editing" class="relative mb-4">
-            <button v-if="editing" class="bg-t-red text-t-bg absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none" @click="hideWidget('applog-summary')">x</button>
+          <div v-if="isVisible('applog-summary')" class="relative mb-4">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('applog-summary')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
               <!-- Total -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
@@ -350,8 +350,8 @@ function getSeverityBgClass(level: string): string {
           </div>
 
           <!-- Two Column Layout -->
-          <div v-if="isVisible('applog-distribution') || editing" class="relative mb-4">
-            <button v-if="editing" class="bg-t-red text-t-bg absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none" @click="hideWidget('applog-distribution')">x</button>
+          <div v-if="isVisible('applog-distribution')" class="relative mb-4">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('applog-distribution')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <!-- Level Distribution -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
@@ -403,8 +403,8 @@ function getSeverityBgClass(level: string): string {
           </div>
 
           <!-- Recent Errors -->
-          <div v-if="isVisible('applog-recent') || editing" class="relative">
-            <button v-if="editing" class="bg-t-red text-t-bg absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none" @click="hideWidget('applog-recent')">x</button>
+          <div v-if="isVisible('applog-recent')" class="relative">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('applog-recent')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="bg-t-bg-dark border-t-border rounded border">
               <h3 class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">Recent Errors</h3>
               <div>
@@ -438,8 +438,8 @@ function getSeverityBgClass(level: string): string {
 
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <!-- Syslog Heatmap -->
-          <div v-if="isVisible('syslog-heatmap') || editing" class="relative">
-            <button v-if="editing" class="bg-t-red text-t-bg absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none" @click="hideWidget('syslog-heatmap')">x</button>
+          <div v-if="isVisible('syslog-heatmap')" class="relative">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-heatmap')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">Syslog Volume</h3>
               <ActivityHeatmap :data="home.syslogHeatmap" color-var="--color-t-teal" label="syslog events" />
@@ -447,8 +447,8 @@ function getSeverityBgClass(level: string): string {
           </div>
 
           <!-- Applog Heatmap -->
-          <div v-if="isVisible('applog-heatmap') || editing" class="relative">
-            <button v-if="editing" class="bg-t-red text-t-bg absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none" @click="hideWidget('applog-heatmap')">x</button>
+          <div v-if="isVisible('applog-heatmap')" class="relative">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('applog-heatmap')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <h3 class="text-t-magenta mb-3 text-xs font-semibold uppercase tracking-wide">Applog Volume</h3>
               <ActivityHeatmap :data="home.applogHeatmap" color-var="--color-t-magenta" label="applog events" />
