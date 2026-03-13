@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useNotifications } from '@/composables/useNotifications'
 import { useTheme } from '@/composables/useTheme'
 import { useScrollStore } from '@/stores/scroll'
+import { useDashboardLayout } from '@/composables/useDashboardLayout'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,6 +13,7 @@ const auth = useAuthStore()
 const scrollStore = useScrollStore()
 const { supported, permission, enabled, requestPermission, setEnabled } = useNotifications()
 const { themes, themeId, setTheme } = useTheme()
+const { startEditing } = useDashboardLayout()
 
 const isAuthenticated = computed(() => auth.user?.username !== 'anonymous')
 
@@ -56,6 +58,15 @@ function goToAnalysis() {
   menuOpen.value = false
   closeMobileMenu()
   router.push({ name: 'analysis' })
+}
+
+function handleEditDashboard() {
+  menuOpen.value = false
+  closeMobileMenu()
+  if (route.name !== 'home') {
+    router.push('/')
+  }
+  startEditing()
 }
 
 async function handleLogout() {
@@ -231,6 +242,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
                   <line x1="16" y1="17" x2="8" y2="17" />
                 </svg>
                 <span>Analysis Reports</span>
+              </button>
+              <button
+                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
+                @click="handleEditDashboard"
+              >
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                </svg>
+                <span>Edit Dashboard</span>
               </button>
             </div>
 
@@ -415,6 +438,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
                 <line x1="16" y1="17" x2="8" y2="17" />
               </svg>
               <span>Analysis Reports</span>
+            </button>
+            <button
+              class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
+              @click="handleEditDashboard"
+            >
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="7" />
+                <rect x="14" y="3" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" />
+                <rect x="14" y="14" width="7" height="7" />
+              </svg>
+              <span>Edit Dashboard</span>
             </button>
           </div>
         </template>
