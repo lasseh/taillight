@@ -135,26 +135,24 @@ func (s *Store) DeleteNotificationChannel(ctx context.Context, id int64) error {
 
 // --- Rules ---
 
-// ListNotificationRules returns all notification rules with their channel IDs.
+// ListNotificationRules returns all notification rules with their channel IDs
+// in a single query using LEFT JOIN + array_agg.
 func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule, error) {
-	query, args, err := psq.
-		Select(
-			"id", "name", "enabled", "event_kind",
-			"hostname", "programname", "severity", "severity_max",
-			"facility", "syslogtag", "msgid",
-			"service", "component", "host", "level", "search",
-			"burst_window", "cooldown_seconds",
-			"group_by", "max_cooldown_seconds",
-			"created_at", "updated_at",
-		).
-		From("notification_rules").
-		OrderBy("id ASC").
-		ToSql()
-	if err != nil {
-		return nil, fmt.Errorf("build query: %w", err)
-	}
+	const query = `
+		SELECT r.id, r.name, r.enabled, r.event_kind,
+		       r.hostname, r.programname, r.severity, r.severity_max,
+		       r.facility, r.syslogtag, r.msgid,
+		       r.service, r.component, r.host, r.level, r.search,
+		       r.burst_window, r.cooldown_seconds,
+		       r.group_by, r.max_cooldown_seconds,
+		       r.created_at, r.updated_at,
+		       COALESCE(array_agg(rc.channel_id ORDER BY rc.channel_id) FILTER (WHERE rc.channel_id IS NOT NULL), '{}')
+		FROM notification_rules r
+		LEFT JOIN notification_rule_channels rc ON rc.rule_id = r.id
+		GROUP BY r.id
+		ORDER BY r.id ASC`
 
-	rows, err := s.pool.Query(ctx, query, args...)
+	rows, err := s.pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("list notification rules: %w", err)
 	}
@@ -173,6 +171,7 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 			&r.BurstWindow, &r.CooldownSeconds,
 			&r.GroupBy, &r.MaxCooldownSeconds,
 			&r.CreatedAt, &r.UpdatedAt,
+			&r.ChannelIDs,
 		); err != nil {
 			return nil, fmt.Errorf("scan notification rule: %w", err)
 		}
@@ -189,25 +188,6 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-
-	// Load channel IDs for each rule.
-	if len(rules) > 0 {
-		ruleIDs := make([]int64, len(rules))
-		for i, r := range rules {
-			ruleIDs[i] = r.ID
-		}
-		channelMap, err := s.loadRuleChannelIDs(ctx, ruleIDs)
-		if err != nil {
-			return nil, err
-		}
-		for i := range rules {
-			if ids, ok := channelMap[rules[i].ID]; ok {
-				rules[i].ChannelIDs = ids
-			} else {
-				rules[i].ChannelIDs = []int64{}
-			}
-		}
 	}
 
 	return rules, nil

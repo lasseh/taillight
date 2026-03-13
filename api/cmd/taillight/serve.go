@@ -179,6 +179,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Drain auth touch worker before closing the pool.
+	authStore.Stop()
+
 	// Shutdown listener to close the LISTEN connection.
 	if err := listener.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("listener shutdown error", "err", err)

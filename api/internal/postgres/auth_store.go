@@ -12,14 +12,43 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-// AuthStore provides query methods for auth-related tables.
-type AuthStore struct {
-	pool *pgxpool.Pool
+const touchBufferSize = 256
+
+type touchOp struct {
+	query string
+	arg   any
 }
 
-// NewAuthStore creates a new AuthStore.
+// AuthStore provides query methods for auth-related tables.
+type AuthStore struct {
+	pool    *pgxpool.Pool
+	touchCh chan touchOp
+}
+
+// NewAuthStore creates a new AuthStore and starts the background touch worker.
 func NewAuthStore(pool *pgxpool.Pool) *AuthStore {
-	return &AuthStore{pool: pool}
+	s := &AuthStore{
+		pool:    pool,
+		touchCh: make(chan touchOp, touchBufferSize),
+	}
+	go s.touchWorker()
+	return s
+}
+
+// Stop drains the touch channel and stops the background worker.
+func (s *AuthStore) Stop() {
+	close(s.touchCh)
+}
+
+// touchWorker drains the touch channel and executes last-seen/last-used updates.
+func (s *AuthStore) touchWorker() {
+	for op := range s.touchCh {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if _, err := s.pool.Exec(ctx, op.query, op.arg); err != nil {
+			slog.Warn("touch update failed", "query", op.query, "err", err)
+		}
+		cancel()
+	}
 }
 
 // --- Users ---
@@ -166,15 +195,14 @@ func (s *AuthStore) GetSession(ctx context.Context, tokenHash string) (SessionWi
 		return SessionWithUser{}, fmt.Errorf("get session: %w", err)
 	}
 
-	// Touch last_seen asynchronously — fire and forget.
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, err := s.pool.Exec(ctx,
-			`UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`, tokenHash); err != nil {
-			slog.Warn("touch session last_seen", "err", err)
-		}
-	}()
+	// Touch last_seen asynchronously via bounded worker.
+	select {
+	case s.touchCh <- touchOp{
+		query: `UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`,
+		arg:   tokenHash,
+	}:
+	default:
+	}
 
 	return sw, nil
 }
@@ -274,15 +302,14 @@ func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey
 		return APIKeyWithUser{}, fmt.Errorf("get api key by hash: %w", err)
 	}
 
-	// Touch last_used asynchronously.
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, err := s.pool.Exec(ctx,
-			`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, kw.Key.ID); err != nil {
-			slog.Warn("touch api key last_used", "err", err)
-		}
-	}()
+	// Touch last_used asynchronously via bounded worker.
+	select {
+	case s.touchCh <- touchOp{
+		query: `UPDATE api_keys SET last_used_at = now() WHERE id = $1`,
+		arg:   kw.Key.ID,
+	}:
+	default:
+	}
 
 	return kw, nil
 }
