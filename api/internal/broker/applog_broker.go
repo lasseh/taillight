@@ -95,10 +95,6 @@ func (b *AppLogBroker) Shutdown() {
 
 // Broadcast sends an event to all subscribers whose filter matches.
 func (b *AppLogBroker) Broadcast(event model.AppLogEvent) {
-	if b.Len() == 0 {
-		return
-	}
-
 	data, err := json.Marshal(event)
 	if err != nil {
 		b.logger.Error("marshal applog event", "err", err)

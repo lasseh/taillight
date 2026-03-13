@@ -110,10 +110,6 @@ func (b *SyslogBroker) Shutdown() {
 
 // Broadcast sends an event to all subscribers whose filter matches.
 func (b *SyslogBroker) Broadcast(event model.SyslogEvent) {
-	if b.Len() == 0 {
-		return
-	}
-
 	data, err := json.Marshal(event)
 	if err != nil {
 		b.logger.Error("marshal event", "err", err)

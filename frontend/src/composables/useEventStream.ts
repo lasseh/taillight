@@ -78,7 +78,7 @@ export function createEventStream<T>(path: string, eventName: string) {
     retryTimer = setTimeout(() => {
       retryTimer = null
       open()
-      backoff = Math.min(backoff * 2, MAX_BACKOFF)
+      backoff = Math.min(backoff * 2, MAX_BACKOFF) * (0.5 + Math.random() * 0.5)
     }, backoff)
   }
 

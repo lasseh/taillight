@@ -56,6 +56,9 @@ func runUseradd(_ *cobra.Command, _ []string) error {
 	if len(useraddPassword) < 8 {
 		return fmt.Errorf("password must be at least 8 characters")
 	}
+	if len(useraddPassword) > 72 {
+		return fmt.Errorf("password must be at most 72 characters (bcrypt limit)")
+	}
 
 	passwordHash, err := auth.HashPassword(useraddPassword)
 	if err != nil {

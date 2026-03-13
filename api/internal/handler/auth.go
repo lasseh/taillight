@@ -656,6 +656,10 @@ func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid_request", "password must be at least 8 characters")
 		return
 	}
+	if len(req.Password) > 72 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "password must be at most 72 characters (bcrypt limit)")
+		return
+	}
 
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {

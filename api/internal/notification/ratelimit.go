@@ -21,6 +21,7 @@ var channelDefaults = map[ChannelType]struct {
 }{
 	ChannelTypeSlack:   {rate: 1, burst: 3},
 	ChannelTypeWebhook: {rate: 5, burst: 10},
+	ChannelTypeEmail:   {rate: rate.Limit(1.0 / 60.0), burst: 2},
 }
 
 // limiterEntry wraps a rate.Limiter with a last-used timestamp for TTL eviction.
