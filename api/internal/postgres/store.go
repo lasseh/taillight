@@ -295,32 +295,34 @@ func collectSyslogs(rows pgx.Rows) ([]model.SyslogEvent, error) {
 }
 
 // GetVolume returns time-bucketed event counts grouped by hostname.
+// Uses the syslog_summary_hourly continuous aggregate.
 func (s *Store) GetVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	return s.getVolume(ctx, "syslog_events", "hostname", interval, rangeDur)
+	return s.getVolume(ctx, "syslog_summary_hourly", "hostname", interval, rangeDur)
 }
 
 // GetAppLogVolume returns time-bucketed event counts grouped by service.
+// Uses the applog_summary_hourly continuous aggregate.
 func (s *Store) GetAppLogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	return s.getVolume(ctx, "applog_events", "service", interval, rangeDur)
+	return s.getVolume(ctx, "applog_summary_hourly", "service", interval, rangeDur)
 }
 
-func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
+func (s *Store) getVolume(ctx context.Context, cagg, groupCol string, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
 	if !interval.IsValid() {
 		return nil, fmt.Errorf("invalid volume interval: %s", interval)
 	}
 	since := time.Now().UTC().Add(-rangeDur)
 
 	query := fmt.Sprintf(
-		`SELECT time_bucket($1::interval, received_at) AS bucket,
-		        %s, count(*) AS cnt
+		`SELECT time_bucket($1::interval, bucket) AS b,
+		        %s, SUM(cnt) AS cnt
 		 FROM %s
-		 WHERE received_at >= $2
-		 GROUP BY bucket, %s
-		 ORDER BY bucket ASC`, groupCol, table, groupCol)
+		 WHERE bucket >= $2
+		 GROUP BY b, %s
+		 ORDER BY b ASC`, groupCol, cagg, groupCol)
 
 	rows, err := s.pool.Query(ctx, query, interval.String(), since)
 	if err != nil {
-		return nil, fmt.Errorf("%s volume query: %w", table, err)
+		return nil, fmt.Errorf("%s volume query: %w", cagg, err)
 	}
 	defer rows.Close()
 
@@ -335,7 +337,7 @@ func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval 
 			cnt    int64
 		)
 		if err := rows.Scan(&bucket, &group, &cnt); err != nil {
-			return nil, fmt.Errorf("scan %s volume row: %w", table, err)
+			return nil, fmt.Errorf("scan %s volume row: %w", cagg, err)
 		}
 
 		i, ok := idx[bucket]
@@ -351,7 +353,7 @@ func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval 
 		buckets[i].ByHost[group] = cnt
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%s volume rows: %w", table, err)
+		return nil, fmt.Errorf("%s volume rows: %w", cagg, err)
 	}
 
 	return buckets, nil
@@ -374,14 +376,15 @@ func scanSyslog(row pgx.Row, e *model.SyslogEvent) error {
 }
 
 // GetSyslogSummary returns summary statistics for the given range.
+// Uses syslog_summary_hourly continuous aggregate.
 func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error) {
 	since := time.Now().UTC().Add(-rangeDur)
 	prevStart := since.Add(-rangeDur)
 
-	// Get current 24h totals by severity
-	query := `SELECT severity, count(*) AS cnt
-	          FROM syslog_events
-	          WHERE received_at >= $1
+	// Get current totals by severity from the continuous aggregate.
+	query := `SELECT severity, SUM(cnt) AS cnt
+	          FROM syslog_summary_hourly
+	          WHERE bucket >= $1
 	          GROUP BY severity
 	          ORDER BY severity`
 
@@ -418,9 +421,11 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 		return model.SyslogSummary{}, fmt.Errorf("severity rows: %w", err)
 	}
 
-	// Get previous 24h total for trend calculation
+	// Get previous period total for trend calculation.
 	var prevTotal int64
-	err = s.pool.QueryRow(ctx, "SELECT count(*) FROM syslog_events WHERE received_at >= $1 AND received_at < $2", prevStart, since).Scan(&prevTotal)
+	err = s.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(cnt), 0) FROM syslog_summary_hourly WHERE bucket >= $1 AND bucket < $2`,
+		prevStart, since).Scan(&prevTotal)
 	if err != nil {
 		return model.SyslogSummary{}, fmt.Errorf("prev total query: %w", err)
 	}
@@ -429,10 +434,10 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 		summary.Trend = float64(summary.Total-prevTotal) / float64(prevTotal) * 100
 	}
 
-	// Get top hosts
-	hostQuery := `SELECT hostname, count(*) AS cnt
-	              FROM syslog_events
-	              WHERE received_at >= $1
+	// Get top hosts from the continuous aggregate.
+	hostQuery := `SELECT hostname, SUM(cnt) AS cnt
+	              FROM syslog_summary_hourly
+	              WHERE bucket >= $1
 	              GROUP BY hostname
 	              ORDER BY cnt DESC
 	              LIMIT $2`
@@ -458,14 +463,14 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 		return model.SyslogSummary{}, fmt.Errorf("host rows: %w", err)
 	}
 
-	// Calculate percentages for top hosts
+	// Calculate percentages for top hosts.
 	for i := range summary.TopHosts {
 		if summary.Total > 0 {
 			summary.TopHosts[i].Pct = float64(summary.TopHosts[i].Count) / float64(summary.Total) * 100
 		}
 	}
 
-	// Calculate percentages for severity breakdown
+	// Calculate percentages for severity breakdown.
 	for i := range summary.SeverityBreakdown {
 		if summary.Total > 0 {
 			summary.SeverityBreakdown[i].Pct = float64(summary.SeverityBreakdown[i].Count) / float64(summary.Total) * 100
@@ -476,14 +481,15 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 }
 
 // GetAppLogSummary returns summary statistics for the given range.
+// Uses applog_summary_hourly continuous aggregate.
 func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (model.AppLogSummary, error) {
 	since := time.Now().UTC().Add(-rangeDur)
 	prevStart := since.Add(-rangeDur)
 
-	// Get current 24h totals by level
-	query := `SELECT level, count(*) AS cnt
-	          FROM applog_events
-	          WHERE received_at >= $1
+	// Get current totals by level from the continuous aggregate.
+	query := `SELECT level, SUM(cnt) AS cnt
+	          FROM applog_summary_hourly
+	          WHERE bucket >= $1
 	          GROUP BY level
 	          ORDER BY level`
 
@@ -520,9 +526,11 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 		return model.AppLogSummary{}, fmt.Errorf("level rows: %w", err)
 	}
 
-	// Get previous 24h total for trend calculation
+	// Get previous period total for trend calculation.
 	var prevTotal int64
-	err = s.pool.QueryRow(ctx, "SELECT count(*) FROM applog_events WHERE received_at >= $1 AND received_at < $2", prevStart, since).Scan(&prevTotal)
+	err = s.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(cnt), 0) FROM applog_summary_hourly WHERE bucket >= $1 AND bucket < $2`,
+		prevStart, since).Scan(&prevTotal)
 	if err != nil {
 		return model.AppLogSummary{}, fmt.Errorf("prev total query: %w", err)
 	}
@@ -531,10 +539,10 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 		summary.Trend = float64(summary.Total-prevTotal) / float64(prevTotal) * 100
 	}
 
-	// Get top services
-	svcQuery := `SELECT service, count(*) AS cnt
-	             FROM applog_events
-	             WHERE received_at >= $1
+	// Get top services from the continuous aggregate.
+	svcQuery := `SELECT service, SUM(cnt) AS cnt
+	             FROM applog_summary_hourly
+	             WHERE bucket >= $1
 	             GROUP BY service
 	             ORDER BY cnt DESC
 	             LIMIT $2`
@@ -560,14 +568,14 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 		return model.AppLogSummary{}, fmt.Errorf("service rows: %w", err)
 	}
 
-	// Calculate percentages for top services
+	// Calculate percentages for top services.
 	for i := range summary.TopServices {
 		if summary.Total > 0 {
 			summary.TopServices[i].Pct = float64(summary.TopServices[i].Count) / float64(summary.Total) * 100
 		}
 	}
 
-	// Calculate percentages for level breakdown
+	// Calculate percentages for level breakdown.
 	for i := range summary.LevelBreakdown {
 		if summary.Total > 0 {
 			summary.LevelBreakdown[i].Pct = float64(summary.LevelBreakdown[i].Count) / float64(summary.Total) * 100
