@@ -1,4 +1,4 @@
-.PHONY: install dev build preview lint clean help
+.PHONY: install dev build preview lint test clean help
 
 ##@ General
 help: ## Show this help
@@ -19,6 +19,9 @@ build: ## Build for production
 	npm run build
 
 ##@ Quality
+test: ## Run unit tests
+	npm test
+
 lint: ## Lint (type-check)
 	npm run type-check
 

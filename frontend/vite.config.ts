@@ -14,6 +14,9 @@ export default defineConfig(({ mode }) => {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
+    test: {
+      environment: 'node',
+    },
     server: {
       proxy: {
         '/api': {

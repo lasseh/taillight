@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, onErrorCaptured } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useMetaStore } from '@/stores/meta'
@@ -96,10 +96,27 @@ router.isReady().then(() => {
 onUnmounted(() => {
   stopStreams()
 })
+
+// Global error boundary — catches uncaught errors from child components.
+const fatalError = ref<string | null>(null)
+onErrorCaptured((err) => {
+  fatalError.value = err instanceof Error ? err.message : String(err)
+  console.error('Uncaught component error:', err)
+  return false
+})
 </script>
 
 <template>
-  <router-view v-if="isLoginRoute" />
+  <div v-if="fatalError" class="flex h-screen items-center justify-center bg-neutral-900 text-neutral-200">
+    <div class="max-w-md space-y-4 text-center">
+      <h1 class="text-xl font-semibold text-red-400">Something went wrong</h1>
+      <p class="text-sm text-neutral-400">{{ fatalError }}</p>
+      <button class="rounded bg-neutral-700 px-4 py-2 text-sm hover:bg-neutral-600" @click="fatalError = null">
+        Try again
+      </button>
+    </div>
+  </div>
+  <router-view v-else-if="isLoginRoute" />
   <div v-else-if="routerReady && auth.user" class="flex h-screen flex-col">
     <AppHeader />
     <FilterBar v-if="route.name === 'syslog'" />
