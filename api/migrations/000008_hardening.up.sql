@@ -5,16 +5,10 @@
 CREATE INDEX IF NOT EXISTS idx_notif_rules_event_kind
     ON notification_rules (event_kind, enabled);
 
--------------------------------------------------------------------------------
--- H6. Generated column for rsyslog_stats inner JSON extraction.
--- ompgsql stores impstats as {"msg": "{ ... }"}, so every query must parse
--- the inner JSON string. A stored generated column materializes this once
--- on write and lets queries use a plain JSONB column reference.
--------------------------------------------------------------------------------
-
-ALTER TABLE rsyslog_stats
-    ADD COLUMN IF NOT EXISTS inner_stats JSONB
-    GENERATED ALWAYS AS ((stats ->> 'msg')::jsonb) STORED;
+-- H6 (generated column on rsyslog_stats) was dropped: TimescaleDB columnstore
+-- does not support GENERATED ALWAYS AS columns. The Go code continues to use
+-- the (stats ->> 'msg')::jsonb expression inline, which is acceptable given
+-- that columnstore compression already optimizes read performance.
 
 -------------------------------------------------------------------------------
 -- C2. Remove meta cache INSERT triggers.

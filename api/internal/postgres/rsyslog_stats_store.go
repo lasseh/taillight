@@ -31,10 +31,12 @@ var allowedStatsFields = map[string]struct{}{
 // These duplicate the listener-level stats and must be excluded from totals.
 var workerRe = regexp.MustCompile(`\(w\d+\)|^w\d+/`)
 
-// innerStatsExpr references the generated JSONB column that materializes
-// the parsed inner stats object. See migration 000008_hardening for the
-// column definition. Replaces the old (stats ->> 'msg')::jsonb expression.
-const innerStatsExpr = `inner_stats`
+// innerStatsExpr is the SQL expression that extracts the inner JSON object.
+// ompgsql stores impstats as {"msg": "{ ... }"} — the actual stats are a
+// JSON string inside the "msg" key. This expression parses it back to JSONB.
+// Note: a GENERATED ALWAYS AS column was considered but TimescaleDB columnstore
+// does not support generated columns.
+const innerStatsExpr = `(stats ->> 'msg')::jsonb`
 
 // GetRsyslogStatsSummary returns aggregated KPIs from all snapshots in the range.
 // Because impstats uses resetCounters=on, each snapshot contains deltas for

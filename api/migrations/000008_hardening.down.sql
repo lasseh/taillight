@@ -53,12 +53,6 @@ CREATE TRIGGER trg_applog_meta_cache
     FOR EACH ROW EXECUTE FUNCTION cache_applog_meta();
 
 -------------------------------------------------------------------------------
--- H6. Remove generated column.
--------------------------------------------------------------------------------
-
-ALTER TABLE rsyslog_stats DROP COLUMN IF EXISTS inner_stats;
-
--------------------------------------------------------------------------------
 -- M5. Remove index.
 -------------------------------------------------------------------------------
 
