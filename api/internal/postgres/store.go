@@ -295,34 +295,32 @@ func collectSyslogs(rows pgx.Rows) ([]model.SyslogEvent, error) {
 }
 
 // GetVolume returns time-bucketed event counts grouped by hostname.
-// Uses the syslog_summary_hourly continuous aggregate.
 func (s *Store) GetVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	return s.getVolume(ctx, "syslog_summary_hourly", "hostname", interval, rangeDur)
+	return s.getVolume(ctx, "syslog_events", "hostname", interval, rangeDur)
 }
 
 // GetAppLogVolume returns time-bucketed event counts grouped by service.
-// Uses the applog_summary_hourly continuous aggregate.
 func (s *Store) GetAppLogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	return s.getVolume(ctx, "applog_summary_hourly", "service", interval, rangeDur)
+	return s.getVolume(ctx, "applog_events", "service", interval, rangeDur)
 }
 
-func (s *Store) getVolume(ctx context.Context, cagg, groupCol string, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
+func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
 	if !interval.IsValid() {
 		return nil, fmt.Errorf("invalid volume interval: %s", interval)
 	}
 	since := time.Now().UTC().Add(-rangeDur)
 
 	query := fmt.Sprintf(
-		`SELECT time_bucket($1::interval, bucket) AS b,
-		        %s, SUM(cnt) AS cnt
+		`SELECT time_bucket($1::interval, received_at) AS bucket,
+		        %s, count(*) AS cnt
 		 FROM %s
-		 WHERE bucket >= $2
-		 GROUP BY b, %s
-		 ORDER BY b ASC`, groupCol, cagg, groupCol)
+		 WHERE received_at >= $2
+		 GROUP BY bucket, %s
+		 ORDER BY bucket ASC`, groupCol, table, groupCol)
 
 	rows, err := s.pool.Query(ctx, query, interval.String(), since)
 	if err != nil {
-		return nil, fmt.Errorf("%s volume query: %w", cagg, err)
+		return nil, fmt.Errorf("%s volume query: %w", table, err)
 	}
 	defer rows.Close()
 
@@ -337,7 +335,7 @@ func (s *Store) getVolume(ctx context.Context, cagg, groupCol string, interval m
 			cnt    int64
 		)
 		if err := rows.Scan(&bucket, &group, &cnt); err != nil {
-			return nil, fmt.Errorf("scan %s volume row: %w", cagg, err)
+			return nil, fmt.Errorf("scan %s volume row: %w", table, err)
 		}
 
 		i, ok := idx[bucket]
@@ -353,7 +351,7 @@ func (s *Store) getVolume(ctx context.Context, cagg, groupCol string, interval m
 		buckets[i].ByHost[group] = cnt
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%s volume rows: %w", cagg, err)
+		return nil, fmt.Errorf("%s volume rows: %w", table, err)
 	}
 
 	return buckets, nil
