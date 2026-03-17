@@ -98,12 +98,21 @@ func TestBuildEmailSubject(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "custom template",
+			name: "custom template literal",
 			tmpl: "Custom Alert",
 			payload: notification.Payload{
 				SyslogEvent: &model.SyslogEvent{Hostname: "web01", Severity: 3},
 			},
 			expected: "Custom Alert",
+		},
+		{
+			name: "custom template interpolated",
+			tmpl: "Alert: {{.RuleName}} on {{.SyslogEvent.Hostname}}",
+			payload: notification.Payload{
+				RuleName:    "disk-full",
+				SyslogEvent: &model.SyslogEvent{Hostname: "web01", Severity: 3},
+			},
+			expected: "Alert: disk-full on web01",
 		},
 		{
 			name: "syslog event",

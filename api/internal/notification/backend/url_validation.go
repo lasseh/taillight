@@ -21,6 +21,7 @@ func init() {
 		"169.254.0.0/16", // IPv4 link-local
 		"::1/128",        // IPv6 loopback
 		"fe80::/10",      // IPv6 link-local
+		"fc00::/7",       // IPv6 unique local addresses (RFC 4193)
 	}
 	for _, cidr := range cidrs {
 		_, ipNet, err := net.ParseCIDR(cidr)

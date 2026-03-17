@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/lasseh/taillight/internal/model"
@@ -60,6 +62,11 @@ func (e *Email) Validate(ch notification.Channel) error {
 	for i, addr := range cfg.To {
 		if _, err := mail.ParseAddress(addr); err != nil {
 			return fmt.Errorf("invalid email address at position %d", i+1)
+		}
+	}
+	if cfg.SubjectTemplate != "" {
+		if _, err := template.New("validate").Parse(cfg.SubjectTemplate); err != nil {
+			return fmt.Errorf("invalid subject_template syntax: %w", err)
 		}
 	}
 	return nil
@@ -183,9 +190,18 @@ func sanitizeHeaderValue(s string) string {
 }
 
 // buildEmailSubject creates the email subject line.
+// If a subject_template is configured, it is executed as a Go text/template.
 func buildEmailSubject(tmpl string, p notification.Payload) string {
 	if tmpl != "" {
-		return sanitizeHeaderValue(tmpl)
+		t, err := template.New("email-subject").Parse(tmpl)
+		if err != nil {
+			return sanitizeHeaderValue(tmpl) // Fallback to literal if invalid.
+		}
+		var buf bytes.Buffer
+		if err := t.Execute(&buf, p); err != nil {
+			return sanitizeHeaderValue(tmpl) // Fallback to literal on execution error.
+		}
+		return sanitizeHeaderValue(buf.String())
 	}
 
 	prefix := "[Taillight]"
