@@ -489,6 +489,7 @@ func setupRouter(
 
 				r.Route("/stats", func(r chi.Router) {
 					r.Get("/volume", statsHandler.Volume)
+					r.Get("/severity-volume", statsHandler.SeverityVolume)
 					r.Get("/summary", statsHandler.SyslogSummary)
 				})
 
@@ -536,6 +537,7 @@ func setupRouter(
 					r.Get("/meta/hosts", applogMetaHandler.Hosts)
 
 					r.Get("/stats/volume", statsHandler.AppLogVolume)
+					r.Get("/stats/severity-volume", statsHandler.AppLogSeverityVolume)
 					r.Get("/stats/summary", statsHandler.AppLogSummary)
 
 					r.Get("/device/{hostname}", applogDeviceHandler.Get)

@@ -1,6 +1,6 @@
 import type { SyslogListResponse, JuniperSyslogRef, MetaResponse, SingleSyslogResponse } from '@/types/syslog'
 import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
-import type { VolumeResponse, SyslogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
+import type { VolumeResponse, SeverityVolumeResponse, SyslogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
 import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
 import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } from '@/types/taillight-metrics'
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse } from '@/types/auth'
@@ -184,6 +184,14 @@ export const api = {
 
   getAppLogVolume(params: URLSearchParams): Promise<VolumeResponse> {
     return fetchAPI(`/api/v1/applog/stats/volume?${params}`)
+  },
+
+  getSeverityVolume(params: URLSearchParams): Promise<SeverityVolumeResponse> {
+    return fetchAPI(`/api/v1/stats/severity-volume?${params}`)
+  },
+
+  getAppLogSeverityVolume(params: URLSearchParams): Promise<SeverityVolumeResponse> {
+    return fetchAPI(`/api/v1/applog/stats/severity-volume?${params}`)
   },
 
   // Device

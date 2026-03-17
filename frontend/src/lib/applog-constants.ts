@@ -41,6 +41,15 @@ export const levelBgClass: Record<string, string> = {
   WARN: '',
 }
 
+/** CSS variable names for level colors, used by SeverityTimeline chart. */
+export const levelColorVar: Record<string, string> = {
+  FATAL: '--color-sev-emerg',
+  ERROR: '--color-sev-alert',
+  WARN: '--color-sev-crit',
+  INFO: '--color-sev-notice',
+  DEBUG: '--color-sev-debug',
+}
+
 /** Level options for the filter dropdown (minimum level). */
 export const levelOptions = [
   { value: 'FATAL', label: 'FATAL', colorClass: 'text-sev-emerg' },

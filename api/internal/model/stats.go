@@ -69,6 +69,13 @@ type VolumeBucket struct {
 	ByHost map[string]int64 `json:"by_host"`
 }
 
+// SeverityVolumeBucket is a single time bucket with counts grouped by severity.
+type SeverityVolumeBucket struct {
+	Time       time.Time        `json:"time"`
+	Total      int64            `json:"total"`
+	BySeverity map[string]int64 `json:"by_severity"`
+}
+
 // SeverityCount holds a count for a specific severity level.
 type SeverityCount struct {
 	Severity int     `json:"severity"`

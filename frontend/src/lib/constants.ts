@@ -92,6 +92,23 @@ export const severityBgClassByLabel: Record<string, string> = {
   debug: 'bg-sev-debug',
 }
 
+/** CSS variable names for severity colors, used by SeverityTimeline chart. */
+export const severityColorVar: Record<string, string> = {
+  emerg: '--color-sev-emerg',
+  alert: '--color-sev-alert',
+  crit: '--color-sev-crit',
+  err: '--color-sev-err',
+  warning: '--color-sev-warning',
+  notice: '--color-sev-notice',
+  info: '--color-sev-info',
+  debug: '--color-sev-debug',
+}
+
+/** Resolve a CSS custom property to its computed hex value at runtime. */
+export function getCSSColor(varName: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim()
+}
+
 /** Severity options for the filter dropdown (severity_max). */
 export const severityOptions = [
   { value: '0', label: 'EMERG', colorClass: 'text-sev-emerg' },

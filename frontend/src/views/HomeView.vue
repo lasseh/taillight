@@ -11,6 +11,9 @@ import { LEVEL_RANK, levelColorClass, levelBgColorClass } from '@/lib/applog-con
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
 import ActivityHeatmap from '@/components/ActivityHeatmap.vue'
+import SeverityTimeline from '@/components/SeverityTimeline.vue'
+import { severityColorVar } from '@/lib/constants'
+import { levelColorVar } from '@/lib/applog-constants'
 
 defineOptions({ name: 'HomeView' })
 
@@ -25,9 +28,12 @@ const anySyslogWidgetVisible = computed(() =>
 const anyApplogWidgetVisible = computed(() =>
   ['applog-summary', 'applog-distribution', 'applog-recent'].some(id => isVisible(id)),
 )
-const anyHeatmapVisible = computed(() =>
-  ['syslog-heatmap', 'applog-heatmap'].some(id => isVisible(id)),
+const anyActivityVisible = computed(() =>
+  ['syslog-timeline', 'applog-timeline', 'syslog-heatmap', 'applog-heatmap'].some(id => isVisible(id)),
 )
+
+const syslogCategories = ['debug', 'info', 'notice', 'warning', 'err', 'crit', 'alert', 'emerg']
+const applogCategories = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
 
 const rangePresets = [
   { label: '1h', value: '1h' },
@@ -429,13 +435,35 @@ function getSeverityBgClass(level: string): string {
           </div>
         </template>
       </section>
-      <!-- ═══════════════════════════ ACTIVITY HEATMAPS ═══════════════════════════ -->
-      <section v-if="anyHeatmapVisible || editing">
+      <!-- ═══════════════════════════ ACTIVITY ═══════════════════════════ -->
+      <section v-if="anyActivityVisible || editing">
         <h2 class="text-t-fg-dark mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
           <span>Activity</span>
           <span class="bg-t-border h-px flex-1"></span>
         </h2>
 
+        <!-- Severity Timelines -->
+        <div class="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <!-- Syslog Severity Timeline -->
+          <div v-if="isVisible('syslog-timeline')" class="relative">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-timeline')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">Syslog Severity (24h)</h3>
+              <SeverityTimeline :data="home.syslogSeverityVolume" :color-map="severityColorVar" :categories="syslogCategories" />
+            </div>
+          </div>
+
+          <!-- Applog Level Timeline -->
+          <div v-if="isVisible('applog-timeline')" class="relative">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('applog-timeline')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <div class="bg-t-bg-dark border-t-border rounded border p-4">
+              <h3 class="text-t-magenta mb-3 text-xs font-semibold uppercase tracking-wide">Applog Level (24h)</h3>
+              <SeverityTimeline :data="home.applogSeverityVolume" :color-map="levelColorVar" :categories="applogCategories" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Heatmaps -->
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <!-- Syslog Heatmap -->
           <div v-if="isVisible('syslog-heatmap')" class="relative">

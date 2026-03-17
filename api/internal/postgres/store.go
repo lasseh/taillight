@@ -357,6 +357,112 @@ func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval 
 	return buckets, nil
 }
 
+// GetSeverityVolume returns time-bucketed event counts grouped by syslog severity.
+func (s *Store) GetSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error) {
+	if !interval.IsValid() {
+		return nil, fmt.Errorf("invalid volume interval: %s", interval)
+	}
+	since := time.Now().UTC().Add(-rangeDur)
+
+	query := `SELECT time_bucket($1::interval, received_at) AS bucket,
+	                 severity, count(*) AS cnt
+	          FROM syslog_events
+	          WHERE received_at >= $2
+	          GROUP BY bucket, severity
+	          ORDER BY bucket ASC`
+
+	rows, err := s.pool.Query(ctx, query, interval.String(), since)
+	if err != nil {
+		return nil, fmt.Errorf("severity volume query: %w", err)
+	}
+	defer rows.Close()
+
+	type key = time.Time
+	idx := make(map[key]int)
+	var buckets []model.SeverityVolumeBucket
+
+	for rows.Next() {
+		var (
+			bucket time.Time
+			sev    int
+			cnt    int64
+		)
+		if err := rows.Scan(&bucket, &sev, &cnt); err != nil {
+			return nil, fmt.Errorf("scan severity volume row: %w", err)
+		}
+
+		i, ok := idx[bucket]
+		if !ok {
+			i = len(buckets)
+			idx[bucket] = i
+			buckets = append(buckets, model.SeverityVolumeBucket{
+				Time:       bucket,
+				BySeverity: make(map[string]int64),
+			})
+		}
+		buckets[i].Total += cnt
+		buckets[i].BySeverity[model.SeverityLabel(sev)] = cnt
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("severity volume rows: %w", err)
+	}
+
+	return buckets, nil
+}
+
+// GetAppLogSeverityVolume returns time-bucketed event counts grouped by applog level.
+func (s *Store) GetAppLogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error) {
+	if !interval.IsValid() {
+		return nil, fmt.Errorf("invalid volume interval: %s", interval)
+	}
+	since := time.Now().UTC().Add(-rangeDur)
+
+	query := `SELECT time_bucket($1::interval, received_at) AS bucket,
+	                 level, count(*) AS cnt
+	          FROM applog_events
+	          WHERE received_at >= $2
+	          GROUP BY bucket, level
+	          ORDER BY bucket ASC`
+
+	rows, err := s.pool.Query(ctx, query, interval.String(), since)
+	if err != nil {
+		return nil, fmt.Errorf("applog severity volume query: %w", err)
+	}
+	defer rows.Close()
+
+	type key = time.Time
+	idx := make(map[key]int)
+	var buckets []model.SeverityVolumeBucket
+
+	for rows.Next() {
+		var (
+			bucket time.Time
+			level  string
+			cnt    int64
+		)
+		if err := rows.Scan(&bucket, &level, &cnt); err != nil {
+			return nil, fmt.Errorf("scan applog severity volume row: %w", err)
+		}
+
+		i, ok := idx[bucket]
+		if !ok {
+			i = len(buckets)
+			idx[bucket] = i
+			buckets = append(buckets, model.SeverityVolumeBucket{
+				Time:       bucket,
+				BySeverity: make(map[string]int64),
+			})
+		}
+		buckets[i].Total += cnt
+		buckets[i].BySeverity[strings.ToUpper(level)] = cnt
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("applog severity volume rows: %w", err)
+	}
+
+	return buckets, nil
+}
+
 func scanSyslog(row pgx.Row, e *model.SyslogEvent) error {
 	var ip netip.Addr
 	err := row.Scan(

@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
 import { useSyslogStream } from '@/composables/useSyslogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
-import type { SyslogSummary, AppLogSummary, VolumeBucket } from '@/types/stats'
+import type { SyslogSummary, AppLogSummary, VolumeBucket, SeverityVolumeBucket } from '@/types/stats'
 import type { SyslogEvent } from '@/types/syslog'
 import type { AppLogEvent } from '@/types/applog'
 
@@ -49,6 +49,8 @@ export const useHomeStore = defineStore('home', () => {
   const recentApplogEvents = ref<AppLogEvent[]>([])
   const syslogHeatmap = ref<Record<string, number>>({})
   const applogHeatmap = ref<Record<string, number>>({})
+  const syslogSeverityVolume = ref<SeverityVolumeBucket[]>([])
+  const applogSeverityVolume = ref<SeverityVolumeBucket[]>([])
   const loading = ref(false)
   const loaded = ref(false)
   const error = ref<string | null>(null)
@@ -160,10 +162,29 @@ export const useHomeStore = defineStore('home', () => {
     }
   }
 
+  async function fetchSeverityTimelines() {
+    const params = new URLSearchParams({ interval: '15m', range: '24h' })
+
+    try {
+      const res = await api.getSeverityVolume(params)
+      syslogSeverityVolume.value = res.data ?? []
+    } catch {
+      // Non-critical — keep existing data
+    }
+
+    try {
+      const res = await api.getAppLogSeverityVolume(params)
+      applogSeverityVolume.value = res.data ?? []
+    } catch {
+      // Non-critical — keep existing data
+    }
+  }
+
   /** Summaries and heatmaps poll; recent events stay live via SSE. */
   function refreshPolled() {
     fetchSummaries()
     fetchHeatmaps()
+    fetchSeverityTimelines()
   }
 
   function subscribeStreams() {
@@ -185,6 +206,7 @@ export const useHomeStore = defineStore('home', () => {
     fetchSummaries()
     fetchRecentEvents()
     fetchHeatmaps()
+    fetchSeverityTimelines()
     subscribeStreams()
     refreshTimer = setInterval(refreshPolled, SUMMARY_REFRESH_INTERVAL)
   }
@@ -199,6 +221,7 @@ export const useHomeStore = defineStore('home', () => {
     fetchSummaries()
     fetchRecentEvents()
     fetchHeatmaps()
+    fetchSeverityTimelines()
   }
 
   function stopRefresh() {
@@ -216,6 +239,8 @@ export const useHomeStore = defineStore('home', () => {
     recentApplogEvents,
     syslogHeatmap,
     applogHeatmap,
+    syslogSeverityVolume,
+    applogSeverityVolume,
     loading,
     loaded,
     error,

@@ -12,6 +12,8 @@ import (
 type StatsStore interface {
 	GetVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
 	GetAppLogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
+	GetSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
+	GetAppLogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
 	GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
 	GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (model.AppLogSummary, error)
 }
@@ -56,6 +58,42 @@ func (h *StatsHandler) AppLogVolume(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		LoggerFromContext(r.Context()).Error("get applog volume failed", "err", err, "interval", params.Interval, "range", params.RangeDur)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query applog volume")
+		return
+	}
+
+	writeJSON(w, itemResponse{Data: emptySlice(buckets)})
+}
+
+// SeverityVolume handles GET /api/v1/stats/severity-volume.
+func (h *StatsHandler) SeverityVolume(w http.ResponseWriter, r *http.Request) {
+	params, err := model.ParseVolumeParams(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_params", err.Error())
+		return
+	}
+
+	buckets, err := h.store.GetSeverityVolume(r.Context(), params.Interval, params.RangeDur)
+	if err != nil {
+		LoggerFromContext(r.Context()).Error("get severity volume failed", "err", err, "interval", params.Interval, "range", params.RangeDur)
+		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query severity volume")
+		return
+	}
+
+	writeJSON(w, itemResponse{Data: emptySlice(buckets)})
+}
+
+// AppLogSeverityVolume handles GET /api/v1/applog/stats/severity-volume.
+func (h *StatsHandler) AppLogSeverityVolume(w http.ResponseWriter, r *http.Request) {
+	params, err := model.ParseVolumeParams(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_params", err.Error())
+		return
+	}
+
+	buckets, err := h.store.GetAppLogSeverityVolume(r.Context(), params.Interval, params.RangeDur)
+	if err != nil {
+		LoggerFromContext(r.Context()).Error("get applog severity volume failed", "err", err, "interval", params.Interval, "range", params.RangeDur)
+		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query applog severity volume")
 		return
 	}
 

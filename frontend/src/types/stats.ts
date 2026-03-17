@@ -52,6 +52,16 @@ export interface AppLogSummary {
   top_services: TopSource[]
 }
 
+export interface SeverityVolumeBucket {
+  time: string
+  total: number
+  by_severity: Record<string, number>
+}
+
+export interface SeverityVolumeResponse {
+  data: SeverityVolumeBucket[]
+}
+
 export interface SyslogSummaryResponse {
   data: SyslogSummary
 }

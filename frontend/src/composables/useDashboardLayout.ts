@@ -40,7 +40,7 @@ export function useDashboardLayout() {
     saveHidden(hiddenWidgets.value)
   }
 
-  const allHidden = computed(() => hiddenWidgets.value.size >= 8)
+  const allHidden = computed(() => hiddenWidgets.value.size >= 10)
 
   return { editing, hiddenWidgets, isVisible, hideWidget, startEditing, stopEditing, resetLayout, allHidden }
 }
