@@ -486,9 +486,7 @@ func (h *AuthHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(createKeyResponse{ //nolint:errcheck
+	writeJSONStatus(w, http.StatusCreated, createKeyResponse{
 		Key:     fullKey,
 		KeyInfo: keyRow,
 	})

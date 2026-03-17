@@ -41,7 +41,10 @@ func CheckPassword(password, hash string) error {
 var dummyHash string
 
 func init() {
-	h, _ := bcrypt.GenerateFromPassword([]byte("timing-safe-dummy"), bcryptCost)
+	h, err := bcrypt.GenerateFromPassword([]byte("timing-safe-dummy"), bcryptCost)
+	if err != nil {
+		panic("failed to generate dummy bcrypt hash: " + err.Error())
+	}
 	dummyHash = string(h)
 }
 

@@ -36,7 +36,7 @@ type Engine struct {
 	groups      *GroupTracker
 	rateLimiter *PerKeyLimiter
 	breakers    map[int64]*breakerEntry
-	breakerMu   sync.RWMutex
+	breakerMu   sync.Mutex
 	dispatchCh  chan dispatchJob
 	logger      *slog.Logger
 	cfg         Config

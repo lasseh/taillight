@@ -32,7 +32,7 @@ type limiterEntry struct {
 
 // PerKeyLimiter provides per-channel token bucket rate limiting with TTL eviction.
 type PerKeyLimiter struct {
-	mu       sync.RWMutex
+	mu       sync.Mutex
 	limiters map[int64]*limiterEntry
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -58,20 +58,8 @@ func (l *PerKeyLimiter) Stop() {
 func (l *PerKeyLimiter) Allow(channelID int64, channelType ChannelType) bool {
 	now := time.Now()
 
-	l.mu.RLock()
-	entry, ok := l.limiters[channelID]
-	l.mu.RUnlock()
-
-	if ok {
-		l.mu.Lock()
-		entry.lastUsed = now
-		l.mu.Unlock()
-		return entry.limiter.Allow()
-	}
-
 	l.mu.Lock()
-	// Double-check after acquiring write lock.
-	entry, ok = l.limiters[channelID]
+	entry, ok := l.limiters[channelID]
 	if !ok {
 		d := channelDefaults[channelType]
 		if d.rate == 0 {
@@ -83,6 +71,8 @@ func (l *PerKeyLimiter) Allow(channelID int64, channelType ChannelType) bool {
 			lastUsed: now,
 		}
 		l.limiters[channelID] = entry
+	} else {
+		entry.lastUsed = now
 	}
 	l.mu.Unlock()
 
