@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/lasseh/taillight/internal/httputil"
 )
 
 func TestWriteJSON(t *testing.T) {
@@ -38,7 +40,7 @@ func TestWriteError(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 
-	var got errorBody
+	var got httputil.ErrorBody
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
@@ -203,7 +205,7 @@ func TestWriteError_StatusCodes(t *testing.T) {
 				t.Errorf("status = %d, want %d", w.Code, tt.status)
 			}
 
-			var got errorBody
+			var got httputil.ErrorBody
 			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 				t.Fatalf("unmarshal: %v", err)
 			}

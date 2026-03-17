@@ -192,4 +192,11 @@ var (
 		Name:      "notification_dispatch_queue_length",
 		Help:      "Current number of notifications in the dispatch queue.",
 	})
+
+	// NotifGroupsDroppedTotal counts events dropped because per-rule group cap was reached.
+	NotifGroupsDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "notification_groups_dropped_total",
+		Help:      "Events dropped because per-rule group cap was reached.",
+	})
 )

@@ -37,5 +37,4 @@ func init() {
 	rootCmd.AddCommand(importCmd)
 	rootCmd.AddCommand(useraddCmd)
 	rootCmd.AddCommand(apikeyCmd)
-	rootCmd.AddCommand(tuiCmd)
 }

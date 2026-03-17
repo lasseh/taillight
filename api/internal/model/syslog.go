@@ -114,8 +114,6 @@ type SyslogFilter struct {
 	Search      string
 	From        *time.Time
 	To          *time.Time
-
-	searchLower string // precomputed strings.ToLower(Search)
 }
 
 // matchWildcard reports whether value matches a glob pattern where * matches
@@ -189,10 +187,7 @@ func (f SyslogFilter) Matches(e SyslogEvent) bool {
 		return false
 	}
 	if f.Search != "" {
-		sl := f.searchLower
-		if sl == "" {
-			sl = strings.ToLower(f.Search)
-		}
+		sl := strings.ToLower(f.Search)
 		if !strings.Contains(strings.ToLower(e.Message), sl) {
 			return false
 		}
@@ -240,14 +235,12 @@ func DecodeCursor(s string) (Cursor, error) {
 // Returns an error if any typed parameter has an invalid value.
 func ParseSyslogFilter(r *http.Request) (SyslogFilter, error) {
 	q := r.URL.Query()
-	search := q.Get("search")
 	f := SyslogFilter{
 		Hostname:    q.Get("hostname"),
 		Programname: q.Get("programname"),
 		SyslogTag:   q.Get("syslogtag"),
 		MsgID:       q.Get("msgid"),
-		Search:      search,
-		searchLower: strings.ToLower(search),
+		Search:      q.Get("search"),
 	}
 
 	var errs []string

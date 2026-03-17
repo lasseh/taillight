@@ -72,8 +72,7 @@ type AppLogFilter struct {
 	From       *time.Time
 	To         *time.Time
 
-	searchLower  string // precomputed strings.ToLower(Search)
-	levelMinRank int    // precomputed AppLogLevelRank(Level)+1; 0 means not precomputed
+	levelMinRank *int // precomputed AppLogLevelRank(Level); nil means not set
 }
 
 // Matches returns true if the event satisfies all non-zero filter fields.
@@ -96,8 +95,8 @@ func (f AppLogFilter) Matches(e AppLogEvent) bool {
 	}
 	if f.Level != "" {
 		minRank := AppLogLevelRank(f.Level)
-		if f.levelMinRank > 0 {
-			minRank = f.levelMinRank - 1 // decode stored rank+1
+		if f.levelMinRank != nil {
+			minRank = *f.levelMinRank
 		}
 		if minRank >= 0 {
 			if eventRank := AppLogLevelRank(e.Level); eventRank < minRank {
@@ -106,10 +105,7 @@ func (f AppLogFilter) Matches(e AppLogEvent) bool {
 		}
 	}
 	if f.Search != "" {
-		sl := f.searchLower
-		if sl == "" {
-			sl = strings.ToLower(f.Search)
-		}
+		sl := strings.ToLower(f.Search)
 		if !strings.Contains(strings.ToLower(e.Msg), sl) &&
 			!strings.Contains(strings.ToLower(string(e.Attrs)), sl) {
 			return false
@@ -121,13 +117,11 @@ func (f AppLogFilter) Matches(e AppLogEvent) bool {
 // ParseAppLogFilter extracts a AppLogFilter from HTTP query parameters.
 func ParseAppLogFilter(r *http.Request) (AppLogFilter, error) {
 	q := r.URL.Query()
-	search := q.Get("search")
 	f := AppLogFilter{
-		Service:     q.Get("service"),
-		Component:   q.Get("component"),
-		Host:        q.Get("host"),
-		Search:      search,
-		searchLower: strings.ToLower(search),
+		Service:   q.Get("service"),
+		Component: q.Get("component"),
+		Host:      q.Get("host"),
+		Search:    q.Get("search"),
 	}
 
 	var errs []string
@@ -148,7 +142,8 @@ func ParseAppLogFilter(r *http.Request) (AppLogFilter, error) {
 			errs = append(errs, "level: must be one of DEBUG, INFO, WARN, ERROR, FATAL")
 		} else {
 			f.Level = normalized
-			f.levelMinRank = AppLogLevelRank(normalized) + 1 // store rank+1; 0 means not precomputed
+			rank := AppLogLevelRank(normalized)
+			f.levelMinRank = &rank
 		}
 	}
 	if v := q.Get("level_exact"); v != "" {

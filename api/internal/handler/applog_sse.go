@@ -94,13 +94,19 @@ func (h *AppLogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			if msg.ID <= lastBackfilledID {
 				continue
 			}
-			_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+			if err := rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil {
+				logger.Warn("applog sse: failed to set write deadline", "err", err)
+				return
+			}
 			if err := writeSSEEvent(w, msg.ID, "applog", msg.Data); err != nil {
 				return
 			}
 			flusher.Flush()
 		case <-heartbeat.C:
-			_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+			if err := rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil {
+				logger.Warn("applog sse: failed to set write deadline", "err", err)
+				return
+			}
 			if _, err := fmt.Fprint(w, "event: heartbeat\ndata: \n\n"); err != nil {
 				return
 			}

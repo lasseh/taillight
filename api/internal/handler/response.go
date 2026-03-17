@@ -3,6 +3,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/lasseh/taillight/internal/httputil"
@@ -20,20 +21,11 @@ type itemResponse struct {
 	Data any `json:"data"`
 }
 
-// errorBody is the structured error envelope used by tests to unmarshal
-// error responses. The actual encoding is handled by httputil.WriteError.
-type errorBody struct {
-	Error errorDetail `json:"error"`
-}
-
-type errorDetail struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v) //nolint:errcheck
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Default().Error("writeJSON encode failed", "err", err)
+	}
 }
 
 // writeJSONStatus sends a JSON response with a specific HTTP status code.
@@ -41,7 +33,9 @@ func writeJSON(w http.ResponseWriter, v any) {
 func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v) //nolint:errcheck
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Default().Error("writeJSONStatus encode failed", "err", err)
+	}
 }
 
 // writeError sends a JSON error response. Content-Type must be set before

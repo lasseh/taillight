@@ -198,10 +198,9 @@ func (l *Listener) recv(ctx context.Context, conn *pgx.Conn, ch chan<- Notificat
 			continue
 		}
 
-		l.lastSeenID.Store(id)
-
 		select {
 		case ch <- Notification{Channel: notification.Channel, ID: id}:
+			l.lastSeenID.Store(id)
 		case <-ctx.Done():
 			return ctx.Err()
 		}

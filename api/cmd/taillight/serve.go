@@ -162,7 +162,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	syslogBroker.Shutdown()
 	applogBroker.Shutdown()
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer shutdownCancel()
 
 	// Shutdown notification engine (drain dispatch queue).

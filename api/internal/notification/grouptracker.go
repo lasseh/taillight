@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/lasseh/taillight/internal/metrics"
 )
 
 // groupPhase identifies where a group is in its lifecycle.
@@ -75,6 +77,7 @@ func (gt *GroupTracker) Add(ruleID int64, groupKey string, burstWindow, cooldown
 	if !ok {
 		// Enforce per-rule group cap to prevent memory exhaustion.
 		if gt.ruleGroupCount[ruleID] >= maxGroupsPerRule {
+			metrics.NotifGroupsDroppedTotal.Inc()
 			return
 		}
 		// New group: start accumulating.

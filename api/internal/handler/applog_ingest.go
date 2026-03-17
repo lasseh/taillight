@@ -168,7 +168,5 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]int{"accepted": len(inserted)}) //nolint:errcheck
+	writeJSONStatus(w, http.StatusAccepted, map[string]int{"accepted": len(inserted)})
 }

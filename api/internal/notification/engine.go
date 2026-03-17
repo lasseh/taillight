@@ -480,22 +480,10 @@ func (e *Engine) resolveChannels(ids []int64) []Channel {
 func (e *Engine) getOrCreateBreaker(channelID int64, channelName string) *gobreaker.CircuitBreaker[SendResult] {
 	now := time.Now()
 
-	e.breakerMu.RLock()
-	entry, ok := e.breakers[channelID]
-	e.breakerMu.RUnlock()
-	if ok {
-		e.breakerMu.Lock()
-		entry.lastUsed = now
-		e.breakerMu.Unlock()
-		return entry.cb
-	}
-
 	e.breakerMu.Lock()
 	defer e.breakerMu.Unlock()
 
-	// Double-check after acquiring write lock to avoid creating duplicate breakers
-	// under concurrent load.
-	if entry, ok = e.breakers[channelID]; ok {
+	if entry, ok := e.breakers[channelID]; ok {
 		entry.lastUsed = now
 		return entry.cb
 	}

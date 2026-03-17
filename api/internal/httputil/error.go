@@ -4,14 +4,17 @@ package httputil
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
-type errorBody struct {
-	Error errorDetail `json:"error"`
+// ErrorBody is the structured error envelope for JSON error responses.
+type ErrorBody struct {
+	Error ErrorDetail `json:"error"`
 }
 
-type errorDetail struct {
+// ErrorDetail contains the code and message for an error response.
+type ErrorDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
@@ -24,7 +27,9 @@ type errorDetail struct {
 func WriteError(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(errorBody{ //nolint:errcheck
-		Error: errorDetail{Code: code, Message: msg},
-	})
+	if err := json.NewEncoder(w).Encode(ErrorBody{
+		Error: ErrorDetail{Code: code, Message: msg},
+	}); err != nil {
+		slog.Default().Error("WriteError encode failed", "err", err)
+	}
 }
