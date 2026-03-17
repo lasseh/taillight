@@ -311,11 +311,12 @@ func (e *Engine) onGroupFlush(ruleID int64, groupKey string, fp FlushPayload) {
 	)
 
 	// Send to dispatch queue.
-	metrics.NotifDispatchedTotal.Inc()
 	select {
 	case e.dispatchCh <- dispatchJob{rule: rule, channels: channels, payload: payload}:
+		metrics.NotifDispatchedTotal.Inc()
 		metrics.NotifDispatchQueueLen.Set(float64(len(e.dispatchCh)))
 	default:
+		metrics.NotifSuppressedTotal.WithLabelValues("queue_full").Inc()
 		e.logger.Warn("dispatch queue full, dropping notification", "rule_id", ruleID)
 	}
 }
