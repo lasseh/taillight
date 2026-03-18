@@ -229,6 +229,11 @@ async function handleSubmit() {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-t-blue) 15%, transparent);
 }
 
+.field-input::selection {
+  background: var(--color-t-blue);
+  color: var(--color-t-bg);
+}
+
 .api-error {
   display: flex;
   flex-direction: column;
