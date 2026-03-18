@@ -105,21 +105,20 @@ export const useHomeStore = defineStore('home', () => {
       applogErr = e
     }
 
-    // If both failed with network errors, show a single clean message.
-    if (syslogErr && applogErr) {
-      const isNetwork = (e: unknown) => !(e instanceof ApiError)
-      if (isNetwork(syslogErr) && isNetwork(applogErr)) {
-        error.value = 'connection'
-      } else {
-        const msg = (e: unknown) => e instanceof Error ? e.message : 'unknown error'
-        error.value = `syslog: ${msg(syslogErr)}; applog: ${msg(applogErr)}`
-      }
+    // Detect connection-level failures: network errors or gateway errors (502-504).
+    const isConnectionErr = (e: unknown) =>
+      !(e instanceof ApiError) || (e.status >= 502 && e.status <= 504)
+    const errMsg = (e: unknown) =>
+      (e instanceof Error && e.message) ? e.message : 'unknown error'
+
+    if (syslogErr && applogErr && isConnectionErr(syslogErr) && isConnectionErr(applogErr)) {
+      error.value = 'connection'
+    } else if (syslogErr && applogErr) {
+      error.value = `syslog: ${errMsg(syslogErr)}; applog: ${errMsg(applogErr)}`
     } else if (syslogErr) {
-      const msg = syslogErr instanceof Error ? syslogErr.message : 'unknown error'
-      error.value = `syslog summary: ${msg}`
+      error.value = `syslog summary: ${errMsg(syslogErr)}`
     } else if (applogErr) {
-      const msg = applogErr instanceof Error ? applogErr.message : 'unknown error'
-      error.value = `applog summary: ${msg}`
+      error.value = `applog summary: ${errMsg(applogErr)}`
     } else {
       error.value = null
     }
