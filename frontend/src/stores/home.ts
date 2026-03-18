@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { useSyslogStream } from '@/composables/useSyslogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
 import type { SyslogSummary, AppLogSummary, VolumeBucket, SeverityVolumeBucket } from '@/types/stats'
@@ -87,24 +87,43 @@ export const useHomeStore = defineStore('home', () => {
       loading.value = true
     }
 
-    const errors: string[] = []
+    let syslogErr: unknown = null
+    let applogErr: unknown = null
 
     // Fetch independently so one failure doesn't block the other.
     try {
       const res = await api.getSyslogSummary(range_.value)
       syslogSummary.value = res.data
     } catch (e) {
-      errors.push(`syslog summary: ${e instanceof Error ? e.message : 'unknown error'}`)
+      syslogErr = e
     }
 
     try {
       const res = await api.getAppLogSummary(range_.value)
       applogSummary.value = res.data
     } catch (e) {
-      errors.push(`applog summary: ${e instanceof Error ? e.message : 'unknown error'}`)
+      applogErr = e
     }
 
-    error.value = errors.length > 0 ? errors.join('; ') : null
+    // If both failed with network errors, show a single clean message.
+    if (syslogErr && applogErr) {
+      const isNetwork = (e: unknown) => !(e instanceof ApiError)
+      if (isNetwork(syslogErr) && isNetwork(applogErr)) {
+        error.value = 'connection'
+      } else {
+        const msg = (e: unknown) => e instanceof Error ? e.message : 'unknown error'
+        error.value = `syslog: ${msg(syslogErr)}; applog: ${msg(applogErr)}`
+      }
+    } else if (syslogErr) {
+      const msg = syslogErr instanceof Error ? syslogErr.message : 'unknown error'
+      error.value = `syslog summary: ${msg}`
+    } else if (applogErr) {
+      const msg = applogErr instanceof Error ? applogErr.message : 'unknown error'
+      error.value = `applog summary: ${msg}`
+    } else {
+      error.value = null
+    }
+
     loading.value = false
     loaded.value = true
   }
