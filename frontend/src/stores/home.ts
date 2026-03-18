@@ -8,6 +8,7 @@ import type { SyslogEvent } from '@/types/syslog'
 import type { AppLogEvent } from '@/types/applog'
 
 const SUMMARY_REFRESH_INTERVAL = 30_000 // 30 seconds
+const RECONNECT_INTERVAL = 5_000 // 5 seconds when disconnected
 const MAX_RECENT_EVENTS = 10
 const HIGH_SEVERITY_MAX = 2 // syslog: crit and above
 const HIGH_APPLOG_LEVELS = new Set(['FATAL', 'ERROR', 'WARN'])
@@ -113,6 +114,7 @@ export const useHomeStore = defineStore('home', () => {
 
     if (syslogErr && applogErr && isConnectionErr(syslogErr) && isConnectionErr(applogErr)) {
       error.value = 'connection'
+      startReconnect()
     } else if (syslogErr && applogErr) {
       error.value = `syslog: ${errMsg(syslogErr)}; applog: ${errMsg(applogErr)}`
     } else if (syslogErr) {
@@ -198,7 +200,9 @@ export const useHomeStore = defineStore('home', () => {
     }
   }
 
-  /** Summaries and heatmaps poll; recent events stay live via SSE. */
+  let reconnectTimer: ReturnType<typeof setInterval> | null = null
+
+  /** Normal polling: refresh summaries, heatmaps, timelines. */
   function refreshPolled() {
     fetchSummaries()
     fetchHeatmaps()
@@ -217,6 +221,37 @@ export const useHomeStore = defineStore('home', () => {
     unsubApplog?.()
     unsubSyslog = null
     unsubApplog = null
+  }
+
+  function stopReconnect() {
+    if (reconnectTimer) {
+      clearInterval(reconnectTimer)
+      reconnectTimer = null
+    }
+  }
+
+  /** Switch to fast reconnect polling (summaries only). */
+  function startReconnect() {
+    if (reconnectTimer) return // already reconnecting
+    // Pause normal polling and SSE while disconnected.
+    if (refreshTimer) {
+      clearInterval(refreshTimer)
+      refreshTimer = null
+    }
+    unsubscribeStreams()
+
+    reconnectTimer = setInterval(async () => {
+      await fetchSummaries()
+      if (error.value === null) {
+        // Server is back — stop reconnect, do a full data reload.
+        stopReconnect()
+        fetchRecentEvents()
+        fetchHeatmaps()
+        fetchSeverityTimelines()
+        subscribeStreams()
+        refreshTimer = setInterval(refreshPolled, SUMMARY_REFRESH_INTERVAL)
+      }
+    }, RECONNECT_INTERVAL)
   }
 
   function startRefresh() {
@@ -247,6 +282,7 @@ export const useHomeStore = defineStore('home', () => {
       clearInterval(refreshTimer)
       refreshTimer = null
     }
+    stopReconnect()
     unsubscribeStreams()
   }
 
