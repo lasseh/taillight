@@ -1,0 +1,2 @@
+-- Nothing to undo: the refresh and materialized_only setting are harmless.
+-- The original refresh policy from 000009 continues to operate.
