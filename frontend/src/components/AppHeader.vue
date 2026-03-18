@@ -42,6 +42,12 @@ function pick(id: string) {
   setTheme(id)
 }
 
+function goToUsers() {
+  menuOpen.value = false
+  closeMobileMenu()
+  router.push({ name: 'admin-users' })
+}
+
 function goToSettings() {
   menuOpen.value = false
   closeMobileMenu()
@@ -184,7 +190,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
       <div ref="menuRef" class="relative hidden md:block">
         <button
           class="text-t-fg-dark hover:text-t-fg flex items-center gap-1 px-1.5 py-0.5 text-xs transition-colors"
-          :class="menuOpen || String(route.name).startsWith('settings') || route.name === 'api-keys' || route.name === 'analysis' ? 'text-t-fg' : ''"
+          :class="menuOpen || String(route.name).startsWith('settings') || route.name === 'api-keys' || route.name === 'analysis' || route.name === 'admin-users' ? 'text-t-fg' : ''"
           @click.stop="menuOpen = !menuOpen"
         >
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -212,6 +218,19 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             <!-- Settings section (authenticated only) -->
             <div v-if="isAuthenticated" class="border-t-border border-b py-1">
               <span class="text-t-fg-dark px-3 py-1 text-[10px] font-semibold uppercase tracking-wider">Settings</span>
+              <button
+                v-if="auth.user?.is_admin"
+                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
+                @click="goToUsers"
+              >
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+                <span>Manage Users</span>
+              </button>
               <button
                 class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
                 @click="goToSettings"
@@ -408,6 +427,19 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           <div class="bg-t-border my-3 h-px"></div>
           <span class="text-t-fg-dark px-2 py-1 text-[10px] font-semibold uppercase tracking-wider">Settings</span>
           <div class="flex flex-col gap-1">
+            <button
+              v-if="auth.user?.is_admin"
+              class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
+              @click="goToUsers"
+            >
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              <span>Manage Users</span>
+            </button>
             <button
               class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
               @click="goToSettings"

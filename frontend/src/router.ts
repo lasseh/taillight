@@ -70,6 +70,11 @@ const router = createRouter({
       component: () => import('@/views/ApiKeysView.vue'),
     },
     {
+      path: '/admin/users',
+      name: 'admin-users',
+      component: () => import('@/views/UsersView.vue'),
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/views/LoginView.vue'),

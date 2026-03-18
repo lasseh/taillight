@@ -3,7 +3,7 @@ import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
 import type { VolumeResponse, SeverityVolumeResponse, SyslogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
 import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
 import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } from '@/types/taillight-metrics'
-import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse } from '@/types/auth'
+import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse, ListUsersResponse, AdminUser } from '@/types/auth'
 import type { ChannelListResponse, ChannelResponse, RuleListResponse, RuleResponse, LogListResponse, TestChannelResult, NotificationChannel, NotificationRule } from '@/types/notification'
 import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
 import type { AnalysisReportListResponse, AnalysisReportResponse, AnalysisTriggerResponse } from '@/types/analysis'
@@ -126,6 +126,27 @@ export const api = {
 
   updateEmail(email: string): Promise<MeResponse> {
     return patchAPI('/api/v1/auth/me/email', { email })
+  },
+
+  // Admin user management
+  listUsers(): Promise<ListUsersResponse> {
+    return fetchAPI('/api/v1/auth/users')
+  },
+
+  createUser(req: { username: string; password: string; is_admin: boolean }): Promise<{ user: AdminUser }> {
+    return postAPI('/api/v1/auth/users', req)
+  },
+
+  setUserActive(id: string, active: boolean): Promise<{ status: string }> {
+    return patchAPI(`/api/v1/auth/users/${id}/active`, { active })
+  },
+
+  revokeUserSessions(id: string): Promise<{ status: string }> {
+    return postAPI(`/api/v1/auth/users/${id}/revoke-sessions`, {})
+  },
+
+  adminResetPassword(id: string, password: string): Promise<{ status: string }> {
+    return patchAPI(`/api/v1/auth/users/${id}/password`, { password })
   },
 
   // Syslog

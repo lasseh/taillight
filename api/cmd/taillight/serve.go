@@ -442,6 +442,7 @@ func setupRouter(
 				r.Group(func(r chi.Router) {
 					r.Use(auth.RequireScope("admin"))
 					r.Get("/auth/users", authHandler.ListUsers)
+					r.Post("/auth/users", authHandler.CreateUser)
 					r.Patch("/auth/users/{id}/active", authHandler.SetUserActive)
 					r.Patch("/auth/users/{id}/password", authHandler.UpdateUserPassword)
 					r.Post("/auth/users/{id}/revoke-sessions", authHandler.RevokeUserSessions)

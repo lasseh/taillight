@@ -139,6 +139,7 @@ type userInfo struct {
 	Username    string  `json:"username"`
 	Email       *string `json:"email,omitempty"`
 	IsAdmin     bool    `json:"is_admin"`
+	IsActive    bool    `json:"is_active"`
 	GravatarURL string  `json:"gravatar_url"`
 	CreatedAt   string  `json:"created_at"`
 	LastLoginAt *string `json:"last_login_at,omitempty"`
@@ -151,6 +152,7 @@ func buildUserInfo(u model.User) userInfo {
 		Username:    u.Username,
 		Email:       u.Email,
 		IsAdmin:     u.IsAdmin,
+		IsActive:    u.IsActive,
 		GravatarURL: gravatarURL(u.Email),
 		CreatedAt:   u.CreatedAt.Format(time.RFC3339),
 	}
@@ -564,7 +566,74 @@ func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, listResponse{Data: emptySlice(users)})
+	infos := make([]userInfo, len(users))
+	for i, u := range users {
+		infos[i] = buildUserInfo(u)
+	}
+	writeJSON(w, listResponse{Data: emptySlice(infos)})
+}
+
+type createUserRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	IsAdmin  bool   `json:"is_admin"`
+}
+
+// CreateUser handles POST /api/v1/auth/users.
+// Admin-only: creates a new user account.
+func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	if !requireAdmin(w, user) {
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBody)
+
+	var req createUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+		return
+	}
+
+	if req.Username == "" || len(req.Username) > 255 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "username is required (1-255 characters)")
+		return
+	}
+
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "password must be at least 8 characters")
+		return
+	}
+	if len(req.Password) > 72 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "password must be at most 72 characters (bcrypt limit)")
+		return
+	}
+
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		LoggerFromContext(r.Context()).Error("create user: hash password", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to create user")
+		return
+	}
+
+	created, err := h.store.CreateUser(r.Context(), req.Username, hash, req.IsAdmin)
+	if err != nil {
+		LoggerFromContext(r.Context()).Error("create user: store", "err", err, "username", req.Username)
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+			writeError(w, http.StatusConflict, "conflict", "username already exists")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to create user")
+		return
+	}
+
+	LoggerFromContext(r.Context()).Info("user created", "username", req.Username, "admin", req.IsAdmin)
+	writeJSONStatus(w, http.StatusCreated, loginResponse{User: buildUserInfo(created)})
 }
 
 type setUserActiveRequest struct {
@@ -619,6 +688,7 @@ type updatePasswordRequest struct {
 }
 
 // UpdateUserPassword handles PATCH /api/v1/auth/users/{id}/password.
+// Self-change requires current_password. Admin can reset another user's password without it.
 func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
@@ -632,7 +702,8 @@ func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if id != user.ID.Bytes {
+	isSelf := id == user.ID.Bytes
+	if !isSelf && !user.IsAdmin {
 		writeError(w, http.StatusForbidden, "forbidden", "can only change your own password")
 		return
 	}
@@ -645,14 +716,16 @@ func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.CurrentPassword == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "current password is required")
-		return
-	}
-
-	if err := auth.CheckPassword(req.CurrentPassword, user.PasswordHash); err != nil {
-		writeError(w, http.StatusForbidden, "forbidden", "current password is incorrect")
-		return
+	// Self-change requires current password verification.
+	if isSelf {
+		if req.CurrentPassword == "" {
+			writeError(w, http.StatusBadRequest, "invalid_request", "current password is required")
+			return
+		}
+		if err := auth.CheckPassword(req.CurrentPassword, user.PasswordHash); err != nil {
+			writeError(w, http.StatusForbidden, "forbidden", "current password is incorrect")
+			return
+		}
 	}
 
 	if len(req.Password) < 8 {
@@ -677,7 +750,7 @@ func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Invalidate all existing sessions for this user.
+	// Invalidate all existing sessions for the target user.
 	if err := h.store.DeleteUserSessions(r.Context(), id); err != nil {
 		LoggerFromContext(r.Context()).Error("delete user sessions on password change", "err", err)
 	}

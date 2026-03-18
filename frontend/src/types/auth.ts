@@ -2,9 +2,26 @@ export interface AuthUser {
   id: string
   username: string
   email?: string
+  is_admin?: boolean
+  is_active?: boolean
   gravatar_url: string
   created_at?: string
   last_login_at?: string
+}
+
+export interface AdminUser {
+  id: string
+  username: string
+  email?: string
+  is_admin: boolean
+  is_active: boolean
+  gravatar_url: string
+  created_at: string
+  last_login_at?: string
+}
+
+export interface ListUsersResponse {
+  data: AdminUser[]
 }
 
 export interface LoginResponse {
