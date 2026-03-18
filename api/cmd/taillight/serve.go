@@ -83,6 +83,11 @@ func runServe(_ *cobra.Command, _ []string) error {
 		logger.Warn("failed to apply retention policies", "err", err)
 	}
 
+	// Seed continuous aggregates so summaries work immediately on fresh deploys.
+	if err := store.RefreshContinuousAggregates(ctx); err != nil {
+		logger.Warn("failed to refresh continuous aggregates", "err", err)
+	}
+
 	// Dedicated LISTEN connection.
 	listener := postgres.NewListener(cfg.DatabaseURL, pool, cfg.NotificationBufferSize, logger)
 	notifications, err := listener.Listen(ctx)

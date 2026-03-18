@@ -479,6 +479,22 @@ func scanSyslog(row pgx.Row, e *model.SyslogEvent) error {
 	return nil
 }
 
+// RefreshContinuousAggregates seeds the TimescaleDB continuous aggregates
+// so that real-time aggregation has a watermark to work from. This must
+// run outside a transaction (CALL cannot run inside BEGIN/COMMIT), so it
+// is called at application startup rather than in a SQL migration.
+func (s *Store) RefreshContinuousAggregates(ctx context.Context) error {
+	for _, view := range []string{"syslog_summary_hourly", "applog_summary_hourly"} {
+		//nolint:gosec // view names are hardcoded constants, not user input.
+		if _, err := s.pool.Exec(ctx,
+			fmt.Sprintf("CALL refresh_continuous_aggregate('%s', NULL, now())", view),
+		); err != nil {
+			return fmt.Errorf("refresh %s: %w", view, err)
+		}
+	}
+	return nil
+}
+
 // GetSyslogSummary returns summary statistics for the given range.
 // Uses syslog_summary_hourly continuous aggregate.
 func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error) {
