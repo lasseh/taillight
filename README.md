@@ -130,7 +130,7 @@ docker compose exec api /app loadgen -n 100 --delay 100ms --jitter 200ms
 docker compose exec api /app loadgen -n 100 --syslog rsyslog:514 --delay 100ms
 
 # Application log events (HTTP ingest)
-docker compose exec api /app applog-loadgen -n 100 --batch 50 \
+docker compose exec api /app applog-loadgen -n 100 --batch 1 \
   --endpoint http://localhost:8080/api/v1/applog/ingest
 ```
 
