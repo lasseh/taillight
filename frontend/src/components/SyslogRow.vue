@@ -52,7 +52,7 @@ const copyText = computed(() => {
       tabindex="0"
       :aria-expanded="expanded"
       :aria-label="`${event.severity_label} event from ${event.hostname}: ${event.message.slice(0, 80)}`"
-      class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug"
+      class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-1.5 px-2 py-px leading-snug md:gap-3 md:px-4"
       :class="sevBgClass"
       @click="toggle"
       @keydown.enter="toggle"
@@ -61,13 +61,13 @@ const copyText = computed(() => {
       <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.received_at) }}</span>
       <span class="w-[8ch] shrink-0 uppercase" :class="sevClass">{{ event.severity_label }}</span>
       <button
-        class="text-t-teal shrink-0 truncate text-left hover:underline"
+        class="text-t-teal hidden shrink-0 truncate text-left hover:underline md:inline"
         :style="{ width: 'var(--col-host, 20ch)' }"
         @click.stop="filterStore.filters.hostname = event.hostname"
       >
         {{ event.hostname }}
       </button>
-      <span class="text-t-purple shrink-0 truncate" :style="{ width: 'var(--col-prog, 14ch)' }">{{ event.programname }}</span>
+      <span class="text-t-purple hidden shrink-0 truncate md:inline" :style="{ width: 'var(--col-prog, 14ch)' }">{{ event.programname }}</span>
       <span class="min-w-0 flex-1 truncate" v-html="highlightedMessage" />
     </div>
     <SyslogDetail v-if="expanded" :event="event" />
