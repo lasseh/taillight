@@ -124,6 +124,7 @@ Every filter that drops messages has exception keywords checked via `re_match(to
 - **Enable remote forwarding**: Uncomment `call output_remote` in `conf.d/20-ruleset.conf`
 - **Enable JSON output**: Add `call output_json` to the output phase in `conf.d/20-ruleset.conf`
 - **Enable Prometheus stats**: Uncomment `impstats` and `rsyslog_stats` in `conf.d/00-modules.conf` (requires [rsyslog_exporter](https://github.com/digitalocean/rsyslog_exporter))
+- **Log dropped messages**: Uncomment `output_dropped` in `conf.d/02-outputs.conf`, then replace `stop` with `call output_dropped` in any filter to log what it discards to `/var/log/network/dropped.log`. See the example in `filters/40-by-severity.conf`. High-volume — use temporarily for tuning only.
 - **Debug a device**: Uncomment the debug block in `conf.d/20-ruleset.conf` and set the target IP
 
 ## Juniper device configuration
