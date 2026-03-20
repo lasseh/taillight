@@ -57,6 +57,7 @@ services:
       LISTEN_ADDR: ":8080"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      DEMO_MODE: ${DEMO_MODE:-false}
     volumes:
       - ./api/config.yml:/config.yml:ro
     networks:
