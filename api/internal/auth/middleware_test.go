@@ -362,16 +362,19 @@ func TestDenyWrites(t *testing.T) {
 		method     string
 		path       string
 		exempt     []string
+		remoteAddr string
 		wantStatus int
 	}{
-		{"GET allowed", http.MethodGet, "/api/v1/syslog", nil, http.StatusOK},
-		{"HEAD allowed", http.MethodHead, "/api/v1/syslog", nil, http.StatusOK},
-		{"OPTIONS allowed", http.MethodOptions, "/api/v1/syslog", nil, http.StatusOK},
-		{"POST blocked", http.MethodPost, "/api/v1/notifications/channels", nil, http.StatusForbidden},
-		{"PUT blocked", http.MethodPut, "/api/v1/notifications/channels/1", nil, http.StatusForbidden},
-		{"DELETE blocked", http.MethodDelete, "/api/v1/notifications/rules/1", nil, http.StatusForbidden},
-		{"POST exempt path allowed", http.MethodPost, "/api/v1/applog/ingest", []string{"/api/v1/applog/ingest"}, http.StatusOK},
-		{"POST non-exempt still blocked", http.MethodPost, "/api/v1/notifications/channels", []string{"/api/v1/applog/ingest"}, http.StatusForbidden},
+		{"GET allowed", http.MethodGet, "/api/v1/syslog", nil, "", http.StatusOK},
+		{"HEAD allowed", http.MethodHead, "/api/v1/syslog", nil, "", http.StatusOK},
+		{"OPTIONS allowed", http.MethodOptions, "/api/v1/syslog", nil, "", http.StatusOK},
+		{"POST blocked", http.MethodPost, "/api/v1/notifications/channels", nil, "", http.StatusForbidden},
+		{"PUT blocked", http.MethodPut, "/api/v1/notifications/channels/1", nil, "", http.StatusForbidden},
+		{"DELETE blocked", http.MethodDelete, "/api/v1/notifications/rules/1", nil, "", http.StatusForbidden},
+		{"POST exempt from private IP", http.MethodPost, "/api/v1/applog/ingest", []string{"/api/v1/applog/ingest"}, "172.18.0.5:12345", http.StatusOK},
+		{"POST exempt from loopback", http.MethodPost, "/api/v1/applog/ingest", []string{"/api/v1/applog/ingest"}, "127.0.0.1:54321", http.StatusOK},
+		{"POST exempt from public IP blocked", http.MethodPost, "/api/v1/applog/ingest", []string{"/api/v1/applog/ingest"}, "203.0.113.50:12345", http.StatusForbidden},
+		{"POST non-exempt still blocked", http.MethodPost, "/api/v1/notifications/channels", []string{"/api/v1/applog/ingest"}, "", http.StatusForbidden},
 	}
 
 	for _, tt := range tests {
@@ -380,6 +383,9 @@ func TestDenyWrites(t *testing.T) {
 			handler := mw(okHandler)
 
 			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.path, nil)
+			if tt.remoteAddr != "" {
+				req.RemoteAddr = tt.remoteAddr
+			}
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 

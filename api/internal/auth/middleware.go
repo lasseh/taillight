@@ -4,6 +4,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -130,7 +131,10 @@ func hasScope(scopes []string, target string) bool {
 
 // DenyWrites returns a middleware that rejects all non-GET/HEAD/OPTIONS requests
 // with 403 Forbidden. Used in demo mode to make the API read-only.
-// Exempt paths (e.g. ingest endpoint for loadgen) are passed through.
+// Exempt paths (e.g. ingest endpoint for loadgen) are allowed only from
+// private/loopback IPs (Docker containers, localhost), never from the internet.
+// The source IP is taken from r.RemoteAddr after chi's RealIP middleware has
+// resolved X-Forwarded-For / X-Real-IP, so internet clients get their real IP.
 func DenyWrites(exempt ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +144,7 @@ func DenyWrites(exempt ...string) func(http.Handler) http.Handler {
 				return
 			}
 			for _, path := range exempt {
-				if r.URL.Path == path {
+				if r.URL.Path == path && isPrivateIP(r.RemoteAddr) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -148,6 +152,20 @@ func DenyWrites(exempt ...string) func(http.Handler) http.Handler {
 			httputil.WriteError(w, http.StatusForbidden, "demo_mode", "write operations are disabled in demo mode")
 		})
 	}
+}
+
+// isPrivateIP reports whether the host portion of addr (host:port or bare IP)
+// belongs to a private or loopback range (RFC 1918, RFC 4193, loopback).
+func isPrivateIP(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr // bare IP without port
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate()
 }
 
 // extractBearer returns the token from an "Authorization: Bearer <token>" header.
