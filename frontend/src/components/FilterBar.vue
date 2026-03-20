@@ -90,6 +90,12 @@ const searchInput = computed({
           class="bg-t-bg-dark border-t-border text-t-fg placeholder:text-t-fg-gutter hover:border-t-terminal focus:border-t-blue w-full border px-2 py-0.5 text-xs outline-none"
         />
       </label>
+      <button
+        class="bg-t-blue/15 text-t-blue w-full rounded py-1.5 text-xs active:bg-t-blue/25"
+        @click="mobileOpen = false"
+      >
+        apply
+      </button>
     </div>
   </Transition>
 
