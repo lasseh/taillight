@@ -2,7 +2,7 @@
 import { ref, computed, nextTick, toRef, inject, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { AppLogEvent } from '@/types/applog'
-import { levelColorClass, levelBgClass } from '@/lib/applog-constants'
+import { levelColorClass, levelBgClass, levelBgColorClass } from '@/lib/applog-constants'
 import { formatTime, formatAttrs } from '@/lib/format'
 import AppLogDetail from '@/components/AppLogDetail.vue'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
@@ -32,6 +32,7 @@ function toggle() {
 const event = toRef(props, 'event')
 const lvlClass = computed(() => levelColorClass[event.value.level] ?? 'text-t-fg')
 const bgClass = computed(() => levelBgClass[event.value.level] ?? '')
+const lvlBarClass = computed(() => levelBgColorClass[event.value.level] ?? 'bg-sev-notice')
 
 const hasAttrs = computed(() => event.value.attrs && Object.keys(event.value.attrs).length > 0)
 
@@ -47,33 +48,35 @@ const copyText = computed(() => {
 
 <template>
   <div ref="rowEl" class="group">
-    <!-- Mobile: two-line layout -->
+    <!-- Mobile: two-line layout with level color bar -->
     <div
       :data-copytext="copyText"
       role="button"
       tabindex="0"
       :aria-expanded="expanded"
       :aria-label="`${event.level} event from ${event.service}: ${event.msg.slice(0, 80)}`"
-      class="hover:bg-t-bg-hover cursor-pointer px-2 py-0.5 md:hidden"
+      class="hover:bg-t-bg-hover flex cursor-pointer gap-2 py-1 pr-2 md:hidden"
       :class="bgClass"
       @click="toggle"
       @keydown.enter="toggle"
       @keydown.space.prevent="toggle"
     >
-      <div class="flex items-baseline gap-1.5 leading-snug">
-        <span class="w-[8ch] shrink-0 uppercase" :class="lvlClass">{{ event.level }}</span>
-        <span class="text-t-fg min-w-0 flex-1 truncate">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></span>
-      </div>
-      <div class="text-t-fg-gutter flex items-baseline gap-1 truncate pl-[8ch] text-[10px] leading-snug">
-        <span>{{ formatTime(event.timestamp) }}</span>
-        <span class="text-t-fg-gutter/50">&middot;</span>
-        <span class="text-t-teal/70">{{ event.host }}</span>
-        <span class="text-t-fg-gutter/50">&middot;</span>
-        <span class="text-t-purple/70">{{ event.service }}</span>
-        <template v-if="event.component">
-          <span class="text-t-fg-gutter/50">&middot;</span>
-          <span class="text-t-yellow/70">{{ event.component }}</span>
-        </template>
+      <div class="w-[3px] shrink-0 rounded-r" :class="lvlBarClass" />
+      <div class="min-w-0 flex-1">
+        <div class="text-t-fg truncate leading-snug">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></div>
+        <div class="text-t-fg-gutter mt-px flex items-center gap-1.5 text-[10px] leading-tight">
+          <span class="uppercase" :class="lvlClass">{{ event.level }}</span>
+          <span class="text-t-fg-gutter/40">&middot;</span>
+          <span>{{ formatTime(event.timestamp) }}</span>
+          <span class="text-t-fg-gutter/40">&middot;</span>
+          <span class="text-t-teal/60 truncate">{{ event.host }}</span>
+          <span class="text-t-fg-gutter/40">&middot;</span>
+          <span class="text-t-purple/60 truncate">{{ event.service }}</span>
+          <template v-if="event.component">
+            <span class="text-t-fg-gutter/40">&middot;</span>
+            <span class="text-t-yellow/60 truncate">{{ event.component }}</span>
+          </template>
+        </div>
       </div>
     </div>
     <!-- Desktop: single-line layout -->

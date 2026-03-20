@@ -2,7 +2,7 @@
 import { ref, computed, nextTick, toRef, inject, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { SyslogEvent } from '@/types/syslog'
-import { severityColorClass, severityBgClass } from '@/lib/constants'
+import { severityColorClass, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
 import { formatTime } from '@/lib/format'
 import SyslogDetail from '@/components/SyslogDetail.vue'
@@ -33,6 +33,7 @@ function toggle() {
 const event = toRef(props, 'event')
 const sevClass = computed(() => severityColorClass[event.value.severity] ?? 'text-t-fg')
 const sevBgClass = computed(() => severityBgClass[event.value.severity] ?? '')
+const sevBarClass = computed(() => severityBgClassByLabel[event.value.severity_label] ?? 'bg-sev-info')
 
 const highlightedMessage = computed(() =>
   highlightMessage(event.value.id, event.value.message),
@@ -46,29 +47,31 @@ const copyText = computed(() => {
 
 <template>
   <div ref="rowEl" class="group">
-    <!-- Mobile: two-line layout -->
+    <!-- Mobile: two-line layout with severity color bar -->
     <div
       :data-copytext="copyText"
       role="button"
       tabindex="0"
       :aria-expanded="expanded"
       :aria-label="`${event.severity_label} event from ${event.hostname}: ${event.message.slice(0, 80)}`"
-      class="hover:bg-t-bg-hover cursor-pointer px-2 py-0.5 md:hidden"
+      class="hover:bg-t-bg-hover flex cursor-pointer gap-2 py-1 pr-2 md:hidden"
       :class="sevBgClass"
       @click="toggle"
       @keydown.enter="toggle"
       @keydown.space.prevent="toggle"
     >
-      <div class="flex items-baseline gap-1.5 leading-snug">
-        <span class="w-[8ch] shrink-0 uppercase" :class="sevClass">{{ event.severity_label }}</span>
-        <span class="min-w-0 flex-1 truncate" v-html="highlightedMessage" />
-      </div>
-      <div class="text-t-fg-gutter flex items-baseline gap-1 truncate pl-[8ch] text-[10px] leading-snug">
-        <span>{{ formatTime(event.received_at) }}</span>
-        <span class="text-t-fg-gutter/50">&middot;</span>
-        <span class="text-t-teal/70">{{ event.hostname }}</span>
-        <span class="text-t-fg-gutter/50">&middot;</span>
-        <span class="text-t-purple/70">{{ event.programname }}</span>
+      <div class="w-[3px] shrink-0 rounded-r" :class="sevBarClass" />
+      <div class="min-w-0 flex-1">
+        <div class="truncate leading-snug" v-html="highlightedMessage" />
+        <div class="text-t-fg-gutter mt-px flex items-center gap-1.5 text-[10px] leading-tight">
+          <span class="uppercase" :class="sevClass">{{ event.severity_label }}</span>
+          <span class="text-t-fg-gutter/40">&middot;</span>
+          <span>{{ formatTime(event.received_at) }}</span>
+          <span class="text-t-fg-gutter/40">&middot;</span>
+          <span class="text-t-teal/60 truncate">{{ event.hostname }}</span>
+          <span class="text-t-fg-gutter/40">&middot;</span>
+          <span class="text-t-purple/60 truncate">{{ event.programname }}</span>
+        </div>
       </div>
     </div>
     <!-- Desktop: single-line layout -->
