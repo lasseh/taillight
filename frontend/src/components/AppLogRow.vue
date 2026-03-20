@@ -63,20 +63,8 @@ const copyText = computed(() => {
     >
       <div class="w-[3px] shrink-0 rounded-r" :class="lvlBarClass" />
       <div class="min-w-0 flex-1">
+        <div class="text-t-teal/60 truncate text-[10px] leading-tight">{{ event.host }}</div>
         <div class="text-t-fg truncate leading-snug">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></div>
-        <div class="text-t-fg-gutter mt-px flex items-center gap-1.5 text-[10px] leading-tight">
-          <span class="uppercase" :class="lvlClass">{{ event.level }}</span>
-          <span class="text-t-fg-gutter/40">&middot;</span>
-          <span>{{ formatTime(event.timestamp) }}</span>
-          <span class="text-t-fg-gutter/40">&middot;</span>
-          <span class="text-t-teal/60 truncate">{{ event.host }}</span>
-          <span class="text-t-fg-gutter/40">&middot;</span>
-          <span class="text-t-purple/60 truncate">{{ event.service }}</span>
-          <template v-if="event.component">
-            <span class="text-t-fg-gutter/40">&middot;</span>
-            <span class="text-t-yellow/60 truncate">{{ event.component }}</span>
-          </template>
-        </div>
       </div>
     </div>
     <!-- Desktop: single-line layout -->

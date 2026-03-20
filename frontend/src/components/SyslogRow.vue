@@ -62,16 +62,8 @@ const copyText = computed(() => {
     >
       <div class="w-[3px] shrink-0 rounded-r" :class="sevBarClass" />
       <div class="min-w-0 flex-1">
+        <div class="text-t-teal/60 truncate text-[10px] leading-tight">{{ event.hostname }}</div>
         <div class="truncate leading-snug" v-html="highlightedMessage" />
-        <div class="text-t-fg-gutter mt-px flex items-center gap-1.5 text-[10px] leading-tight">
-          <span class="uppercase" :class="sevClass">{{ event.severity_label }}</span>
-          <span class="text-t-fg-gutter/40">&middot;</span>
-          <span>{{ formatTime(event.received_at) }}</span>
-          <span class="text-t-fg-gutter/40">&middot;</span>
-          <span class="text-t-teal/60 truncate">{{ event.hostname }}</span>
-          <span class="text-t-fg-gutter/40">&middot;</span>
-          <span class="text-t-purple/60 truncate">{{ event.programname }}</span>
-        </div>
       </div>
     </div>
     <!-- Desktop: single-line layout -->
