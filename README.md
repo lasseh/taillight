@@ -96,6 +96,58 @@ Lightweight, real-time log viewer for network operations teams. Stream syslog an
 
 **Application logs:** apps `POST` JSON batches to `/api/v1/applog/ingest`. The handler inserts into `applog_events` and broadcasts directly to the `AppLogBroker` — no LISTEN/NOTIFY. The broker applies per-client filters and pushes matching events to SSE clients.
 
+## rsyslog Filtering
+
+Network devices — especially Juniper gear — emit thousands of syslog messages per minute: chassis polls, SNMP traps, session logs, scheduler ticks, and routine daemon output. Taillight ships a modular rsyslog configuration that applies layered filters to drop the noise before it hits the database.
+
+### Processing Pipeline
+
+```
+UDP/TCP input (514, 1514)
+  → parse RFC 5424 structured data
+  → capture critical severity (emerg/alert/crit) before any filtering
+  → filter by msgid         (fastest — exact event name match)
+  → route UI_COMMIT events  (Oxidized, commit log)
+  → filter by programname   (daemon-level drops)
+  → filter by facility      (local7 info noise)
+  → filter by severity      (drop debug globally)
+  → filter by hostname/IP   (optional per-host rules)
+  → output to PostgreSQL, LibreNMS, per-host files, remote forwarding
+```
+
+### Filter Layers
+
+Filters are applied cheapest-first. Each layer has exception keywords — messages containing `error`, `fail`, `critical`, `down`, `denied`, or `alarm` pass through even if the event type is normally dropped.
+
+| Layer | File | Method | Drops |
+|-------|------|--------|-------|
+| msgid | `filters/05-by-msgid.conf` | Exact `$msgid` match | Chassis polls, RPD scheduler, RT_FLOW sessions, SNMP traps, LLDP neighbor-up, PFE stats, license checks |
+| Commit routing | `filters/06-ui-commit-trigger.conf` | `$msgid` match | Routes UI_COMMIT to Oxidized and commit log |
+| Program | `filters/10-by-programname.conf` | `$programname` match | cron, ntpd, mib2d, dcd, lacpd, cosd, alarmd, sshd, pfed |
+| Facility | `filters/30-by-facility.conf` | `$syslogfacility` | local7 info-level messages |
+| Severity | `filters/40-by-severity.conf` | `$syslogseverity` | All debug (severity 7) |
+| Hostname | `filters/50-by-hostname.conf` | `$hostname`/`$fromhost-ip` | Nothing by default (examples only) |
+
+### Juniper Device Setup
+
+Devices must send RFC 5424 structured-data syslog for msgid-based filters to work:
+
+```
+set system syslog host <collector-ip> any notice
+set system syslog host <collector-ip> port 514
+set system syslog host <collector-ip> source-address <loopback-ip>
+set system syslog host <collector-ip> structured-data
+```
+
+### Customization
+
+- **Add msgid filter**: add a block to `filters/05-by-msgid.conf`
+- **Add daemon filter**: add a block to `filters/10-by-programname.conf`
+- **Filter specific hosts**: uncomment examples in `filters/50-by-hostname.conf`
+- **Test changes**: `cd rsyslog && make test` or `docker compose run --rm test`
+
+See [`rsyslog/README.md`](rsyslog/README.md) for the full reference including deployment, PostgreSQL output setup, and Juniper configuration details.
+
 ## Quickstart
 
 ### Docker Compose
