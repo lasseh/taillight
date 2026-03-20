@@ -399,6 +399,11 @@ func setupRouter(
 		MaxAge:           300,
 	}))
 
+	if cfg.DemoMode {
+		logger.Warn("demo mode enabled — all write endpoints return 403")
+		r.Use(auth.DenyWrites("/api/v1/applog/ingest"))
+	}
+
 	if !cfg.AuthEnabled {
 		logger.Warn("authentication is disabled — all endpoints are public")
 	} else if !cfg.AuthReadEndpoints {

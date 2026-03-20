@@ -22,6 +22,7 @@ type Config struct {
 	CORSAllowedOrigins     []string // Empty means allow all origins (dev mode).
 	AuthEnabled            bool     // When false, all endpoints are public (no login required).
 	AuthReadEndpoints      bool     // When true, read endpoints also require authentication.
+	DemoMode               bool     // When true, all write endpoints return 403 Forbidden.
 	CookieSecure           bool     // When true, force Secure flag on session cookies regardless of X-Forwarded-Proto.
 	NotificationBufferSize int      // LISTEN/NOTIFY channel buffer size (0 = default 1024).
 	NotificationWorkers    int      // Number of goroutines consuming LISTEN/NOTIFY events (0 = default 4).
@@ -105,6 +106,7 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("cors_allowed_origins", []string{})
 	v.SetDefault("auth_enabled", true)
 	v.SetDefault("auth_read_endpoints", true)
+	v.SetDefault("demo_mode", false)
 	v.SetDefault("cookie_secure", false)
 	v.SetDefault("notification_buffer_size", 1024)
 	v.SetDefault("notification_workers", 4)
@@ -168,6 +170,7 @@ func Load(configFile ...string) (Config, error) {
 		CORSAllowedOrigins:     v.GetStringSlice("cors_allowed_origins"),
 		AuthEnabled:            v.GetBool("auth_enabled"),
 		AuthReadEndpoints:      v.GetBool("auth_read_endpoints"),
+		DemoMode:               v.GetBool("demo_mode"),
 		CookieSecure:           v.GetBool("cookie_secure"),
 		NotificationBufferSize: v.GetInt("notification_buffer_size"),
 		NotificationWorkers:    v.GetInt("notification_workers"),

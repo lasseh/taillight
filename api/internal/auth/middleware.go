@@ -128,6 +128,28 @@ func hasScope(scopes []string, target string) bool {
 	return false
 }
 
+// DenyWrites returns a middleware that rejects all non-GET/HEAD/OPTIONS requests
+// with 403 Forbidden. Used in demo mode to make the API read-only.
+// Exempt paths (e.g. ingest endpoint for loadgen) are passed through.
+func DenyWrites(exempt ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions:
+				next.ServeHTTP(w, r)
+				return
+			}
+			for _, path := range exempt {
+				if r.URL.Path == path {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			httputil.WriteError(w, http.StatusForbidden, "demo_mode", "write operations are disabled in demo mode")
+		})
+	}
+}
+
 // extractBearer returns the token from an "Authorization: Bearer <token>" header.
 func extractBearer(r *http.Request) string {
 	h := r.Header.Get("Authorization")
