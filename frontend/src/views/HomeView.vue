@@ -437,7 +437,7 @@ function getSeverityBgClass(level: string): string {
                   <span class="w-[6ch] shrink-0 uppercase" :class="getSeverityColorClass(event.level)">{{ event.level }}</span>
                   <span class="text-t-teal hidden w-[22ch] shrink-0 truncate md:inline">{{ event.service }}</span>
                   <span class="text-t-purple hidden w-[18ch] shrink-0 truncate md:inline">{{ event.component }}</span>
-                  <span class="text-t-fg min-w-0 flex-1 truncate">{{ event.msg }}<template v-if="event.attrs && Object.keys(event.attrs).length > 0">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs) }}</span></template></span>
+                  <span class="text-t-fg min-w-0 flex-1 truncate text-xs md:text-sm">{{ event.msg }}<template v-if="event.attrs && Object.keys(event.attrs).length > 0">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs) }}</span></template></span>
                 </router-link>
               </div>
             </div>

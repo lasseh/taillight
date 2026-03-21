@@ -36,7 +36,7 @@ defineProps<{
         <span class="w-[8ch] shrink-0 uppercase" :class="severityColorClassByLabel[event.severity_label] ?? 'text-t-fg'">{{ event.severity_label }}</span>
         <span v-if="showHostname" class="text-t-teal hidden w-[20ch] shrink-0 truncate md:inline">{{ event.hostname }}</span>
         <span class="text-t-purple hidden w-[10ch] shrink-0 truncate md:inline">{{ event.programname }}</span>
-        <span class="min-w-0 flex-1 truncate" v-html="highlightMessage(event.id, event.message)" />
+        <span class="min-w-0 flex-1 truncate text-xs md:text-sm" v-html="highlightMessage(event.id, event.message)" />
       </RouterLink>
     </div>
   </div>
