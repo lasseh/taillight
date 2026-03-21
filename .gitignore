@@ -52,7 +52,7 @@ sdk/python/dist/
 sdk/python/build/
 sdk/python/src/*.egg-info/
 sdk/python/.venv/
-__pycache__/
+**/__pycache__/
 *.pyc
 
 # Docker

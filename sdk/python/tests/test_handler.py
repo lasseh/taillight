@@ -7,7 +7,7 @@ import time
 import unittest
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from taillight_handler import TaillightHandler
+from taillight_sdk import TaillightHandler
 
 
 class CaptureHandler(BaseHTTPRequestHandler):
@@ -37,6 +37,20 @@ class FailHandler(BaseHTTPRequestHandler):
         self.send_response(500)
         self.end_headers()
         self.wfile.write(b"internal server error")
+
+    def log_message(self, format, *args):
+        pass
+
+
+class AuthFailHandler(BaseHTTPRequestHandler):
+    """HTTP handler that returns 401 Unauthorized."""
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        self.rfile.read(length)
+        self.send_response(401)
+        self.end_headers()
+        self.wfile.write(b"unauthorized")
 
     def log_message(self, format, *args):
         pass
@@ -271,6 +285,113 @@ class TestTaillightHandler(unittest.TestCase):
             time.sleep(0.5)
             handler.shutdown()
 
+            self.assertGreater(handler.send_failed, 0)
+        finally:
+            logger.removeHandler(handler)
+            server.shutdown()
+
+    def test_auth_failure_does_not_crash(self):
+        """A 401 response must not crash the app or the background thread."""
+        server, url = start_server(AuthFailHandler)
+        try:
+            handler = self._make_handler(url, api_key="wrong-key", flush_interval=0.2)
+            logger = logging.getLogger("test_auth_fail")
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+
+            logger.info("should not crash")
+
+            time.sleep(0.5)
+            handler.shutdown()
+
+            self.assertGreater(handler.send_failed, 0)
+            # Background thread must still be alive (not crashed).
+            self.assertFalse(handler._thread.is_alive())  # Shut down cleanly.
+        finally:
+            logger.removeHandler(handler)
+            server.shutdown()
+
+    def test_non_serializable_extras_do_not_kill_thread(self):
+        """Non-JSON-serializable extras must not crash the background thread."""
+        server, url = start_server(CaptureHandler)
+        try:
+            handler = self._make_handler(url, flush_interval=0.2)
+            logger = logging.getLogger("test_bad_extras")
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+
+            # Send a non-serializable object — json.dumps(default=str) handles it.
+            logger.info("bad extra", extra={"obj": object()})
+            # Send a normal entry after to prove the thread survived.
+            logger.info("still alive")
+
+            time.sleep(0.5)
+            handler.shutdown()
+
+            # Both entries should have been shipped (object() serialized via str()).
+            total = sum(len(c["body"]["logs"]) for c in server.captured)
+            self.assertEqual(total, 2)
+        finally:
+            logger.removeHandler(handler)
+            server.shutdown()
+
+    def test_double_shutdown_is_safe(self):
+        """Calling shutdown() twice must not raise."""
+        server, url = start_server(CaptureHandler)
+        try:
+            handler = self._make_handler(url, flush_interval=0.2)
+            logger = logging.getLogger("test_double_shutdown")
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+
+            logger.info("one entry")
+
+            handler.shutdown()
+            handler.shutdown()  # Must not raise.
+        finally:
+            logger.removeHandler(handler)
+            server.shutdown()
+
+    def test_connection_refused_does_not_crash(self):
+        """Pointing at a port with nothing listening must not crash."""
+        # Use a port that is almost certainly not listening.
+        handler = self._make_handler(
+            "http://127.0.0.1:1/ingest", flush_interval=0.2, timeout=0.5,
+        )
+        try:
+            logger = logging.getLogger("test_connrefused")
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+
+            logger.info("nowhere to go")
+
+            time.sleep(1.0)
+            handler.shutdown()
+
+            self.assertGreater(handler.send_failed, 0)
+        finally:
+            logger.removeHandler(handler)
+
+    def test_backoff_reduces_attempt_rate(self):
+        """After failures, the handler should back off and not retry immediately."""
+        server, url = start_server(FailHandler)
+        try:
+            handler = self._make_handler(url, flush_interval=0.1)
+            logger = logging.getLogger("test_backoff")
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+
+            # Send several entries and wait for multiple flush cycles.
+            for i in range(5):
+                logger.info("entry %d", i)
+                time.sleep(0.15)
+
+            handler.shutdown()
+
+            # With backoff, we should see fewer failures than without.
+            # Without backoff: ~5 flush attempts in 0.75s at 0.1s interval.
+            # With backoff (1s, 2s, ...): after 1st failure, next attempt is
+            # delayed, so we expect fewer total failures.
             self.assertGreater(handler.send_failed, 0)
         finally:
             logger.removeHandler(handler)

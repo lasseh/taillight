@@ -1,20 +1,24 @@
-# taillight-handler
+# taillight-sdk
 
-Python logging handler that ships logs to [Taillight](https://github.com/lasseh/taillight) — a real-time log viewer.
+Python SDK for shipping logs to [Taillight](https://github.com/lasseh/taillight) — a real-time log viewer.
 
-Zero external dependencies. Batches entries in a background thread and ships them via HTTP POST.
+- Zero external dependencies (stdlib only)
+- Background-thread batching with configurable batch size and flush interval
+- Drop-on-overflow — never blocks or crashes your application
+- Exponential backoff on send failures
+- Bearer token authentication
 
 ## Install
 
 ```sh
-pip install taillight-handler
+pip install taillight-sdk
 ```
 
 ## Quick start
 
 ```python
 import logging
-from taillight_handler import TaillightHandler
+from taillight_sdk import TaillightHandler
 
 handler = TaillightHandler(
     endpoint="https://taillight.example.com/api/v1/applog/ingest",
@@ -28,7 +32,7 @@ logger.setLevel(logging.DEBUG)
 
 logger.info("server started", extra={"port": 8080})
 
-# On shutdown
+# Flush remaining logs on shutdown
 handler.shutdown()
 ```
 
