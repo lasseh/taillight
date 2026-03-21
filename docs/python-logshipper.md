@@ -35,7 +35,16 @@ handler.shutdown()
 
 ## TaillightHandler
 
-Copy this class into your project. It has zero external dependencies.
+Save the class below as `taillight_handler.py` in your project. It has zero
+external dependencies — just drop the file next to your application code and
+import it:
+
+```
+myproject/
+├── app.py
+├── taillight_handler.py   ← put it here
+└── ...
+```
 
 ```python
 """Taillight applog handler for Python's logging module."""
