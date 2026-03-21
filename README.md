@@ -5,11 +5,22 @@
 
 Lightweight, real-time log viewer for network operations teams. Stream syslog and application logs to your browser with a single Go binary and PostgreSQL.
 
-![Home](docs/screenshots/home.png)
+**[Live Demo](https://demo.taillight.lasse.cloud)** — try it without installing anything.
+
+![Home dashboard](docs/screenshots/home.png)
 
 ![Syslog stream](docs/screenshots/syslog-stream.png)
 
+<details>
+<summary>More screenshots</summary>
+
+![Application log stream](docs/screenshots/applog-stream.png)
+
 ![Device detail](docs/screenshots/device.png)
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+</details>
 
 ## Why Taillight?
 
