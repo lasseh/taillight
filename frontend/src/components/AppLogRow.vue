@@ -64,7 +64,7 @@ const copyText = computed(() => {
       <div class="w-[3px] shrink-0 rounded-r" :class="lvlBarClass" />
       <div class="min-w-0 flex-1">
         <div class="text-t-teal/60 truncate text-[10px] leading-tight">{{ event.host }}</div>
-        <div class="text-t-fg truncate leading-snug">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></div>
+        <div class="text-t-fg truncate text-xs leading-snug">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></div>
       </div>
     </div>
     <!-- Desktop: single-line layout -->
