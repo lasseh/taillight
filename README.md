@@ -50,6 +50,7 @@ Lightweight, real-time log viewer for network operations teams. Stream syslog an
 - `POST /api/v1/applog/ingest` — structured JSON batch endpoint
 - `taillight-shipper` — standalone binary that tails log files and ships them to the ingest API
 - `pkg/logshipper` — Go `slog.Handler` for shipping your application's own logs
+- `taillight-sdk` — Python `logging.Handler` for shipping logs from Python apps (`pip install taillight-sdk`)
 
 ### Notifications
 
@@ -265,6 +266,7 @@ npm install && npm run dev
 | `rsyslog/` | Modular rsyslog filtering config for network devices |
 | `api/cmd/taillight-shipper/` | Standalone log file tailer and ingest shipper |
 | `api/pkg/logshipper/` | Go `slog.Handler` for programmatic log shipping |
+| `sdk/python/` | Python `logging.Handler` SDK (`pip install taillight-sdk`) |
 | `docs/` | Architecture, internals, notifications, and deployment guides |
 
 ## Documentation
@@ -274,6 +276,7 @@ npm install && npm run dev
 - [Internals](docs/INTERNALS.md) — SSE brokers, LISTEN/NOTIFY, pagination, auth
 - [Notifications](docs/NOTIFICATIONS.md) — notification setup, channels, rules, anti-spam
 - [Interactive API Docs](http://localhost:8080/api/docs) — Scalar/OpenAPI UI (when running locally)
+- [Python SDK](docs/python-logshipper.md) — Python logging handler, Django/Flask integration
 - [rsyslog Config](rsyslog/README.md) — rsyslog deployment and filtering
 - [nginx Examples](docs/nginx-reverse-proxy.conf.example) — production reverse proxy config
 
