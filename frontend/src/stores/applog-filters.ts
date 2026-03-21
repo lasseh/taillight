@@ -11,4 +11,6 @@ const FILTER_KEYS = [
   'search',
 ] as const
 
-export const useAppLogFilterStore = createFilterStore('applog-filters', FILTER_KEYS, 'applog')
+export const useAppLogFilterStore = createFilterStore('applog-filters', FILTER_KEYS, 'applog', {
+  conflicts: [['level', 'level_exact']],
+})

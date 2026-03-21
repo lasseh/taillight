@@ -10,11 +10,13 @@ type StringRecord<K extends string> = { [P in K]: string }
  * @param id - Pinia store identifier
  * @param filterKeys - List of filter field names
  * @param routeName - Route name for URL sync guard
+ * @param options.conflicts - Pairs of mutually exclusive filter keys
  */
 export function createFilterStore<K extends string>(
   id: string,
   filterKeys: readonly K[],
   routeName: string,
+  options?: { conflicts?: [K, K][] },
 ) {
   return defineStore(id, () => {
     const route = useRoute()
@@ -70,6 +72,22 @@ export function createFilterStore<K extends string>(
       router.replace({ name: route.name ?? undefined, query }).finally(() => {
         syncing = false
       })
+    }
+
+    // Enforce mutually exclusive filter pairs.
+    if (options?.conflicts) {
+      for (const [a, b] of options.conflicts) {
+        watch(() => filters[a], (val) => {
+          if (val && filters[b]) {
+            (filters as Record<string, string>)[b] = ''
+          }
+        })
+        watch(() => filters[b], (val) => {
+          if (val && filters[a]) {
+            (filters as Record<string, string>)[a] = ''
+          }
+        })
+      }
     }
 
     // Auto-sync to URL whenever filters change.
