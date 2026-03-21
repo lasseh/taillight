@@ -114,6 +114,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		}, logger)
 		notifEngine.RegisterBackend(notification.ChannelTypeSlack, backend.NewSlack(logger))
 		notifEngine.RegisterBackend(notification.ChannelTypeWebhook, backend.NewWebhook(logger))
+		notifEngine.RegisterBackend(notification.ChannelTypeNtfy, backend.NewNtfy(logger))
 		if cfg.SMTP.Host != "" {
 			notifEngine.RegisterBackend(notification.ChannelTypeEmail, backend.NewEmail(backend.EmailGlobalConfig{
 				Host:     cfg.SMTP.Host,

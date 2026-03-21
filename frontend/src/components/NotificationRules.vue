@@ -66,6 +66,18 @@ function channelType(id: number): string {
   return channels.value.find(c => c.id === id)?.type || ''
 }
 
+function channelBadgeClass(type_: string): string {
+  if (type_ === 'slack') return 'bg-t-purple/10 text-t-purple'
+  if (type_ === 'ntfy') return 'bg-t-teal/10 text-t-teal'
+  return 'bg-t-blue/10 text-t-blue'
+}
+
+function channelDotClass(type_: string): string {
+  if (type_ === 'slack') return 'bg-t-purple'
+  if (type_ === 'ntfy') return 'bg-t-teal'
+  return 'bg-t-blue'
+}
+
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
@@ -296,7 +308,7 @@ onMounted(fetchData)
                 v-for="cid in rule.channel_ids"
                 :key="cid"
                 class="mr-1 inline-block rounded px-1.5 py-0.5 text-xs"
-                :class="channelType(cid) === 'slack' ? 'bg-t-purple/10 text-t-purple' : 'bg-t-blue/10 text-t-blue'"
+                :class="channelBadgeClass(channelType(cid))"
               >
                 {{ channelName(cid) }}
               </span>
@@ -547,7 +559,7 @@ onMounted(fetchData)
                   >
                     <span
                       class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full"
-                      :class="ch.type === 'slack' ? 'bg-t-purple' : 'bg-t-blue'"
+                      :class="channelDotClass(ch.type)"
                     />
                     {{ ch.name }}
                   </button>

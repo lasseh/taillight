@@ -27,6 +27,7 @@ const (
 	ChannelTypeSlack   ChannelType = "slack"
 	ChannelTypeWebhook ChannelType = "webhook"
 	ChannelTypeEmail   ChannelType = "email"
+	ChannelTypeNtfy    ChannelType = "ntfy"
 )
 
 // Channel represents a configured notification destination.
