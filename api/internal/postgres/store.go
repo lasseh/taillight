@@ -735,9 +735,9 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 	// Send all 4 queries in a single round-trip.
 	batch := &pgx.Batch{}
 
-	// Q1: last seen from meta cache.
+	// Q1: last seen (most recent event for this host).
 	batch.Queue(
-		"SELECT last_seen_at FROM syslog_meta_cache WHERE column_name = 'hostname' AND value = $1",
+		"SELECT MAX(received_at) FROM syslog_events WHERE hostname = $1",
 		hostname,
 	)
 

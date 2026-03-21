@@ -303,9 +303,9 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 	// Send all 4 queries in a single round-trip.
 	batch := &pgx.Batch{}
 
-	// Q1: last seen from meta cache.
+	// Q1: last seen (most recent event for this host).
 	batch.Queue(
-		"SELECT last_seen_at FROM applog_meta_cache WHERE column_name = 'host' AND value = $1",
+		"SELECT MAX(timestamp) FROM applog_events WHERE host = $1",
 		host,
 	)
 
