@@ -10,6 +10,9 @@ const NOTIFY_MAX_SEVERITY = 2 // emerg(0), alert(1), crit(2)
 /** Applog levels that trigger browser push. */
 const APPLOG_NOTIFY_LEVELS = new Set(['ERROR', 'FATAL'])
 
+/** Ignore backfilled events older than this (ms). */
+const MAX_AGE_MS = 30_000
+
 const STORAGE_KEY = 'taillight-notifications'
 
 const permission = ref<NotificationPermission>(
@@ -30,11 +33,16 @@ function setEnabled(value: boolean) {
   localStorage.setItem(STORAGE_KEY, value ? 'on' : 'off')
 }
 
+function isTooOld(receivedAt: string): boolean {
+  return Date.now() - new Date(receivedAt).getTime() > MAX_AGE_MS
+}
+
 function notifySyslog(event: SyslogEvent) {
   if (!supported) return
   if (!enabled.value) return
   if (permission.value !== 'granted') return
   if (event.severity > NOTIFY_MAX_SEVERITY) return
+  if (isTooOld(event.received_at)) return
 
   const level = severityLabels[event.severity] ?? 'unknown'
   const title = `[${level}] ${event.hostname}`
@@ -56,6 +64,7 @@ function notifyApplog(event: AppLogEvent) {
   if (!enabled.value) return
   if (permission.value !== 'granted') return
   if (!APPLOG_NOTIFY_LEVELS.has(event.level)) return
+  if (isTooOld(event.received_at)) return
 
   const title = `[${event.level}] ${event.service}`
   const body = event.msg.slice(0, 120)
