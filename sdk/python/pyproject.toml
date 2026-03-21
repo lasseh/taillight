@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "taillight-handler"
+version = "0.1.0"
+description = "Python logging handler that ships logs to Taillight"
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.9"
+authors = [{ name = "Lasse Haugen" }]
+keywords = ["logging", "log-shipping", "taillight", "observability"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Logging",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/lasseh/taillight"
+Documentation = "https://github.com/lasseh/taillight/blob/main/docs/python-logshipper.md"
+Repository = "https://github.com/lasseh/taillight"
+Issues = "https://github.com/lasseh/taillight/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/taillight_handler"]

@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test rsyslog-reload psql
+.PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test rsyslog-reload psql python-test python-lint
 
 ##@ General
 help: ## Show this help
@@ -27,6 +27,12 @@ test: ## Run all tests
 lint: ## Lint all components
 	$(MAKE) -C api lint
 	$(MAKE) -C frontend lint
+
+python-test: ## Run Python SDK tests
+	$(MAKE) -C sdk/python test
+
+python-lint: ## Lint Python SDK
+	$(MAKE) -C sdk/python lint
 
 ##@ Components
 api-test: ## Run API tests

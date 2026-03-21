@@ -47,5 +47,13 @@ research/
 # Agent skills (auto-generated, not project code)
 **/.agents/
 
+# Python SDK
+sdk/python/dist/
+sdk/python/build/
+sdk/python/src/*.egg-info/
+sdk/python/.venv/
+__pycache__/
+*.pyc
+
 # Docker
 docker-compose.override.yml

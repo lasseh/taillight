@@ -6,9 +6,15 @@ using the built-in `logging` module — no external dependencies required.
 This is the Python equivalent of the Go [`logshipper`](../api/pkg/logshipper/README.md)
 package. Same batching strategy, same API contract, same drop-on-overflow behavior.
 
+## Install
+
+```sh
+pip install taillight-handler
+```
+
 ## Requirements
 
-- Python 3.7+
+- Python 3.9+
 - No external dependencies (stdlib only)
 
 ## Quick start
@@ -35,16 +41,9 @@ handler.shutdown()
 
 ## TaillightHandler
 
-Save the class below as `taillight_handler.py` in your project. It has zero
-external dependencies — just drop the file next to your application code and
-import it:
-
-```
-myproject/
-├── app.py
-├── taillight_handler.py   ← put it here
-└── ...
-```
+The full implementation is shown below for reference. If you prefer to vendor
+the file instead of installing the package, save it as `taillight_handler.py`
+next to your application code:
 
 ```python
 """Taillight applog handler for Python's logging module."""
@@ -145,7 +144,10 @@ class TaillightHandler(logging.Handler):
             while len(batch) < self.batch_size:
                 remaining = max(0, deadline - time.monotonic())
                 try:
-                    batch.append(self._queue.get(timeout=remaining))
+                    entry = self._queue.get(timeout=remaining)
+                    if entry is None:  # Shutdown sentinel.
+                        break
+                    batch.append(entry)
                 except queue.Empty:
                     break
             if batch:
@@ -169,12 +171,19 @@ class TaillightHandler(logging.Handler):
     def shutdown(self, timeout: float = 5.0) -> None:
         """Signal the background thread to stop and drain remaining entries."""
         self._shutdown_event.set()
+        # Wake the background thread if it's blocked on queue.get().
+        try:
+            self._queue.put_nowait(None)
+        except queue.Full:
+            pass
         self._thread.join(timeout=timeout)
         # Drain anything left in the queue.
         remaining: list[dict] = []
         while not self._queue.empty():
             try:
-                remaining.append(self._queue.get_nowait())
+                entry = self._queue.get_nowait()
+                if entry is not None:
+                    remaining.append(entry)
             except queue.Empty:
                 break
         if remaining:
