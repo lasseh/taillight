@@ -107,7 +107,7 @@ onErrorCaptured((err) => {
 </script>
 
 <template>
-  <div v-if="fatalError" class="flex h-screen items-center justify-center bg-neutral-900 text-neutral-200">
+  <div v-if="fatalError" class="flex h-dvh items-center justify-center bg-neutral-900 text-neutral-200">
     <div class="max-w-md space-y-4 text-center">
       <h1 class="text-xl font-semibold text-red-400">Something went wrong</h1>
       <p class="text-sm text-neutral-400">{{ fatalError }}</p>
@@ -117,7 +117,7 @@ onErrorCaptured((err) => {
     </div>
   </div>
   <router-view v-else-if="isLoginRoute" />
-  <div v-else-if="routerReady && auth.user" class="flex h-screen flex-col">
+  <div v-else-if="routerReady && auth.user" class="flex h-dvh flex-col">
     <AppHeader />
     <FilterBar v-if="route.name === 'syslog'" />
     <AppLogFilterBar v-if="route.name === 'applog'" />
