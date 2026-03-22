@@ -22,7 +22,7 @@ It is non-blocking, thread-safe, and drops entries on overflow rather than
 slowing your application.
 
 This is the Python equivalent of the Go
-[logshipper](https://github.com/lasseh/taillight/blob/main/api/pkg/logshipper/README.md)
+[logshipper](https://github.com/lasseh/taillight/blob/main/pkg/logshipper/README.md)
 package. Same batching strategy, same API contract, same drop-on-overflow
 behavior.
 

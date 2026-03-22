@@ -2,6 +2,8 @@ module github.com/lasseh/taillight
 
 go 1.26.0
 
+require github.com/lasseh/taillight/pkg/logshipper v0.0.0-00010101000000-000000000000
+
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/go-chi/chi/v5 v5.2.5
@@ -55,3 +57,5 @@ require (
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 )
+
+replace github.com/lasseh/taillight/pkg/logshipper => ../pkg/logshipper

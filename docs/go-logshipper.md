@@ -10,7 +10,7 @@ error handling, framework patterns, and troubleshooting.
 No external documents are required. All field names, defaults, and limits
 are verified against the package source and server-side validation.
 
-Import path: github.com/lasseh/taillight/api/pkg/logshipper
+Import path: github.com/lasseh/taillight/pkg/logshipper
 -->
 
 # Go Log Shipper
@@ -23,15 +23,15 @@ background goroutine and ships them via HTTP POST. It is non-blocking,
 goroutine-safe, and drops entries on overflow rather than blocking your
 application.
 
-Source: [`api/pkg/logshipper/`](https://github.com/lasseh/taillight/tree/main/api/pkg/logshipper)
+Source: [`pkg/logshipper/`](https://github.com/lasseh/taillight/tree/main/pkg/logshipper)
 
 ## Install
 
 ```sh
-go get github.com/lasseh/taillight/api/pkg/logshipper
+go get github.com/lasseh/taillight/pkg/logshipper
 ```
 
-- **Go 1.21+** (requires `log/slog`)
+- **Go 1.22+** (requires `log/slog`)
 - **No external dependencies** (stdlib only)
 
 ## Quick start
@@ -46,7 +46,7 @@ import (
     "os/signal"
     "time"
 
-    "github.com/lasseh/taillight/api/pkg/logshipper"
+    "github.com/lasseh/taillight/pkg/logshipper"
 )
 
 func main() {
@@ -426,7 +426,7 @@ import (
     "os/signal"
     "time"
 
-    "github.com/lasseh/taillight/api/pkg/logshipper"
+    "github.com/lasseh/taillight/pkg/logshipper"
 )
 
 func main() {
@@ -579,7 +579,7 @@ import (
     "log/slog"
     "os"
 
-    "github.com/lasseh/taillight/api/pkg/logshipper"
+    "github.com/lasseh/taillight/pkg/logshipper"
 )
 
 // NewShipper creates a logshipper.Handler configured from environment variables.
