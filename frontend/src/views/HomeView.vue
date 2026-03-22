@@ -426,18 +426,33 @@ function getSeverityBgClass(level: string): string {
                 <div v-if="home.recentApplogEvents.length === 0" class="text-t-fg-dark px-4 py-2 text-center text-xs">
                   No recent error events (error, fatal, panic)
                 </div>
+                <!-- Mobile: color bar + service + message -->
                 <router-link
                   v-for="event in home.recentApplogEvents"
-                  :key="event.id"
+                  :key="'m-' + event.id"
                   :to="`/applog/${event.id}`"
-                  class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors"
+                  class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 transition-colors md:hidden"
+                  :class="newApplogIds.has(event.id) ? 'row-flash' : ''"
+                >
+                  <div class="w-[3px] shrink-0 rounded-r" :class="getSeverityBgClass(event.level)" />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-t-teal/60 truncate text-[10px] leading-tight">{{ event.service }}</div>
+                    <div class="text-t-fg min-w-0 truncate text-xs leading-snug">{{ event.msg }}<template v-if="event.attrs && Object.keys(event.attrs).length > 0">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs) }}</span></template></div>
+                  </div>
+                </router-link>
+                <!-- Desktop: single-line layout -->
+                <router-link
+                  v-for="event in home.recentApplogEvents"
+                  :key="'d-' + event.id"
+                  :to="`/applog/${event.id}`"
+                  class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors md:flex"
                   :class="newApplogIds.has(event.id) ? 'row-flash' : ''"
                 >
                   <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.timestamp) }}</span>
                   <span class="w-[6ch] shrink-0 uppercase" :class="getSeverityColorClass(event.level)">{{ event.level }}</span>
-                  <span class="text-t-teal hidden w-[22ch] shrink-0 truncate md:inline">{{ event.service }}</span>
-                  <span class="text-t-purple hidden w-[18ch] shrink-0 truncate md:inline">{{ event.component }}</span>
-                  <span class="text-t-fg min-w-0 flex-1 truncate text-xs md:text-sm">{{ event.msg }}<template v-if="event.attrs && Object.keys(event.attrs).length > 0">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs) }}</span></template></span>
+                  <span class="text-t-teal w-[22ch] shrink-0 truncate">{{ event.service }}</span>
+                  <span class="text-t-purple w-[18ch] shrink-0 truncate">{{ event.component }}</span>
+                  <span class="text-t-fg min-w-0 flex-1 truncate">{{ event.msg }}<template v-if="event.attrs && Object.keys(event.attrs).length > 0">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs) }}</span></template></span>
                 </router-link>
               </div>
             </div>
