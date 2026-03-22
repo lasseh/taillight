@@ -44,7 +44,9 @@ services:
     restart: unless-stopped
 
   api:
-    build: ./api
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     hostname: taillight-api
     logging:
       driver: json-file
