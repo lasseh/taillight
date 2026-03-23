@@ -62,7 +62,7 @@ const copyText = computed(() => {
     >
       <div class="w-[3px] shrink-0 rounded-r" :class="sevBarClass" />
       <div class="min-w-0 flex-1">
-        <div class="text-t-teal/60 truncate text-[10px] leading-tight">{{ event.hostname }}</div>
+        <div class="text-t-teal/80 truncate text-[10px] leading-tight">{{ event.hostname }}</div>
         <div class="truncate text-xs leading-snug" v-html="highlightedMessage" />
       </div>
     </div>
