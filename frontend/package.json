@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@types/marked": "^5.0.2",
     "@unovis/ts": "^1.6.4",
     "@unovis/vue": "^1.6.4",
