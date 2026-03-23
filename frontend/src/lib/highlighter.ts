@@ -1,4 +1,4 @@
-import Prism from 'prismjs'
+import { Prism } from './prism-global'
 import 'prismjs/components/prism-log'
 import 'prismjs/components/prism-json'
 import DOMPurify from 'dompurify'
