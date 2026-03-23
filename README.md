@@ -1,6 +1,6 @@
 # taillight
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 
 Lightweight, real-time log viewer for network operations teams. Stream syslog and application logs to your browser with a single Go binary and PostgreSQL.
@@ -286,4 +286,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commit conventions
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

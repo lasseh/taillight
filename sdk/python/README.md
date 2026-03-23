@@ -42,4 +42,4 @@ See the full [Python logshipper guide](https://github.com/lasseh/taillight/blob/
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

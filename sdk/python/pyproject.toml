@@ -7,14 +7,14 @@ name = "taillight-sdk"
 version = "0.1.0"
 description = "Python SDK for shipping logs to Taillight"
 readme = "README.md"
-license = "GPL-3.0-only"
+license = "MIT"
 requires-python = ">=3.9"
 authors = [{ name = "Lasse Haugen" }]
 keywords = ["logging", "log-shipping", "taillight", "observability"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
