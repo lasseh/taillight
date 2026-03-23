@@ -22,7 +22,7 @@
     "pinia": "^3.0.4",
     "prismjs": "^1.30.0",
     "vue": "^3.5.13",
-    "vue-router": "^5.0.2"
+    "vue-router": "^5.0.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
