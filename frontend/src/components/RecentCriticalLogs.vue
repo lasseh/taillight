@@ -35,7 +35,7 @@ defineProps<{
       >
         <div class="w-[3px] shrink-0 rounded-r" :class="severityBgClassByLabel[event.severity_label] ?? 'bg-sev-info'" />
         <div class="min-w-0 flex-1">
-          <div v-if="showHostname" class="text-t-teal/80 truncate text-[10px] leading-tight">{{ event.hostname }}</div>
+          <div v-if="showHostname" class="text-t-teal/60 truncate text-[10px] leading-tight">{{ event.hostname }}</div>
           <div class="min-w-0 truncate text-xs leading-snug" v-html="highlightMessage(event.id, event.message)" />
         </div>
       </RouterLink>
