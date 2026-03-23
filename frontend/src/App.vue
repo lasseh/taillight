@@ -121,11 +121,13 @@ onErrorCaptured((err) => {
     <AppHeader />
     <FilterBar v-if="route.name === 'syslog'" />
     <AppLogFilterBar v-if="route.name === 'applog'" />
-    <router-view v-slot="{ Component }">
-      <KeepAlive include="SyslogListView,AppLogListView">
-        <component :is="Component" />
-      </KeepAlive>
-    </router-view>
+    <main class="flex min-h-0 flex-1 flex-col">
+      <router-view v-slot="{ Component }">
+        <KeepAlive include="SyslogListView,AppLogListView">
+          <component :is="Component" />
+        </KeepAlive>
+      </router-view>
+    </main>
     <div class="border-t-border bg-t-bg-dark relative flex items-center border-t px-4 py-1.5">
       <span
         v-if="isHistoricalMode"
