@@ -225,7 +225,7 @@ function currentEvents(): SyslogEvent[] {
                 <span class="text-t-fg-dark w-[10ch] shrink-0 text-right text-xs whitespace-nowrap">{{ formatRelativeTime(msg.latest_at) }}</span>
                 <span class="text-t-purple w-[6ch] shrink-0 text-right text-xs">{{ formatNumber(msg.count) }}</span>
                 <span class="w-[6ch] shrink-0 text-xs uppercase" :class="severityColorClassByLabel[msg.severity_label] ?? 'text-t-fg'">{{ msg.severity_label }}</span>
-                <span class="min-w-0 flex-1 truncate text-xs" :title="msg.sample" v-html="highlightMessage(msg.latest_id, msg.sample)" />
+                <span class="min-w-0 flex-1 truncate" :title="msg.sample" v-html="highlightMessage(msg.latest_id, msg.sample)" />
               </RouterLink>
             </div>
           </div>
