@@ -1,2 +1,0 @@
--- TimescaleDB extension downgrades are not supported.
--- This is intentionally a no-op.
