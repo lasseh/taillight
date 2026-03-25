@@ -215,7 +215,7 @@ function currentEvents(): SyslogEvent[] {
       <div class="shrink-0 space-y-4 p-4">
         <!-- Back button -->
         <button
-          class="text-t-fg-dark hover:text-t-fg text-xs transition-colors"
+          class="text-t-fg-dark hover:text-t-fg text-sm transition-colors"
           @click="router.back()"
         >
           &larr; back
