@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, provide, nextTick, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, RouterLink } from 'vue-router'
 import type { DeviceSummary } from '@/types/device'
 import type { SyslogEvent } from '@/types/syslog'
 import { api, ApiError } from '@/lib/api'
@@ -161,121 +161,134 @@ function currentEvents(): SyslogEvent[] {
 
     <!-- Main content -->
     <template v-else-if="summary">
-      <!-- Header bar -->
-      <div class="border-t-border flex shrink-0 items-center gap-3 border-b px-4 py-2">
-        <button
-          class="text-t-fg-dark hover:text-t-fg text-xs transition-colors"
-          @click="router.back()"
-        >
-          &larr; back
-        </button>
-        <h1 class="text-t-teal truncate font-mono text-sm font-semibold">{{ summary.hostname }}</h1>
-        <span class="text-t-fg-dark ml-auto text-xs font-mono" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : ''">
-          {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never seen' }}
-        </span>
-      </div>
-
-      <!-- Top section: Overview + Severity side-by-side -->
-      <div class="border-t-border shrink-0 border-b">
-        <div class="grid grid-cols-1 md:grid-cols-2">
-          <!-- Overview -->
-          <div class="border-t-border md:border-r">
-            <h3 class="text-t-teal border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">
-              Overview (7 days)
-            </h3>
-            <dl class="grid grid-cols-[auto_1fr] text-sm">
-              <dt class="text-t-fg-dark border-t-border border-b px-4 py-1 text-right text-xs">total logs</dt>
-              <dd class="text-t-teal border-t-border border-b px-4 py-1 font-mono text-xs">
-                {{ formatNumber(summary.total_count) }}
-              </dd>
-              <dt class="text-t-fg-dark border-t-border border-b px-4 py-1 text-right text-xs">critical</dt>
-              <dd class="border-t-border border-b px-4 py-1 font-mono text-xs" :class="summary.critical_count > 0 ? 'text-sev-err' : 'text-t-fg'">
-                {{ formatNumber(summary.critical_count) }}
-              </dd>
-            </dl>
-          </div>
-
-          <!-- Severity Breakdown -->
-          <div>
-            <SeverityDistribution
-              v-if="summary.severity_breakdown.length > 0"
-              :items="summary.severity_breakdown"
-              title="Severity Breakdown"
-            />
-            <div v-else class="text-t-fg-dark flex items-center justify-center py-6 text-xs">no severity data</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Top Messages (compact) -->
-      <div v-if="summary.top_messages.length > 0" class="border-t-border shrink-0 border-b">
-        <h3 class="text-t-teal border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">
-          Top Messages
-        </h3>
-        <div>
-          <RouterLink
-            v-for="(msg, i) in summary.top_messages.slice(0, 8)"
-            :key="i"
-            :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
-            class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors"
-            :class="severityBgClass[msg.severity] ?? ''"
+      <!-- Summary area (compact, non-scrolling) -->
+      <div class="shrink-0 space-y-4 p-4">
+        <!-- Back button + hostname -->
+        <div class="flex items-center gap-3">
+          <button
+            class="text-t-fg-dark hover:text-t-fg text-xs transition-colors"
+            @click="router.back()"
           >
-            <span class="text-t-fg-dark w-[10ch] shrink-0 text-right text-xs whitespace-nowrap">{{ formatRelativeTime(msg.latest_at) }}</span>
-            <span class="text-t-purple w-[8ch] shrink-0 text-right text-xs">{{ formatNumber(msg.count) }}</span>
-            <span class="w-[8ch] shrink-0 uppercase" :class="severityColorClassByLabel[msg.severity_label] ?? 'text-t-fg'">{{ msg.severity_label }}</span>
-            <span class="min-w-0 flex-1 truncate" :title="msg.sample" v-html="highlightMessage(msg.latest_id, msg.sample)" />
-          </RouterLink>
-        </div>
-      </div>
-
-      <!-- Tabs -->
-      <div class="border-t-border flex shrink-0 border-b">
-        <button
-          class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors"
-          :class="activeTab === 'critical' ? 'text-t-teal' : 'text-t-fg-dark hover:text-t-fg'"
-          @click="activeTab = 'critical'"
-        >
-          Critical Logs
-        </button>
-        <button
-          class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors"
-          :class="activeTab === 'recent' ? 'text-t-teal' : 'text-t-fg-dark hover:text-t-fg'"
-          @click="activeTab = 'recent'"
-        >
-          Recent Logs
-        </button>
-      </div>
-
-      <!-- Log stream (fills remaining space) -->
-      <div class="relative flex min-h-0 flex-1 flex-col">
-        <div
-          v-if="currentEvents().length === 0"
-          class="text-t-fg-dark flex flex-1 items-center justify-center text-xs"
-        >
-          {{ activeTab === 'critical' ? 'no critical events' : 'waiting for events...' }}
+            &larr; back
+          </button>
+          <h1 class="text-t-teal truncate font-mono text-lg font-semibold">{{ summary.hostname }}</h1>
         </div>
 
-        <div
-          v-else
-          ref="logScrollEl"
-          role="log"
-          aria-live="polite"
-          :aria-label="activeTab === 'critical' ? 'Critical log events' : 'Live event stream'"
-          class="flex-1 overflow-y-auto [overflow-anchor:none]"
-          :style="colWidths"
-          @scroll="onLogScroll"
-        >
-          <SyslogRow
-            v-for="event in currentEvents()"
-            :key="event.id"
-            :event="event"
+        <!-- Summary stat cards -->
+        <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <!-- Total -->
+          <div class="bg-t-bg-dark border-t-border rounded border p-4">
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total (7d)</div>
+            <div class="text-t-teal text-2xl font-bold">{{ formatNumber(summary.total_count) }}</div>
+          </div>
+
+          <!-- Critical -->
+          <div class="bg-t-bg-dark border-t-border rounded border p-4">
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Critical</div>
+            <div class="text-2xl font-bold" :class="summary.critical_count > 0 ? 'text-sev-err' : 'text-t-fg'">
+              {{ formatNumber(summary.critical_count) }}
+            </div>
+            <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
+              {{ ((summary.critical_count / summary.total_count) * 100).toFixed(1) }}% of total
+            </div>
+          </div>
+
+          <!-- Last seen -->
+          <div class="bg-t-bg-dark border-t-border rounded border p-4">
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Last Log</div>
+            <div class="text-2xl font-bold font-mono" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
+              {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never' }}
+            </div>
+          </div>
+
+          <!-- Severity breakdown count (unique severities seen) -->
+          <div class="bg-t-bg-dark border-t-border rounded border p-4">
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Severities</div>
+            <div class="text-t-purple text-2xl font-bold">{{ summary.severity_breakdown.length }}</div>
+            <div class="text-t-fg-dark mt-1 text-xs">distinct levels</div>
+          </div>
+        </div>
+
+        <!-- Severity Distribution + Top Messages -->
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <SeverityDistribution
+            v-if="summary.severity_breakdown.length > 0"
+            :items="summary.severity_breakdown"
+            title="Severity Breakdown"
           />
+
+          <!-- Top Messages -->
+          <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border p-4">
+            <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Messages</h3>
+            <div class="-mx-4">
+              <RouterLink
+                v-for="(msg, i) in summary.top_messages.slice(0, 8)"
+                :key="i"
+                :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
+                class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors"
+                :class="severityBgClass[msg.severity] ?? ''"
+              >
+                <span class="text-t-fg-dark w-[10ch] shrink-0 text-right text-xs whitespace-nowrap">{{ formatRelativeTime(msg.latest_at) }}</span>
+                <span class="text-t-purple w-[6ch] shrink-0 text-right text-xs">{{ formatNumber(msg.count) }}</span>
+                <span class="w-[6ch] shrink-0 text-xs uppercase" :class="severityColorClassByLabel[msg.severity_label] ?? 'text-t-fg'">{{ msg.severity_label }}</span>
+                <span class="min-w-0 flex-1 truncate text-xs" :title="msg.sample" v-html="highlightMessage(msg.latest_id, msg.sample)" />
+              </RouterLink>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logs section (fills remaining space) -->
+      <div class="relative flex min-h-0 flex-1 flex-col">
+        <!-- Tabs -->
+        <div class="bg-t-bg-dark border-t-border mx-4 flex rounded-t border border-b-0">
+          <button
+            class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors"
+            :class="activeTab === 'critical' ? 'text-t-teal' : 'text-t-fg-dark hover:text-t-fg'"
+            @click="activeTab = 'critical'"
+          >
+            Critical Logs
+          </button>
+          <button
+            class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors"
+            :class="activeTab === 'recent' ? 'text-t-teal' : 'text-t-fg-dark hover:text-t-fg'"
+            @click="activeTab = 'recent'"
+          >
+            Recent Logs
+          </button>
+        </div>
+
+        <!-- Log stream -->
+        <div class="bg-t-bg-dark border-t-border mx-4 mb-4 flex min-h-0 flex-1 flex-col rounded-b border">
+          <div
+            v-if="currentEvents().length === 0"
+            class="text-t-fg-dark flex flex-1 items-center justify-center text-xs"
+          >
+            {{ activeTab === 'critical' ? 'no critical events' : 'waiting for events...' }}
+          </div>
+
+          <div
+            v-else
+            ref="logScrollEl"
+            role="log"
+            aria-live="polite"
+            :aria-label="activeTab === 'critical' ? 'Critical log events' : 'Live event stream'"
+            class="flex-1 overflow-y-auto [overflow-anchor:none]"
+            :style="colWidths"
+            @scroll="onLogScroll"
+          >
+            <SyslogRow
+              v-for="event in currentEvents()"
+              :key="event.id"
+              :event="event"
+            />
+          </div>
         </div>
 
         <!-- Scroll-to-bottom button when not pinned (recent tab only) -->
         <button
           v-if="activeTab === 'recent' && !isPinned && chronologicalLogs.length > 0"
-          class="bg-t-bg-dark border-t-border absolute bottom-4 right-4 rounded border px-3 py-1.5 text-xs shadow-lg transition-colors hover:bg-t-bg-hover"
+          class="bg-t-bg-dark border-t-border absolute bottom-8 right-8 rounded border px-3 py-1.5 text-xs shadow-lg transition-colors hover:bg-t-bg-hover"
           @click="scrollToBottom('smooth')"
         >
           &darr; latest
