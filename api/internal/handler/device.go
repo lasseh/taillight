@@ -34,6 +34,9 @@ func (h *DeviceHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	summary, err := h.store.GetDeviceSummary(r.Context(), hostname)
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("get device summary failed", "hostname", hostname, "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to get device summary")
 		return

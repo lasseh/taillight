@@ -18,6 +18,9 @@ func NewAppLogMetaHandler(store AppLogStore) *AppLogMetaHandler {
 func (h *AppLogMetaHandler) Services(w http.ResponseWriter, r *http.Request) {
 	services, err := h.store.ListServices(r.Context())
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list services failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list services")
 		return
@@ -29,6 +32,9 @@ func (h *AppLogMetaHandler) Services(w http.ResponseWriter, r *http.Request) {
 func (h *AppLogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 	hosts, err := h.store.ListAppLogHosts(r.Context())
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list applog hosts failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list hosts")
 		return
@@ -40,6 +46,9 @@ func (h *AppLogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 func (h *AppLogMetaHandler) Components(w http.ResponseWriter, r *http.Request) {
 	components, err := h.store.ListComponents(r.Context())
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list components failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list components")
 		return

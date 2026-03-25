@@ -54,6 +54,13 @@ func mustJSON(v any) ([]byte, bool) {
 	return data, true
 }
 
+// isClientGone returns true if the request context was canceled (client
+// disconnected). Callers should return early without logging — there is
+// no one to send a response to.
+func isClientGone(r *http.Request) bool {
+	return r.Context().Err() != nil
+}
+
 // emptySlice ensures nil slices are returned as [] in JSON.
 func emptySlice[T any](s []T) []T {
 	if s == nil {

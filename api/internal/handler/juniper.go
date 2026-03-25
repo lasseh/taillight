@@ -24,6 +24,9 @@ func (h *JuniperHandler) Lookup(w http.ResponseWriter, r *http.Request) {
 
 	refs, err := h.store.LookupJuniperRef(r.Context(), name)
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("lookup juniper ref failed", "name", name, "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to lookup juniper reference")
 		return

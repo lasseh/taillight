@@ -38,6 +38,9 @@ func (h *SyslogHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	events, nextCursor, err := h.store.ListSyslogs(r.Context(), filter, cursor, limit)
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list syslogs failed",
 			"err", err,
 			"hostname", filter.Hostname,
@@ -81,6 +84,9 @@ func (h *SyslogHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "event not found")
+			return
+		}
+		if isClientGone(r) {
 			return
 		}
 		LoggerFromContext(r.Context()).Error("get syslog failed", "id", id, "err", err)

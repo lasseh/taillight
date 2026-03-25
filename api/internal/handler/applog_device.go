@@ -34,6 +34,9 @@ func (h *AppLogDeviceHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	summary, err := h.store.GetAppLogDeviceSummary(r.Context(), hostname)
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("get applog device summary failed", "host", hostname, "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to get applog device summary")
 		return

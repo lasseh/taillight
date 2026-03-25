@@ -38,6 +38,9 @@ func (h *AppLogHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	events, nextCursor, err := h.store.ListAppLogs(r.Context(), filter, cursor, limit)
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list applogs failed",
 			"err", err,
 			"service", filter.Service,
@@ -74,6 +77,9 @@ func (h *AppLogHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "event not found")
+			return
+		}
+		if isClientGone(r) {
 			return
 		}
 		LoggerFromContext(r.Context()).Error("get applog failed", "id", id, "err", err)

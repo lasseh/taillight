@@ -43,6 +43,9 @@ func (h *AnalysisHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	reports, err := h.store.ListReports(r.Context(), limit)
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list analysis reports failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list reports")
 		return
@@ -59,6 +62,9 @@ func (h *AnalysisHandler) Latest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("get latest analysis report failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to get latest report")
 		return
@@ -82,6 +88,9 @@ func (h *AnalysisHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("get analysis report failed", "id", id, "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to get report")
 		return
@@ -99,6 +108,9 @@ func (h *AnalysisHandler) Trigger(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.runner.Run(r.Context())
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("manual analysis trigger failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "analysis_failed", "analysis run failed")
 		return

@@ -203,6 +203,9 @@ func (h *NotificationHandler) TestChannel(w http.ResponseWriter, r *http.Request
 
 	result, err := h.engine.SendTestNotification(r.Context(), ch)
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("test notification setup failed", "channel_id", id, "err", err)
 		writeError(w, http.StatusBadRequest, "test_failed", "failed to send test notification")
 		return

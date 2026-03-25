@@ -18,6 +18,9 @@ func NewSyslogMetaHandler(store SyslogStore) *SyslogMetaHandler {
 func (h *SyslogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 	hosts, err := h.store.ListHosts(r.Context())
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list hosts failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list hosts")
 		return
@@ -29,6 +32,9 @@ func (h *SyslogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 func (h *SyslogMetaHandler) Programs(w http.ResponseWriter, r *http.Request) {
 	programs, err := h.store.ListPrograms(r.Context())
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list programs failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list programs")
 		return
@@ -40,6 +46,9 @@ func (h *SyslogMetaHandler) Programs(w http.ResponseWriter, r *http.Request) {
 func (h *SyslogMetaHandler) Facilities(w http.ResponseWriter, r *http.Request) {
 	facilities, err := h.store.ListFacilities(r.Context())
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list facilities failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list facilities")
 		return
@@ -51,6 +60,9 @@ func (h *SyslogMetaHandler) Facilities(w http.ResponseWriter, r *http.Request) {
 func (h *SyslogMetaHandler) Tags(w http.ResponseWriter, r *http.Request) {
 	tags, err := h.store.ListTags(r.Context())
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		LoggerFromContext(r.Context()).Error("list tags failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list tags")
 		return

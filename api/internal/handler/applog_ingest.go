@@ -151,6 +151,9 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	// Batch insert — populates ID and ReceivedAt.
 	inserted, err := h.store.InsertLogBatch(r.Context(), events)
 	if err != nil {
+		if isClientGone(r) {
+			return
+		}
 		metrics.AppLogIngestErrorsTotal.Inc()
 		LoggerFromContext(r.Context()).Error("insert log batch failed", "err", err, "batch_size", len(events))
 		writeError(w, http.StatusInternalServerError, "insert_failed", "failed to store log entries")
