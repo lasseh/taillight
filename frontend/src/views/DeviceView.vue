@@ -177,7 +177,7 @@ watch(() => props.hostname, () => {
   lastSeenEventId = 0
   fetchData()
   // Slow poll for top_messages accuracy and drift correction.
-  refreshTimer = setInterval(fetchData, 60_000)
+  refreshTimer = setInterval(fetchData, 30_000)
 }, { immediate: true })
 
 onUnmounted(() => {
