@@ -1,4 +1,4 @@
--- Reverse 000010: re-drop meta cache triggers.
+-- Reverse 000011: re-drop meta cache triggers.
 DROP TRIGGER IF EXISTS trg_syslog_meta_cache ON syslog_events;
 DROP FUNCTION IF EXISTS cache_syslog_meta();
 
