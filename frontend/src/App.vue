@@ -144,7 +144,7 @@ onErrorCaptured((err) => {
         class="text-t-magenta hover:text-t-fg absolute left-1/2 -translate-x-1/2 text-xs animate-subtle-pulse transition-colors"
         @click="scrollStore.triggerJump(String(route.name))"
       >
-        <span class="hidden md:inline">paused{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to latest (esc)</span>
+        <span class="hidden md:inline">auto-scroll off{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to latest (esc)</span>
         <span class="md:hidden">↓ latest{{ newEventCount > 0 ? ` (${newEventCount})` : '' }}</span>
       </button>
     </div>
