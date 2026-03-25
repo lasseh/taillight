@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, provide, nextTick, onMounted, onUnmounted } from 'vue'
-import { useRouter, RouterLink } from 'vue-router'
+import { useRouter, useRoute, RouterLink } from 'vue-router'
 import type { DeviceSummary } from '@/types/device'
 import type { SyslogEvent } from '@/types/syslog'
 import { api, ApiError } from '@/lib/api'
@@ -18,9 +18,16 @@ const props = defineProps<{
 
 const hostnameRef = computed(() => props.hostname)
 const { events: deviceLogs } = useDeviceLogs(hostnameRef)
-const activeTab = ref<'critical' | 'recent'>('critical')
 
 const router = useRouter()
+const route = useRoute()
+const initialTab = route.query.tab === 'recent' ? 'recent' : 'critical'
+const activeTab = ref<'critical' | 'recent'>(initialTab)
+
+// Persist tab selection in the URL query string.
+watch(activeTab, (tab) => {
+  router.replace({ query: { ...route.query, tab: tab === 'critical' ? undefined : tab } })
+})
 const summary = ref<DeviceSummary | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
