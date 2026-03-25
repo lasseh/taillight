@@ -5,7 +5,7 @@ import type { DeviceSummary } from '@/types/device'
 import type { SyslogEvent } from '@/types/syslog'
 import { api, ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
-import { severityColorClassByLabel, severityBgClass } from '@/lib/constants'
+import { severityLabels, severityColorClassByLabel, severityBgClass } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
 import { useDeviceLogs } from '@/composables/useDeviceLogs'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
@@ -111,6 +111,44 @@ async function fetchData() {
   }
 }
 
+// Update summary stats in real-time from SSE events.
+let lastSeenEventId = 0
+watch(deviceLogs, (logs) => {
+  if (!summary.value || logs.length === 0) return
+  // deviceLogs is newest-first; only process events we haven't seen.
+  for (const event of logs) {
+    if (event.id <= lastSeenEventId) break
+    summary.value.total_count++
+
+    // Update last_seen_at.
+    summary.value.last_seen_at = event.received_at
+
+    // Update severity breakdown counts + percentages.
+    const label = severityLabels[event.severity] ?? 'unknown'
+    const existing = summary.value.severity_breakdown.find(s => s.severity === event.severity)
+    if (existing) {
+      existing.count++
+    } else {
+      summary.value.severity_breakdown.push({ severity: event.severity, label, count: 1, pct: 0 })
+      summary.value.severity_breakdown.sort((a, b) => a.severity - b.severity)
+    }
+    // Recompute percentages.
+    for (const s of summary.value.severity_breakdown) {
+      s.pct = (s.count / summary.value.total_count) * 100
+    }
+
+    // Critical events (emerg=0, alert=1, crit=2).
+    if (event.severity <= 2) {
+      summary.value.critical_count++
+      summary.value.critical_logs.unshift(event)
+      if (summary.value.critical_logs.length > 100) {
+        summary.value.critical_logs.splice(100)
+      }
+    }
+  }
+  lastSeenEventId = logs[0]!.id
+}, { deep: false })
+
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
 watch(() => props.hostname, () => {
@@ -119,8 +157,10 @@ watch(() => props.hostname, () => {
   loading.value = true
   error.value = null
   errorStatus.value = null
+  lastSeenEventId = 0
   fetchData()
-  refreshTimer = setInterval(fetchData, 10_000)
+  // Slow poll for top_messages accuracy and drift correction.
+  refreshTimer = setInterval(fetchData, 60_000)
 }, { immediate: true })
 
 onUnmounted(() => {
