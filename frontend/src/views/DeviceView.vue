@@ -209,14 +209,8 @@ function currentEvents(): SyslogEvent[] {
           </div>
         </div>
 
-        <!-- Severity Distribution + Top Messages -->
+        <!-- Top Messages + Severity Distribution -->
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <SeverityDistribution
-            v-if="summary.severity_breakdown.length > 0"
-            :items="summary.severity_breakdown"
-            title="Severity Breakdown"
-          />
-
           <!-- Top Messages -->
           <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border p-4">
             <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Messages</h3>
@@ -235,6 +229,12 @@ function currentEvents(): SyslogEvent[] {
               </RouterLink>
             </div>
           </div>
+
+          <SeverityDistribution
+            v-if="summary.severity_breakdown.length > 0"
+            :items="summary.severity_breakdown"
+            title="Severity Breakdown"
+          />
         </div>
       </div>
 
