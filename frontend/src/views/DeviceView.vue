@@ -33,6 +33,16 @@ provide('collapseSignal', collapseSignal)
 // Recent logs reversed to chronological order (oldest first, newest at bottom).
 const chronologicalLogs = computed(() => [...deviceLogs.value].reverse())
 
+// Derive individual severity counts from breakdown (matches dashboard pattern).
+function sevCount(severity: number): number {
+  return summary.value?.severity_breakdown.find(s => s.severity === severity)?.count ?? 0
+}
+const emergCount = computed(() => sevCount(0))
+const alertCount = computed(() => sevCount(1))
+const emergAlertCount = computed(() => emergCount.value + alertCount.value)
+const critCount = computed(() => sevCount(2))
+const errCount = computed(() => sevCount(3))
+
 // Compute dynamic column widths for SyslogRow.
 const colWidths = computed(() => {
   const events = activeTab.value === 'critical'
@@ -212,9 +222,12 @@ function currentEvents(): SyslogEvent[] {
             &larr; back
           </button>
           <h1 class="text-t-teal truncate font-mono text-lg font-semibold">{{ summary.hostname }}</h1>
+          <span class="ml-auto shrink-0 font-mono text-xs" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
+            {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never seen' }}
+          </span>
         </div>
 
-        <!-- Summary stat cards -->
+        <!-- Summary stat cards (matches dashboard layout) -->
         <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
           <!-- Total -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
@@ -222,30 +235,39 @@ function currentEvents(): SyslogEvent[] {
             <div class="text-t-teal text-2xl font-bold">{{ formatNumber(summary.total_count) }}</div>
           </div>
 
-          <!-- Critical -->
+          <!-- Emerg & Alert -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
-            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Critical</div>
-            <div class="text-2xl font-bold" :class="summary.critical_count > 0 ? 'text-sev-err' : 'text-t-fg'">
-              {{ formatNumber(summary.critical_count) }}
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Emerg & Alert</div>
+            <div class="text-2xl font-bold">
+              <RouterLink :to="{ name: 'syslog', query: { hostname: summary.hostname, severity: '0' } }" class="text-sev-emerg hover:underline">{{ formatNumber(emergCount) }}</RouterLink>
+              <span class="text-t-fg-dark"> / </span>
+              <RouterLink :to="{ name: 'syslog', query: { hostname: summary.hostname, severity: '1' } }" class="text-sev-alert hover:underline">{{ formatNumber(alertCount) }}</RouterLink>
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
-              {{ ((summary.critical_count / summary.total_count) * 100).toFixed(1) }}% of total
+              {{ ((emergAlertCount / summary.total_count) * 100).toFixed(1) }}% of total
             </div>
           </div>
 
-          <!-- Last seen -->
+          <!-- Criticals -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
-            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Last Log</div>
-            <div class="text-2xl font-bold font-mono" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
-              {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never' }}
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Criticals</div>
+            <div class="text-2xl font-bold">
+              <RouterLink :to="{ name: 'syslog', query: { hostname: summary.hostname, severity: '2' } }" class="text-sev-crit hover:underline">{{ formatNumber(critCount) }}</RouterLink>
+            </div>
+            <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
+              {{ ((critCount / summary.total_count) * 100).toFixed(1) }}% of total
             </div>
           </div>
 
-          <!-- Severity breakdown count (unique severities seen) -->
+          <!-- Errors -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
-            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Severities</div>
-            <div class="text-t-purple text-2xl font-bold">{{ summary.severity_breakdown.length }}</div>
-            <div class="text-t-fg-dark mt-1 text-xs">distinct levels</div>
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Errors</div>
+            <div class="text-2xl font-bold">
+              <RouterLink :to="{ name: 'syslog', query: { hostname: summary.hostname, severity: '3' } }" class="text-sev-err hover:underline">{{ formatNumber(errCount) }}</RouterLink>
+            </div>
+            <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
+              {{ ((errCount / summary.total_count) * 100).toFixed(1) }}% of total
+            </div>
           </div>
         </div>
 
