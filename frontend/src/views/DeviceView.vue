@@ -213,26 +213,23 @@ function currentEvents(): SyslogEvent[] {
     <template v-else-if="summary">
       <!-- Summary area (compact, non-scrolling) -->
       <div class="shrink-0 space-y-4 p-4">
-        <!-- Back button + hostname -->
-        <div class="flex items-center gap-3">
-          <button
-            class="text-t-fg-dark hover:text-t-fg text-xs transition-colors"
-            @click="router.back()"
-          >
-            &larr; back
-          </button>
-          <h1 class="text-t-teal truncate font-mono text-lg font-semibold">{{ summary.hostname }}</h1>
-          <span class="ml-auto shrink-0 font-mono text-xs" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
-            {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never seen' }}
-          </span>
-        </div>
+        <!-- Back button -->
+        <button
+          class="text-t-fg-dark hover:text-t-fg text-xs transition-colors"
+          @click="router.back()"
+        >
+          &larr; back
+        </button>
 
-        <!-- Summary stat cards (matches dashboard layout) -->
+        <!-- Summary stat cards -->
         <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <!-- Total -->
+          <!-- Hostname -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
-            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total (7d)</div>
-            <div class="text-t-teal text-2xl font-bold">{{ formatNumber(summary.total_count) }}</div>
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Hostname</div>
+            <div class="text-t-teal truncate font-mono text-lg font-bold" :title="summary.hostname">{{ summary.hostname }}</div>
+            <div class="mt-1 font-mono text-xs" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
+              {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never seen' }}
+            </div>
           </div>
 
           <!-- Emerg & Alert -->
