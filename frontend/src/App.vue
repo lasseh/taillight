@@ -15,6 +15,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import AppLogFilterBar from '@/components/AppLogFilterBar.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import ConnectionBanner from '@/components/ConnectionBanner.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -121,6 +122,7 @@ onErrorCaptured((err) => {
     <AppHeader />
     <FilterBar v-if="route.name === 'syslog'" />
     <AppLogFilterBar v-if="route.name === 'applog'" />
+    <ConnectionBanner :connected="connected" />
     <main class="flex min-h-0 flex-1 flex-col">
       <router-view v-slot="{ Component }">
         <KeepAlive include="SyslogListView,AppLogListView">
