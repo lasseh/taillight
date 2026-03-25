@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
-    "@types/marked": "^5.0.2",
     "@unovis/ts": "^1.6.4",
     "@unovis/vue": "^1.6.4",
     "@vueuse/core": "^14.2.1",
@@ -27,7 +26,6 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
-    "@types/dompurify": "^3.2.0",
     "@types/node": "^25.5.0",
     "@types/prismjs": "^1.26.5",
     "@vitejs/plugin-vue": "^6.0.5",
@@ -37,5 +35,8 @@
     "vite": "^8.0.2",
     "vitest": "^4.1.0",
     "vue-tsc": "^3.2.4"
+  },
+  "overrides": {
+    "glob": "^13.0.0"
   }
 }
