@@ -173,6 +173,34 @@ func (s *Store) ListAppLogHosts(ctx context.Context) ([]string, error) {
 	return s.listAppLogDistinctStrings(ctx, "host")
 }
 
+// RefreshAppLogMetaCache repopulates the applog_meta_cache table from the
+// last 7 days of applog_events.
+func (s *Store) RefreshAppLogMetaCache(ctx context.Context) error {
+	const q = `
+WITH recent AS (
+    SELECT DISTINCT service, component, host
+    FROM applog_events
+    WHERE received_at > now() - INTERVAL '7 days'
+)
+INSERT INTO applog_meta_cache (column_name, value, last_seen_at)
+SELECT 'service', service, NULL FROM (SELECT DISTINCT service FROM recent) t
+UNION ALL
+SELECT 'component', component, NULL FROM (SELECT DISTINCT component FROM recent) t
+UNION ALL
+SELECT 'host', host, now() FROM (SELECT DISTINCT host FROM recent) t
+ON CONFLICT (column_name, value) DO UPDATE
+    SET last_seen_at = CASE
+        WHEN EXCLUDED.column_name = 'host' THEN now()
+        ELSE applog_meta_cache.last_seen_at
+    END`
+
+	_, err := s.pool.Exec(ctx, q)
+	if err != nil {
+		return fmt.Errorf("refresh applog meta cache: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) listAppLogDistinctStrings(ctx context.Context, column string) ([]string, error) {
 	if _, ok := allowedAppLogMetaColumns[column]; !ok {
 		return nil, fmt.Errorf("disallowed log meta column: %s", column)

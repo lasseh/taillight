@@ -333,6 +333,38 @@ func startBackgroundWorkers(
 			}
 		}
 	}()
+
+	// Periodically refresh meta caches (host, program, facility, service, component).
+	// The DB triggers were removed in migration 000008; the app layer now owns this.
+	refreshMeta := func() {
+		queryCtx, queryCancel := context.WithTimeout(ctx, 60*time.Second)
+		defer queryCancel()
+		if err := store.RefreshSyslogMetaCache(queryCtx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			logger.Warn("refresh syslog meta cache", "err", err)
+		}
+		if err := store.RefreshAppLogMetaCache(queryCtx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			logger.Warn("refresh applog meta cache", "err", err)
+		}
+	}
+	go func() {
+		refreshMeta() // seed on startup
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				refreshMeta()
+			}
+		}
+	}()
 }
 
 // setupAnalysis initializes the LLM analysis subsystem and starts the scheduler.

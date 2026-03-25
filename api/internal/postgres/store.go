@@ -207,6 +207,39 @@ func (s *Store) ListFacilities(ctx context.Context) ([]int, error) {
 	return facilities, rows.Err()
 }
 
+// RefreshSyslogMetaCache repopulates the syslog_meta_cache and
+// syslog_facility_cache tables from the last 7 days of syslog_events.
+func (s *Store) RefreshSyslogMetaCache(ctx context.Context) error {
+	const q = `
+WITH recent AS (
+    SELECT DISTINCT hostname, programname, syslogtag, facility
+    FROM syslog_events
+    WHERE received_at > now() - INTERVAL '7 days'
+)
+, upsert_meta AS (
+    INSERT INTO syslog_meta_cache (column_name, value, last_seen_at)
+    SELECT 'hostname', hostname, now() FROM (SELECT DISTINCT hostname FROM recent) t
+    UNION ALL
+    SELECT 'programname', programname, NULL FROM (SELECT DISTINCT programname FROM recent) t
+    UNION ALL
+    SELECT 'syslogtag', syslogtag, NULL FROM (SELECT DISTINCT syslogtag FROM recent) t
+    ON CONFLICT (column_name, value) DO UPDATE
+        SET last_seen_at = CASE
+            WHEN EXCLUDED.column_name = 'hostname' THEN now()
+            ELSE syslog_meta_cache.last_seen_at
+        END
+)
+INSERT INTO syslog_facility_cache (facility)
+SELECT DISTINCT facility FROM recent
+ON CONFLICT DO NOTHING`
+
+	_, err := s.pool.Exec(ctx, q)
+	if err != nil {
+		return fmt.Errorf("refresh syslog meta cache: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) listDistinctStrings(ctx context.Context, column string) ([]string, error) {
 	if _, ok := allowedMetaColumns[column]; !ok {
 		return nil, fmt.Errorf("disallowed meta column: %s", column)
