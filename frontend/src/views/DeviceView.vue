@@ -5,7 +5,7 @@ import type { DeviceSummary } from '@/types/device'
 import type { SyslogEvent } from '@/types/syslog'
 import { api, ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
-import { severityLabels, severityColorClassByLabel, severityBgClass } from '@/lib/constants'
+import { severityLabels, severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
 import { useDeviceLogs } from '@/composables/useDeviceLogs'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
@@ -281,11 +281,26 @@ function currentEvents(): SyslogEvent[] {
           <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border p-4">
             <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Messages</h3>
             <div class="-mx-4">
+              <!-- Mobile: color bar + count + message -->
               <RouterLink
                 v-for="(msg, i) in summary.top_messages.slice(0, 8)"
-                :key="i"
+                :key="'m-' + i"
                 :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
-                class="hover:bg-t-bg-hover flex cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors"
+                class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 md:hidden"
+                :class="severityBgClass[msg.severity] ?? ''"
+              >
+                <div class="w-[3px] shrink-0 rounded-r" :class="severityBgClassByLabel[msg.severity_label] ?? 'bg-sev-info'" />
+                <div class="min-w-0 flex-1">
+                  <div class="text-t-purple text-[10px] leading-tight">{{ formatNumber(msg.count) }}x &middot; {{ msg.severity_label }}</div>
+                  <div class="min-w-0 truncate text-xs leading-snug" v-html="highlightMessage(msg.latest_id, msg.sample)" />
+                </div>
+              </RouterLink>
+              <!-- Desktop: full row -->
+              <RouterLink
+                v-for="(msg, i) in summary.top_messages.slice(0, 8)"
+                :key="'d-' + i"
+                :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
+                class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors md:flex"
                 :class="severityBgClass[msg.severity] ?? ''"
               >
                 <span class="text-t-fg-dark w-[10ch] shrink-0 text-right text-xs whitespace-nowrap">{{ formatRelativeTime(msg.latest_at) }}</span>
