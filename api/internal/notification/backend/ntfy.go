@@ -140,8 +140,8 @@ func buildNtfyMessage(p notification.Payload) (title, body string) {
 
 // buildNtfyInitial formats an initial (non-digest) notification.
 func buildNtfyInitial(p notification.Payload) (title, body string) {
-	if p.SyslogEvent != nil {
-		e := p.SyslogEvent
+	if p.SrvlogEvent != nil {
+		e := p.SrvlogEvent
 		title = fmt.Sprintf("[%s] %s %s", strings.ToUpper(model.SeverityLabel(e.Severity)), e.Hostname, e.Programname)
 		if p.EventCount > 1 {
 			title += fmt.Sprintf(" (%d events)", p.EventCount)
@@ -167,8 +167,8 @@ func buildNtfyDigest(p notification.Payload) (title, body string) {
 		windowLabel = fmt.Sprintf("%d seconds", int(p.Window.Seconds()))
 	}
 
-	if p.SyslogEvent != nil {
-		e := p.SyslogEvent
+	if p.SrvlogEvent != nil {
+		e := p.SrvlogEvent
 		title = fmt.Sprintf("[%s] %s (digest)", strings.ToUpper(model.SeverityLabel(e.Severity)), e.Hostname)
 		body = fmt.Sprintf("%d more events in the last %s\nLast: %s", p.EventCount, windowLabel, truncate(e.Message, 500))
 	}
@@ -182,13 +182,13 @@ func buildNtfyDigest(p notification.Payload) (title, body string) {
 
 // ntfyPriority maps event severity to ntfy priority (1-5).
 func ntfyPriority(p notification.Payload) int {
-	if p.SyslogEvent != nil {
+	if p.SrvlogEvent != nil {
 		switch {
-		case p.SyslogEvent.Severity <= 1:
+		case p.SrvlogEvent.Severity <= 1:
 			return 5 // urgent
-		case p.SyslogEvent.Severity <= 3:
+		case p.SrvlogEvent.Severity <= 3:
 			return 4 // high
-		case p.SyslogEvent.Severity == 4:
+		case p.SrvlogEvent.Severity == 4:
 			return 3 // default
 		default:
 			return 2 // low
@@ -211,15 +211,15 @@ func ntfyPriority(p notification.Payload) int {
 
 // ntfyTags returns comma-separated ntfy tags based on severity.
 func ntfyTags(p notification.Payload) string {
-	if p.SyslogEvent != nil {
+	if p.SrvlogEvent != nil {
 		switch {
-		case p.SyslogEvent.Severity <= 2:
+		case p.SrvlogEvent.Severity <= 2:
 			return "rotating_light"
-		case p.SyslogEvent.Severity == 3:
+		case p.SrvlogEvent.Severity == 3:
 			return "x"
-		case p.SyslogEvent.Severity == 4:
+		case p.SrvlogEvent.Severity == 4:
 			return "warning"
-		case p.SyslogEvent.Severity <= 6:
+		case p.SrvlogEvent.Severity <= 6:
 			return "information_source"
 		default:
 			return "mag"

@@ -1,4 +1,4 @@
-// Package handler provides HTTP handlers for the syslog SSE API.
+// Package handler provides HTTP handlers for the srvlog SSE API.
 package handler
 
 import (

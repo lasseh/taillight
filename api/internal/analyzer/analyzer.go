@@ -1,4 +1,4 @@
-// Package analyzer provides AI-powered syslog analysis using Ollama.
+// Package analyzer provides AI-powered srvlog analysis using Ollama.
 package analyzer
 
 import (
@@ -17,7 +17,7 @@ type Store interface {
 	GetTopErrorHosts(ctx context.Context, since time.Time, limit int) ([]model.HostErrorCount, error)
 	GetNewMsgIDs(ctx context.Context, since, baselineSince time.Time) ([]string, error)
 	GetEventClusters(ctx context.Context, since time.Time, windowMinutes int) ([]model.EventCluster, error)
-	LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperSyslogRef, error)
+	LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error)
 	InsertReport(ctx context.Context, r model.AnalysisReport) (int64, error)
 }
 

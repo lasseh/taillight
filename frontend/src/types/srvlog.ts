@@ -1,4 +1,4 @@
-export interface SyslogEvent {
+export interface SrvlogEvent {
   id: number
   received_at: string
   reported_at: string
@@ -14,16 +14,16 @@ export interface SyslogEvent {
   structured_data: string | null
   message: string
   raw_message: string | null
-  juniper_ref?: JuniperSyslogRef[]
+  juniper_ref?: JuniperNetlogRef[]
 }
 
-export interface SyslogListResponse {
-  data: SyslogEvent[]
+export interface SrvlogListResponse {
+  data: SrvlogEvent[]
   cursor?: string
   has_more: boolean
 }
 
-export interface JuniperSyslogRef {
+export interface JuniperNetlogRef {
   id: number
   name: string
   message: string
@@ -36,8 +36,8 @@ export interface JuniperSyslogRef {
   created_at: string
 }
 
-export interface SingleSyslogResponse {
-  data: SyslogEvent
+export interface SingleSrvlogResponse {
+  data: SrvlogEvent
 }
 
 export interface MetaResponse<T> {

@@ -14,7 +14,7 @@ type StatsStore interface {
 	GetAppLogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
 	GetSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
 	GetAppLogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
-	GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
+	GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (model.SrvlogSummary, error)
 	GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (model.AppLogSummary, error)
 }
 
@@ -112,21 +112,21 @@ func (h *StatsHandler) AppLogSeverityVolume(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, itemResponse{Data: emptySlice(buckets)})
 }
 
-// SyslogSummary handles GET /api/v1/stats/summary.
-func (h *StatsHandler) SyslogSummary(w http.ResponseWriter, r *http.Request) {
+// SrvlogSummary handles GET /api/v1/stats/summary.
+func (h *StatsHandler) SrvlogSummary(w http.ResponseWriter, r *http.Request) {
 	rangeDur, err := model.ParseRange(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_params", err.Error())
 		return
 	}
 
-	summary, err := h.store.GetSyslogSummary(r.Context(), rangeDur)
+	summary, err := h.store.GetSrvlogSummary(r.Context(), rangeDur)
 	if err != nil {
 		if isClientGone(r) {
 			return
 		}
-		LoggerFromContext(r.Context()).Error("get syslog summary failed", "err", err, "range", rangeDur)
-		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query syslog summary")
+		LoggerFromContext(r.Context()).Error("get srvlog summary failed", "err", err, "range", rangeDur)
+		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query srvlog summary")
 		return
 	}
 

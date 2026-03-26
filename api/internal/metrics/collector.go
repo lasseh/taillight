@@ -32,7 +32,7 @@ func counterValue(c interface{ Write(*dto.Metric) error }) float64 {
 // Snapshot reads all Prometheus metrics and returns a MetricsSnapshot.
 func Snapshot() model.MetricsSnapshot {
 	return model.MetricsSnapshot{
-		SSEClientsSyslog:      int(gaugeValue(SSEClientsActive)),
+		SSEClientsSrvlog:      int(gaugeValue(SSEClientsActive)),
 		SSEClientsAppLog:      int(gaugeValue(AppLogSSEClientsActive)),
 		DBPoolActive:          int(gaugeValue(DBPoolActiveConns)),
 		DBPoolIdle:            int(gaugeValue(DBPoolIdleConns)),

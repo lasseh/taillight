@@ -22,8 +22,8 @@ CREATE TABLE notification_rules (
     id                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name                TEXT UNIQUE NOT NULL,
     enabled             BOOLEAN NOT NULL DEFAULT true,
-    event_kind          TEXT NOT NULL CHECK (event_kind IN ('syslog', 'applog')),
-    -- Syslog filter fields (nullable = don't filter on this field).
+    event_kind          TEXT NOT NULL CHECK (event_kind IN ('srvlog', 'applog')),
+    -- Srvlog filter fields (nullable = don't filter on this field).
     hostname            TEXT,
     programname         TEXT,
     severity            SMALLINT CHECK (severity BETWEEN 0 AND 7),

@@ -17,27 +17,27 @@ const (
 	sseWriteTimeout    = 30 * time.Second
 )
 
-// SyslogSSEHandler handles the SSE streaming endpoint.
-type SyslogSSEHandler struct {
-	broker *broker.SyslogBroker
-	store  SyslogStore
+// SrvlogSSEHandler handles the SSE streaming endpoint.
+type SrvlogSSEHandler struct {
+	broker *broker.SrvlogBroker
+	store  SrvlogStore
 	logger *slog.Logger
 }
 
-// NewSyslogSSEHandler creates a new SyslogSSEHandler.
-func NewSyslogSSEHandler(b *broker.SyslogBroker, s SyslogStore, l *slog.Logger) *SyslogSSEHandler {
-	return &SyslogSSEHandler{broker: b, store: s, logger: l}
+// NewSrvlogSSEHandler creates a new SrvlogSSEHandler.
+func NewSrvlogSSEHandler(b *broker.SrvlogBroker, s SrvlogStore, l *slog.Logger) *SrvlogSSEHandler {
+	return &SrvlogSSEHandler{broker: b, store: s, logger: l}
 }
 
-// Stream handles GET /api/v1/syslog/stream.
-func (h *SyslogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
+// Stream handles GET /api/v1/srvlog/stream.
+func (h *SrvlogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming_unsupported", "streaming unsupported")
 		return
 	}
 
-	filter, err := model.ParseSyslogFilter(r)
+	filter, err := model.ParseSrvlogFilter(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_filter", err.Error())
 		return
@@ -69,7 +69,7 @@ func (h *SyslogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 
 	connectedAt := time.Now()
 	logger := LoggerFromContext(r.Context())
-	logger.Debug("syslog sse client connected",
+	logger.Debug("srvlog sse client connected",
 		"remote_addr", r.RemoteAddr,
 		"hostname", filter.Hostname,
 		"programname", filter.Programname,
@@ -78,7 +78,7 @@ func (h *SyslogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		"search", filter.Search,
 	)
 	defer func() {
-		logger.Debug("syslog sse client disconnected",
+		logger.Debug("srvlog sse client disconnected",
 			"remote_addr", r.RemoteAddr,
 			"duration", time.Since(connectedAt).Round(time.Second),
 		)
@@ -98,16 +98,16 @@ func (h *SyslogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if err := rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil {
-				logger.Warn("syslog sse: failed to set write deadline", "err", err)
+				logger.Warn("srvlog sse: failed to set write deadline", "err", err)
 				return
 			}
-			if err := writeSSEEvent(w, msg.ID, "syslog", msg.Data); err != nil {
+			if err := writeSSEEvent(w, msg.ID, "srvlog", msg.Data); err != nil {
 				return
 			}
 			flusher.Flush()
 		case <-heartbeat.C:
 			if err := rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil {
-				logger.Warn("syslog sse: failed to set write deadline", "err", err)
+				logger.Warn("srvlog sse: failed to set write deadline", "err", err)
 				return
 			}
 			if _, err := fmt.Fprint(w, "event: heartbeat\ndata: \n\n"); err != nil {
@@ -122,17 +122,17 @@ func (h *SyslogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 
 // backfill sends recent events to a newly connected client and returns the
 // highest event ID sent, so the caller can skip duplicates from the live channel.
-func (h *SyslogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filter model.SyslogFilter, flusher http.Flusher) int64 {
+func (h *SrvlogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filter model.SrvlogFilter, flusher http.Flusher) int64 {
 	logger := LoggerFromContext(r.Context())
 	if lastID := parseLastEventID(r); lastID > 0 {
 		// Resume from where the client left off.
-		events, err := h.store.ListSyslogsSince(r.Context(), filter, lastID, sseBackfillLimit)
+		events, err := h.store.ListSrvlogsSince(r.Context(), filter, lastID, sseBackfillLimit)
 		if err != nil {
 			// Client disconnect during backfill is expected; don't warn.
 			if r.Context().Err() != nil {
-				logger.Debug("syslog backfill canceled", "last_event_id", lastID, "err", err)
+				logger.Debug("srvlog backfill canceled", "last_event_id", lastID, "err", err)
 			} else {
-				logger.Warn("syslog backfill since id failed", "last_event_id", lastID, "err", err)
+				logger.Warn("srvlog backfill since id failed", "last_event_id", lastID, "err", err)
 			}
 			return lastID
 		}
@@ -142,7 +142,7 @@ func (h *SyslogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 			if !ok {
 				continue
 			}
-			if err := writeSSEEvent(w, events[i].ID, "syslog", data); err != nil {
+			if err := writeSSEEvent(w, events[i].ID, "srvlog", data); err != nil {
 				return lastID
 			}
 		}
@@ -154,12 +154,12 @@ func (h *SyslogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 	}
 
 	// Default: send recent matching events.
-	recent, _, err := h.store.ListSyslogs(r.Context(), filter, nil, sseBackfillLimit)
+	recent, _, err := h.store.ListSrvlogs(r.Context(), filter, nil, sseBackfillLimit)
 	if err != nil {
 		if r.Context().Err() != nil {
-			logger.Debug("syslog backfill canceled", "err", err)
+			logger.Debug("srvlog backfill canceled", "err", err)
 		} else {
-			logger.Warn("syslog backfill failed", "err", err, "hostname", filter.Hostname, "programname", filter.Programname, "severity", filter.Severity)
+			logger.Warn("srvlog backfill failed", "err", err, "hostname", filter.Hostname, "programname", filter.Programname, "severity", filter.Severity)
 		}
 		return 0
 	}
@@ -169,7 +169,7 @@ func (h *SyslogSSEHandler) backfill(w http.ResponseWriter, r *http.Request, filt
 		if !ok {
 			continue
 		}
-		if err := writeSSEEvent(w, recent[i].ID, "syslog", data); err != nil {
+		if err := writeSSEEvent(w, recent[i].ID, "srvlog", data); err != nil {
 			return 0
 		}
 	}

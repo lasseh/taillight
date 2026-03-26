@@ -49,8 +49,8 @@ func TestFacilityLabel(t *testing.T) {
 	}
 }
 
-func TestSyslogFilter_Matches(t *testing.T) {
-	base := SyslogEvent{
+func TestSrvlogFilter_Matches(t *testing.T) {
+	base := SrvlogEvent{
 		ID:          1,
 		Hostname:    "router1",
 		FromhostIP:  "10.0.0.1",
@@ -64,30 +64,30 @@ func TestSyslogFilter_Matches(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		filter SyslogFilter
+		filter SrvlogFilter
 		want   bool
 	}{
-		{"empty filter matches all", SyslogFilter{}, true},
-		{"hostname match", SyslogFilter{Hostname: "router1"}, true},
-		{"hostname mismatch", SyslogFilter{Hostname: "router2"}, false},
-		{"fromhost_ip match", SyslogFilter{FromhostIP: "10.0.0.1"}, true},
-		{"fromhost_ip mismatch", SyslogFilter{FromhostIP: "10.0.0.2"}, false},
-		{"programname match", SyslogFilter{Programname: "rpd"}, true},
-		{"programname mismatch", SyslogFilter{Programname: "sshd"}, false},
-		{"severity exact match", SyslogFilter{Severity: new(3)}, true},
-		{"severity exact mismatch", SyslogFilter{Severity: new(4)}, false},
-		{"severity_max includes", SyslogFilter{SeverityMax: new(3)}, true},
-		{"severity_max excludes", SyslogFilter{SeverityMax: new(2)}, false},
-		{"facility match", SyslogFilter{Facility: new(23)}, true},
-		{"facility mismatch", SyslogFilter{Facility: new(0)}, false},
-		{"syslogtag match", SyslogFilter{SyslogTag: "rpd[1234]:"}, true},
-		{"syslogtag mismatch", SyslogFilter{SyslogTag: "sshd:"}, false},
-		{"msgid match", SyslogFilter{MsgID: "BGP_STATE"}, true},
-		{"msgid mismatch", SyslogFilter{MsgID: "OTHER"}, false},
-		{"search match case-insensitive", SyslogFilter{Search: "bgp peer"}, true},
-		{"search mismatch", SyslogFilter{Search: "ospf"}, false},
-		{"combined hostname+severity", SyslogFilter{Hostname: "router1", Severity: new(3)}, true},
-		{"combined hostname mismatch+severity match", SyslogFilter{Hostname: "router2", Severity: new(3)}, false},
+		{"empty filter matches all", SrvlogFilter{}, true},
+		{"hostname match", SrvlogFilter{Hostname: "router1"}, true},
+		{"hostname mismatch", SrvlogFilter{Hostname: "router2"}, false},
+		{"fromhost_ip match", SrvlogFilter{FromhostIP: "10.0.0.1"}, true},
+		{"fromhost_ip mismatch", SrvlogFilter{FromhostIP: "10.0.0.2"}, false},
+		{"programname match", SrvlogFilter{Programname: "rpd"}, true},
+		{"programname mismatch", SrvlogFilter{Programname: "sshd"}, false},
+		{"severity exact match", SrvlogFilter{Severity: new(3)}, true},
+		{"severity exact mismatch", SrvlogFilter{Severity: new(4)}, false},
+		{"severity_max includes", SrvlogFilter{SeverityMax: new(3)}, true},
+		{"severity_max excludes", SrvlogFilter{SeverityMax: new(2)}, false},
+		{"facility match", SrvlogFilter{Facility: new(23)}, true},
+		{"facility mismatch", SrvlogFilter{Facility: new(0)}, false},
+		{"syslogtag match", SrvlogFilter{SyslogTag: "rpd[1234]:"}, true},
+		{"syslogtag mismatch", SrvlogFilter{SyslogTag: "sshd:"}, false},
+		{"msgid match", SrvlogFilter{MsgID: "BGP_STATE"}, true},
+		{"msgid mismatch", SrvlogFilter{MsgID: "OTHER"}, false},
+		{"search match case-insensitive", SrvlogFilter{Search: "bgp peer"}, true},
+		{"search mismatch", SrvlogFilter{Search: "ospf"}, false},
+		{"combined hostname+severity", SrvlogFilter{Hostname: "router1", Severity: new(3)}, true},
+		{"combined hostname mismatch+severity match", SrvlogFilter{Hostname: "router2", Severity: new(3)}, false},
 	}
 
 	for _, tt := range tests {
@@ -176,16 +176,16 @@ func TestParseLimit(t *testing.T) {
 	}
 }
 
-func TestParseSyslogFilter_Valid(t *testing.T) {
+func TestParseSrvlogFilter_Valid(t *testing.T) {
 	tests := []struct {
 		name  string
 		query string
-		check func(t *testing.T, f SyslogFilter)
+		check func(t *testing.T, f SrvlogFilter)
 	}{
 		{
 			"empty query",
 			"",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.Hostname != "" || f.Severity != nil {
 					t.Error("expected empty filter")
 				}
@@ -194,7 +194,7 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 		{
 			"hostname only",
 			"hostname=router1",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.Hostname != "router1" {
 					t.Errorf("Hostname = %q, want %q", f.Hostname, "router1")
 				}
@@ -203,7 +203,7 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 		{
 			"severity",
 			"severity=3",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.Severity == nil || *f.Severity != 3 {
 					t.Errorf("Severity = %v, want 3", f.Severity)
 				}
@@ -212,7 +212,7 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 		{
 			"severity_max",
 			"severity_max=5",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.SeverityMax == nil || *f.SeverityMax != 5 {
 					t.Errorf("SeverityMax = %v, want 5", f.SeverityMax)
 				}
@@ -221,7 +221,7 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 		{
 			"facility",
 			"facility=23",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.Facility == nil || *f.Facility != 23 {
 					t.Errorf("Facility = %v, want 23", f.Facility)
 				}
@@ -230,7 +230,7 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 		{
 			"fromhost_ip IPv4",
 			"fromhost_ip=10.0.0.1",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.FromhostIP != "10.0.0.1" {
 					t.Errorf("FromhostIP = %q, want %q", f.FromhostIP, "10.0.0.1")
 				}
@@ -239,7 +239,7 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 		{
 			"fromhost_ip IPv6",
 			"fromhost_ip=::1",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.FromhostIP != "::1" {
 					t.Errorf("FromhostIP = %q, want %q", f.FromhostIP, "::1")
 				}
@@ -248,7 +248,7 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 		{
 			"time range",
 			"from=2025-01-01T00:00:00Z&to=2025-01-02T00:00:00Z",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.From == nil {
 					t.Fatal("From is nil")
 				}
@@ -263,7 +263,7 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 		{
 			"search",
 			"search=BGP+peer",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.Search != "BGP peer" {
 					t.Errorf("Search = %q, want %q", f.Search, "BGP peer")
 				}
@@ -272,7 +272,7 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 		{
 			"combined filters",
 			"hostname=router1&severity=3&programname=rpd",
-			func(t *testing.T, f SyslogFilter) {
+			func(t *testing.T, f SrvlogFilter) {
 				if f.Hostname != "router1" {
 					t.Errorf("Hostname = %q", f.Hostname)
 				}
@@ -288,16 +288,16 @@ func TestParseSyslogFilter_Valid(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &http.Request{URL: &url.URL{RawQuery: tt.query}}
-			f, err := ParseSyslogFilter(r)
+			f, err := ParseSrvlogFilter(r)
 			if err != nil {
-				t.Fatalf("ParseSyslogFilter() error = %v", err)
+				t.Fatalf("ParseSrvlogFilter() error = %v", err)
 			}
 			tt.check(t, f)
 		})
 	}
 }
 
-func TestParseSyslogFilter_Invalid(t *testing.T) {
+func TestParseSrvlogFilter_Invalid(t *testing.T) {
 	tests := []struct {
 		name  string
 		query string
@@ -317,9 +317,9 @@ func TestParseSyslogFilter_Invalid(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &http.Request{URL: &url.URL{RawQuery: tt.query}}
-			_, err := ParseSyslogFilter(r)
+			_, err := ParseSrvlogFilter(r)
 			if err == nil {
-				t.Error("ParseSyslogFilter() expected error, got nil")
+				t.Error("ParseSrvlogFilter() expected error, got nil")
 			}
 		})
 	}
@@ -368,20 +368,20 @@ func Test_matchWildcard(t *testing.T) {
 	}
 }
 
-func TestSyslogFilter_Matches_Wildcard(t *testing.T) {
-	base := SyslogEvent{
+func TestSrvlogFilter_Matches_Wildcard(t *testing.T) {
+	base := SrvlogEvent{
 		Hostname: "c-lab-sw01",
 		Severity: 3,
 		Message:  "test",
 	}
 	tests := []struct {
 		name   string
-		filter SyslogFilter
+		filter SrvlogFilter
 		want   bool
 	}{
-		{"wildcard hostname match", SyslogFilter{Hostname: "c-lab-*"}, true},
-		{"wildcard hostname mismatch", SyslogFilter{Hostname: "d-lab-*"}, false},
-		{"exact hostname still works", SyslogFilter{Hostname: "c-lab-sw01"}, true},
+		{"wildcard hostname match", SrvlogFilter{Hostname: "c-lab-*"}, true},
+		{"wildcard hostname mismatch", SrvlogFilter{Hostname: "d-lab-*"}, false},
+		{"exact hostname still works", SrvlogFilter{Hostname: "c-lab-sw01"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

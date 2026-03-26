@@ -6,10 +6,10 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-// SyslogFilter converts the rule's filter fields to a model.SyslogFilter
+// SrvlogFilter converts the rule's filter fields to a model.SrvlogFilter
 // for reuse of the existing Matches() logic.
-func (r Rule) SyslogFilter() model.SyslogFilter {
-	return model.SyslogFilter{
+func (r Rule) SrvlogFilter() model.SrvlogFilter {
+	return model.SrvlogFilter{
 		Hostname:    r.Hostname,
 		Programname: r.Programname,
 		Severity:    r.Severity,
@@ -32,9 +32,9 @@ func (r Rule) AppLogFilter() model.AppLogFilter {
 	}
 }
 
-// MatchesSyslog reports whether the event satisfies this rule's syslog filter.
-func (r Rule) MatchesSyslog(e model.SyslogEvent) bool {
-	return r.SyslogFilter().Matches(e)
+// MatchesSrvlog reports whether the event satisfies this rule's srvlog filter.
+func (r Rule) MatchesSrvlog(e model.SrvlogEvent) bool {
+	return r.SrvlogFilter().Matches(e)
 }
 
 // MatchesAppLog reports whether the event satisfies this rule's applog filter.
@@ -42,9 +42,9 @@ func (r Rule) MatchesAppLog(e model.AppLogEvent) bool {
 	return r.AppLogFilter().Matches(e)
 }
 
-// GroupKeyFromSyslog extracts a group key from a syslog event based on the
+// GroupKeyFromSrvlog extracts a group key from a srvlog event based on the
 // rule's GroupBy field. Default grouping is by hostname.
-func (r Rule) GroupKeyFromSyslog(e model.SyslogEvent) string {
+func (r Rule) GroupKeyFromSrvlog(e model.SrvlogEvent) string {
 	fields := r.groupByFields("hostname")
 	var parts []string
 	for _, f := range fields {

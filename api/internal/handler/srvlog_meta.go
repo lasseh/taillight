@@ -4,18 +4,18 @@ import (
 	"net/http"
 )
 
-// SyslogMetaHandler handles REST metadata endpoints for filter UI dropdowns.
-type SyslogMetaHandler struct {
-	store SyslogStore
+// SrvlogMetaHandler handles REST metadata endpoints for filter UI dropdowns.
+type SrvlogMetaHandler struct {
+	store SrvlogStore
 }
 
-// NewSyslogMetaHandler creates a new SyslogMetaHandler.
-func NewSyslogMetaHandler(store SyslogStore) *SyslogMetaHandler {
-	return &SyslogMetaHandler{store: store}
+// NewSrvlogMetaHandler creates a new SrvlogMetaHandler.
+func NewSrvlogMetaHandler(store SrvlogStore) *SrvlogMetaHandler {
+	return &SrvlogMetaHandler{store: store}
 }
 
 // Hosts handles GET /api/v1/meta/hosts.
-func (h *SyslogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
+func (h *SrvlogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 	hosts, err := h.store.ListHosts(r.Context())
 	if err != nil {
 		if isClientGone(r) {
@@ -29,7 +29,7 @@ func (h *SyslogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 }
 
 // Programs handles GET /api/v1/meta/programs.
-func (h *SyslogMetaHandler) Programs(w http.ResponseWriter, r *http.Request) {
+func (h *SrvlogMetaHandler) Programs(w http.ResponseWriter, r *http.Request) {
 	programs, err := h.store.ListPrograms(r.Context())
 	if err != nil {
 		if isClientGone(r) {
@@ -43,7 +43,7 @@ func (h *SyslogMetaHandler) Programs(w http.ResponseWriter, r *http.Request) {
 }
 
 // Facilities handles GET /api/v1/meta/facilities.
-func (h *SyslogMetaHandler) Facilities(w http.ResponseWriter, r *http.Request) {
+func (h *SrvlogMetaHandler) Facilities(w http.ResponseWriter, r *http.Request) {
 	facilities, err := h.store.ListFacilities(r.Context())
 	if err != nil {
 		if isClientGone(r) {
@@ -57,7 +57,7 @@ func (h *SyslogMetaHandler) Facilities(w http.ResponseWriter, r *http.Request) {
 }
 
 // Tags handles GET /api/v1/meta/tags.
-func (h *SyslogMetaHandler) Tags(w http.ResponseWriter, r *http.Request) {
+func (h *SrvlogMetaHandler) Tags(w http.ResponseWriter, r *http.Request) {
 	tags, err := h.store.ListTags(r.Context())
 	if err != nil {
 		if isClientGone(r) {

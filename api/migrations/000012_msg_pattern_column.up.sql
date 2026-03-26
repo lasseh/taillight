@@ -1,5 +1,5 @@
 -------------------------------------------------------------------------------
--- Add a pre-computed msg_pattern column to syslog_events and applog_events.
+-- Add a pre-computed msg_pattern column to srvlog_events and applog_events.
 --
 -- The device summary "top messages" query previously ran regexp_replace on
 -- every row at query time. By computing the pattern once on INSERT and
@@ -13,10 +13,10 @@
 -- one day of deploying this migration.
 -------------------------------------------------------------------------------
 
--- Syslog: add column + trigger.
-ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS msg_pattern TEXT NOT NULL DEFAULT '';
+-- Srvlog: add column + trigger.
+ALTER TABLE srvlog_events ADD COLUMN IF NOT EXISTS msg_pattern TEXT NOT NULL DEFAULT '';
 
-CREATE OR REPLACE FUNCTION compute_syslog_msg_pattern()
+CREATE OR REPLACE FUNCTION compute_srvlog_msg_pattern()
 RETURNS trigger AS $$
 BEGIN
     NEW.msg_pattern := regexp_replace(
@@ -27,10 +27,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS trg_syslog_msg_pattern ON syslog_events;
-CREATE TRIGGER trg_syslog_msg_pattern
-    BEFORE INSERT ON syslog_events
-    FOR EACH ROW EXECUTE FUNCTION compute_syslog_msg_pattern();
+DROP TRIGGER IF EXISTS trg_srvlog_msg_pattern ON srvlog_events;
+CREATE TRIGGER trg_srvlog_msg_pattern
+    BEFORE INSERT ON srvlog_events
+    FOR EACH ROW EXECUTE FUNCTION compute_srvlog_msg_pattern();
 
 -- Applog: add column + trigger.
 ALTER TABLE applog_events ADD COLUMN IF NOT EXISTS msg_pattern TEXT NOT NULL DEFAULT '';

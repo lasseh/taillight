@@ -72,10 +72,10 @@ func TestNtfyValidateInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestBuildNtfyInitialSyslog(t *testing.T) {
+func TestBuildNtfyInitialSrvlog(t *testing.T) {
 	p := notification.Payload{
-		Kind: notification.EventKindSyslog,
-		SyslogEvent: &model.SyslogEvent{
+		Kind: notification.EventKindSrvlog,
+		SrvlogEvent: &model.SrvlogEvent{
 			Hostname:    "router1",
 			Programname: "rpd",
 			Severity:    2,
@@ -96,8 +96,8 @@ func TestBuildNtfyInitialSyslog(t *testing.T) {
 
 func TestBuildNtfyInitialMultipleEvents(t *testing.T) {
 	p := notification.Payload{
-		Kind: notification.EventKindSyslog,
-		SyslogEvent: &model.SyslogEvent{
+		Kind: notification.EventKindSrvlog,
+		SrvlogEvent: &model.SrvlogEvent{
 			Hostname:    "web01",
 			Programname: "nginx",
 			Severity:    3,
@@ -135,11 +135,11 @@ func TestBuildNtfyInitialApplog(t *testing.T) {
 	}
 }
 
-func TestBuildNtfyDigestSyslog(t *testing.T) {
+func TestBuildNtfyDigestSrvlog(t *testing.T) {
 	p := notification.Payload{
-		Kind:     notification.EventKindSyslog,
+		Kind:     notification.EventKindSrvlog,
 		IsDigest: true,
-		SyslogEvent: &model.SyslogEvent{
+		SrvlogEvent: &model.SrvlogEvent{
 			Hostname: "web01",
 			Severity: 3,
 			Message:  "last error message",
@@ -190,14 +190,14 @@ func TestNtfyPriority(t *testing.T) {
 		payload  notification.Payload
 		expected int
 	}{
-		{"syslog emerg", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 0}}, 5},
-		{"syslog alert", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 1}}, 5},
-		{"syslog crit", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 2}}, 4},
-		{"syslog error", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 3}}, 4},
-		{"syslog warning", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 4}}, 3},
-		{"syslog notice", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 5}}, 2},
-		{"syslog info", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 6}}, 2},
-		{"syslog debug", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 7}}, 2},
+		{"srvlog emerg", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 0}}, 5},
+		{"srvlog alert", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 1}}, 5},
+		{"srvlog crit", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 2}}, 4},
+		{"srvlog error", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 3}}, 4},
+		{"srvlog warning", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 4}}, 3},
+		{"srvlog notice", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 5}}, 2},
+		{"srvlog info", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 6}}, 2},
+		{"srvlog debug", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 7}}, 2},
 		{"applog fatal", notification.Payload{AppLogEvent: &model.AppLogEvent{Level: "FATAL"}}, 5},
 		{"applog error", notification.Payload{AppLogEvent: &model.AppLogEvent{Level: "ERROR"}}, 4},
 		{"applog warn", notification.Payload{AppLogEvent: &model.AppLogEvent{Level: "WARN"}}, 3},
@@ -222,12 +222,12 @@ func TestNtfyTags(t *testing.T) {
 		payload  notification.Payload
 		expected string
 	}{
-		{"syslog emerg", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 0}}, "rotating_light"},
-		{"syslog crit", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 2}}, "rotating_light"},
-		{"syslog error", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 3}}, "x"},
-		{"syslog warning", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 4}}, "warning"},
-		{"syslog info", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 6}}, "information_source"},
-		{"syslog debug", notification.Payload{SyslogEvent: &model.SyslogEvent{Severity: 7}}, "mag"},
+		{"srvlog emerg", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 0}}, "rotating_light"},
+		{"srvlog crit", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 2}}, "rotating_light"},
+		{"srvlog error", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 3}}, "x"},
+		{"srvlog warning", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 4}}, "warning"},
+		{"srvlog info", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 6}}, "information_source"},
+		{"srvlog debug", notification.Payload{SrvlogEvent: &model.SrvlogEvent{Severity: 7}}, "mag"},
 		{"applog fatal", notification.Payload{AppLogEvent: &model.AppLogEvent{Level: "FATAL"}}, "rotating_light"},
 		{"applog error", notification.Payload{AppLogEvent: &model.AppLogEvent{Level: "ERROR"}}, "x"},
 		{"applog warn", notification.Payload{AppLogEvent: &model.AppLogEvent{Level: "WARN"}}, "warning"},

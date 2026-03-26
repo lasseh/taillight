@@ -16,7 +16,7 @@ type analysisData struct {
 	TopErrorHosts      []model.HostErrorCount
 	NewMsgIDs          []string
 	EventClusters      []model.EventCluster
-	JuniperRefs        map[string]model.JuniperSyslogRef
+	JuniperRefs        map[string]model.JuniperNetlogRef
 }
 
 const (
@@ -80,7 +80,7 @@ func (a *Analyzer) gather(ctx context.Context) (analysisData, error) {
 	data.JuniperRefs, err = a.store.LookupJuniperRefs(ctx, msgidNames)
 	if err != nil {
 		a.logger.Warn("juniper ref lookup failed, continuing without", "err", err)
-		data.JuniperRefs = make(map[string]model.JuniperSyslogRef)
+		data.JuniperRefs = make(map[string]model.JuniperNetlogRef)
 	}
 
 	return data, nil

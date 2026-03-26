@@ -79,7 +79,7 @@ func runImport(_ *cobra.Command, _ []string) error {
 }
 
 // parseXLSX reads a Juniper syslog reference XLSX and returns parsed references.
-func parseXLSX(path, osName string) ([]model.JuniperSyslogRef, error) {
+func parseXLSX(path, osName string) ([]model.JuniperNetlogRef, error) {
 	f, err := excelize.OpenFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
@@ -152,13 +152,13 @@ func parseXLSX(path, osName string) ([]model.JuniperSyslogRef, error) {
 		return strings.TrimSpace(row[idx])
 	}
 
-	var refs []model.JuniperSyslogRef
+	var refs []model.JuniperNetlogRef
 	for _, row := range rows[headerIdx+1:] {
 		name := cellVal(row, nameIdx)
 		if name == "" {
 			continue
 		}
-		refs = append(refs, model.JuniperSyslogRef{
+		refs = append(refs, model.JuniperNetlogRef{
 			Name:        name,
 			Message:     cellVal(row, msgIdx),
 			Description: cellVal(row, descIdx),

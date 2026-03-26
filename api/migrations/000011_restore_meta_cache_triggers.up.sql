@@ -8,10 +8,10 @@
 -- commit 24b0d93).
 -------------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION cache_syslog_meta()
+CREATE OR REPLACE FUNCTION cache_srvlog_meta()
 RETURNS trigger AS $$
 BEGIN
-    INSERT INTO syslog_meta_cache (column_name, value)
+    INSERT INTO srvlog_meta_cache (column_name, value)
     VALUES
         ('hostname', NEW.hostname),
         ('programname', NEW.programname),
@@ -21,10 +21,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS trg_syslog_meta_cache ON syslog_events;
-CREATE TRIGGER trg_syslog_meta_cache
-    AFTER INSERT ON syslog_events
-    FOR EACH ROW EXECUTE FUNCTION cache_syslog_meta();
+DROP TRIGGER IF EXISTS trg_srvlog_meta_cache ON srvlog_events;
+CREATE TRIGGER trg_srvlog_meta_cache
+    AFTER INSERT ON srvlog_events
+    FOR EACH ROW EXECUTE FUNCTION cache_srvlog_meta();
 
 CREATE OR REPLACE FUNCTION cache_applog_meta()
 RETURNS trigger AS $$

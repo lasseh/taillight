@@ -19,14 +19,14 @@ const { current: theme } = useTheme()
 const { editing, isVisible, hideWidget, stopEditing, resetLayout, allHidden } = useDashboardLayout()
 const accentColors = computed(() => theme.value.chartColors)
 
-const anySyslogWidgetVisible = computed(() =>
-  ['syslog-summary', 'syslog-distribution', 'syslog-recent'].some(id => isVisible(id)),
+const anySrvlogWidgetVisible = computed(() =>
+  ['srvlog-summary', 'srvlog-distribution', 'srvlog-recent'].some(id => isVisible(id)),
 )
 const anyApplogWidgetVisible = computed(() =>
   ['applog-summary', 'applog-distribution', 'applog-recent'].some(id => isVisible(id)),
 )
 const anyActivityVisible = computed(() =>
-  ['syslog-heatmap', 'applog-heatmap'].some(id => isVisible(id)),
+  ['srvlog-heatmap', 'applog-heatmap'].some(id => isVisible(id)),
 )
 
 const rangePresets = [
@@ -42,30 +42,30 @@ const rangeLabel = computed(() => {
   return p ? p.label : home.range
 })
 
-// Syslog: extract individual severity counts from severity_breakdown
-const syslogEmerg = computed(() => {
-  if (!home.syslogSummary) return 0
-  return (home.syslogSummary.severity_breakdown ?? [])
+// Srvlog: extract individual severity counts from severity_breakdown
+const srvlogEmerg = computed(() => {
+  if (!home.srvlogSummary) return 0
+  return (home.srvlogSummary.severity_breakdown ?? [])
     .find(s => s.severity === 0)?.count ?? 0
 })
 
-const syslogAlert = computed(() => {
-  if (!home.syslogSummary) return 0
-  return (home.syslogSummary.severity_breakdown ?? [])
+const srvlogAlert = computed(() => {
+  if (!home.srvlogSummary) return 0
+  return (home.srvlogSummary.severity_breakdown ?? [])
     .find(s => s.severity === 1)?.count ?? 0
 })
 
-const syslogEmergAlert = computed(() => syslogEmerg.value + syslogAlert.value)
+const srvlogEmergAlert = computed(() => srvlogEmerg.value + srvlogAlert.value)
 
-const syslogCriticals = computed(() => {
-  if (!home.syslogSummary) return 0
-  return (home.syslogSummary.severity_breakdown ?? [])
+const srvlogCriticals = computed(() => {
+  if (!home.srvlogSummary) return 0
+  return (home.srvlogSummary.severity_breakdown ?? [])
     .find(s => s.severity === 2)?.count ?? 0
 })
 
-const syslogErrors = computed(() => {
-  if (!home.syslogSummary) return 0
-  return (home.syslogSummary.severity_breakdown ?? [])
+const srvlogErrors = computed(() => {
+  if (!home.srvlogSummary) return 0
+  return (home.srvlogSummary.severity_breakdown ?? [])
     .find(s => s.severity === 3)?.count ?? 0
 })
 
@@ -99,7 +99,7 @@ const applogInfo = computed(() => {
     .find(l => l.level === 'INFO')?.count ?? 0
 })
 
-const hasSyslogData = computed(() => home.syslogSummary && home.syslogSummary.total > 0)
+const hasSrvlogData = computed(() => home.srvlogSummary && home.srvlogSummary.total > 0)
 const hasApplogData = computed(() => home.applogSummary && home.applogSummary.total > 0)
 
 // Dynamic list sizing: measure the list container and compute how many items fit
@@ -111,9 +111,9 @@ const { height: hostsListHeight } = useElementSize(hostsListEl)
 const { height: servicesListHeight } = useElementSize(servicesListEl)
 
 const visibleHosts = computed(() => {
-  if (!home.syslogSummary) return []
+  if (!home.srvlogSummary) return []
   const count = Math.max(5, Math.floor(hostsListHeight.value / ITEM_HEIGHT))
-  return (home.syslogSummary.top_hosts ?? []).slice(0, count)
+  return (home.srvlogSummary.top_hosts ?? []).slice(0, count)
 })
 
 const visibleServices = computed(() => {
@@ -123,12 +123,12 @@ const visibleServices = computed(() => {
 })
 
 // Track new event IDs for flash highlight
-const { ids: newSyslogIds, reset: resetSyslogFlash } = useNewFlash(() => home.recentSyslogEvents)
+const { ids: newSrvlogIds, reset: resetSrvlogFlash } = useNewFlash(() => home.recentSrvlogEvents)
 const { ids: newApplogIds, reset: resetApplogFlash } = useNewFlash(() => home.recentApplogEvents)
 
 // Suppress flash when switching time range (data swap, not new events)
 watch(() => home.range, () => {
-  resetSyslogFlash()
+  resetSrvlogFlash()
   resetApplogFlash()
 })
 
@@ -189,10 +189,10 @@ function getSeverityBgClass(level: string): string {
         <button class="text-t-teal hover:underline" @click="resetLayout()">Reset layout</button>
       </div>
 
-      <!-- ═══════════════════════════ SYSLOG SECTION ═══════════════════════════ -->
-      <section v-if="anySyslogWidgetVisible || editing">
+      <!-- ═══════════════════════════ SRVLOG SECTION ═══════════════════════════ -->
+      <section v-if="anySrvlogWidgetVisible || editing">
         <h2 class="text-t-teal mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
-          <RouterLink to="/syslog" class="bg-t-teal/20 rounded px-2 py-0.5 hover:bg-t-teal/30 transition-colors">Syslog</RouterLink>
+          <RouterLink to="/srvlog" class="bg-t-teal/20 rounded px-2 py-0.5 hover:bg-t-teal/30 transition-colors">Srvlog</RouterLink>
           <span class="bg-t-border h-px flex-1"></span>
           <span class="flex items-center gap-1">
             <button
@@ -206,22 +206,22 @@ function getSeverityBgClass(level: string): string {
         </h2>
 
         <!-- Empty state -->
-        <div v-if="!hasSyslogData" class="bg-t-bg-dark border-t-border text-t-fg-dark rounded border px-6 py-10 text-center text-sm">
-          No syslog events in the last {{ rangeLabel }}
+        <div v-if="!hasSrvlogData" class="bg-t-bg-dark border-t-border text-t-fg-dark rounded border px-6 py-10 text-center text-sm">
+          No srvlog events in the last {{ rangeLabel }}
         </div>
 
         <template v-else>
           <!-- Summary Cards -->
-          <div v-if="isVisible('syslog-summary')" class="relative mb-4">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-summary')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+          <div v-if="isVisible('srvlog-summary')" class="relative mb-4">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('srvlog-summary')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
               <!-- Total -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
                 <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total {{ rangeLabel }}</div>
-                <div class="text-t-teal text-2xl font-bold">{{ formatNumber(home.syslogSummary!.total) }}</div>
+                <div class="text-t-teal text-2xl font-bold">{{ formatNumber(home.srvlogSummary!.total) }}</div>
                 <div class="mt-1 flex items-center gap-1 text-xs">
-                  <span :class="home.syslogSummary!.trend >= 0 ? 'text-t-green' : 'text-t-red'">
-                    {{ home.syslogSummary!.trend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(home.syslogSummary!.trend).toFixed(1) }}%
+                  <span :class="home.srvlogSummary!.trend >= 0 ? 'text-t-green' : 'text-t-red'">
+                    {{ home.srvlogSummary!.trend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(home.srvlogSummary!.trend).toFixed(1) }}%
                   </span>
                   <span class="text-t-fg-dark">vs prev {{ rangeLabel }}</span>
                 </div>
@@ -230,38 +230,38 @@ function getSeverityBgClass(level: string): string {
               <!-- Emerg & Alert -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
                 <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Emerg & Alert</div>
-                <div class="text-2xl font-bold"><RouterLink :to="{ name: 'syslog', query: { severity: '0' } }" class="text-sev-emerg hover:underline">{{ formatNumber(syslogEmerg) }}</RouterLink> <span class="text-t-fg-dark">/</span> <RouterLink :to="{ name: 'syslog', query: { severity: '1' } }" class="text-sev-alert hover:underline">{{ formatNumber(syslogAlert) }}</RouterLink></div>
+                <div class="text-2xl font-bold"><RouterLink :to="{ name: 'srvlog', query: { severity: '0' } }" class="text-sev-emerg hover:underline">{{ formatNumber(srvlogEmerg) }}</RouterLink> <span class="text-t-fg-dark">/</span> <RouterLink :to="{ name: 'srvlog', query: { severity: '1' } }" class="text-sev-alert hover:underline">{{ formatNumber(srvlogAlert) }}</RouterLink></div>
                 <div class="text-t-fg-dark mt-1 text-xs">
-                  {{ home.syslogSummary!.total > 0 ? ((syslogEmergAlert / home.syslogSummary!.total) * 100).toFixed(1) : 0 }}% of total
+                  {{ home.srvlogSummary!.total > 0 ? ((srvlogEmergAlert / home.srvlogSummary!.total) * 100).toFixed(1) : 0 }}% of total
                 </div>
               </div>
 
               <!-- Criticals -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
                 <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Criticals</div>
-                <div class="text-2xl font-bold"><RouterLink :to="{ name: 'syslog', query: { severity: '2' } }" class="text-sev-crit hover:underline">{{ formatNumber(syslogCriticals) }}</RouterLink></div>
+                <div class="text-2xl font-bold"><RouterLink :to="{ name: 'srvlog', query: { severity: '2' } }" class="text-sev-crit hover:underline">{{ formatNumber(srvlogCriticals) }}</RouterLink></div>
                 <div class="text-t-fg-dark mt-1 text-xs">
-                  {{ home.syslogSummary!.total > 0 ? ((syslogCriticals / home.syslogSummary!.total) * 100).toFixed(1) : 0 }}% of total
+                  {{ home.srvlogSummary!.total > 0 ? ((srvlogCriticals / home.srvlogSummary!.total) * 100).toFixed(1) : 0 }}% of total
                 </div>
               </div>
 
               <!-- Errors -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
                 <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Errors</div>
-                <div class="text-2xl font-bold"><RouterLink :to="{ name: 'syslog', query: { severity: '3' } }" class="text-sev-err hover:underline">{{ formatNumber(syslogErrors) }}</RouterLink></div>
+                <div class="text-2xl font-bold"><RouterLink :to="{ name: 'srvlog', query: { severity: '3' } }" class="text-sev-err hover:underline">{{ formatNumber(srvlogErrors) }}</RouterLink></div>
                 <div class="text-t-fg-dark mt-1 text-xs">
-                  {{ home.syslogSummary!.total > 0 ? ((syslogErrors / home.syslogSummary!.total) * 100).toFixed(1) : 0 }}% of total
+                  {{ home.srvlogSummary!.total > 0 ? ((srvlogErrors / home.srvlogSummary!.total) * 100).toFixed(1) : 0 }}% of total
                 </div>
               </div>
             </div>
           </div>
 
           <!-- Two Column Layout -->
-          <div v-if="isVisible('syslog-distribution')" class="relative mb-4">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-distribution')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+          <div v-if="isVisible('srvlog-distribution')" class="relative mb-4">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('srvlog-distribution')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <!-- Severity Distribution -->
-              <SeverityDistribution :items="home.syslogSummary!.severity_breakdown" />
+              <SeverityDistribution :items="home.srvlogSummary!.severity_breakdown" />
 
               <!-- Top Hosts -->
               <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
@@ -290,9 +290,9 @@ function getSeverityBgClass(level: string): string {
           </div>
 
           <!-- Recent High-Severity Events -->
-          <div v-if="isVisible('syslog-recent')" class="relative">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-recent')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
-            <RecentCriticalLogs :events="home.recentSyslogEvents" show-hostname :flash-ids="newSyslogIds" />
+          <div v-if="isVisible('srvlog-recent')" class="relative">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('srvlog-recent')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <RecentCriticalLogs :events="home.recentSrvlogEvents" show-hostname :flash-ids="newSrvlogIds" />
           </div>
         </template>
       </section>
@@ -468,12 +468,12 @@ function getSeverityBgClass(level: string): string {
 
         <!-- Heatmaps -->
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <!-- Syslog Heatmap -->
-          <div v-if="isVisible('syslog-heatmap')" class="relative">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-heatmap')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+          <!-- Srvlog Heatmap -->
+          <div v-if="isVisible('srvlog-heatmap')" class="relative">
+            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('srvlog-heatmap')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
-              <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">Syslog Volume</h3>
-              <ActivityHeatmap :data="home.syslogHeatmap" color-var="--color-t-teal" label="syslog events" />
+              <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">Srvlog Volume</h3>
+              <ActivityHeatmap :data="home.srvlogHeatmap" color-var="--color-t-teal" label="srvlog events" />
             </div>
           </div>
 

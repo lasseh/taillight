@@ -10,12 +10,12 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-func newTestBroker() *SyslogBroker {
+func newTestBroker() *SrvlogBroker {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	return NewSyslogBroker(logger)
+	return NewSrvlogBroker(logger)
 }
 
-func mustSubscribe(t *testing.T, b *SyslogBroker, filter model.SyslogFilter) *SyslogSubscription {
+func mustSubscribe(t *testing.T, b *SrvlogBroker, filter model.SrvlogFilter) *SrvlogSubscription {
 	t.Helper()
 	sub, err := b.Subscribe(filter)
 	if err != nil {
@@ -31,12 +31,12 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 		t.Fatalf("Len() = %d, want 0", b.Len())
 	}
 
-	sub1 := mustSubscribe(t, b, model.SyslogFilter{})
+	sub1 := mustSubscribe(t, b, model.SrvlogFilter{})
 	if b.Len() != 1 {
 		t.Fatalf("Len() = %d, want 1", b.Len())
 	}
 
-	sub2 := mustSubscribe(t, b, model.SyslogFilter{Hostname: "router1"})
+	sub2 := mustSubscribe(t, b, model.SrvlogFilter{Hostname: "router1"})
 	if b.Len() != 2 {
 		t.Fatalf("Len() = %d, want 2", b.Len())
 	}
@@ -56,16 +56,16 @@ func TestBroadcast_NoSubscribers(_ *testing.T) {
 	b := newTestBroker()
 
 	// Should not panic with zero subscribers.
-	b.Broadcast(model.SyslogEvent{ID: 1, Hostname: "router1"})
+	b.Broadcast(model.SrvlogEvent{ID: 1, Hostname: "router1"})
 }
 
 func TestBroadcast_AllReceive(t *testing.T) {
 	b := newTestBroker()
 
-	sub := mustSubscribe(t, b, model.SyslogFilter{})
+	sub := mustSubscribe(t, b, model.SrvlogFilter{})
 	defer b.Unsubscribe(sub)
 
-	event := model.SyslogEvent{
+	event := model.SrvlogEvent{
 		ID:            1,
 		Hostname:      "router1",
 		Programname:   "rpd",
@@ -95,11 +95,11 @@ func TestBroadcast_FilteredOut(t *testing.T) {
 	b := newTestBroker()
 
 	// Subscribe with hostname filter.
-	sub := mustSubscribe(t, b, model.SyslogFilter{Hostname: "router2"})
+	sub := mustSubscribe(t, b, model.SrvlogFilter{Hostname: "router2"})
 	defer b.Unsubscribe(sub)
 
 	// Broadcast event for router1 — should not reach subscriber.
-	b.Broadcast(model.SyslogEvent{ID: 1, Hostname: "router1"})
+	b.Broadcast(model.SrvlogEvent{ID: 1, Hostname: "router1"})
 
 	select {
 	case <-sub.Chan():
@@ -112,11 +112,11 @@ func TestBroadcast_FilteredOut(t *testing.T) {
 func TestBroadcast_FilterMatch(t *testing.T) {
 	b := newTestBroker()
 
-	sub := mustSubscribe(t, b, model.SyslogFilter{Hostname: "router1", Severity: new(3)})
+	sub := mustSubscribe(t, b, model.SrvlogFilter{Hostname: "router1", Severity: new(3)})
 	defer b.Unsubscribe(sub)
 
 	// Matching event.
-	b.Broadcast(model.SyslogEvent{ID: 1, Hostname: "router1", Severity: 3})
+	b.Broadcast(model.SrvlogEvent{ID: 1, Hostname: "router1", Severity: 3})
 
 	select {
 	case msg := <-sub.Chan():
@@ -128,7 +128,7 @@ func TestBroadcast_FilterMatch(t *testing.T) {
 	}
 
 	// Non-matching severity.
-	b.Broadcast(model.SyslogEvent{ID: 2, Hostname: "router1", Severity: 6})
+	b.Broadcast(model.SrvlogEvent{ID: 2, Hostname: "router1", Severity: 6})
 
 	select {
 	case <-sub.Chan():
@@ -141,12 +141,12 @@ func TestBroadcast_FilterMatch(t *testing.T) {
 func TestBroadcast_SlowClient(t *testing.T) {
 	b := newTestBroker()
 
-	sub := mustSubscribe(t, b, model.SyslogFilter{})
+	sub := mustSubscribe(t, b, model.SrvlogFilter{})
 	defer b.Unsubscribe(sub)
 
 	// Fill the channel (capacity = subscriptionBufferSize = 512).
 	for i := range 513 {
-		b.Broadcast(model.SyslogEvent{ID: int64(i), Hostname: "router1"})
+		b.Broadcast(model.SrvlogEvent{ID: int64(i), Hostname: "router1"})
 	}
 
 	// Drain and count — should get exactly 512 (channel capacity).
@@ -168,7 +168,7 @@ done:
 func TestUnsubscribe_ClosesChannel(t *testing.T) {
 	b := newTestBroker()
 
-	sub := mustSubscribe(t, b, model.SyslogFilter{})
+	sub := mustSubscribe(t, b, model.SrvlogFilter{})
 	b.Unsubscribe(sub)
 
 	// Channel should be closed.
@@ -182,21 +182,21 @@ func TestSubscribe_MaxSubscribers(t *testing.T) {
 	b := newTestBroker()
 
 	// Fill to max.
-	subs := make([]*SyslogSubscription, 0, maxSubscribers)
+	subs := make([]*SrvlogSubscription, 0, maxSubscribers)
 	for range maxSubscribers {
-		sub := mustSubscribe(t, b, model.SyslogFilter{})
+		sub := mustSubscribe(t, b, model.SrvlogFilter{})
 		subs = append(subs, sub)
 	}
 
 	// Next subscribe should fail.
-	_, err := b.Subscribe(model.SyslogFilter{})
+	_, err := b.Subscribe(model.SrvlogFilter{})
 	if !errors.Is(err, ErrTooManySubscribers) {
 		t.Fatalf("Subscribe() error = %v, want ErrTooManySubscribers", err)
 	}
 
 	// After unsubscribing one, subscribe should work again.
 	b.Unsubscribe(subs[0])
-	sub, err := b.Subscribe(model.SyslogFilter{})
+	sub, err := b.Subscribe(model.SrvlogFilter{})
 	if err != nil {
 		t.Fatalf("Subscribe() after unsubscribe error = %v", err)
 	}

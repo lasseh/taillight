@@ -16,10 +16,10 @@ Each handler domain defines its own store interface in a dedicated file. This ke
 
 ```go
 // internal/handler/store.go
-type SyslogStore interface {
-    GetSyslog(ctx context.Context, id int64) (model.SyslogEvent, error)
-    ListSyslogs(ctx context.Context, f model.SyslogFilter, cursor *model.Cursor, limit int) ([]model.SyslogEvent, *model.Cursor, error)
-    ListSyslogsSince(ctx context.Context, f model.SyslogFilter, sinceID int64, limit int) ([]model.SyslogEvent, error)
+type SrvlogStore interface {
+    GetSrvlog(ctx context.Context, id int64) (model.SrvlogEvent, error)
+    ListSrvlogs(ctx context.Context, f model.SrvlogFilter, cursor *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error)
+    ListSrvlogsSince(ctx context.Context, f model.SrvlogFilter, sinceID int64, limit int) ([]model.SrvlogEvent, error)
     // ...
 }
 
@@ -37,20 +37,20 @@ A separate `StatsStore` interface in `internal/handler/stats.go` covers volume a
 Handlers are created with a `New*Handler(store)` constructor that accepts only the store interface:
 
 ```go
-// internal/handler/syslog.go
-type SyslogHandler struct {
-    store SyslogStore
+// internal/handler/srvlog.go
+type SrvlogHandler struct {
+    store SrvlogStore
 }
 
-func NewSyslogHandler(store SyslogStore) *SyslogHandler {
-    return &SyslogHandler{store: store}
+func NewSrvlogHandler(store SrvlogStore) *SrvlogHandler {
+    return &SrvlogHandler{store: store}
 }
 ```
 
 SSE handlers additionally take the broker and a logger:
 
 ```go
-func NewSyslogSSEHandler(b *broker.SyslogBroker, s SyslogStore, l *slog.Logger) *SyslogSSEHandler
+func NewSrvlogSSEHandler(b *broker.SrvlogBroker, s SrvlogStore, l *slog.Logger) *SrvlogSSEHandler
 ```
 
 ### Request-scoped logging
@@ -88,7 +88,7 @@ List endpoints wrap results in a `listResponse` envelope with `data`, `cursor`, 
 
 Filters are parsed from HTTP query parameters in the model package:
 
-- `model.ParseSyslogFilter(r)` -- extracts hostname, programname, severity, facility, search, time range, etc.
+- `model.ParseSrvlogFilter(r)` -- extracts hostname, programname, severity, facility, search, time range, etc.
 - `model.ParseAppLogFilter(r)` -- extracts service, component, host, level, search, time range
 - `model.ParseCursor(r)` -- decodes the `cursor` query param
 - `model.ParseLimit(r, default, max)` -- extracts and clamps the `limit` param
@@ -99,46 +99,46 @@ All string filter parameters are capped at 500 characters. Typed parameters (sev
 
 ## SSE Broker System
 
-The broker system fans out database events to connected SSE clients with per-client filtering. There are two parallel implementations: `SyslogBroker` and `AppLogBroker` (`internal/broker/`). They share the same architecture.
+The broker system fans out database events to connected SSE clients with per-client filtering. There are two parallel implementations: `SrvlogBroker` and `AppLogBroker` (`internal/broker/`). They share the same architecture.
 
 ### Data structures
 
 ```
-SyslogBroker
+SrvlogBroker
   mu          sync.RWMutex
-  subscribers map[*SyslogSubscription]struct{}
+  subscribers map[*SrvlogSubscription]struct{}
   logger      *slog.Logger
 
-SyslogSubscription
-  ch     chan SyslogMessage    // buffered, cap=64
-  filter model.SyslogFilter
+SrvlogSubscription
+  ch     chan SrvlogMessage    // buffered, cap=64
+  filter model.SrvlogFilter
 ```
 
 Subscribers are tracked in a map keyed by pointer. This gives O(1) subscribe/unsubscribe and avoids index management.
 
 ### Subscribe / Unsubscribe lifecycle
 
-1. **Subscribe**: Creates a `SyslogSubscription` with a buffered channel (capacity 64) and the client's filter. Acquires write lock, checks the subscriber count against the 1000-client limit, adds the subscription, releases the lock, and increments `metrics.SSEClientsActive`.
+1. **Subscribe**: Creates a `SrvlogSubscription` with a buffered channel (capacity 64) and the client's filter. Acquires write lock, checks the subscriber count against the 1000-client limit, adds the subscription, releases the lock, and increments `metrics.SSEClientsActive`.
 
 2. **Unsubscribe**: Acquires write lock, checks if the subscription exists (idempotent), removes it, closes the channel, releases the lock, and decrements the gauge. The close signals the SSE handler's event loop to exit.
 
 ### Per-client filter matching
 
-Each filter type implements a `Matches(event)` method that checks all non-zero fields against the event. The syslog filter checks hostname (with wildcard support), fromhost_ip, programname, severity, severity_max, facility, syslogtag, msgid, and search (case-insensitive substring). The applog filter checks service, component, host (with wildcard), level (rank-based: "WARN" matches WARN, ERROR, FATAL), and search (against both msg and attrs).
+Each filter type implements a `Matches(event)` method that checks all non-zero fields against the event. The srvlog filter checks hostname (with wildcard support), fromhost_ip, programname, severity, severity_max, facility, syslogtag, msgid, and search (case-insensitive substring). The applog filter checks service, component, host (with wildcard), level (rank-based: "WARN" matches WARN, ERROR, FATAL), and search (against both msg and attrs).
 
 Time filters (`From`/`To`) are intentionally excluded from `Matches()` -- live SSE clients receive future events, so filtering by time range would be wrong.
 
-Wildcard matching (`matchWildcard` in `internal/model/syslog.go`) supports `*` as a glob character with case-insensitive comparison. The first segment anchors at the start, the last segment anchors at the end, and `*` matches any sequence in between.
+Wildcard matching (`matchWildcard` in `internal/model/srvlog.go`) supports `*` as a glob character with case-insensitive comparison. The first segment anchors at the start, the last segment anchors at the end, and `*` matches any sequence in between.
 
 ### Broadcasting
 
 ```go
-func (b *SyslogBroker) Broadcast(event model.SyslogEvent) {
+func (b *SrvlogBroker) Broadcast(event model.SrvlogEvent) {
     if b.Len() == 0 {
         return                          // early exit: no subscribers
     }
     data, err := json.Marshal(event)    // marshal once for all clients
-    msg := SyslogMessage{ID: event.ID, Data: data}
+    msg := SrvlogMessage{ID: event.ID, Data: data}
     metrics.EventsBroadcastTotal.Inc()
 
     b.mu.RLock()                        // read lock: concurrent reads OK
@@ -185,11 +185,11 @@ The Listener uses a bare `pgx.Conn` -- not a connection from the pool. This is b
 ```
 PostgreSQL                        Go Listener                    Brokers
   INSERT → trigger →            ┌──────────────┐
-  pg_notify('syslog_ingest',    │  pgx.Conn    │
+  pg_notify('srvlog_ingest',    │  pgx.Conn    │
             new_id)  ─────────► │  LISTEN      │──► Notification{channel, id}
                                 │  channel     │         │
                                 └──────────────┘         ▼
-                                                   store.GetSyslog(id)
+                                                   store.GetSrvlog(id)
                                                          │
                                                          ▼
                                                   broker.Broadcast(event)
@@ -222,13 +222,13 @@ A background goroutine checks the notification channel utilization every 30 seco
 
 ## SSE Handler Lifecycle
 
-Both `SyslogSSEHandler.Stream` and `AppLogSSEHandler.Stream` (`internal/handler/syslog_sse.go`, `applog_sse.go`) follow the same lifecycle:
+Both `SrvlogSSEHandler.Stream` and `AppLogSSEHandler.Stream` (`internal/handler/srvlog_sse.go`, `applog_sse.go`) follow the same lifecycle:
 
 ### 1. Setup
 
 ```go
 flusher, ok := w.(http.Flusher)     // verify streaming support
-filter, err := model.ParseSyslogFilter(r)
+filter, err := model.ParseSrvlogFilter(r)
 
 w.Header().Set("Content-Type", "text/event-stream")
 w.Header().Set("Cache-Control", "no-cache")
@@ -249,9 +249,9 @@ The subscription is created **before** the backfill query. This is critical: if 
 
 The backfill logic handles two cases:
 
-**With `Last-Event-ID`** (client reconnecting): Queries `ListSyslogsSince(sinceID, limit=100)` to fetch events after the last one the client received. Results are already in chronological order (ASC).
+**With `Last-Event-ID`** (client reconnecting): Queries `ListSrvlogsSince(sinceID, limit=100)` to fetch events after the last one the client received. Results are already in chronological order (ASC).
 
-**Without `Last-Event-ID`** (fresh connection): Queries `ListSyslogs(filter, nil, limit=100)` to get the most recent events, then sends them oldest-first by iterating in reverse.
+**Without `Last-Event-ID`** (fresh connection): Queries `ListSrvlogs(filter, nil, limit=100)` to get the most recent events, then sends them oldest-first by iterating in reverse.
 
 The backfill returns the highest event ID sent, which is used for duplicate suppression.
 
@@ -266,7 +266,7 @@ for {
     case msg, ok := <-sub.Chan():
         if !ok { return }                          // channel closed (broker shutdown)
         if msg.ID <= lastBackfilledID { continue }  // duplicate suppression
-        writeSSEEvent(w, msg.ID, "syslog", msg.Data)
+        writeSSEEvent(w, msg.ID, "srvlog", msg.Data)
         flusher.Flush()
     case <-heartbeat.C:
         fmt.Fprint(w, "event: heartbeat\ndata: \n\n")
@@ -281,12 +281,12 @@ for {
 
 ```
 id: 12345
-event: syslog
+event: srvlog
 data: {"id":12345,"hostname":"router-1",...}
 
 ```
 
-Each frame includes the event ID (for `Last-Event-ID` reconnection), the event type (`syslog` or `applog`), and the JSON payload.
+Each frame includes the event ID (for `Last-Event-ID` reconnection), the event type (`srvlog` or `applog`), and the JSON payload.
 
 ### 6. Heartbeat
 
@@ -300,7 +300,7 @@ Events that arrive on the broker channel with `ID <= lastBackfilledID` are skipp
 
 ## Cursor-Based Pagination
 
-Taillight uses keyset (cursor) pagination instead of OFFSET-based pagination. The implementation lives in `internal/model/syslog.go` and `internal/postgres/store.go`.
+Taillight uses keyset (cursor) pagination instead of OFFSET-based pagination. The implementation lives in `internal/model/srvlog.go` and `internal/postgres/srvlog_store.go`.
 
 ### Cursor encoding
 
@@ -451,7 +451,7 @@ Routes are grouped by scope in `serve.go`: `read` for GET endpoints, `ingest` fo
 
 ## Data Access Layer
 
-The store (`internal/postgres/store.go`, `applog_store.go`) uses pgx with the squirrel query builder.
+The store (`internal/postgres/srvlog_store.go`, `applog_store.go`) uses pgx with the squirrel query builder.
 
 ### Query building
 
@@ -464,7 +464,7 @@ var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 Filters are applied dynamically. Each non-zero filter field adds a WHERE clause:
 
 ```go
-func applySyslogFilter(qb sq.SelectBuilder, f model.SyslogFilter) sq.SelectBuilder {
+func applySrvlogFilter(qb sq.SelectBuilder, f model.SrvlogFilter) sq.SelectBuilder {
     if f.Hostname != "" {
         if strings.Contains(f.Hostname, "*") {
             pattern := strings.ReplaceAll(escapeLike(f.Hostname), "*", "%")
@@ -497,7 +497,7 @@ This prevents SQL injection through filter parameters that reach LIKE clauses.
 
 ### Full-text search
 
-Syslog search uses case-insensitive `ILIKE` with `%` wrapping:
+Srvlog search uses case-insensitive `ILIKE` with `%` wrapping:
 
 ```go
 qb = qb.Where("message ILIKE ?", "%"+escaped+"%")
@@ -530,7 +530,7 @@ Each INSERT uses `RETURNING *` so the caller gets back the populated `id` and `r
 
 ### Meta caching
 
-Distinct values for filter dropdowns (hostnames, programs, services, etc.) come from materialized cache tables (`syslog_meta_cache`, `applog_meta_cache`) rather than live `SELECT DISTINCT` queries. This avoids expensive sequential scans on large hypertables. Only whitelisted columns are allowed:
+Distinct values for filter dropdowns (hostnames, programs, services, etc.) come from materialized cache tables (`srvlog_meta_cache`, `applog_meta_cache`) rather than live `SELECT DISTINCT` queries. This avoids expensive sequential scans on large hypertables. Only whitelisted columns are allowed:
 
 ```go
 var allowedMetaColumns = map[string]struct{}{
@@ -555,16 +555,16 @@ The `HTTPMetrics` middleware (`internal/metrics/middleware.go`) wraps each reque
 - `taillight_http_requests_total{method, path, status}` -- counter
 - `taillight_http_request_duration_seconds{method, path}` -- histogram
 
-The `path` label uses the chi route pattern (e.g., `/api/v1/syslog/{id}`) rather than the actual URL, keeping metric cardinality bounded.
+The `path` label uses the chi route pattern (e.g., `/api/v1/srvlog/{id}`) rather than the actual URL, keeping metric cardinality bounded.
 
 ### SSE metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `sse_clients_active` | gauge | Current syslog SSE connections |
+| `sse_clients_active` | gauge | Current srvlog SSE connections |
 | `applog_sse_clients_active` | gauge | Current applog SSE connections |
-| `events_broadcast_total` | counter | Syslog events broadcast |
-| `events_dropped_total` | counter | Syslog events dropped (slow clients) |
+| `events_broadcast_total` | counter | Srvlog events broadcast |
+| `events_dropped_total` | counter | Srvlog events dropped (slow clients) |
 | `applog_events_broadcast_total` | counter | Applog events broadcast |
 | `applog_events_dropped_total` | counter | Applog events dropped |
 
@@ -699,7 +699,7 @@ Instead of creating separate database subscriptions per filter, all events are b
 
 ### Why TimescaleDB
 
-The `syslog_events` and `applog_events` tables are TimescaleDB hypertables, which provide:
+The `srvlog_events` and `applog_events` tables are TimescaleDB hypertables, which provide:
 
 - **Time-based partitioning**: Data is automatically chunked by time interval. Old chunks can be dropped efficiently for retention.
 - **Compression**: Older chunks are compressed, reducing storage by 90%+ for log data.

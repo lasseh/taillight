@@ -18,7 +18,7 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, since time.Time, limit int) ([
 	// First get top msgids by total count.
 	query, args, err := psq.
 		Select("msgid", "count(*) AS cnt").
-		From("syslog_events").
+		From("srvlog_events").
 		Where(sq.GtOrEq{"received_at": since}).
 		Where(sq.NotEq{"msgid": ""}).
 		GroupBy("msgid").
@@ -62,7 +62,7 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, since time.Time, limit int) ([
 
 	sevQuery, sevArgs, err := psq.
 		Select("msgid", "severity", "count(*) AS cnt").
-		From("syslog_events").
+		From("srvlog_events").
 		Where(sq.GtOrEq{"received_at": since}).
 		Where(sq.Eq{"msgid": msgids}).
 		GroupBy("msgid", "severity").
@@ -100,7 +100,7 @@ func (s *Store) GetSeverityComparison(ctx context.Context, currentSince, baselin
 	// Current period counts.
 	curQuery, curArgs, err := psq.
 		Select("severity", "count(*) AS cnt").
-		From("syslog_events").
+		From("srvlog_events").
 		Where(sq.GtOrEq{"received_at": currentSince}).
 		GroupBy("severity").
 		OrderBy("severity").
@@ -131,7 +131,7 @@ func (s *Store) GetSeverityComparison(ctx context.Context, currentSince, baselin
 	// Baseline: daily average over 7 days before current period.
 	baseQuery, baseArgs, err := psq.
 		Select("severity", "count(*) AS cnt").
-		From("syslog_events").
+		From("srvlog_events").
 		Where(sq.GtOrEq{"received_at": baselineSince}).
 		Where(sq.Lt{"received_at": currentSince}).
 		GroupBy("severity").
@@ -201,7 +201,7 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, since time.Time, limit int
 	query := `
 		WITH host_counts AS (
 			SELECT hostname, count(*) AS cnt
-			FROM syslog_events
+			FROM srvlog_events
 			WHERE received_at >= $1 AND severity <= 3
 			GROUP BY hostname
 			ORDER BY cnt DESC
@@ -211,7 +211,7 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, since time.Time, limit int
 		FROM host_counts hc
 		LEFT JOIN LATERAL (
 			SELECT msgid
-			FROM syslog_events
+			FROM srvlog_events
 			WHERE hostname = hc.hostname AND received_at >= $1 AND severity <= 3 AND msgid != ''
 			GROUP BY msgid
 			ORDER BY count(*) DESC
@@ -243,10 +243,10 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, since time.Time, limit int
 // GetNewMsgIDs returns msgids seen in the current period but not in the baseline period.
 func (s *Store) GetNewMsgIDs(ctx context.Context, since, baselineSince time.Time) ([]string, error) {
 	query := `
-		SELECT DISTINCT msgid FROM syslog_events curr
+		SELECT DISTINCT msgid FROM srvlog_events curr
 		WHERE curr.received_at >= $1 AND curr.msgid != ''
 		  AND NOT EXISTS (
-		    SELECT 1 FROM syslog_events base
+		    SELECT 1 FROM srvlog_events base
 		    WHERE base.msgid = curr.msgid
 		      AND base.received_at >= $2 AND base.received_at < $1
 		      AND base.msgid != ''
@@ -277,7 +277,7 @@ func (s *Store) GetEventClusters(ctx context.Context, since time.Time, windowMin
 		       array_agg(DISTINCT hostname) AS hosts,
 		       array_agg(DISTINCT msgid) FILTER (WHERE msgid != '') AS msgids,
 		       count(*) AS total
-		FROM syslog_events
+		FROM srvlog_events
 		WHERE received_at >= $1
 		GROUP BY bucket
 		HAVING count(DISTINCT hostname) > 1
@@ -303,14 +303,14 @@ func (s *Store) GetEventClusters(ctx context.Context, since time.Time, windowMin
 }
 
 // LookupJuniperRefs returns Juniper reference data for the given msgid names.
-func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperSyslogRef, error) {
+func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
 
 	query, args, err := psq.
 		Select("name", "description", "cause", "action").
-		From("juniper_syslog_ref").
+		From("juniper_netlog_ref").
 		Where(sq.Eq{"name": names}).
 		ToSql()
 	if err != nil {
@@ -323,9 +323,9 @@ func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[stri
 	}
 	defer rows.Close()
 
-	refs := make(map[string]model.JuniperSyslogRef)
+	refs := make(map[string]model.JuniperNetlogRef)
 	for rows.Next() {
-		var r model.JuniperSyslogRef
+		var r model.JuniperNetlogRef
 		if err := rows.Scan(&r.Name, &r.Description, &r.Cause, &r.Action); err != nil {
 			return nil, fmt.Errorf("scan juniper ref: %w", err)
 		}

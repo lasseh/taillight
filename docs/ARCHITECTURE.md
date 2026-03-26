@@ -4,10 +4,10 @@ This document describes the system design, data flow, component interactions, da
 
 ## System Overview
 
-Taillight is a real-time syslog and application log viewer built on TimescaleDB, Server-Sent Events (SSE), and a Vue 3 frontend. Network devices send syslog to rsyslog, which inserts into PostgreSQL. Applications send structured logs via an HTTP ingest API. Both streams are broadcast to browser clients in real time through SSE fan-out brokers.
+Taillight is a real-time srvlog and application log viewer built on TimescaleDB, Server-Sent Events (SSE), and a Vue 3 frontend. Network devices send syslog to rsyslog, which inserts into PostgreSQL as srvlog events. Applications send structured logs via an HTTP ingest API. Both streams are broadcast to browser clients in real time through SSE fan-out brokers.
 
 ```
-  Syslog path:
+  Srvlog path:
 
   +-------------------+
   |  Network Devices  |
@@ -18,12 +18,12 @@ Taillight is a real-time syslog and application log viewer built on TimescaleDB,
            |
   +--------v----------+       +----------------+       +----------------+
   |      rsyslog      |       |  TimescaleDB   |       |   Go Server    |
-  |  (ompgsql output) +------>|  syslog_events +------>|   Listener     |
+  |  (ompgsql output) +------>|  srvlog_events +------>|   Listener     |
   +-------------------+  SQL  +----------------+  pg   | (LISTEN/NOTIFY)|
                        INSERT                   notify +-------+--------+
                                                                |
                                                        +-------v--------+
-                                                       | SyslogBroker   +---> NotificationEngine
+                                                       | SrvlogBroker   +---> NotificationEngine
                                                        | (per-client    |     (Slack/Email/Webhook)
                                                        |  filtering)    |
                                                        +-------+--------+
@@ -59,25 +59,25 @@ Taillight is a real-time syslog and application log viewer built on TimescaleDB,
 
 ## Data Flow
 
-### Syslog Pipeline
+### Srvlog Pipeline
 
-The syslog pipeline moves events from network devices to browser clients in under a second:
+The srvlog pipeline moves events from network devices to browser clients in under a second:
 
 1. **rsyslog receives** -- Network devices send syslog messages over UDP or TCP to port 514. The `imudp` module runs 8 receiver threads with a batch size of 128. The `imtcp` module caps concurrent sessions at 200.
 
 2. **Message processing** -- The `network_devices` ruleset applies `mmutf8fix` to sanitize non-UTF-8 bytes, then `mmpstrucdata` to parse RFC 5424 structured data. Messages pass through configurable filters (by msgid, programname, facility, severity, hostname).
 
-3. **ompgsql INSERT** -- Surviving messages are inserted into `syslog_events` via the `PgSQLInsert` template. The output uses a disk-assisted LinkedList queue (50,000 entries, 2 GB disk, 4 worker threads) with batched transactions (128 INSERTs per transaction).
+3. **ompgsql INSERT** -- Surviving messages are inserted into `srvlog_events` via the `PgSQLSrvlogInsert` template. The output uses a disk-assisted LinkedList queue (50,000 entries, 2 GB disk, 4 worker threads) with batched transactions (128 INSERTs per transaction).
 
-4. **Trigger fires pg_notify** -- The `trg_syslog_notify` trigger executes on every INSERT, calling `pg_notify('syslog_ingest', NEW.id::text)` to broadcast the new row's ID.
+4. **Trigger fires pg_notify** -- The `trg_srvlog_notify` trigger executes on every INSERT, calling `pg_notify('srvlog_ingest', NEW.id::text)` to broadcast the new row's ID.
 
-5. **Go Listener receives** -- `postgres.Listener` (`internal/postgres/listener.go`) holds a dedicated `pgx.Conn` (not from the pool) running `LISTEN syslog_ingest`. When a notification arrives, it parses the payload as an int64 row ID and sends a `Notification{Channel, ID}` struct into a buffered channel (default 1024).
+5. **Go Listener receives** -- `postgres.Listener` (`internal/postgres/listener.go`) holds a dedicated `pgx.Conn` (not from the pool) running `LISTEN srvlog_ingest`. When a notification arrives, it parses the payload as an int64 row ID and sends a `Notification{Channel, ID}` struct into a buffered channel (default 1024).
 
-6. **Fetch full event** -- The background worker in `startBackgroundWorkers` (`cmd/taillight/serve.go:242-257`) reads from the notification channel, calls `store.GetSyslog(ctx, id)` to fetch the complete event row, then broadcasts it to the SSE broker.
+6. **Fetch full event** -- The background worker in `startBackgroundWorkers` (`cmd/taillight/serve.go:242-257`) reads from the notification channel, calls `store.GetSrvlog(ctx, id)` to fetch the complete event row, then broadcasts it to the SSE broker.
 
-7. **SyslogBroker fan-out** -- `broker.SyslogBroker` (`internal/broker/syslog_broker.go`) holds a map of active subscriptions. On `Broadcast(event)`, it JSON-marshals the event once, then iterates all subscribers. Each subscriber has a per-client filter (`model.SyslogFilter`); only matching events are sent. Events are written to per-client buffered channels (64 slots). If a client's channel is full, the event is dropped and a metric is incremented.
+7. **SrvlogBroker fan-out** -- `broker.SrvlogBroker` (`internal/broker/srvlog_broker.go`) holds a map of active subscriptions. On `Broadcast(event)`, it JSON-marshals the event once, then iterates all subscribers. Each subscriber has a per-client filter (`model.SrvlogFilter`); only matching events are sent. Events are written to per-client buffered channels (64 slots). If a client's channel is full, the event is dropped and a metric is incremented.
 
-8. **SSE to browser** -- `handler.SyslogSSEHandler.Stream` (`internal/handler/syslog_sse.go`) writes events as `text/event-stream` frames with `id:`, `event: syslog`, and `data:` fields. A 15-second heartbeat keeps the connection alive. On initial connect, the handler backfills up to 100 recent events (or resumes from `Last-Event-ID`).
+8. **SSE to browser** -- `handler.SrvlogSSEHandler.Stream` (`internal/handler/srvlog_sse.go`) writes events as `text/event-stream` frames with `id:`, `event: srvlog`, and `data:` fields. A 15-second heartbeat keeps the connection alive. On initial connect, the handler backfills up to 100 recent events (or resumes from `Last-Event-ID`).
 
 ### Application Log Pipeline
 
@@ -91,11 +91,11 @@ The applog pipeline follows a similar pattern but uses HTTP ingest instead of rs
 
 4. **Trigger fires pg_notify** -- The `trg_applog_meta_cache` trigger fires on INSERT, updating the `applog_meta_cache` table. Note: applog events are broadcast directly from the ingest handler (step 5), not via LISTEN/NOTIFY.
 
-5. **AppLogBroker fan-out** -- The ingest handler calls `broker.Broadcast(event)` for each inserted event. `broker.AppLogBroker` (`internal/broker/applog_broker.go`) fans out to subscribers using the same pattern as `SyslogBroker`: per-client filters, 64-slot buffered channels, drop-on-full.
+5. **AppLogBroker fan-out** -- The ingest handler calls `broker.Broadcast(event)` for each inserted event. `broker.AppLogBroker` (`internal/broker/applog_broker.go`) fans out to subscribers using the same pattern as `SrvlogBroker`: per-client filters, 64-slot buffered channels, drop-on-full.
 
 6. **Notification engine** -- If enabled, `notifEngine.HandleAppLogEvent(event)` evaluates all applog notification rules against the event.
 
-7. **SSE to browser** -- `handler.AppLogSSEHandler.Stream` (`internal/handler/applog_sse.go`) streams events as `event: applog` SSE frames with the same backfill and heartbeat behavior as syslog.
+7. **SSE to browser** -- `handler.AppLogSSEHandler.Stream` (`internal/handler/applog_sse.go`) streams events as `event: applog` SSE frames with the same backfill and heartbeat behavior as srvlog.
 
 ## Component Architecture
 
@@ -119,7 +119,7 @@ The server uses `go-chi/chi/v5` as its router, configured in `setupRouter` (`cmd
 **Route groups by auth scope:**
 
 - **Unauthenticated** -- `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`
-- **Read** -- All GET endpoints: syslog list/detail/stream, applog list/detail/stream, stats, meta, device summaries, notifications list, analysis reports. Optionally behind auth via `auth_read_endpoints` config.
+- **Read** -- All GET endpoints: srvlog list/detail/stream, applog list/detail/stream, stats, meta, device summaries, notifications list, analysis reports. Optionally behind auth via `auth_read_endpoints` config.
 - **Ingest** -- `POST /api/v1/applog/ingest`. Requires API key with `ingest` scope.
 - **Admin** -- Write operations: notification channel/rule CRUD, analysis trigger. Requires `admin` scope.
 
@@ -131,7 +131,7 @@ The server uses `go-chi/chi/v5` as its router, configured in `setupRouter` (`cmd
 
 ### SSE Brokers
 
-Both `SyslogBroker` and `AppLogBroker` (`internal/broker/`) implement the same fan-out pattern:
+Both `SrvlogBroker` and `AppLogBroker` (`internal/broker/`) implement the same fan-out pattern:
 
 ```
 Subscribe(filter) -> *Subscription    // Registers client, returns channel
@@ -148,7 +148,7 @@ Key design decisions:
 - **Max subscribers** -- Hard limit of 1000 concurrent SSE clients per broker (`maxSubscribers = 1000`). Returns `ErrTooManySubscribers` if exceeded.
 - **Thread safety** -- `sync.RWMutex` protects the subscriber map. `Broadcast` takes a read lock; `Subscribe`/`Unsubscribe` take a write lock.
 
-**SSE handler lifecycle** (`internal/handler/syslog_sse.go`, `applog_sse.go`):
+**SSE handler lifecycle** (`internal/handler/srvlog_sse.go`, `applog_sse.go`):
 
 1. Parse filter from query parameters
 2. Set SSE headers (`Content-Type: text/event-stream`, `X-Accel-Buffering: no`)
@@ -162,9 +162,9 @@ Key design decisions:
 `postgres.Listener` (`internal/postgres/listener.go`) manages a dedicated PostgreSQL connection for `LISTEN/NOTIFY`:
 
 - **Dedicated connection** -- Uses a raw `pgx.Conn` (not from the pool) because `LISTEN` requires a persistent connection. The pool connection is separate for queries.
-- **Channels** -- Currently listens on `syslog_ingest`. Notifications carry the row ID as the payload.
+- **Channels** -- Currently listens on `srvlog_ingest`. Notifications carry the row ID as the payload.
 - **Reconnection** -- On connection loss, the listener reconnects with exponential backoff (1s initial, 30s max) plus jitter to avoid thundering herd.
-- **Gap fill** -- After reconnecting, queries `SELECT id FROM syslog_events WHERE id > $lastSeenID ORDER BY id ASC LIMIT 10000` to catch events missed during disconnection.
+- **Gap fill** -- After reconnecting, queries `SELECT id FROM srvlog_events WHERE id > $lastSeenID ORDER BY id ASC LIMIT 10000` to catch events missed during disconnection.
 - **Buffer monitoring** -- A goroutine checks channel utilization every 30s. Warns at 80% capacity.
 - **Graceful shutdown** -- Cancels the context, closes the connection, and lets the goroutine drain.
 
@@ -174,7 +174,7 @@ Key design decisions:
 
 **Rule evaluation:**
 
-1. Events are passed to `HandleSyslogEvent` or `HandleAppLogEvent`
+1. Events are passed to `HandleSrvlogEvent` or `HandleAppLogEvent`
 2. Each enabled rule is evaluated: filter fields (hostname, severity, search, etc.) are matched
 3. Matching events are added to the `GroupTracker` with a group key (e.g., hostname)
 
@@ -230,12 +230,12 @@ Authentication is handled by `internal/auth/middleware.go`:
 
 All tables live in a single `taillight` database on TimescaleDB (PostgreSQL with the timescaledb extension).
 
-### syslog_events (hypertable)
+### srvlog_events (hypertable)
 
-Primary event table for syslog messages from network devices.
+Primary event table for srvlog messages from network devices.
 
 ```sql
-CREATE TABLE syslog_events (
+CREATE TABLE srvlog_events (
     id              BIGINT GENERATED ALWAYS AS IDENTITY,
     received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     reported_at     TIMESTAMPTZ NOT NULL,
@@ -267,21 +267,21 @@ CREATE TABLE syslog_events (
 
 | Name | Columns | Purpose |
 |---|---|---|
-| `idx_syslog_received_id` | `(received_at DESC, id DESC)` | Cursor pagination |
-| `idx_syslog_id` | `(id)` | Single event lookup |
-| `idx_syslog_host_received` | `(hostname, received_at DESC)` | Host filter |
-| `idx_syslog_severity_received` | `(severity, received_at DESC, id DESC) WHERE severity <= 3` | Critical event filter |
-| `idx_syslog_programname` | `(programname, received_at DESC)` | Program filter |
-| `idx_syslog_facility` | `(facility, received_at DESC)` | Facility filter |
-| `idx_syslog_fromhost_ip` | `(fromhost_ip, received_at DESC)` | Source IP filter |
-| `idx_syslog_syslogtag` | `(syslogtag, received_at DESC)` | Tag filter |
-| `idx_syslog_message_trgm` | `message gin_trgm_ops (GIN)` | Trigram substring search |
+| `idx_srvlog_received_id` | `(received_at DESC, id DESC)` | Cursor pagination |
+| `idx_srvlog_id` | `(id)` | Single event lookup |
+| `idx_srvlog_host_received` | `(hostname, received_at DESC)` | Host filter |
+| `idx_srvlog_severity_received` | `(severity, received_at DESC, id DESC) WHERE severity <= 3` | Critical event filter |
+| `idx_srvlog_programname` | `(programname, received_at DESC)` | Program filter |
+| `idx_srvlog_facility` | `(facility, received_at DESC)` | Facility filter |
+| `idx_srvlog_fromhost_ip` | `(fromhost_ip, received_at DESC)` | Source IP filter |
+| `idx_srvlog_syslogtag` | `(syslogtag, received_at DESC)` | Tag filter |
+| `idx_srvlog_message_trgm` | `message gin_trgm_ops (GIN)` | Trigram substring search |
 
 **Triggers:**
 
-- `trg_syslog_notify` -- Fires `pg_notify('syslog_ingest', id)` on INSERT
-- `trg_syslog_meta_cache` -- Upserts hostname/programname/syslogtag into `syslog_meta_cache`
-- `trg_syslog_facility_cache` -- Upserts facility code into `syslog_facility_cache`
+- `trg_srvlog_notify` -- Fires `pg_notify('srvlog_ingest', id)` on INSERT
+- `trg_srvlog_meta_cache` -- Upserts hostname/programname/syslogtag into `srvlog_meta_cache`
+- `trg_srvlog_facility_cache` -- Upserts facility code into `srvlog_facility_cache`
 
 ### applog_events (hypertable)
 
@@ -371,17 +371,17 @@ notification_log (id, created_at, rule_id, channel_id, event_kind, event_id,
 ### Supporting Tables
 
 ```sql
--- syslog_meta_cache: distinct hostnames, programs, tags with last_seen_at
-syslog_meta_cache (column_name TEXT, value TEXT, last_seen_at, PK(column_name, value))
+-- srvlog_meta_cache: distinct hostnames, programs, tags with last_seen_at
+srvlog_meta_cache (column_name TEXT, value TEXT, last_seen_at, PK(column_name, value))
 
--- syslog_facility_cache: distinct facility codes
-syslog_facility_cache (facility SMALLINT PK)
+-- srvlog_facility_cache: distinct facility codes
+srvlog_facility_cache (facility SMALLINT PK)
 
 -- applog_meta_cache: distinct services, components, hosts with last_seen_at
 applog_meta_cache (column_name TEXT, value TEXT, last_seen_at, PK(column_name, value))
 
--- juniper_syslog_ref: Juniper syslog reference documentation
-juniper_syslog_ref (id, name, message, description, type, severity, cause, action, os)
+-- juniper_netlog_ref: Juniper netlog reference documentation
+juniper_netlog_ref (id, name, message, description, type, severity, cause, action, os)
 
 -- analysis_reports: LLM-generated log analysis reports
 analysis_reports (id, generated_at, model, period_start, period_end, report, ...)
@@ -390,7 +390,7 @@ analysis_reports (id, generated_at, model, period_start, period_end, report, ...
 rsyslog_stats (collected_at, origin, name, stats JSONB)
 
 -- taillight_metrics: application metrics snapshots (hypertable, 1-day chunks, 30-day retention)
-taillight_metrics (collected_at, sse_clients_syslog, sse_clients_applog,
+taillight_metrics (collected_at, sse_clients_srvlog, sse_clients_applog,
     db_pool_active, db_pool_idle, db_pool_total,
     events_broadcast, events_dropped, applog_events_broadcast, ...)
 ```
@@ -483,8 +483,8 @@ The frontend is a Vue 3 Single Page Application built with TypeScript, Vite, and
 | Route | View | Description |
 |---|---|---|
 | `/` | `HomeView` | Live recent events from both streams |
-| `/syslog` | `SyslogListView` | Filterable syslog event list with SSE |
-| `/syslog/:id` | `SyslogView` | Single event detail |
+| `/srvlog` | `SrvlogListView` | Filterable srvlog event list with SSE |
+| `/srvlog/:id` | `SrvlogView` | Single event detail |
 | `/dashboard` | `DashboardView` | Volume charts, severity distribution |
 | `/device/:hostname` | `DeviceView` | Per-device summary |
 | `/applog` | `AppLogListView` | Filterable applog event list with SSE |
@@ -500,8 +500,8 @@ Auth-guarded: the router's `beforeEach` hook redirects unauthenticated users to 
 
 ### Pinia Stores
 
-- **`syslog-events`** / **`applog-events`** -- Event lists with cursor pagination (factory pattern via `event-store-factory.ts`)
-- **`syslog-filters`** / **`applog-filters`** -- Active filter state (factory via `filter-store-factory.ts`)
+- **`srvlog-events`** / **`applog-events`** -- Event lists with cursor pagination (factory pattern via `event-store-factory.ts`)
+- **`srvlog-filters`** / **`applog-filters`** -- Active filter state (factory via `filter-store-factory.ts`)
 - **`meta`** / **`applog-meta`** -- Cached hostnames, programs, services for filter dropdowns
 - **`dashboard`** / **`applog-dashboard`** / **`volume-dashboard`** -- Chart data for dashboards
 - **`auth`** -- User session state, login/logout
@@ -511,7 +511,7 @@ Auth-guarded: the router's `beforeEach` hook redirects unauthenticated users to 
 ### SSE Composables
 
 - **`useEventStream`** (`src/composables/useEventStream.ts`) -- Generic SSE client factory with exponential backoff reconnection (1s-30s), heartbeat watchdog (35s timeout), and `Last-Event-ID` resume support.
-- **`useSyslogStream`** -- Singleton instance for `GET /api/v1/syslog/stream` with event name `syslog`.
+- **`useSrvlogStream`** -- Singleton instance for `GET /api/v1/srvlog/stream` with event name `srvlog`.
 - **`useAppLogStream`** -- Singleton instance for `GET /api/v1/applog/stream` with event name `applog`.
 
 ## Performance Characteristics
@@ -530,7 +530,7 @@ Auth-guarded: the router's `beforeEach` hook redirects unauthenticated users to 
 ### SSE
 
 - **Per-client buffer** -- 64-message buffered channel per subscriber absorbs burst traffic.
-- **Max subscribers** -- 1000 concurrent SSE clients per broker (2000 total across syslog + applog).
+- **Max subscribers** -- 1000 concurrent SSE clients per broker (2000 total across srvlog + applog).
 - **Heartbeat** -- 15-second interval keeps connections alive through proxies and load balancers.
 - **Backfill** -- Up to 100 recent events sent on connect, avoiding empty initial state.
 - **Drop-on-full** -- Slow clients get events dropped rather than blocking the broadcast loop.
@@ -539,7 +539,7 @@ Auth-guarded: the router's `beforeEach` hook redirects unauthenticated users to 
 
 - **Main queue** -- LinkedList queue, 50,000 entries, 5 GB disk overflow, 4 worker threads.
 - **Discard policy** -- At 45,000 entries (90%), info/debug messages are discarded first.
-- **PostgreSQL queue** -- 50,000 entries, 2 GB disk, 4 workers, 128 INSERTs per batch transaction.
+- **Srvlog PostgreSQL queue** -- 50,000 entries, 2 GB disk, 4 workers, 128 INSERTs per batch transaction.
 - **UDP threads** -- 8 receiver threads with batch size 128 for high-throughput UDP ingestion.
 - **TCP sessions** -- Capped at 200 concurrent connections to prevent fd exhaustion.
 
@@ -559,7 +559,7 @@ API keys carry scopes that restrict access:
 
 | Scope | Access |
 |---|---|
-| `read` | All GET endpoints (syslog, applog, stats, meta, notifications) |
+| `read` | All GET endpoints (srvlog, applog, stats, meta, notifications) |
 | `ingest` | `POST /api/v1/applog/ingest` |
 | `admin` | All write operations (notification CRUD, analysis trigger, user management) |
 

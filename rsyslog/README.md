@@ -1,6 +1,6 @@
 # rsyslog Juniper Filtering
 
-Modular rsyslog configuration for receiving, filtering, and routing syslog from Juniper network devices (MX, SRX, EX, QFX). Designed to reduce noise from high-volume senders while preserving operationally important events.
+Modular rsyslog configuration for receiving, filtering, and routing syslog from Juniper network devices (MX, SRX, EX, QFX) into the srvlog feed. Designed to reduce noise from high-volume senders while preserving operationally important events.
 
 ## Overview
 
@@ -18,7 +18,7 @@ UDP/TCP input (514, 1514)
   -> filter by facility      (local7 info noise)
   -> filter by severity      (drop debug globally)
   -> filter by hostname/IP   (optional, all commented out)
-  -> output to LibreNMS, per-host log files, PostgreSQL, remote forwarding
+  -> output to LibreNMS, per-host log files, PostgreSQL (srvlog), remote forwarding
 ```
 
 ## Project structure
@@ -27,8 +27,8 @@ UDP/TCP input (514, 1514)
 rsyslog.conf              Main config -- global settings, queue tuning, includes
 conf.d/
   00-modules.conf         Module loading (imudp, imtcp, mmpstrucdata, omprog, ...)
-  01-templates.conf       Output format templates (syslog, JSON, LibreNMS, PostgreSQL, debug)
-  02-outputs.conf         Output rulesets (local files, remote, LibreNMS, JSON, PostgreSQL)
+  01-templates.conf       Output format templates (srvlog, JSON, LibreNMS, PostgreSQL, debug)
+  02-outputs.conf         Output rulesets (local files, remote, LibreNMS, JSON, PostgreSQL srvlog)
   10-inputs.conf          UDP/TCP listeners bound to network_devices ruleset
   20-ruleset.conf         Main processing ruleset -- filter chain and output routing
 filters/
@@ -120,7 +120,7 @@ Every filter that drops messages has exception keywords checked via `re_match(to
 - **Add a new msgid filter**: Add a block to `filters/05-by-msgid.conf`
 - **Add a new daemon filter**: Add a block to `filters/10-by-programname.conf`
 - **Filter specific hosts**: Uncomment and edit examples in `filters/50-by-hostname.conf`
-- **Enable PostgreSQL output**: Uncomment `module(load="ompgsql")` in `conf.d/00-modules.conf`, the `PgSQLInsert` template in `conf.d/01-templates.conf`, the `output_pgsql` ruleset in `conf.d/02-outputs.conf`, and `call output_pgsql` in `conf.d/20-ruleset.conf`. Requires `rsyslog-pgsql` package and the DDL below.
+- **Enable PostgreSQL output**: Uncomment `module(load="ompgsql")` in `conf.d/00-modules.conf`, the `PgSQLSrvlogInsert` template in `conf.d/01-templates.conf`, the `output_pgsql_srvlog` ruleset in `conf.d/02-outputs.conf`, and `call output_pgsql_srvlog` in `conf.d/20-ruleset.conf`. Requires `rsyslog-pgsql` package and the DDL below.
 - **Enable remote forwarding**: Uncomment `call output_remote` in `conf.d/20-ruleset.conf`
 - **Enable JSON output**: Add `call output_json` to the output phase in `conf.d/20-ruleset.conf`
 - **Enable Prometheus stats**: Uncomment `impstats` and `rsyslog_stats` in `conf.d/00-modules.conf` (requires [rsyslog_exporter](https://github.com/digitalocean/rsyslog_exporter))

@@ -144,30 +144,30 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 	}
 }
 
-// HandleSyslogEvent evaluates all syslog rules against the event.
-func (e *Engine) HandleSyslogEvent(event model.SyslogEvent) {
+// HandleSrvlogEvent evaluates all srvlog rules against the event.
+func (e *Engine) HandleSrvlogEvent(event model.SrvlogEvent) {
 	e.cacheMu.RLock()
 	rules := e.rules
 	e.cacheMu.RUnlock()
 
 	for _, r := range rules {
-		if !r.Enabled || r.EventKind != EventKindSyslog {
+		if !r.Enabled || r.EventKind != EventKindSrvlog {
 			continue
 		}
 		metrics.NotifRulesEvaluatedTotal.Inc()
 
-		if r.MatchesSyslog(event) {
+		if r.MatchesSrvlog(event) {
 			metrics.NotifRulesMatchedTotal.Inc()
 
 			payload := Payload{
-				Kind:        EventKindSyslog,
+				Kind:        EventKindSrvlog,
 				RuleName:    r.Name,
 				Timestamp:   event.ReceivedAt,
 				EventCount:  1,
-				SyslogEvent: &event,
+				SrvlogEvent: &event,
 			}
 
-			groupKey := r.GroupKeyFromSyslog(event)
+			groupKey := r.GroupKeyFromSrvlog(event)
 			window := time.Duration(r.BurstWindow) * time.Second
 			cooldown := time.Duration(r.CooldownSeconds) * time.Second
 			maxCooldown := time.Duration(r.MaxCooldownSeconds) * time.Second
@@ -236,11 +236,11 @@ func (e *Engine) SendTestNotification(ctx context.Context, ch Channel) (SendResu
 	}
 
 	payload := Payload{
-		Kind:       EventKindSyslog,
+		Kind:       EventKindSrvlog,
 		RuleName:   "test",
 		Timestamp:  time.Now(),
 		EventCount: 1,
-		SyslogEvent: &model.SyslogEvent{
+		SrvlogEvent: &model.SrvlogEvent{
 			ReceivedAt:    time.Now(),
 			Hostname:      "test.example.com",
 			Programname:   "taillight",
@@ -378,8 +378,8 @@ func (e *Engine) sendToChannel(ctx context.Context, rule Rule, ch Channel, paylo
 	})
 
 	eventID := int64(0)
-	if payload.SyslogEvent != nil {
-		eventID = payload.SyslogEvent.ID
+	if payload.SrvlogEvent != nil {
+		eventID = payload.SrvlogEvent.ID
 	} else if payload.AppLogEvent != nil {
 		eventID = payload.AppLogEvent.ID
 	}

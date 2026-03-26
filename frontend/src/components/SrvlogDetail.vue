@@ -1,20 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { SyslogEvent } from '@/types/syslog'
+import type { SrvlogEvent } from '@/types/srvlog'
 import { severityBorderClass, severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
 import { formatDateTime } from '@/lib/format'
-import { useSyslogFilterStore } from '@/stores/syslog-filters'
+import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
 
 const props = defineProps<{
-  event: SyslogEvent
+  event: SrvlogEvent
 }>()
 
-const filterStore = useSyslogFilterStore()
+const filterStore = useSrvlogFilterStore()
 
 interface Field {
   label: string
-  key: keyof SyslogEvent
+  key: keyof SrvlogEvent
   color?: string
   filter?: string // filter store key to set on click
 }
@@ -80,7 +80,7 @@ function applyFilter(field: Field) {
   >
     <!-- permalink -->
     <RouterLink
-      :to="{ name: 'syslog-detail', params: { id: event.id } }"
+      :to="{ name: 'srvlog-detail', params: { id: event.id } }"
       class="absolute right-3 top-1.5 text-xs font-normal leading-none text-t-purple transition-all hover:font-extrabold hover:brightness-125"
       title="permalink"
       @click.stop

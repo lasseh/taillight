@@ -439,8 +439,8 @@ func TestCreateRule(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "success syslog",
-			body:       `{"name":"err-rule","event_kind":"syslog","enabled":true,"channel_ids":[1]}`,
+			name:       "success srvlog",
+			body:       `{"name":"err-rule","event_kind":"srvlog","enabled":true,"channel_ids":[1]}`,
 			store:      &mockNotificationStore{},
 			wantStatus: http.StatusCreated,
 		},
@@ -458,7 +458,7 @@ func TestCreateRule(t *testing.T) {
 		},
 		{
 			name:       "missing name",
-			body:       `{"event_kind":"syslog"}`,
+			body:       `{"event_kind":"srvlog"}`,
 			store:      &mockNotificationStore{},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -476,7 +476,7 @@ func TestCreateRule(t *testing.T) {
 		},
 		{
 			name:       "store error",
-			body:       `{"name":"err-rule","event_kind":"syslog"}`,
+			body:       `{"name":"err-rule","event_kind":"srvlog"}`,
 			store:      &mockNotificationStore{createRuErr: errors.New("db error")},
 			wantStatus: http.StatusInternalServerError,
 		},
@@ -509,7 +509,7 @@ func TestUpdateRule(t *testing.T) {
 		{
 			name:       "success",
 			id:         "1",
-			body:       `{"name":"updated-rule","event_kind":"syslog","enabled":false}`,
+			body:       `{"name":"updated-rule","event_kind":"srvlog","enabled":false}`,
 			store:      &mockNotificationStore{},
 			wantStatus: http.StatusOK,
 		},
@@ -530,14 +530,14 @@ func TestUpdateRule(t *testing.T) {
 		{
 			name:       "not found",
 			id:         "999",
-			body:       `{"name":"test","event_kind":"syslog"}`,
+			body:       `{"name":"test","event_kind":"srvlog"}`,
 			store:      &mockNotificationStore{updateRuErr: pgx.ErrNoRows},
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "store error",
 			id:         "1",
-			body:       `{"name":"test","event_kind":"syslog"}`,
+			body:       `{"name":"test","event_kind":"srvlog"}`,
 			store:      &mockNotificationStore{updateRuErr: errors.New("db error")},
 			wantStatus: http.StatusInternalServerError,
 		},

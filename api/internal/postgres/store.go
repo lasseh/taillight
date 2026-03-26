@@ -24,7 +24,7 @@ const (
 	topSourcesLimit = 20
 )
 
-var syslogColumns = []string{
+var srvlogColumns = []string{
 	"id", "received_at", "reported_at", "hostname", "fromhost_ip",
 	"programname", "msgid", "severity", "facility", "syslogtag",
 	"structured_data", "message", "raw_message",
@@ -54,7 +54,7 @@ func (s *Store) Ping(ctx context.Context) error {
 
 // RetentionConfig specifies retention periods for each hypertable.
 type RetentionConfig struct {
-	SyslogDays          int
+	SrvlogDays          int
 	AppLogDays          int
 	NotificationLogDays int
 	RsyslogStatsDays    int
@@ -67,7 +67,7 @@ func (s *Store) ApplyRetentionPolicies(ctx context.Context, cfg RetentionConfig)
 		name string
 		days int
 	}{
-		{"syslog_events", cfg.SyslogDays},
+		{"srvlog_events", cfg.SrvlogDays},
 		{"applog_events", cfg.AppLogDays},
 		{"notification_log", cfg.NotificationLogDays},
 		{"rsyslog_stats", cfg.RsyslogStatsDays},
@@ -86,33 +86,33 @@ func (s *Store) ApplyRetentionPolicies(ctx context.Context, cfg RetentionConfig)
 	return nil
 }
 
-// GetSyslog returns a single event by ID.
-func (s *Store) GetSyslog(ctx context.Context, id int64) (model.SyslogEvent, error) {
+// GetSrvlog returns a single event by ID.
+func (s *Store) GetSrvlog(ctx context.Context, id int64) (model.SrvlogEvent, error) {
 	query, args, err := psq.
-		Select(syslogColumns...).
-		From("syslog_events").
+		Select(srvlogColumns...).
+		From("srvlog_events").
 		Where(sq.Eq{"id": id}).
 		ToSql()
 	if err != nil {
-		return model.SyslogEvent{}, fmt.Errorf("build query: %w", err)
+		return model.SrvlogEvent{}, fmt.Errorf("build query: %w", err)
 	}
 
-	var e model.SyslogEvent
-	err = scanSyslog(s.pool.QueryRow(ctx, query, args...), &e)
+	var e model.SrvlogEvent
+	err = scanSrvlog(s.pool.QueryRow(ctx, query, args...), &e)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return model.SyslogEvent{}, err
+		return model.SrvlogEvent{}, err
 	}
 	if err != nil {
-		return model.SyslogEvent{}, fmt.Errorf("get event %d: %w", id, err)
+		return model.SrvlogEvent{}, fmt.Errorf("get event %d: %w", id, err)
 	}
 	return e, nil
 }
 
-// ListSyslogs returns events matching the filter with cursor-based pagination.
+// ListSrvlogs returns events matching the filter with cursor-based pagination.
 // It returns one extra row to determine if more pages exist.
-func (s *Store) ListSyslogs(ctx context.Context, f model.SyslogFilter, cursor *model.Cursor, limit int) ([]model.SyslogEvent, *model.Cursor, error) {
-	qb := psq.Select(syslogColumns...).From("syslog_events")
-	qb = applySyslogFilter(qb, f)
+func (s *Store) ListSrvlogs(ctx context.Context, f model.SrvlogFilter, cursor *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error) {
+	qb := psq.Select(srvlogColumns...).From("srvlog_events")
+	qb = applySrvlogFilter(qb, f)
 
 	// Keyset (cursor) pagination using tuple comparison — Postgres evaluates
 	// (received_at, id) as a composite key, giving stable ordering without OFFSET.
@@ -133,7 +133,7 @@ func (s *Store) ListSyslogs(ctx context.Context, f model.SyslogFilter, cursor *m
 	}
 	defer rows.Close()
 
-	events, err := collectSyslogs(rows)
+	events, err := collectSrvlogs(rows)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -151,11 +151,11 @@ func (s *Store) ListSyslogs(ctx context.Context, f model.SyslogFilter, cursor *m
 	return events, nextCursor, nil
 }
 
-// ListSyslogsSince returns events with id > sinceID matching the filter,
+// ListSrvlogsSince returns events with id > sinceID matching the filter,
 // ordered chronologically (ASC). Used for SSE Last-Event-ID reconnect backfill.
-func (s *Store) ListSyslogsSince(ctx context.Context, f model.SyslogFilter, sinceID int64, limit int) ([]model.SyslogEvent, error) {
-	qb := psq.Select(syslogColumns...).From("syslog_events")
-	qb = applySyslogFilter(qb, f)
+func (s *Store) ListSrvlogsSince(ctx context.Context, f model.SrvlogFilter, sinceID int64, limit int) ([]model.SrvlogEvent, error) {
+	qb := psq.Select(srvlogColumns...).From("srvlog_events")
+	qb = applySrvlogFilter(qb, f)
 	qb = qb.Where(sq.Gt{"id": sinceID})
 	qb = qb.OrderBy("id ASC").Limit(uint64(limit))
 
@@ -170,7 +170,7 @@ func (s *Store) ListSyslogsSince(ctx context.Context, f model.SyslogFilter, sinc
 	}
 	defer rows.Close()
 
-	return collectSyslogs(rows)
+	return collectSrvlogs(rows)
 }
 
 // ListHosts returns distinct hostnames ordered alphabetically.
@@ -190,7 +190,7 @@ func (s *Store) ListTags(ctx context.Context) ([]string, error) {
 
 // ListFacilities returns distinct facility codes ordered numerically.
 func (s *Store) ListFacilities(ctx context.Context) ([]int, error) {
-	rows, err := s.pool.Query(ctx, "SELECT facility FROM syslog_facility_cache ORDER BY facility LIMIT $1", metaLimit)
+	rows, err := s.pool.Query(ctx, "SELECT facility FROM srvlog_facility_cache ORDER BY facility LIMIT $1", metaLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list facilities: %w", err)
 	}
@@ -211,7 +211,7 @@ func (s *Store) listDistinctStrings(ctx context.Context, column string) ([]strin
 	if _, ok := allowedMetaColumns[column]; !ok {
 		return nil, fmt.Errorf("disallowed meta column: %s", column)
 	}
-	rows, err := s.pool.Query(ctx, "SELECT value FROM syslog_meta_cache WHERE column_name = $1 ORDER BY value LIMIT $2", column, metaLimit)
+	rows, err := s.pool.Query(ctx, "SELECT value FROM srvlog_meta_cache WHERE column_name = $1 ORDER BY value LIMIT $2", column, metaLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", column, err)
 	}
@@ -228,7 +228,7 @@ func (s *Store) listDistinctStrings(ctx context.Context, column string) ([]strin
 	return values, rows.Err()
 }
 
-func applySyslogFilter(qb sq.SelectBuilder, f model.SyslogFilter) sq.SelectBuilder {
+func applySrvlogFilter(qb sq.SelectBuilder, f model.SrvlogFilter) sq.SelectBuilder {
 	if f.Hostname != "" {
 		if strings.Contains(f.Hostname, "*") {
 			pattern := strings.ReplaceAll(escapeLike(f.Hostname), "*", "%")
@@ -279,11 +279,11 @@ func escapeLike(s string) string {
 	return s
 }
 
-func collectSyslogs(rows pgx.Rows) ([]model.SyslogEvent, error) {
-	events := make([]model.SyslogEvent, 0, 64)
+func collectSrvlogs(rows pgx.Rows) ([]model.SrvlogEvent, error) {
+	events := make([]model.SrvlogEvent, 0, 64)
 	for rows.Next() {
-		var e model.SyslogEvent
-		if err := scanSyslog(rows, &e); err != nil {
+		var e model.SrvlogEvent
+		if err := scanSrvlog(rows, &e); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		events = append(events, e)
@@ -296,7 +296,7 @@ func collectSyslogs(rows pgx.Rows) ([]model.SyslogEvent, error) {
 
 // GetVolume returns time-bucketed event counts grouped by hostname.
 func (s *Store) GetVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	return s.getVolume(ctx, "syslog_events", "hostname", interval, rangeDur)
+	return s.getVolume(ctx, "srvlog_events", "hostname", interval, rangeDur)
 }
 
 // GetAppLogVolume returns time-bucketed event counts grouped by service.
@@ -357,7 +357,7 @@ func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval 
 	return buckets, nil
 }
 
-// GetSeverityVolume returns time-bucketed event counts grouped by syslog severity.
+// GetSeverityVolume returns time-bucketed event counts grouped by srvlog severity.
 func (s *Store) GetSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error) {
 	if !interval.IsValid() {
 		return nil, fmt.Errorf("invalid volume interval: %s", interval)
@@ -366,7 +366,7 @@ func (s *Store) GetSeverityVolume(ctx context.Context, interval model.VolumeInte
 
 	query := `SELECT time_bucket($1::interval, received_at) AS bucket,
 	                 severity, count(*) AS cnt
-	          FROM syslog_events
+	          FROM srvlog_events
 	          WHERE received_at >= $2
 	          GROUP BY bucket, severity
 	          ORDER BY bucket ASC`
@@ -463,7 +463,7 @@ func (s *Store) GetAppLogSeverityVolume(ctx context.Context, interval model.Volu
 	return buckets, nil
 }
 
-func scanSyslog(row pgx.Row, e *model.SyslogEvent) error {
+func scanSrvlog(row pgx.Row, e *model.SrvlogEvent) error {
 	var ip netip.Addr
 	err := row.Scan(
 		&e.ID, &e.ReceivedAt, &e.ReportedAt, &e.Hostname, &ip,
@@ -484,7 +484,7 @@ func scanSyslog(row pgx.Row, e *model.SyslogEvent) error {
 // run outside a transaction (CALL cannot run inside BEGIN/COMMIT), so it
 // is called at application startup rather than in a SQL migration.
 func (s *Store) RefreshContinuousAggregates(ctx context.Context) error {
-	for _, view := range []string{"syslog_summary_hourly", "applog_summary_hourly"} {
+	for _, view := range []string{"srvlog_summary_hourly", "applog_summary_hourly"} {
 		//nolint:gosec // view names are hardcoded constants, not user input.
 		if _, err := s.pool.Exec(ctx,
 			fmt.Sprintf("CALL refresh_continuous_aggregate('%s', NULL, now())", view),
@@ -495,26 +495,26 @@ func (s *Store) RefreshContinuousAggregates(ctx context.Context) error {
 	return nil
 }
 
-// GetSyslogSummary returns summary statistics for the given range.
-// Uses syslog_summary_hourly continuous aggregate.
-func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error) {
+// GetSrvlogSummary returns summary statistics for the given range.
+// Uses srvlog_summary_hourly continuous aggregate.
+func (s *Store) GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (model.SrvlogSummary, error) {
 	since := time.Now().UTC().Add(-rangeDur)
 	prevStart := since.Add(-rangeDur)
 
 	// Get current totals by severity from the continuous aggregate.
 	query := `SELECT severity, SUM(cnt) AS cnt
-	          FROM syslog_summary_hourly
+	          FROM srvlog_summary_hourly
 	          WHERE bucket >= $1
 	          GROUP BY severity
 	          ORDER BY severity`
 
 	rows, err := s.pool.Query(ctx, query, since)
 	if err != nil {
-		return model.SyslogSummary{}, fmt.Errorf("syslog summary query: %w", err)
+		return model.SrvlogSummary{}, fmt.Errorf("srvlog summary query: %w", err)
 	}
 	defer rows.Close()
 
-	var summary model.SyslogSummary
+	var summary model.SrvlogSummary
 	summary.SeverityBreakdown = make([]model.SeverityCount, 0)
 	summary.TopHosts = make([]model.TopSource, 0)
 
@@ -522,7 +522,7 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 		var sev int
 		var cnt int64
 		if err := rows.Scan(&sev, &cnt); err != nil {
-			return model.SyslogSummary{}, fmt.Errorf("scan severity: %w", err)
+			return model.SrvlogSummary{}, fmt.Errorf("scan severity: %w", err)
 		}
 		summary.Total += cnt
 		if sev <= model.SeverityErr {
@@ -538,16 +538,16 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 		})
 	}
 	if err := rows.Err(); err != nil {
-		return model.SyslogSummary{}, fmt.Errorf("severity rows: %w", err)
+		return model.SrvlogSummary{}, fmt.Errorf("severity rows: %w", err)
 	}
 
 	// Get previous period total for trend calculation.
 	var prevTotal int64
 	err = s.pool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(cnt), 0) FROM syslog_summary_hourly WHERE bucket >= $1 AND bucket < $2`,
+		`SELECT COALESCE(SUM(cnt), 0) FROM srvlog_summary_hourly WHERE bucket >= $1 AND bucket < $2`,
 		prevStart, since).Scan(&prevTotal)
 	if err != nil {
-		return model.SyslogSummary{}, fmt.Errorf("prev total query: %w", err)
+		return model.SrvlogSummary{}, fmt.Errorf("prev total query: %w", err)
 	}
 
 	if prevTotal > 0 {
@@ -556,7 +556,7 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 
 	// Get top hosts from the continuous aggregate.
 	hostQuery := `SELECT hostname, SUM(cnt) AS cnt
-	              FROM syslog_summary_hourly
+	              FROM srvlog_summary_hourly
 	              WHERE bucket >= $1
 	              GROUP BY hostname
 	              ORDER BY cnt DESC
@@ -564,7 +564,7 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 
 	hostRows, err := s.pool.Query(ctx, hostQuery, since, topSourcesLimit)
 	if err != nil {
-		return model.SyslogSummary{}, fmt.Errorf("top hosts query: %w", err)
+		return model.SrvlogSummary{}, fmt.Errorf("top hosts query: %w", err)
 	}
 	defer hostRows.Close()
 
@@ -572,7 +572,7 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 		var name string
 		var cnt int64
 		if err := hostRows.Scan(&name, &cnt); err != nil {
-			return model.SyslogSummary{}, fmt.Errorf("scan host: %w", err)
+			return model.SrvlogSummary{}, fmt.Errorf("scan host: %w", err)
 		}
 		summary.TopHosts = append(summary.TopHosts, model.TopSource{
 			Name:  name,
@@ -580,7 +580,7 @@ func (s *Store) GetSyslogSummary(ctx context.Context, rangeDur time.Duration) (m
 		})
 	}
 	if err := hostRows.Err(); err != nil {
-		return model.SyslogSummary{}, fmt.Errorf("host rows: %w", err)
+		return model.SrvlogSummary{}, fmt.Errorf("host rows: %w", err)
 	}
 
 	// Calculate percentages for top hosts.
@@ -713,15 +713,15 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		Hostname:          hostname,
 		SeverityBreakdown: make([]model.SeverityCount, 0),
 		TopMessages:       make([]model.TopMessage, 0),
-		CriticalLogs:      make([]model.SyslogEvent, 0),
+		CriticalLogs:      make([]model.SrvlogEvent, 0),
 	}
 
 	since := time.Now().UTC().Add(-7 * 24 * time.Hour)
 
 	// Build critical logs query via squirrel for column list consistency.
 	critQuery, critArgs, err := psq.
-		Select(syslogColumns...).
-		From("syslog_events").
+		Select(srvlogColumns...).
+		From("srvlog_events").
 		Where(sq.Eq{"hostname": hostname}).
 		Where(sq.GtOrEq{"received_at": since}).
 		Where(sq.LtOrEq{"severity": model.SeverityErr}).
@@ -737,14 +737,14 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 
 	// Q1: last seen (most recent event for this host).
 	batch.Queue(
-		"SELECT MAX(received_at) FROM syslog_events WHERE hostname = $1",
+		"SELECT MAX(received_at) FROM srvlog_events WHERE hostname = $1",
 		hostname,
 	)
 
 	// Q2: severity breakdown (7 days).
 	batch.Queue(
 		`SELECT severity, count(*) AS cnt
-		 FROM syslog_events
+		 FROM srvlog_events
 		 WHERE hostname = $1 AND received_at >= $2
 		 GROUP BY severity
 		 ORDER BY severity`,
@@ -763,7 +763,7 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		     max(id) AS latest_id,
 		     max(received_at) AS latest_at,
 		     min(severity) AS severity
-		 FROM syslog_events
+		 FROM srvlog_events
 		 WHERE hostname = $1 AND received_at >= $2 AND msg_pattern != ''
 		 GROUP BY msg_pattern
 		 ORDER BY cnt DESC, msg_pattern
@@ -840,7 +840,7 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		return summary, fmt.Errorf("device critical logs: %w", err)
 	}
 
-	critEvents, err := collectSyslogs(critRows)
+	critEvents, err := collectSrvlogs(critRows)
 	if err != nil {
 		return summary, fmt.Errorf("collect critical logs: %w", err)
 	}
@@ -852,10 +852,10 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 }
 
 // LookupJuniperRef returns all Juniper syslog reference entries matching the given name.
-func (s *Store) LookupJuniperRef(ctx context.Context, name string) ([]model.JuniperSyslogRef, error) {
+func (s *Store) LookupJuniperRef(ctx context.Context, name string) ([]model.JuniperNetlogRef, error) {
 	query, args, err := psq.
 		Select("id", "name", "message", "description", "type", "severity", "cause", "action", "os", "created_at").
-		From("juniper_syslog_ref").
+		From("juniper_netlog_ref").
 		Where(sq.Eq{"name": name}).
 		OrderBy("os ASC").
 		ToSql()
@@ -869,9 +869,9 @@ func (s *Store) LookupJuniperRef(ctx context.Context, name string) ([]model.Juni
 	}
 	defer rows.Close()
 
-	refs := make([]model.JuniperSyslogRef, 0, 8)
+	refs := make([]model.JuniperNetlogRef, 0, 8)
 	for rows.Next() {
-		var r model.JuniperSyslogRef
+		var r model.JuniperNetlogRef
 		if err := rows.Scan(
 			&r.ID, &r.Name, &r.Message, &r.Description,
 			&r.Type, &r.Severity, &r.Cause, &r.Action,
@@ -886,7 +886,7 @@ func (s *Store) LookupJuniperRef(ctx context.Context, name string) ([]model.Juni
 
 // UpsertJuniperRefs inserts or updates Juniper syslog reference entries.
 // Returns the number of rows affected.
-func (s *Store) UpsertJuniperRefs(ctx context.Context, refs []model.JuniperSyslogRef) (int64, error) {
+func (s *Store) UpsertJuniperRefs(ctx context.Context, refs []model.JuniperNetlogRef) (int64, error) {
 	if len(refs) == 0 {
 		return 0, nil
 	}
@@ -898,7 +898,7 @@ func (s *Store) UpsertJuniperRefs(ctx context.Context, refs []model.JuniperSyslo
 		end := min(i+batchSize, len(refs))
 		batch := refs[i:end]
 
-		qb := psq.Insert("juniper_syslog_ref").
+		qb := psq.Insert("juniper_netlog_ref").
 			Columns("name", "message", "description", "type", "severity", "cause", "action", "os")
 
 		for _, r := range batch {

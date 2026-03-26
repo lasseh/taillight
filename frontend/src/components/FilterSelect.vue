@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { onClickOutside } from '@vueuse/core'
-import type { FilterOption } from '@/types/syslog'
+import type { FilterOption } from '@/types/srvlog'
 import { wildcardMatch } from '@/lib/wildcard'
 
 const props = withDefaults(

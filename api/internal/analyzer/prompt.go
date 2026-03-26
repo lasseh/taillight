@@ -9,7 +9,7 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-const systemPrompt = `You are a senior network operations analyst reviewing syslog data from a Juniper-based network infrastructure. Produce a concise daily operations briefing in markdown format.
+const systemPrompt = `You are a senior network operations analyst reviewing srvlog data from a Juniper-based network infrastructure. Produce a concise daily operations briefing in markdown format.
 
 Your report MUST include these sections:
 
@@ -45,7 +45,7 @@ Guidelines:
 var userPromptTemplate = template.Must(template.New("user").Funcs(template.FuncMap{
 	"severityLabel": model.SeverityLabel,
 	"join":          strings.Join,
-}).Parse(`# Syslog Analysis Data — Last 24 Hours
+}).Parse(`# Srvlog Analysis Data — Last 24 Hours
 Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} to {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }}
 
 ## Top Event Types (by volume)

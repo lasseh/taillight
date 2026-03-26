@@ -365,9 +365,9 @@ func TestDenyWrites(t *testing.T) {
 		remoteAddr string
 		wantStatus int
 	}{
-		{"GET allowed", http.MethodGet, "/api/v1/syslog", nil, "", http.StatusOK},
-		{"HEAD allowed", http.MethodHead, "/api/v1/syslog", nil, "", http.StatusOK},
-		{"OPTIONS allowed", http.MethodOptions, "/api/v1/syslog", nil, "", http.StatusOK},
+		{"GET allowed", http.MethodGet, "/api/v1/srvlog", nil, "", http.StatusOK},
+		{"HEAD allowed", http.MethodHead, "/api/v1/srvlog", nil, "", http.StatusOK},
+		{"OPTIONS allowed", http.MethodOptions, "/api/v1/srvlog", nil, "", http.StatusOK},
 		{"POST blocked", http.MethodPost, "/api/v1/notifications/channels", nil, "", http.StatusForbidden},
 		{"PUT blocked", http.MethodPut, "/api/v1/notifications/channels/1", nil, "", http.StatusForbidden},
 		{"DELETE blocked", http.MethodDelete, "/api/v1/notifications/rules/1", nil, "", http.StatusForbidden},

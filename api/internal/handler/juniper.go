@@ -1,16 +1,24 @@
 package handler
 
 import (
+	"context"
 	"net/http"
+
+	"github.com/lasseh/taillight/internal/model"
 )
+
+// JuniperStore defines the data access interface for Juniper reference lookups.
+type JuniperStore interface {
+	LookupJuniperRef(ctx context.Context, name string) ([]model.JuniperNetlogRef, error)
+}
 
 // JuniperHandler handles Juniper syslog reference lookups.
 type JuniperHandler struct {
-	store SyslogStore
+	store JuniperStore
 }
 
 // NewJuniperHandler creates a new JuniperHandler.
-func NewJuniperHandler(store SyslogStore) *JuniperHandler {
+func NewJuniperHandler(store JuniperStore) *JuniperHandler {
 	return &JuniperHandler{store: store}
 }
 

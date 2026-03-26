@@ -290,11 +290,11 @@ func (h *NotificationHandler) CreateRule(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if rule.EventKind == "" {
-		writeError(w, http.StatusBadRequest, "validation_failed", "event_kind is required (syslog or applog)")
+		writeError(w, http.StatusBadRequest, "validation_failed", "event_kind is required (srvlog or applog)")
 		return
 	}
-	if rule.EventKind != notification.EventKindSyslog && rule.EventKind != notification.EventKindAppLog {
-		writeError(w, http.StatusBadRequest, "validation_failed", "event_kind must be syslog or applog")
+	if rule.EventKind != notification.EventKindSrvlog && rule.EventKind != notification.EventKindAppLog {
+		writeError(w, http.StatusBadRequest, "validation_failed", "event_kind must be srvlog or applog")
 		return
 	}
 

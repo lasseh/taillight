@@ -101,24 +101,24 @@ func TestBuildEmailSubject(t *testing.T) {
 			name: "custom template literal",
 			tmpl: "Custom Alert",
 			payload: notification.Payload{
-				SyslogEvent: &model.SyslogEvent{Hostname: "web01", Severity: 3},
+				SrvlogEvent: &model.SrvlogEvent{Hostname: "web01", Severity: 3},
 			},
 			expected: "Custom Alert",
 		},
 		{
 			name: "custom template interpolated",
-			tmpl: "Alert: {{.RuleName}} on {{.SyslogEvent.Hostname}}",
+			tmpl: "Alert: {{.RuleName}} on {{.SrvlogEvent.Hostname}}",
 			payload: notification.Payload{
 				RuleName:    "disk-full",
-				SyslogEvent: &model.SyslogEvent{Hostname: "web01", Severity: 3},
+				SrvlogEvent: &model.SrvlogEvent{Hostname: "web01", Severity: 3},
 			},
 			expected: "Alert: disk-full on web01",
 		},
 		{
-			name: "syslog event",
+			name: "srvlog event",
 			tmpl: "",
 			payload: notification.Payload{
-				SyslogEvent: &model.SyslogEvent{Hostname: "web01", Severity: 3},
+				SrvlogEvent: &model.SrvlogEvent{Hostname: "web01", Severity: 3},
 			},
 			expected: "[Taillight] web01 - ERR",
 		},
@@ -150,9 +150,9 @@ func TestBuildEmailSubject(t *testing.T) {
 
 func TestBuildEmailBody(t *testing.T) {
 	p := notification.Payload{
-		Kind:     notification.EventKindSyslog,
+		Kind:     notification.EventKindSrvlog,
 		RuleName: "test-rule",
-		SyslogEvent: &model.SyslogEvent{
+		SrvlogEvent: &model.SrvlogEvent{
 			Hostname: "web01",
 			Severity: 3,
 			Message:  "something went wrong",
@@ -180,10 +180,10 @@ func TestBuildEmailBody(t *testing.T) {
 
 func TestBuildEmailBodyDigest(t *testing.T) {
 	p := notification.Payload{
-		Kind:     notification.EventKindSyslog,
+		Kind:     notification.EventKindSrvlog,
 		RuleName: "test-rule",
 		IsDigest: true,
-		SyslogEvent: &model.SyslogEvent{
+		SrvlogEvent: &model.SrvlogEvent{
 			Hostname: "web01",
 			Severity: 2,
 			Message:  "critical error",

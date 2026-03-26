@@ -33,97 +33,97 @@ func TestEscapeLike(t *testing.T) {
 	}
 }
 
-func TestApplySyslogFilter(t *testing.T) {
-	base := psq.Select("id").From("syslog_events")
+func TestApplySrvlogFilter(t *testing.T) {
+	base := psq.Select("id").From("srvlog_events")
 	now := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
 		name       string
-		filter     model.SyslogFilter
+		filter     model.SrvlogFilter
 		wantSQL    []string // substrings that must appear in generated SQL
 		wantNotSQL []string // substrings that must NOT appear
 		wantArgs   int      // expected number of args
 	}{
 		{
 			name:     "empty filter",
-			filter:   model.SyslogFilter{},
+			filter:   model.SrvlogFilter{},
 			wantArgs: 0,
 		},
 		{
 			name:     "hostname exact",
-			filter:   model.SyslogFilter{Hostname: "web01"},
+			filter:   model.SrvlogFilter{Hostname: "web01"},
 			wantSQL:  []string{"hostname"},
 			wantArgs: 1,
 		},
 		{
 			name:     "hostname wildcard",
-			filter:   model.SyslogFilter{Hostname: "web*"},
+			filter:   model.SrvlogFilter{Hostname: "web*"},
 			wantSQL:  []string{"hostname ILIKE"},
 			wantArgs: 1,
 		},
 		{
 			name:     "fromhost_ip",
-			filter:   model.SyslogFilter{FromhostIP: "192.168.1.1"},
+			filter:   model.SrvlogFilter{FromhostIP: "192.168.1.1"},
 			wantSQL:  []string{"fromhost_ip", "::inet"},
 			wantArgs: 1,
 		},
 		{
 			name:     "programname",
-			filter:   model.SyslogFilter{Programname: "sshd"},
+			filter:   model.SrvlogFilter{Programname: "sshd"},
 			wantSQL:  []string{"programname"},
 			wantArgs: 1,
 		},
 		{
 			name:     "severity exact",
-			filter:   model.SyslogFilter{Severity: new(3)},
+			filter:   model.SrvlogFilter{Severity: new(3)},
 			wantSQL:  []string{"severity"},
 			wantArgs: 1,
 		},
 		{
 			name:     "severity_max",
-			filter:   model.SyslogFilter{SeverityMax: new(4)},
+			filter:   model.SrvlogFilter{SeverityMax: new(4)},
 			wantSQL:  []string{"severity"},
 			wantArgs: 1,
 		},
 		{
 			name:     "facility",
-			filter:   model.SyslogFilter{Facility: new(1)},
+			filter:   model.SrvlogFilter{Facility: new(1)},
 			wantSQL:  []string{"facility"},
 			wantArgs: 1,
 		},
 		{
 			name:     "syslogtag",
-			filter:   model.SyslogFilter{SyslogTag: "kernel:"},
+			filter:   model.SrvlogFilter{SyslogTag: "kernel:"},
 			wantSQL:  []string{"syslogtag"},
 			wantArgs: 1,
 		},
 		{
 			name:     "msgid",
-			filter:   model.SyslogFilter{MsgID: "OSPF_NBR_UP"},
+			filter:   model.SrvlogFilter{MsgID: "OSPF_NBR_UP"},
 			wantSQL:  []string{"msgid"},
 			wantArgs: 1,
 		},
 		{
 			name:     "search",
-			filter:   model.SyslogFilter{Search: "error"},
+			filter:   model.SrvlogFilter{Search: "error"},
 			wantSQL:  []string{"message ILIKE"},
 			wantArgs: 1,
 		},
 		{
 			name:     "from time",
-			filter:   model.SyslogFilter{From: &now},
+			filter:   model.SrvlogFilter{From: &now},
 			wantSQL:  []string{"received_at"},
 			wantArgs: 1,
 		},
 		{
 			name:     "to time",
-			filter:   model.SyslogFilter{To: &now},
+			filter:   model.SrvlogFilter{To: &now},
 			wantSQL:  []string{"received_at"},
 			wantArgs: 1,
 		},
 		{
 			name: "combined filters",
-			filter: model.SyslogFilter{
+			filter: model.SrvlogFilter{
 				Hostname:    "web*",
 				Programname: "nginx",
 				SeverityMax: new(4),
@@ -137,7 +137,7 @@ func TestApplySyslogFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			qb := applySyslogFilter(base, tt.filter)
+			qb := applySrvlogFilter(base, tt.filter)
 			sql, args, err := qb.ToSql()
 			if err != nil {
 				t.Fatalf("ToSql() error: %v", err)
@@ -160,10 +160,10 @@ func TestApplySyslogFilter(t *testing.T) {
 	}
 }
 
-func TestApplySyslogFilter_SearchEscapesLike(t *testing.T) {
-	base := psq.Select("id").From("syslog_events")
-	f := model.SyslogFilter{Search: "50%_off"}
-	qb := applySyslogFilter(base, f)
+func TestApplySrvlogFilter_SearchEscapesLike(t *testing.T) {
+	base := psq.Select("id").From("srvlog_events")
+	f := model.SrvlogFilter{Search: "50%_off"}
+	qb := applySrvlogFilter(base, f)
 	_, args, err := qb.ToSql()
 	if err != nil {
 		t.Fatalf("ToSql() error: %v", err)
@@ -181,10 +181,10 @@ func TestApplySyslogFilter_SearchEscapesLike(t *testing.T) {
 	}
 }
 
-func TestApplySyslogFilter_HostnameWildcardPattern(t *testing.T) {
-	base := psq.Select("id").From("syslog_events")
-	f := model.SyslogFilter{Hostname: "web*.example.com"}
-	qb := applySyslogFilter(base, f)
+func TestApplySrvlogFilter_HostnameWildcardPattern(t *testing.T) {
+	base := psq.Select("id").From("srvlog_events")
+	f := model.SrvlogFilter{Hostname: "web*.example.com"}
+	qb := applySrvlogFilter(base, f)
 	_, args, err := qb.ToSql()
 	if err != nil {
 		t.Fatalf("ToSql() error: %v", err)

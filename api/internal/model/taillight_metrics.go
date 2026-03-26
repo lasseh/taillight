@@ -5,7 +5,7 @@ import "time"
 // MetricsSnapshot represents a single row in the taillight_metrics hypertable.
 type MetricsSnapshot struct {
 	CollectedAt           time.Time `json:"collected_at"`
-	SSEClientsSyslog      int       `json:"sse_clients_syslog"`
+	SSEClientsSrvlog      int       `json:"sse_clients_srvlog"`
 	SSEClientsAppLog      int       `json:"sse_clients_applog"`
 	DBPoolActive          int       `json:"db_pool_active"`
 	DBPoolIdle            int       `json:"db_pool_idle"`
@@ -22,7 +22,7 @@ type MetricsSnapshot struct {
 // MetricsSummary contains aggregated KPIs for a time range.
 type MetricsSummary struct {
 	// Latest gauge values.
-	SSEClientsSyslog int `json:"sse_clients_syslog"`
+	SSEClientsSrvlog int `json:"sse_clients_srvlog"`
 	SSEClientsAppLog int `json:"sse_clients_applog"`
 	DBPoolActive     int `json:"db_pool_active"`
 	DBPoolIdle       int `json:"db_pool_idle"`

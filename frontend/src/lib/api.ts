@@ -1,6 +1,6 @@
-import type { SyslogListResponse, JuniperSyslogRef, MetaResponse, SingleSyslogResponse } from '@/types/syslog'
+import type { SrvlogListResponse, JuniperNetlogRef, MetaResponse, SingleSrvlogResponse } from '@/types/srvlog'
 import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
-import type { VolumeResponse, SeverityVolumeResponse, SyslogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
+import type { VolumeResponse, SeverityVolumeResponse, SrvlogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
 import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
 import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } from '@/types/taillight-metrics'
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse, ListUsersResponse, AdminUser } from '@/types/auth'
@@ -149,13 +149,13 @@ export const api = {
     return patchAPI(`/api/v1/auth/users/${id}/password`, { password })
   },
 
-  // Syslog
-  getSyslogs(params: URLSearchParams, signal?: AbortSignal): Promise<SyslogListResponse> {
-    return fetchAPI(`/api/v1/syslog?${params}`, signal)
+  // Srvlog
+  getSrvlogs(params: URLSearchParams, signal?: AbortSignal): Promise<SrvlogListResponse> {
+    return fetchAPI(`/api/v1/srvlog?${params}`, signal)
   },
 
-  getSyslog(id: number): Promise<SingleSyslogResponse> {
-    return fetchAPI(`/api/v1/syslog/${id}`)
+  getSrvlog(id: number): Promise<SingleSrvlogResponse> {
+    return fetchAPI(`/api/v1/srvlog/${id}`)
   },
 
   getHosts(): Promise<MetaResponse<string>> {
@@ -174,11 +174,11 @@ export const api = {
     return fetchAPI('/api/v1/meta/tags')
   },
 
-  getVolume(params: URLSearchParams): Promise<VolumeResponse> {
+  getSrvlogVolume(params: URLSearchParams): Promise<VolumeResponse> {
     return fetchAPI(`/api/v1/stats/volume?${params}`)
   },
 
-  getJuniperLookup(name: string): Promise<MetaResponse<JuniperSyslogRef>> {
+  getJuniperLookup(name: string): Promise<MetaResponse<JuniperNetlogRef>> {
     return fetchAPI(`/api/v1/juniper/lookup?name=${encodeURIComponent(name)}`)
   },
 
@@ -207,7 +207,7 @@ export const api = {
     return fetchAPI(`/api/v1/applog/stats/volume?${params}`)
   },
 
-  getSeverityVolume(params: URLSearchParams): Promise<SeverityVolumeResponse> {
+  getSrvlogSeverityVolume(params: URLSearchParams): Promise<SeverityVolumeResponse> {
     return fetchAPI(`/api/v1/stats/severity-volume?${params}`)
   },
 
@@ -216,7 +216,7 @@ export const api = {
   },
 
   // Device
-  getDeviceSummary(hostname: string): Promise<DeviceSummaryResponse> {
+  getSrvlogDeviceSummary(hostname: string): Promise<DeviceSummaryResponse> {
     return fetchAPI(`/api/v1/device/${encodeURIComponent(hostname)}`)
   },
 
@@ -224,7 +224,7 @@ export const api = {
     return fetchAPI(`/api/v1/applog/device/${encodeURIComponent(hostname)}`)
   },
 
-  getSyslogSummary(range?: string): Promise<SyslogSummaryResponse> {
+  getSrvlogSummary(range?: string): Promise<SrvlogSummaryResponse> {
     const q = range ? `?range=${encodeURIComponent(range)}` : ''
     return fetchAPI(`/api/v1/stats/summary${q}`)
   },

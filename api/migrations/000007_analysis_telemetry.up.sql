@@ -52,7 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_rsyslog_stats_name_time   ON rsyslog_stats (name,
 CREATE TABLE IF NOT EXISTS taillight_metrics (
     collected_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- Gauges (point-in-time values)
-    sse_clients_syslog      INTEGER NOT NULL DEFAULT 0,
+    sse_clients_srvlog      INTEGER NOT NULL DEFAULT 0,
     sse_clients_applog      INTEGER NOT NULL DEFAULT 0,
     db_pool_active          INTEGER NOT NULL DEFAULT 0,
     db_pool_idle            INTEGER NOT NULL DEFAULT 0,

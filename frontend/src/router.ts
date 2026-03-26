@@ -10,9 +10,9 @@ const router = createRouter({
       component: () => import('@/views/HomeView.vue'),
     },
     {
-      path: '/syslog',
-      name: 'syslog',
-      component: () => import('@/views/SyslogListView.vue'),
+      path: '/srvlog',
+      name: 'srvlog',
+      component: () => import('@/views/SrvlogListView.vue'),
     },
     {
       path: '/dashboard',
@@ -20,9 +20,9 @@ const router = createRouter({
       component: () => import('@/views/DashboardView.vue'),
     },
     {
-      path: '/syslog/:id',
-      name: 'syslog-detail',
-      component: () => import('@/views/SyslogView.vue'),
+      path: '/srvlog/:id',
+      name: 'srvlog-detail',
+      component: () => import('@/views/SrvlogView.vue'),
       props: true,
     },
     {

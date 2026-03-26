@@ -34,12 +34,12 @@ var defaultWebhookTemplate = `{
   "group_key": {{marshal .GroupKey}},
   "window_seconds": {{.Window.Seconds}},
   "timestamp": "{{.Timestamp.Format "2006-01-02T15:04:05Z07:00"}}",
-  {{- if .SyslogEvent}}
-  "hostname": {{marshal .SyslogEvent.Hostname}},
-  "program": {{marshal .SyslogEvent.Programname}},
-  "severity": {{.SyslogEvent.Severity}},
-  "severity_label": {{marshal .SyslogEvent.SeverityLabel}},
-  "message": {{marshal .SyslogEvent.Message}}
+  {{- if .SrvlogEvent}}
+  "hostname": {{marshal .SrvlogEvent.Hostname}},
+  "program": {{marshal .SrvlogEvent.Programname}},
+  "severity": {{.SrvlogEvent.Severity}},
+  "severity_label": {{marshal .SrvlogEvent.SeverityLabel}},
+  "message": {{marshal .SrvlogEvent.Message}}
   {{- else if .AppLogEvent}}
   "service": {{marshal .AppLogEvent.Service}},
   "level": {{marshal .AppLogEvent.Level}},

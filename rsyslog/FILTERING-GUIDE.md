@@ -351,6 +351,44 @@ Use this when the NTP server is unreachable from *all* devices and you want to s
 
 Option B is usually the best balance. Start there and broaden only if needed.
 
+## Real-world example: dropping ISSU idle state spam
+
+Juniper devices with ISSU (In-Service Software Upgrade) support constantly report their idle state:
+
+```
+time: 2026-03-26T09:54:38.893178Z
+hostname: fw-node0
+ip: 10.0.1.20
+program: smid
+msgid: SMID_ISSU_CURR_STATE_EVENT
+severity: notice
+facility: user
+message: SMID ISSU state <IDLE>, chassisd ISSU state <IDLE>
+```
+
+These are purely informational -- the device is just saying "nothing is happening." They add up to thousands of messages per day across a fleet with dual-RE or HA cluster nodes.
+
+Since this has a unique `$msgid`, it's a perfect candidate for a msgid filter. Add to `filters/05-by-msgid.conf`:
+
+```
+# --- SMID: drop ISSU idle state reports, keep actual upgrade activity ---
+if ($msgid == "SMID_ISSU_CURR_STATE_EVENT") then {
+    if (not re_match(tolower($msg), "error|fail|abort|rollback")) then { stop }
+}
+```
+
+This drops the routine idle reports but keeps messages about ISSU failures, aborts, or rollbacks -- the things you actually want to know about during an upgrade.
+
+If you want to be even more targeted and only drop messages where the state is `IDLE`:
+
+```
+# --- SMID: drop only IDLE state, keep all other state transitions ---
+if ($msgid == "SMID_ISSU_CURR_STATE_EVENT" and
+    $msg contains "IDLE") then { stop }
+```
+
+This keeps state changes like `<UPGRADING>` or `<REBOOTING>` while silencing the idle chatter.
+
 ## Top 10 things to filter in a typical network
 
 These are the highest-volume, lowest-value messages from Juniper devices:
@@ -367,6 +405,8 @@ These are the highest-volume, lowest-value messages from Juniper devices:
 | 8 | `sshd` session open/close | Every SSH session to every device | programname |
 | 9 | `LLDP_NEIGHBOR_UP` | Neighbor discovery runs constantly | msgid |
 | 10 | `RPD_SCHED_*` | RPD scheduler ticks every second | msgid |
+| 11 | `SMID_ISSU_CURR_STATE_EVENT` | ISSU idle state reported constantly | msgid |
+| 12 | `RPD_RT_TIME_AVRGD_WM_NOTICE` | RIB route watermark unchanged notices | msgid |
 
 ## Quick reference: rsyslog comparison operators
 

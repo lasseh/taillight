@@ -98,8 +98,8 @@ type TopSource struct {
 	Pct   float64 `json:"pct"`
 }
 
-// SyslogSummary contains summary statistics for syslog events.
-type SyslogSummary struct {
+// SrvlogSummary contains summary statistics for srvlog events.
+type SrvlogSummary struct {
 	Total             int64           `json:"total"`
 	Trend             float64         `json:"trend"` // percentage change vs previous period
 	Errors            int64           `json:"errors"`

@@ -1,5 +1,5 @@
 import type { LevelCount, SeverityCount } from '@/types/stats'
-import type { SyslogEvent } from '@/types/syslog'
+import type { SrvlogEvent } from '@/types/srvlog'
 import type { AppLogEvent } from '@/types/applog'
 
 export interface TopMessage {
@@ -19,7 +19,7 @@ export interface DeviceSummary {
   critical_count: number
   severity_breakdown: SeverityCount[]
   top_messages: TopMessage[]
-  critical_logs: SyslogEvent[]
+  critical_logs: SrvlogEvent[]
 }
 
 export interface DeviceSummaryResponse {

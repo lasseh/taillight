@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, toRef, inject, watch } from 'vue'
 import type { Ref } from 'vue'
-import type { SyslogEvent } from '@/types/syslog'
+import type { SrvlogEvent } from '@/types/srvlog'
 import { severityColorClass, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
 import { formatTime } from '@/lib/format'
-import SyslogDetail from '@/components/SyslogDetail.vue'
-import { useSyslogFilterStore } from '@/stores/syslog-filters'
+import SrvlogDetail from '@/components/SrvlogDetail.vue'
+import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
 
-const filterStore = useSyslogFilterStore()
+const filterStore = useSrvlogFilterStore()
 
 const props = defineProps<{
-  event: SyslogEvent
+  event: SrvlogEvent
 }>()
 
 const expanded = ref(false)
@@ -91,6 +91,6 @@ const copyText = computed(() => {
       <span class="text-t-purple shrink-0 truncate" :style="{ width: 'var(--col-prog, 14ch)' }">{{ event.programname }}</span>
       <span class="min-w-0 flex-1 truncate" v-html="highlightedMessage" />
     </div>
-    <SyslogDetail v-if="expanded" :event="event" />
+    <SrvlogDetail v-if="expanded" :event="event" />
   </div>
 </template>

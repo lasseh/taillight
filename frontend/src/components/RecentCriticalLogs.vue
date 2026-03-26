@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import type { SyslogEvent } from '@/types/syslog'
+import type { SrvlogEvent } from '@/types/srvlog'
 import { severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
 import { formatTime } from '@/lib/format'
 import { highlightMessage } from '@/lib/highlighter'
 
 defineProps<{
-  events: SyslogEvent[]
+  events: SrvlogEvent[]
   title?: string
   showHostname?: boolean
   flashIds?: Set<number>
@@ -26,7 +26,7 @@ defineProps<{
       <RouterLink
         v-for="event in events"
         :key="'m-' + event.id"
-        :to="{ name: 'syslog-detail', params: { id: event.id } }"
+        :to="{ name: 'srvlog-detail', params: { id: event.id } }"
         class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 md:hidden"
         :class="[
           flashIds?.has(event.id) ? 'row-flash' : '',
@@ -43,7 +43,7 @@ defineProps<{
       <RouterLink
         v-for="event in events"
         :key="'d-' + event.id"
-        :to="{ name: 'syslog-detail', params: { id: event.id } }"
+        :to="{ name: 'srvlog-detail', params: { id: event.id } }"
         class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug md:flex"
         :class="[
           flashIds?.has(event.id) ? 'row-flash' : '',

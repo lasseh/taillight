@@ -14,7 +14,7 @@ var cfgFile string
 
 var rootCmd = &cobra.Command{
 	Use:          "taillight",
-	Short:        "Taillight — real-time syslog and application log viewer",
+	Short:        "Taillight — real-time srvlog and application log viewer",
 	SilenceUsage: true,
 }
 

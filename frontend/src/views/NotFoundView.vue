@@ -9,8 +9,8 @@ import ErrorDisplay from '@/components/ErrorDisplay.vue'
         :code="404"
         title="page not found"
         message="the page you're looking for doesn't exist"
-        list-route="syslog"
-        list-label="go to syslog"
+        list-route="srvlog"
+        list-label="go to srvlog"
       />
     </div>
   </div>

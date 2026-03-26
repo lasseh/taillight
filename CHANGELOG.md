@@ -15,7 +15,7 @@ The git history was reset prior to the public release. All prior development
 
 ### Added
 
-- Real-time syslog streaming via SSE with per-client server-side filtering
+- Real-time srvlog streaming via SSE with per-client server-side filtering
 - Application log ingestion over HTTP (`POST /api/v1/applog/ingest`)
 - Dashboard with aggregated volume charts and selectable time ranges
 - Device-level log views with per-host statistics
@@ -28,7 +28,7 @@ The git history was reset prior to the public release. All prior development
 - Login rate limiting and session management
 - Security headers middleware (CSP, HSTS, X-Frame-Options)
 - Prometheus metrics endpoint with HTTP middleware instrumentation
-- TimescaleDB hypertables for syslog and applog events
+- TimescaleDB hypertables for srvlog and applog events
 - Docker Compose setup with rsyslog, TimescaleDB, Go API, and Vue frontend
 - CLI commands: serve, migrate, loadgen, applog-loadgen, useradd, apikey, import
 - taillight-shipper: standalone log file tailer for ingest API

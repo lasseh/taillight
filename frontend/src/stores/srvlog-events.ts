@@ -1,11 +1,11 @@
-import type { SyslogEvent } from '@/types/syslog'
+import type { SrvlogEvent } from '@/types/srvlog'
 import { api } from '@/lib/api'
-import { useSyslogStream } from '@/composables/useSyslogStream'
-import { useSyslogFilterStore } from '@/stores/syslog-filters'
+import { useSrvlogStream } from '@/composables/useSrvlogStream'
+import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
 import { createEventStore } from '@/stores/event-store-factory'
 import { wildcardMatch } from '@/lib/wildcard'
 
-function matchesFilters(event: SyslogEvent, filters: Record<string, string>): boolean {
+function matchesFilters(event: SrvlogEvent, filters: Record<string, string>): boolean {
   if (filters.from || filters.to) return false
   if (filters.hostname) {
     if (filters.hostname.includes('*') ? !wildcardMatch(event.hostname, filters.hostname) : event.hostname !== filters.hostname) return false
@@ -19,11 +19,11 @@ function matchesFilters(event: SyslogEvent, filters: Record<string, string>): bo
   return true
 }
 
-export const useSyslogEventStore = createEventStore({
-  id: 'syslog-events',
-  routeName: 'syslog',
-  fetchEvents: (params, signal) => api.getSyslogs(params, signal),
-  useStream: useSyslogStream,
-  useFilterStore: useSyslogFilterStore,
+export const useSrvlogEventStore = createEventStore({
+  id: 'srvlog-events',
+  routeName: 'srvlog',
+  fetchEvents: (params, signal) => api.getSrvlogs(params, signal),
+  useStream: useSrvlogStream,
+  useFilterStore: useSrvlogFilterStore,
   matchesFilters,
 })

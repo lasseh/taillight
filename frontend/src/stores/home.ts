@@ -1,16 +1,16 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, ApiError } from '@/lib/api'
-import { useSyslogStream } from '@/composables/useSyslogStream'
+import { useSrvlogStream } from '@/composables/useSrvlogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
-import type { SyslogSummary, AppLogSummary, VolumeBucket, SeverityVolumeBucket } from '@/types/stats'
-import type { SyslogEvent } from '@/types/syslog'
+import type { SrvlogSummary, AppLogSummary, VolumeBucket, SeverityVolumeBucket } from '@/types/stats'
+import type { SrvlogEvent } from '@/types/srvlog'
 import type { AppLogEvent } from '@/types/applog'
 
 const SUMMARY_REFRESH_INTERVAL = 30_000 // 30 seconds
 const RECONNECT_INTERVAL = 5_000 // 5 seconds when disconnected
 const MAX_RECENT_EVENTS = 10
-const HIGH_SEVERITY_MAX = 2 // syslog: crit and above
+const HIGH_SEVERITY_MAX = 2 // srvlog: crit and above
 const HIGH_APPLOG_LEVELS = new Set(['FATAL', 'ERROR', 'WARN'])
 
 // Map range labels to milliseconds for computing `from` timestamps.
@@ -44,13 +44,13 @@ function pad2(n: number): string {
 }
 
 export const useHomeStore = defineStore('home', () => {
-  const syslogSummary = ref<SyslogSummary | null>(null)
+  const srvlogSummary = ref<SrvlogSummary | null>(null)
   const applogSummary = ref<AppLogSummary | null>(null)
-  const recentSyslogEvents = ref<SyslogEvent[]>([])
+  const recentSrvlogEvents = ref<SrvlogEvent[]>([])
   const recentApplogEvents = ref<AppLogEvent[]>([])
-  const syslogHeatmap = ref<Record<string, number>>({})
+  const srvlogHeatmap = ref<Record<string, number>>({})
   const applogHeatmap = ref<Record<string, number>>({})
-  const syslogSeverityVolume = ref<SeverityVolumeBucket[]>([])
+  const srvlogSeverityVolume = ref<SeverityVolumeBucket[]>([])
   const applogSeverityVolume = ref<SeverityVolumeBucket[]>([])
   const loading = ref(false)
   const loaded = ref(false)
@@ -60,18 +60,18 @@ export const useHomeStore = defineStore('home', () => {
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
   let fetchVersion = 0
-  let unsubSyslog: (() => void) | null = null
+  let unsubSrvlog: (() => void) | null = null
   let unsubApplog: (() => void) | null = null
-  const syslogSeenIds = new Set<number>()
+  const srvlogSeenIds = new Set<number>()
   const applogSeenIds = new Set<number>()
 
   // ── SSE handlers: prepend matching live events ──
 
-  function onSyslogEvent(event: SyslogEvent) {
+  function onSrvlogEvent(event: SrvlogEvent) {
     if (event.severity > HIGH_SEVERITY_MAX) return
-    if (syslogSeenIds.has(event.id)) return
-    syslogSeenIds.add(event.id)
-    recentSyslogEvents.value = [event, ...recentSyslogEvents.value].slice(0, MAX_RECENT_EVENTS)
+    if (srvlogSeenIds.has(event.id)) return
+    srvlogSeenIds.add(event.id)
+    recentSrvlogEvents.value = [event, ...recentSrvlogEvents.value].slice(0, MAX_RECENT_EVENTS)
   }
 
   function onApplogEvent(event: AppLogEvent) {
@@ -88,15 +88,15 @@ export const useHomeStore = defineStore('home', () => {
       loading.value = true
     }
 
-    let syslogErr: unknown = null
+    let srvlogErr: unknown = null
     let applogErr: unknown = null
 
     // Fetch independently so one failure doesn't block the other.
     try {
-      const res = await api.getSyslogSummary(range_.value)
-      syslogSummary.value = res.data
+      const res = await api.getSrvlogSummary(range_.value)
+      srvlogSummary.value = res.data
     } catch (e) {
-      syslogErr = e
+      srvlogErr = e
     }
 
     try {
@@ -112,13 +112,13 @@ export const useHomeStore = defineStore('home', () => {
     const errMsg = (e: unknown) =>
       (e instanceof Error && e.message) ? e.message : 'unknown error'
 
-    if (syslogErr && applogErr && isConnectionErr(syslogErr) && isConnectionErr(applogErr)) {
+    if (srvlogErr && applogErr && isConnectionErr(srvlogErr) && isConnectionErr(applogErr)) {
       error.value = 'connection'
       startReconnect()
-    } else if (syslogErr && applogErr) {
-      error.value = `syslog: ${errMsg(syslogErr)}; applog: ${errMsg(applogErr)}`
-    } else if (syslogErr) {
-      error.value = `syslog summary: ${errMsg(syslogErr)}`
+    } else if (srvlogErr && applogErr) {
+      error.value = `srvlog: ${errMsg(srvlogErr)}; applog: ${errMsg(applogErr)}`
+    } else if (srvlogErr) {
+      error.value = `srvlog summary: ${errMsg(srvlogErr)}`
     } else if (applogErr) {
       error.value = `applog summary: ${errMsg(applogErr)}`
     } else {
@@ -134,14 +134,14 @@ export const useHomeStore = defineStore('home', () => {
     const from = rangeToFrom(range_.value)
 
     try {
-      const syslogEventsRes = await api.getSyslogs(
+      const srvlogEventsRes = await api.getSrvlogs(
         new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS), from }),
       )
       if (version !== fetchVersion) return
-      const events = (syslogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
-      recentSyslogEvents.value = events
-      syslogSeenIds.clear()
-      for (const e of events) syslogSeenIds.add(e.id)
+      const events = (srvlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+      recentSrvlogEvents.value = events
+      srvlogSeenIds.clear()
+      for (const e of events) srvlogSeenIds.add(e.id)
     } catch {
       // Non-critical — keep existing data
     }
@@ -168,8 +168,8 @@ export const useHomeStore = defineStore('home', () => {
     const params = new URLSearchParams({ interval: '30m', range: '7d' })
 
     try {
-      const res = await api.getVolume(params)
-      syslogHeatmap.value = volumeToHeatmap(res.data ?? [])
+      const res = await api.getSrvlogVolume(params)
+      srvlogHeatmap.value = volumeToHeatmap(res.data ?? [])
     } catch {
       // Non-critical — keep existing data
     }
@@ -186,8 +186,8 @@ export const useHomeStore = defineStore('home', () => {
     const params = new URLSearchParams({ interval: '15m', range: '24h' })
 
     try {
-      const res = await api.getSeverityVolume(params)
-      syslogSeverityVolume.value = res.data ?? []
+      const res = await api.getSrvlogSeverityVolume(params)
+      srvlogSeverityVolume.value = res.data ?? []
     } catch {
       // Non-critical — keep existing data
     }
@@ -210,16 +210,16 @@ export const useHomeStore = defineStore('home', () => {
   }
 
   function subscribeStreams() {
-    const syslog = useSyslogStream()
+    const srvlog = useSrvlogStream()
     const applog = useAppLogStream()
-    unsubSyslog = syslog.subscribe(onSyslogEvent)
+    unsubSrvlog = srvlog.subscribe(onSrvlogEvent)
     unsubApplog = applog.subscribe(onApplogEvent)
   }
 
   function unsubscribeStreams() {
-    unsubSyslog?.()
+    unsubSrvlog?.()
     unsubApplog?.()
-    unsubSyslog = null
+    unsubSrvlog = null
     unsubApplog = null
   }
 
@@ -267,9 +267,9 @@ export const useHomeStore = defineStore('home', () => {
   function setRange(r: string) {
     range_.value = r
     localStorage.setItem('home-range', r)
-    recentSyslogEvents.value = []
+    recentSrvlogEvents.value = []
     recentApplogEvents.value = []
-    syslogSeenIds.clear()
+    srvlogSeenIds.clear()
     applogSeenIds.clear()
     fetchSummaries()
     fetchRecentEvents()
@@ -287,13 +287,13 @@ export const useHomeStore = defineStore('home', () => {
   }
 
   return {
-    syslogSummary,
+    srvlogSummary,
     applogSummary,
-    recentSyslogEvents,
+    recentSrvlogEvents,
     recentApplogEvents,
-    syslogHeatmap,
+    srvlogHeatmap,
     applogHeatmap,
-    syslogSeverityVolume,
+    srvlogSeverityVolume,
     applogSeverityVolume,
     loading,
     loaded,

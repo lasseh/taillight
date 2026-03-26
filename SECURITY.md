@@ -44,7 +44,7 @@ If you discover a security vulnerability in Taillight, please report it responsi
 - [ ] Deploy behind a reverse proxy (nginx, Caddy) with TLS termination — see `docs/nginx-reverse-proxy.conf.example`
 - [ ] Bind the API server to `127.0.0.1` or a private interface; let the reverse proxy handle public traffic
 - [ ] Restrict the `/metrics` endpoint to internal networks (Prometheus scraper only)
-- [ ] Use firewall rules to limit access to PostgreSQL (port 5432) and rsyslog (port 514/1514)
+- [ ] Use firewall rules to limit access to PostgreSQL (port 5432) and rsyslog srvlog input (port 514/1514)
 
 ### Secrets management
 

@@ -34,7 +34,7 @@ export interface TopSource {
   pct: number
 }
 
-export interface SyslogSummary {
+export interface SrvlogSummary {
   total: number
   trend: number
   errors: number
@@ -62,8 +62,8 @@ export interface SeverityVolumeResponse {
   data: SeverityVolumeBucket[]
 }
 
-export interface SyslogSummaryResponse {
-  data: SyslogSummary
+export interface SrvlogSummaryResponse {
+  data: SrvlogSummary
 }
 
 export interface AppLogSummaryResponse {

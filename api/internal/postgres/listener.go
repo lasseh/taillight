@@ -58,7 +58,7 @@ func NewListener(connStr string, pool *pgxpool.Pool, bufferSize int, logger *slo
 	return &Listener{connStr: connStr, pool: pool, bufferSize: bufferSize, logger: logger}
 }
 
-// Listen connects to PostgreSQL, runs LISTEN on syslog_ingest,
+// Listen connects to PostgreSQL, runs LISTEN on srvlog_ingest,
 // and sends notifications on the returned channel.
 // It reconnects automatically on connection loss.
 func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
@@ -121,7 +121,7 @@ func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
 		}
 	}()
 
-	l.logger.Info("listening for notifications", "channel", "syslog_ingest")
+	l.logger.Info("listening for notifications", "channel", "srvlog_ingest")
 	return ch, nil
 }
 
@@ -148,9 +148,9 @@ func (l *Listener) connect(ctx context.Context) (*pgx.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to postgres: %w", err)
 	}
-	if _, err := conn.Exec(ctx, "LISTEN syslog_ingest"); err != nil {
+	if _, err := conn.Exec(ctx, "LISTEN srvlog_ingest"); err != nil {
 		_ = conn.Close(ctx)
-		return nil, fmt.Errorf("listen syslog_ingest: %w", err)
+		return nil, fmt.Errorf("listen srvlog_ingest: %w", err)
 	}
 	return conn, nil
 }
@@ -207,7 +207,7 @@ func (l *Listener) recv(ctx context.Context, conn *pgx.Conn, ch chan<- Notificat
 	}
 }
 
-// fillGap queries for syslog events inserted while the listener was disconnected
+// fillGap queries for srvlog events inserted while the listener was disconnected
 // and pushes them into the notification channel so the broker doesn't miss any.
 func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
 	lastID := l.lastSeenID.Load()
@@ -216,7 +216,7 @@ func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
 	}
 
 	rows, err := l.pool.Query(ctx,
-		"SELECT id FROM syslog_events WHERE id > $1 ORDER BY id ASC LIMIT 10000",
+		"SELECT id FROM srvlog_events WHERE id > $1 ORDER BY id ASC LIMIT 10000",
 		lastID,
 	)
 	if err != nil {
@@ -239,7 +239,7 @@ func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
 			return
 		}
 		select {
-		case ch <- Notification{Channel: "syslog_ingest", ID: id}:
+		case ch <- Notification{Channel: "srvlog_ingest", ID: id}:
 			l.lastSeenID.Store(id)
 			count++
 		case <-ctx.Done():

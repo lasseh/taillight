@@ -54,10 +54,10 @@ CREATE INDEX IF NOT EXISTS idx_applog_search ON applog_events USING GIN (search_
 CALL remove_columnstore_policy('applog_events');
 CALL add_columnstore_policy('applog_events', after => INTERVAL '1 day');
 
--- Drop chunks older than 90 days (match syslog_events retention).
+-- Drop chunks older than 90 days (match srvlog_events retention).
 SELECT add_retention_policy('applog_events', INTERVAL '90 days', if_not_exists => true);
 
--- Tune autovacuum for high-insert workload (match syslog_events).
+-- Tune autovacuum for high-insert workload (match srvlog_events).
 ALTER TABLE applog_events SET (
     autovacuum_vacuum_scale_factor = 0.05,
     autovacuum_analyze_scale_factor = 0.02

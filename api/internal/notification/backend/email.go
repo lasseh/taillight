@@ -205,8 +205,8 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 	}
 
 	prefix := "[Taillight]"
-	if p.SyslogEvent != nil {
-		return fmt.Sprintf("%s %s - %s", prefix, p.SyslogEvent.Hostname, strings.ToUpper(model.SeverityLabel(p.SyslogEvent.Severity)))
+	if p.SrvlogEvent != nil {
+		return fmt.Sprintf("%s %s - %s", prefix, p.SrvlogEvent.Hostname, strings.ToUpper(model.SeverityLabel(p.SrvlogEvent.Severity)))
 	}
 	if p.AppLogEvent != nil {
 		return fmt.Sprintf("%s %s - %s", prefix, p.AppLogEvent.Host, p.AppLogEvent.Level)
@@ -244,8 +244,8 @@ func buildEmailBody(p notification.Payload) string {
 
 // buildEmailInitial formats the initial (non-digest) notification parts.
 func buildEmailInitial(p notification.Payload) (summary, message string) {
-	if p.SyslogEvent != nil {
-		e := p.SyslogEvent
+	if p.SrvlogEvent != nil {
+		e := p.SrvlogEvent
 		summary = fmt.Sprintf("%s - %s", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
 		message = e.Message
 	}
@@ -268,8 +268,8 @@ func buildEmailDigest(p notification.Payload) (summary, message string) {
 		windowLabel = fmt.Sprintf("%d seconds", int(p.Window.Seconds()))
 	}
 
-	if p.SyslogEvent != nil {
-		e := p.SyslogEvent
+	if p.SrvlogEvent != nil {
+		e := p.SrvlogEvent
 		summary = fmt.Sprintf("%s - %s (digest)", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
 		message = e.Message
 	}

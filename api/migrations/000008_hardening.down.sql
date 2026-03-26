@@ -4,19 +4,19 @@
 -- C2. Restore meta cache triggers.
 -------------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION cache_syslog_meta()
+CREATE OR REPLACE FUNCTION cache_srvlog_meta()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO syslog_meta_cache (column_name, value, last_seen_at)
+    INSERT INTO srvlog_meta_cache (column_name, value, last_seen_at)
     VALUES ('hostname', NEW.fromhost, now())
     ON CONFLICT (column_name, value) DO UPDATE SET last_seen_at = now()
-    WHERE syslog_meta_cache.column_name = 'hostname';
+    WHERE srvlog_meta_cache.column_name = 'hostname';
 
-    INSERT INTO syslog_meta_cache (column_name, value)
+    INSERT INTO srvlog_meta_cache (column_name, value)
     VALUES ('programname', NEW.programname)
     ON CONFLICT (column_name, value) DO NOTHING;
 
-    INSERT INTO syslog_meta_cache (column_name, value)
+    INSERT INTO srvlog_meta_cache (column_name, value)
     VALUES ('syslogtag', NEW.syslogtag)
     ON CONFLICT (column_name, value) DO NOTHING;
 
@@ -24,9 +24,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_syslog_meta_cache
-    AFTER INSERT ON syslog_events
-    FOR EACH ROW EXECUTE FUNCTION cache_syslog_meta();
+CREATE TRIGGER trg_srvlog_meta_cache
+    AFTER INSERT ON srvlog_events
+    FOR EACH ROW EXECUTE FUNCTION cache_srvlog_meta();
 
 CREATE OR REPLACE FUNCTION cache_applog_meta()
 RETURNS TRIGGER AS $$

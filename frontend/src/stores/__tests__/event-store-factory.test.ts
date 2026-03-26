@@ -3,7 +3,7 @@ import { ref } from 'vue'
 
 // Mock vue-router before importing the factory.
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ name: 'syslog', query: {} }),
+  useRoute: () => ({ name: 'srvlog', query: {} }),
   useRouter: () => ({
     replace: vi.fn(() => Promise.resolve()),
   }),
@@ -25,7 +25,7 @@ function makeStore(
 ) {
   return createEventStore<TestEvent>({
     id: `test-events-${Math.random()}`,
-    routeName: 'syslog',
+    routeName: 'srvlog',
     fetchEvents,
     useStream: () => ({
       connected: ref(true),

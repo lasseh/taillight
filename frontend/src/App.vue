@@ -3,11 +3,11 @@ import { ref, computed, watch, onUnmounted, onErrorCaptured } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useMetaStore } from '@/stores/meta'
-import { useSyslogFilterStore } from '@/stores/syslog-filters'
+import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
 import { useAppLogMetaStore } from '@/stores/applog-meta'
 import { useScrollStore } from '@/stores/scroll'
-import { useSyslogStream } from '@/composables/useSyslogStream'
+import { useSrvlogStream } from '@/composables/useSrvlogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
 import { useNotifications } from '@/composables/useNotifications'
 import { useFavicon } from '@/composables/useFavicon'
@@ -21,7 +21,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const meta = useMetaStore()
-const filters = useSyslogFilterStore()
+const filters = useSrvlogFilterStore()
 const appLogFilters = useAppLogFilterStore()
 const appLogMeta = useAppLogMetaStore()
 const scrollStore = useScrollStore()
@@ -33,7 +33,7 @@ const routerReady = ref(false)
 router.isReady().then(() => { routerReady.value = true })
 
 const isLoginRoute = computed(() => route.name === 'login')
-const isLogRoute = computed(() => route.name === 'syslog' || route.name === 'applog')
+const isLogRoute = computed(() => route.name === 'srvlog' || route.name === 'applog')
 const showJumpToLatest = computed(() => {
   if (!isLogRoute.value) return false
   return !scrollStore.isPinned(String(route.name))
@@ -41,21 +41,21 @@ const showJumpToLatest = computed(() => {
 
 const newEventCount = computed(() => scrollStore.getNewEventCount(String(route.name)))
 
-const syslogStream = useSyslogStream()
+const srvlogStream = useSrvlogStream()
 const applogStream = useAppLogStream()
-const { notifySyslog, notifyApplog } = useNotifications()
+const { notifySrvlog, notifyApplog } = useNotifications()
 
-const connected = computed(() => syslogStream.connected.value || applogStream.connected.value)
+const connected = computed(() => srvlogStream.connected.value || applogStream.connected.value)
 
 const isHistoricalMode = computed(() => {
-  if (route.name === 'syslog') return Boolean(filters.filters.from || filters.filters.to)
+  if (route.name === 'srvlog') return Boolean(filters.filters.from || filters.filters.to)
   if (route.name === 'applog') return Boolean(appLogFilters.filters.from || appLogFilters.filters.to)
   return false
 })
 
 useFavicon(connected)
 
-let unsubSyslog: (() => void) | null = null
+let unsubSrvlog: (() => void) | null = null
 let unsubApplog: (() => void) | null = null
 
 function startStreams() {
@@ -63,18 +63,18 @@ function startStreams() {
   appLogFilters.initFromURL()
   meta.fetchAll()
   appLogMeta.fetchAll()
-  syslogStream.start()
+  srvlogStream.start()
   applogStream.start()
-  unsubSyslog = syslogStream.subscribe(notifySyslog)
+  unsubSrvlog = srvlogStream.subscribe(notifySrvlog)
   unsubApplog = applogStream.subscribe(notifyApplog)
 }
 
 function stopStreams() {
-  unsubSyslog?.()
+  unsubSrvlog?.()
   unsubApplog?.()
-  unsubSyslog = null
+  unsubSrvlog = null
   unsubApplog = null
-  syslogStream.stop()
+  srvlogStream.stop()
   applogStream.stop()
 }
 
@@ -120,12 +120,12 @@ onErrorCaptured((err) => {
   <router-view v-else-if="isLoginRoute" />
   <div v-else-if="routerReady && auth.user" class="flex h-dvh flex-col">
     <AppHeader />
-    <FilterBar v-if="route.name === 'syslog'" />
+    <FilterBar v-if="route.name === 'srvlog'" />
     <AppLogFilterBar v-if="route.name === 'applog'" />
     <ConnectionBanner :connected="connected" />
     <main class="flex min-h-0 flex-1 flex-col">
       <router-view v-slot="{ Component }">
-        <KeepAlive include="SyslogListView,AppLogListView">
+        <KeepAlive include="SrvlogListView,AppLogListView">
           <component :is="Component" />
         </KeepAlive>
       </router-view>

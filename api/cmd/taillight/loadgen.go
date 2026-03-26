@@ -22,9 +22,9 @@ var (
 )
 
 var loadgenCmd = &cobra.Command{
-	Use:   "loadgen",
-	Short: "Generate random syslog events for testing",
-	Long: `Generate random syslog events for testing.
+	Use:   "loadgen-srvlog",
+	Short: "Generate random srvlog events for testing",
+	Long: `Generate random srvlog events for testing.
 
 By default, events are inserted directly into PostgreSQL.
 Use --syslog to send RFC 3164 messages over UDP/TCP to a rsyslog instance instead,
@@ -186,7 +186,7 @@ func runLoadgenSQL() error {
 	fmt.Printf("connected\n")
 
 	const query = `
-		INSERT INTO syslog_events
+		INSERT INTO srvlog_events
 			(reported_at, hostname, fromhost_ip, programname, msgid, severity, facility, syslogtag, message)
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9)`

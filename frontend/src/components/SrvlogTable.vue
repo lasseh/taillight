@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useSyslogEventStore } from '@/stores/syslog-events'
+import { useSrvlogEventStore } from '@/stores/srvlog-events'
 import EventTable from '@/components/EventTable.vue'
-import SyslogRow from '@/components/SyslogRow.vue'
+import SrvlogRow from '@/components/SrvlogRow.vue'
 
-const events = useSyslogEventStore()
+const events = useSrvlogEventStore()
 
 const colWidths = computed(() => {
   let maxHost = 0
@@ -22,7 +22,7 @@ const colWidths = computed(() => {
 
 <template>
   <EventTable
-    route-name="syslog"
+    route-name="srvlog"
     :events="events.events"
     :loading="events.loading"
     :error="events.error"
@@ -31,7 +31,7 @@ const colWidths = computed(() => {
     :style="colWidths"
   >
     <template #default="{ item }">
-      <SyslogRow :event="item" />
+      <SrvlogRow :event="item" />
     </template>
   </EventTable>
 </template>

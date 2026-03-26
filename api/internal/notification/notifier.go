@@ -15,7 +15,7 @@ type EventKind string
 
 // Event kind constants.
 const (
-	EventKindSyslog EventKind = "syslog"
+	EventKindSrvlog EventKind = "srvlog"
 	EventKindAppLog EventKind = "applog"
 )
 
@@ -48,7 +48,7 @@ type Rule struct {
 	Enabled   bool      `json:"enabled"`
 	EventKind EventKind `json:"event_kind"`
 
-	// Syslog filter fields.
+	// Srvlog filter fields.
 	Hostname    string `json:"hostname,omitempty"`
 	Programname string `json:"programname,omitempty"`
 	Severity    *int   `json:"severity,omitempty"`
@@ -83,7 +83,7 @@ type Payload struct {
 	RuleName    string             `json:"rule_name"`
 	Timestamp   time.Time          `json:"timestamp"`
 	EventCount  int                `json:"event_count"`
-	SyslogEvent *model.SyslogEvent `json:"syslog_event,omitempty"`
+	SrvlogEvent *model.SrvlogEvent `json:"srvlog_event,omitempty"`
 	AppLogEvent *model.AppLogEvent `json:"applog_event,omitempty"`
 	IsDigest    bool               `json:"is_digest,omitempty"`
 	GroupKey    string             `json:"group_key,omitempty"`

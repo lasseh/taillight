@@ -149,7 +149,7 @@ function formatPeriod(start: string, end: string): string {
           <div class="flex items-center justify-between gap-4">
             <div>
               <h2 class="text-t-fg text-base font-semibold">Analysis</h2>
-              <p class="text-t-fg-dark mt-1 text-sm">AI-generated syslog analysis reports</p>
+              <p class="text-t-fg-dark mt-1 text-sm">AI-generated srvlog analysis reports</p>
             </div>
 
             <div class="flex items-center gap-3">
@@ -267,7 +267,7 @@ function formatPeriod(start: string, end: string): string {
             </svg>
             <span class="text-t-fg font-medium">No analysis reports yet</span>
             <p class="max-w-sm text-center text-xs leading-relaxed">
-              To enable AI-powered syslog analysis, configure the
+              To enable AI-powered srvlog analysis, configure the
               <code class="text-t-teal bg-t-bg-highlight rounded px-1 py-0.5 text-[0.6875rem] border border-t-border">analysis</code>
               section in your <code class="text-t-teal bg-t-bg-highlight rounded px-1 py-0.5 text-[0.6875rem] border border-t-border">config.yml</code>
               with an Ollama endpoint and model, then restart Taillight.

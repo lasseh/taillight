@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { onActivated } from 'vue'
-import { useSyslogEventStore } from '@/stores/syslog-events'
-import SyslogTable from '@/components/SyslogTable.vue'
+import { useSrvlogEventStore } from '@/stores/srvlog-events'
+import SrvlogTable from '@/components/SrvlogTable.vue'
 
-defineOptions({ name: 'SyslogListView' })
+defineOptions({ name: 'SrvlogListView' })
 
-const events = useSyslogEventStore()
+const events = useSrvlogEventStore()
 
 onActivated(() => {
   if (events.events.length === 0) {
@@ -18,5 +18,5 @@ onActivated(() => {
 </script>
 
 <template>
-  <SyslogTable />
+  <SrvlogTable />
 </template>

@@ -13,7 +13,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
   const summary = ref<TaillightMetricsSummary | null>(null)
   const eventsBroadcastSeries = ref<TaillightMetricsTimeSeries[]>([])
   const applogBroadcastSeries = ref<TaillightMetricsTimeSeries[]>([])
-  const sseClientsSyslogSeries = ref<TaillightMetricsTimeSeries[]>([])
+  const sseClientsSrvlogSeries = ref<TaillightMetricsTimeSeries[]>([])
   const sseClientsApplogSeries = ref<TaillightMetricsTimeSeries[]>([])
   const dbPoolActiveSeries = ref<TaillightMetricsTimeSeries[]>([])
   const dbPoolIdleSeries = ref<TaillightMetricsTimeSeries[]>([])
@@ -35,7 +35,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
 
   const eventsBroadcastLine = computed(() => toSimpleLine(eventsBroadcastSeries.value))
   const applogBroadcastLine = computed(() => toSimpleLine(applogBroadcastSeries.value))
-  const sseClientsSyslogLine = computed(() => toSimpleLine(sseClientsSyslogSeries.value))
+  const sseClientsSrvlogLine = computed(() => toSimpleLine(sseClientsSrvlogSeries.value))
   const sseClientsApplogLine = computed(() => toSimpleLine(sseClientsApplogSeries.value))
   const dbPoolActiveLine = computed(() => toSimpleLine(dbPoolActiveSeries.value))
   const dbPoolIdleLine = computed(() => toSimpleLine(dbPoolIdleSeries.value))
@@ -57,7 +57,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
         summaryRes,
         eventsBroadcastRes,
         applogBroadcastRes,
-        sseClientsSyslogRes,
+        sseClientsSrvlogRes,
         sseClientsApplogRes,
         dbPoolActiveRes,
         dbPoolIdleRes,
@@ -66,7 +66,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
         api.getTaillightMetricsSummary(range_.value),
         api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'events_broadcast']])),
         api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'applog_events_broadcast']])),
-        api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'sse_clients_syslog']])),
+        api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'sse_clients_srvlog']])),
         api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'sse_clients_applog']])),
         api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'db_pool_active']])),
         api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'db_pool_idle']])),
@@ -76,7 +76,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
       summary.value = summaryRes.data
       eventsBroadcastSeries.value = eventsBroadcastRes.data
       applogBroadcastSeries.value = applogBroadcastRes.data
-      sseClientsSyslogSeries.value = sseClientsSyslogRes.data
+      sseClientsSrvlogSeries.value = sseClientsSrvlogRes.data
       sseClientsApplogSeries.value = sseClientsApplogRes.data
       dbPoolActiveSeries.value = dbPoolActiveRes.data
       dbPoolIdleSeries.value = dbPoolIdleRes.data
@@ -111,7 +111,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
     summary,
     eventsBroadcastLine,
     applogBroadcastLine,
-    sseClientsSyslogLine,
+    sseClientsSrvlogLine,
     sseClientsApplogLine,
     dbPoolActiveLine,
     dbPoolIdleLine,

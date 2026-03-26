@@ -1,19 +1,19 @@
 import { ref, watch, type Ref, onUnmounted } from 'vue'
 import { api } from '@/lib/api'
-import type { SyslogEvent } from '@/types/syslog'
+import type { SrvlogEvent } from '@/types/srvlog'
 import { createEventStream } from './useEventStream'
 
 export function useDeviceLogs(hostname: Ref<string>) {
-  const events = ref<SyslogEvent[]>([])
+  const events = ref<SrvlogEvent[]>([])
   const connected = ref(false)
 
   const seenIds = new Set<number>()
-  let stream: ReturnType<typeof createEventStream<SyslogEvent>> | null = null
+  let stream: ReturnType<typeof createEventStream<SrvlogEvent>> | null = null
   let unsubscribe: (() => void) | null = null
   let stopConnectedSync: (() => void) | null = null
   let abortController: AbortController | null = null
 
-  function addEvent(event: SyslogEvent) {
+  function addEvent(event: SrvlogEvent) {
     if (seenIds.has(event.id)) return
     seenIds.add(event.id)
     events.value.unshift(event)
@@ -28,7 +28,7 @@ export function useDeviceLogs(hostname: Ref<string>) {
     abortController = new AbortController()
     try {
       const params = new URLSearchParams({ hostname: host, limit: '50' })
-      const res = await api.getSyslogs(params, abortController.signal)
+      const res = await api.getSrvlogs(params, abortController.signal)
       for (const e of res.data) {
         if (!seenIds.has(e.id)) {
           seenIds.add(e.id)
@@ -62,8 +62,8 @@ export function useDeviceLogs(hostname: Ref<string>) {
     seenIds.clear()
     if (!host) return
 
-    const path = `/api/v1/syslog/stream?hostname=${encodeURIComponent(host)}`
-    stream = createEventStream<SyslogEvent>(path, 'syslog')
+    const path = `/api/v1/srvlog/stream?hostname=${encodeURIComponent(host)}`
+    stream = createEventStream<SrvlogEvent>(path, 'srvlog')
     unsubscribe = stream.subscribe(addEvent)
     stopConnectedSync = watch(stream.connected, (v) => { connected.value = v })
 

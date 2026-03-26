@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import { useSyslogFilterStore } from '@/stores/syslog-filters'
+import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
 import { useMetaStore } from '@/stores/meta'
 import { facilityLabels, severityOptions } from '@/lib/constants'
 import FilterSelect from '@/components/FilterSelect.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
 
-const filterStore = useSyslogFilterStore()
+const filterStore = useSrvlogFilterStore()
 const meta = useMetaStore()
 
 const mobileOpen = ref(false)
@@ -86,7 +86,7 @@ const searchInput = computed({
           v-model="searchInput"
           type="text"
           placeholder="message…"
-          aria-label="Search syslog messages"
+          aria-label="Search srvlog messages"
           class="bg-t-bg-dark border-t-border text-t-fg placeholder:text-t-fg-gutter hover:border-t-terminal focus:border-t-blue w-full border px-2 py-0.5 text-xs outline-none"
         />
       </label>
@@ -117,7 +117,7 @@ const searchInput = computed({
         v-model="searchInput"
         type="text"
         placeholder="message…"
-        aria-label="Search syslog messages"
+        aria-label="Search srvlog messages"
         class="bg-t-bg-dark border-t-border text-t-fg placeholder:text-t-fg-gutter hover:border-t-terminal focus:border-t-blue w-64 border px-2 py-0.5 text-xs outline-none"
       />
     </label>

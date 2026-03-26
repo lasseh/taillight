@@ -85,6 +85,7 @@ services:
     ports:
       # Uses 1514 to avoid conflicts during development.
       # Change to 514 in production so devices can send to the standard syslog port.
+      # This port feeds the srvlog pipeline (server/network device logs).
       - "${RSYSLOG_HOST_PORT:-1514}:514/udp"
       - "${RSYSLOG_HOST_PORT:-1514}:514/tcp"
     environment:

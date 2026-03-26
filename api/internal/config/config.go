@@ -36,7 +36,7 @@ type Config struct {
 // RetentionConfig controls how long data is kept in each hypertable.
 // Values are in days. Minimum 1 day to prevent accidental data loss.
 type RetentionConfig struct {
-	SyslogDays          int // Default 90.
+	SrvlogDays          int // Default 90.
 	AppLogDays          int // Default 90.
 	NotificationLogDays int // Default 30.
 	RsyslogStatsDays    int // Default 30.
@@ -121,7 +121,7 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("analysis.temperature", 0.3)
 	v.SetDefault("analysis.num_ctx", 8192)
 	v.SetDefault("analysis.schedule_at", "03:00")
-	v.SetDefault("retention.syslog_days", 90)
+	v.SetDefault("retention.srvlog_days", 90)
 	v.SetDefault("retention.applog_days", 90)
 	v.SetDefault("retention.notification_log_days", 30)
 	v.SetDefault("retention.rsyslog_stats_days", 30)
@@ -214,7 +214,7 @@ func Load(configFile ...string) (Config, error) {
 			AuthType: v.GetString("smtp.auth_type"),
 		},
 		Retention: RetentionConfig{
-			SyslogDays:          max(v.GetInt("retention.syslog_days"), 1),
+			SrvlogDays:          max(v.GetInt("retention.srvlog_days"), 1),
 			AppLogDays:          max(v.GetInt("retention.applog_days"), 1),
 			NotificationLogDays: max(v.GetInt("retention.notification_log_days"), 1),
 			RsyslogStatsDays:    max(v.GetInt("retention.rsyslog_stats_days"), 1),

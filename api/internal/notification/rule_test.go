@@ -7,8 +7,8 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-func TestRule_MatchesSyslog(t *testing.T) {
-	event := model.SyslogEvent{
+func TestRule_MatchesSrvlog(t *testing.T) {
+	event := model.SrvlogEvent{
 		ID:            1,
 		ReceivedAt:    time.Now(),
 		Hostname:      "router1.example.com",
@@ -28,81 +28,81 @@ func TestRule_MatchesSyslog(t *testing.T) {
 	}{
 		{
 			name: "empty rule matches everything",
-			rule: Rule{EventKind: EventKindSyslog},
+			rule: Rule{EventKind: EventKindSrvlog},
 			want: true,
 		},
 		{
 			name: "hostname exact match",
-			rule: Rule{EventKind: EventKindSyslog, Hostname: "router1.example.com"},
+			rule: Rule{EventKind: EventKindSrvlog, Hostname: "router1.example.com"},
 			want: true,
 		},
 		{
 			name: "hostname wildcard match",
-			rule: Rule{EventKind: EventKindSyslog, Hostname: "router*"},
+			rule: Rule{EventKind: EventKindSrvlog, Hostname: "router*"},
 			want: true,
 		},
 		{
 			name: "hostname mismatch",
-			rule: Rule{EventKind: EventKindSyslog, Hostname: "switch1"},
+			rule: Rule{EventKind: EventKindSrvlog, Hostname: "switch1"},
 			want: false,
 		},
 		{
 			name: "programname match",
-			rule: Rule{EventKind: EventKindSyslog, Programname: "rpd"},
+			rule: Rule{EventKind: EventKindSrvlog, Programname: "rpd"},
 			want: true,
 		},
 		{
 			name: "programname mismatch",
-			rule: Rule{EventKind: EventKindSyslog, Programname: "sshd"},
+			rule: Rule{EventKind: EventKindSrvlog, Programname: "sshd"},
 			want: false,
 		},
 		{
 			name: "severity exact match",
-			rule: Rule{EventKind: EventKindSyslog, Severity: new(3)},
+			rule: Rule{EventKind: EventKindSrvlog, Severity: new(3)},
 			want: true,
 		},
 		{
 			name: "severity mismatch",
-			rule: Rule{EventKind: EventKindSyslog, Severity: new(0)},
+			rule: Rule{EventKind: EventKindSrvlog, Severity: new(0)},
 			want: false,
 		},
 		{
 			name: "severity_max match",
-			rule: Rule{EventKind: EventKindSyslog, SeverityMax: new(4)},
+			rule: Rule{EventKind: EventKindSrvlog, SeverityMax: new(4)},
 			want: true,
 		},
 		{
 			name: "severity_max excludes",
-			rule: Rule{EventKind: EventKindSyslog, SeverityMax: new(2)},
+			rule: Rule{EventKind: EventKindSrvlog, SeverityMax: new(2)},
 			want: false,
 		},
 		{
 			name: "search match",
-			rule: Rule{EventKind: EventKindSyslog, Search: "connection lost"},
+			rule: Rule{EventKind: EventKindSrvlog, Search: "connection lost"},
 			want: true,
 		},
 		{
 			name: "search mismatch",
-			rule: Rule{EventKind: EventKindSyslog, Search: "authentication failed"},
+			rule: Rule{EventKind: EventKindSrvlog, Search: "authentication failed"},
 			want: false,
 		},
 		{
 			name: "combined filters match",
-			rule: Rule{EventKind: EventKindSyslog, Hostname: "router*", Programname: "rpd", SeverityMax: new(3)},
+			rule: Rule{EventKind: EventKindSrvlog, Hostname: "router*", Programname: "rpd", SeverityMax: new(3)},
 			want: true,
 		},
 		{
 			name: "combined filters one fails",
-			rule: Rule{EventKind: EventKindSyslog, Hostname: "router*", Programname: "sshd"},
+			rule: Rule{EventKind: EventKindSrvlog, Hostname: "router*", Programname: "sshd"},
 			want: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.rule.MatchesSyslog(event)
+			got := tt.rule.MatchesSrvlog(event)
 			if got != tt.want {
-				t.Errorf("MatchesSyslog() = %v, want %v", got, tt.want)
+				t.Errorf("MatchesSrvlog() = %v, want %v", got, tt.want)
 			}
 		})
 	}

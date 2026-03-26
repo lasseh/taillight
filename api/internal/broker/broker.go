@@ -49,7 +49,7 @@ func (s *Subscription[F]) Chan() <-chan Message {
 
 // Broker fans out events to connected SSE clients, applying per-client filters.
 //
-// E is the event type (e.g. model.SyslogEvent).
+// E is the event type (e.g. model.SrvlogEvent).
 // F is the filter type, which must implement Matches(E) bool.
 type Broker[E any, F interface{ Matches(E) bool }] struct {
 	mu          sync.RWMutex
@@ -62,7 +62,7 @@ type Broker[E any, F interface{ Matches(E) bool }] struct {
 
 // New creates a new Broker.
 //
-// label is used for log messages (e.g. "syslog", "applog").
+// label is used for log messages (e.g. "srvlog", "applog").
 // getID extracts the event ID for the SSE id: field.
 func New[E any, F interface{ Matches(E) bool }](
 	logger *slog.Logger,

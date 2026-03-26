@@ -2,8 +2,8 @@ package model
 
 import "time"
 
-// JuniperSyslogRef represents a row from the juniper_syslog_ref table.
-type JuniperSyslogRef struct {
+// JuniperNetlogRef represents a row from the juniper_netlog_ref table.
+type JuniperNetlogRef struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	Message     string    `json:"message"`

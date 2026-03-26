@@ -12,6 +12,6 @@ const FILTER_KEYS = [
   'search',
 ] as const
 
-export const useSyslogFilterStore = createFilterStore('syslog-filters', FILTER_KEYS, 'syslog', {
+export const useSrvlogFilterStore = createFilterStore('srvlog-filters', FILTER_KEYS, 'srvlog', {
   conflicts: [['severity', 'severity_max']],
 })

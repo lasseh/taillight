@@ -17,7 +17,7 @@ const { startEditing } = useDashboardLayout()
 
 const isAuthenticated = computed(() => auth.user?.username !== 'anonymous')
 
-function navigateToLog(routeName: 'syslog' | 'applog') {
+function navigateToLog(routeName: 'srvlog' | 'applog') {
   scrollStore.requestScrollToBottom(routeName)
   router.push({ name: routeName })
 }
@@ -33,7 +33,7 @@ function closeMobileMenu() {
   mobileMenuOpen.value = false
 }
 
-function mobileNavigateToLog(routeName: 'syslog' | 'applog') {
+function mobileNavigateToLog(routeName: 'srvlog' | 'applog') {
   closeMobileMenu()
   navigateToLog(routeName)
 }
@@ -143,13 +143,13 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         <button
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
-            String(route.name).startsWith('syslog')
+            String(route.name).startsWith('srvlog')
               ? 'bg-t-bg-highlight text-t-teal'
               : 'text-t-fg-dark hover:text-t-teal'
           "
-          @click="navigateToLog('syslog')"
+          @click="navigateToLog('srvlog')"
         >
-          SYSLOG
+          SRVLOG
         </button>
         <button
           class="px-2 py-0.5 text-xs transition-colors"
@@ -163,7 +163,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           APPLOG
         </button>
         <router-link
-          :to="{ path: '/dashboard', query: { tab: String(route.name).startsWith('applog') ? 'applog' : 'syslog' } }"
+          :to="{ path: '/dashboard', query: { tab: String(route.name).startsWith('applog') ? 'applog' : 'srvlog' } }"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             route.name === 'dashboard'
@@ -365,13 +365,13 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           <button
             class="px-2 py-1.5 text-left text-xs transition-colors"
             :class="
-              String(route.name).startsWith('syslog')
+              String(route.name).startsWith('srvlog')
                 ? 'bg-t-bg-highlight text-t-teal'
                 : 'text-t-fg-dark hover:text-t-teal'
             "
-            @click="mobileNavigateToLog('syslog')"
+            @click="mobileNavigateToLog('srvlog')"
           >
-            SYSLOG
+            SRVLOG
           </button>
           <button
             class="px-2 py-1.5 text-left text-xs transition-colors"
@@ -385,7 +385,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             APPLOG
           </button>
           <router-link
-            :to="{ path: '/dashboard', query: { tab: String(route.name).startsWith('applog') ? 'applog' : 'syslog' } }"
+            :to="{ path: '/dashboard', query: { tab: String(route.name).startsWith('applog') ? 'applog' : 'srvlog' } }"
             class="px-2 py-1.5 text-xs transition-colors"
             :class="
               route.name === 'dashboard'

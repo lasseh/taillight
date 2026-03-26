@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import router from '@/router'
-import type { SyslogEvent } from '@/types/syslog'
+import type { SrvlogEvent } from '@/types/srvlog'
 import type { AppLogEvent } from '@/types/applog'
 import { severityLabels } from '@/lib/constants'
 
@@ -37,7 +37,7 @@ function isTooOld(receivedAt: string): boolean {
   return Date.now() - new Date(receivedAt).getTime() > MAX_AGE_MS
 }
 
-function notifySyslog(event: SyslogEvent) {
+function notifySrvlog(event: SrvlogEvent) {
   if (!supported) return
   if (!enabled.value) return
   if (permission.value !== 'granted') return
@@ -50,11 +50,11 @@ function notifySyslog(event: SyslogEvent) {
 
   const n = new Notification(title, {
     body,
-    tag: `syslog-${event.id}`,
+    tag: `srvlog-${event.id}`,
   })
   n.onclick = () => {
     window.focus()
-    router.push(`/syslog/${event.id}`)
+    router.push(`/srvlog/${event.id}`)
     n.close()
   }
 }
@@ -81,5 +81,5 @@ function notifyApplog(event: AppLogEvent) {
 }
 
 export function useNotifications() {
-  return { supported, permission, enabled, requestPermission, setEnabled, notifySyslog, notifyApplog }
+  return { supported, permission, enabled, requestPermission, setEnabled, notifySrvlog, notifyApplog }
 }

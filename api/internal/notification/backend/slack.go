@@ -139,8 +139,8 @@ func buildSlackMessage(p notification.Payload) map[string]any {
 func buildSlackInitial(p notification.Payload) string {
 	var summary, message string
 
-	if p.SyslogEvent != nil {
-		e := p.SyslogEvent
+	if p.SrvlogEvent != nil {
+		e := p.SrvlogEvent
 		summary = fmt.Sprintf("%s - %s", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
 		message = e.Message
 	}
@@ -167,8 +167,8 @@ func buildSlackDigest(p notification.Payload) string {
 		windowLabel = fmt.Sprintf("%d seconds", int(p.Window.Seconds()))
 	}
 
-	if p.SyslogEvent != nil {
-		e := p.SyslogEvent
+	if p.SrvlogEvent != nil {
+		e := p.SrvlogEvent
 		summary = fmt.Sprintf("%s - %s (digest)", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
 		lastMessage = e.Message
 	}
@@ -184,15 +184,15 @@ func buildSlackDigest(p notification.Payload) string {
 }
 
 func severityColor(p notification.Payload) string {
-	if p.SyslogEvent != nil {
+	if p.SrvlogEvent != nil {
 		switch {
-		case p.SyslogEvent.Severity <= 2:
+		case p.SrvlogEvent.Severity <= 2:
 			return "#E74C3C" // red
-		case p.SyslogEvent.Severity == 3:
+		case p.SrvlogEvent.Severity == 3:
 			return "#E67E22" // orange
-		case p.SyslogEvent.Severity == 4:
+		case p.SrvlogEvent.Severity == 4:
 			return "#F1C40F" // yellow
-		case p.SyslogEvent.Severity <= 6:
+		case p.SrvlogEvent.Severity <= 6:
 			return "#2ECC71" // green
 		default:
 			return "#95A5A6" // gray

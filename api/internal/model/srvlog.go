@@ -1,4 +1,4 @@
-// Package model defines domain types for syslog events, filters, and cursors.
+// Package model defines domain types for srvlog events, filters, and cursors.
 package model
 
 import (
@@ -14,8 +14,8 @@ import (
 // maxFilterStringLen is the maximum length for string filter parameters.
 const maxFilterStringLen = 500
 
-// SyslogEvent represents a row from syslog_events.
-type SyslogEvent struct {
+// SrvlogEvent represents a row from srvlog_events.
+type SrvlogEvent struct {
 	ID             int64     `json:"id"`
 	ReceivedAt     time.Time `json:"received_at"`
 	ReportedAt     time.Time `json:"reported_at"`
@@ -57,7 +57,7 @@ var severityLabels = [8]string{
 	"debug",
 }
 
-// SeverityLabel returns the human-readable label for a syslog severity code.
+// SeverityLabel returns the human-readable label for a srvlog severity code.
 func SeverityLabel(code int) string {
 	if code >= 0 && code < len(severityLabels) {
 		return severityLabels[code]
@@ -101,8 +101,8 @@ func FacilityLabel(code int) string {
 	return fmt.Sprintf("unknown(%d)", code)
 }
 
-// SyslogFilter holds optional filter criteria for querying events.
-type SyslogFilter struct {
+// SrvlogFilter holds optional filter criteria for querying events.
+type SrvlogFilter struct {
 	Hostname    string
 	FromhostIP  string
 	Programname string
@@ -161,7 +161,7 @@ func matchField(value, pattern string) bool {
 // Matches returns true if the event satisfies all non-zero filter fields.
 // Time filters (From/To) are intentionally not checked here — live SSE
 // clients should not filter by time range since they receive future events.
-func (f SyslogFilter) Matches(e SyslogEvent) bool {
+func (f SrvlogFilter) Matches(e SrvlogEvent) bool {
 	if f.Hostname != "" && !matchField(e.Hostname, f.Hostname) {
 		return false
 	}
@@ -231,11 +231,11 @@ func DecodeCursor(s string) (Cursor, error) {
 	}, nil
 }
 
-// ParseSyslogFilter extracts an SyslogFilter from HTTP query parameters.
+// ParseSrvlogFilter extracts an SrvlogFilter from HTTP query parameters.
 // Returns an error if any typed parameter has an invalid value.
-func ParseSyslogFilter(r *http.Request) (SyslogFilter, error) {
+func ParseSrvlogFilter(r *http.Request) (SrvlogFilter, error) {
 	q := r.URL.Query()
-	f := SyslogFilter{
+	f := SrvlogFilter{
 		Hostname:    q.Get("hostname"),
 		Programname: q.Get("programname"),
 		SyslogTag:   q.Get("syslogtag"),
@@ -307,7 +307,7 @@ func ParseSyslogFilter(r *http.Request) (SyslogFilter, error) {
 	}
 
 	if len(errs) > 0 {
-		return SyslogFilter{}, fmt.Errorf("invalid query parameters: %s", strings.Join(errs, "; "))
+		return SrvlogFilter{}, fmt.Errorf("invalid query parameters: %s", strings.Join(errs, "; "))
 	}
 	return f, nil
 }

@@ -22,8 +22,8 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
-type Tab = 'syslog' | 'applog' | 'rsyslog' | 'taillight'
-const activeTab = ref<Tab>((route.query.tab as Tab) || 'syslog')
+type Tab = 'srvlog' | 'applog' | 'rsyslog' | 'taillight'
+const activeTab = ref<Tab>((route.query.tab as Tab) || 'srvlog')
 
 const accentColors = computed(() => theme.value.chartColors)
 
@@ -93,7 +93,7 @@ const activeError = computed(() => {
 function switchTab(tab: Tab) {
   activeTab.value = tab
   router.replace({ query: { ...route.query, tab } })
-  if (tab === 'syslog' && dashboard.buckets?.length === 0) {
+  if (tab === 'srvlog' && dashboard.buckets?.length === 0) {
     dashboard.fetchVolume()
   } else if (tab === 'applog' && applogDashboard.buckets?.length === 0) {
     applogDashboard.fetchVolume()
@@ -172,7 +172,7 @@ function makeSingleTracker(hovered: typeof hoveredHost, key: string) {
   }
 }
 
-// Syslog-specific wrappers using generic helpers.
+// Srvlog-specific wrappers using generic helpers.
 function hostYAccessors() { return makeYAccessors(dashboard.hosts) }
 const hostColorAccessor = makeColorAccessor
 function hostTemplate(d: VolumeDataRecord) { return makeTemplate(dashboard.hosts)(d) }
@@ -236,20 +236,20 @@ function rsQueueTooltip(d: SimplePoint) {
 
 // --- Taillight merged line chart data ---
 
-type TlDualRecord = { x: number; syslog: number; applog: number }
+type TlDualRecord = { x: number; srvlog: number; applog: number }
 type TlPoolRecord = { x: number; active: number; idle: number; total: number }
 
 const tlEventsData = computed<TlDualRecord[]>(() => {
   const m = mergeTwoLines(taillightMetrics.eventsBroadcastLine, taillightMetrics.applogBroadcastLine)
   return [...m.entries()]
-    .map(([x, [syslog, applog]]) => ({ x, syslog, applog }))
+    .map(([x, [srvlog, applog]]) => ({ x, srvlog, applog }))
     .sort((a, b) => a.x - b.x)
 })
 
 const tlSseData = computed<TlDualRecord[]>(() => {
-  const m = mergeTwoLines(taillightMetrics.sseClientsSyslogLine, taillightMetrics.sseClientsApplogLine)
+  const m = mergeTwoLines(taillightMetrics.sseClientsSrvlogLine, taillightMetrics.sseClientsApplogLine)
   return [...m.entries()]
-    .map(([x, [syslog, applog]]) => ({ x, syslog, applog }))
+    .map(([x, [srvlog, applog]]) => ({ x, srvlog, applog }))
     .sort((a, b) => a.x - b.x)
 })
 
@@ -273,7 +273,7 @@ const tlPoolData = computed<TlPoolRecord[]>(() => {
 })
 
 const tlDualX = (d: TlDualRecord) => d.x
-const tlSyslogY = (d: TlDualRecord) => d.syslog
+const tlSrvlogY = (d: TlDualRecord) => d.srvlog
 const tlApplogY = (d: TlDualRecord) => d.applog
 const tlPoolX = (d: TlPoolRecord) => d.x
 const tlActiveY = (d: TlPoolRecord) => d.active
@@ -283,7 +283,7 @@ const tlTotalY = (d: TlPoolRecord) => d.total
 function tlEventsTooltip(d: TlDualRecord) {
   return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
     <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
-    <div><span style="color:${accentColors.value[0]}">●</span> Syslog: <b>${d.syslog.toFixed(1)}</b></div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Srvlog: <b>${d.srvlog.toFixed(1)}</b></div>
     <div><span style="color:${accentColors.value[1]}">●</span> Applog: <b>${d.applog.toFixed(1)}</b></div>
   </div>`
 }
@@ -291,7 +291,7 @@ function tlEventsTooltip(d: TlDualRecord) {
 function tlSseTooltip(d: TlDualRecord) {
   return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
     <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
-    <div><span style="color:${accentColors.value[0]}">●</span> Syslog: <b>${d.syslog}</b></div>
+    <div><span style="color:${accentColors.value[0]}">●</span> Srvlog: <b>${d.srvlog}</b></div>
     <div><span style="color:${accentColors.value[1]}">●</span> Applog: <b>${d.applog}</b></div>
   </div>`
 }
@@ -371,7 +371,7 @@ onMounted(() => {
     rsyslogStats.startRefresh()
   } else {
     const preset = r ? volumePresets.find((p) => p.range === r) : undefined
-    const store = activeTab.value === 'syslog' ? dashboard : applogDashboard
+    const store = activeTab.value === 'srvlog' ? dashboard : applogDashboard
     if (preset) {
       store.setPreset(preset.range, preset.interval)
     } else {
@@ -394,13 +394,13 @@ onUnmounted(() => {
         <button
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
-            activeTab === 'syslog'
+            activeTab === 'srvlog'
               ? 'bg-t-bg-highlight text-t-teal'
               : 'text-t-fg-dark hover:text-t-fg'
           "
-          @click="switchTab('syslog')"
+          @click="switchTab('srvlog')"
         >
-          SYSLOG
+          SRVLOG
         </button>
         <button
           class="px-2 py-0.5 text-xs transition-colors"
@@ -457,8 +457,8 @@ onUnmounted(() => {
       <span v-if="activeError" class="text-t-red ml-2 text-xs">{{ activeError }}</span>
     </div>
 
-    <!-- ═══════════════ SYSLOG TAB ═══════════════ -->
-    <template v-if="activeTab === 'syslog'">
+    <!-- ═══════════════ SRVLOG TAB ═══════════════ -->
+    <template v-if="activeTab === 'srvlog'">
       <!-- Chart 1: Total volume (stacked bar by host) -->
       <div>
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">
@@ -631,7 +631,7 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <!-- ═══════════════ RSYSLOG TAB ═══════════════ -->
+    <!-- ═══════════════ RSRVLOG TAB ═══════════════ -->
     <template v-if="activeTab === 'rsyslog'">
       <!-- KPI Cards -->
       <div v-if="rsyslogStats.summary" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -752,10 +752,10 @@ onUnmounted(() => {
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">SSE Clients</div>
           <div class="text-t-fg mt-1 text-xl font-bold">
-            {{ taillightMetrics.summary.sse_clients_syslog + taillightMetrics.summary.sse_clients_applog }}
+            {{ taillightMetrics.summary.sse_clients_srvlog + taillightMetrics.summary.sse_clients_applog }}
           </div>
           <div class="text-t-fg-dark text-xs">
-            {{ taillightMetrics.summary.sse_clients_syslog }} syslog &middot;
+            {{ taillightMetrics.summary.sse_clients_srvlog }} srvlog &middot;
             {{ taillightMetrics.summary.sse_clients_applog }} applog
           </div>
         </div>
@@ -798,7 +798,7 @@ onUnmounted(() => {
         <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider mb-2">Warnings</div>
         <div class="flex flex-wrap gap-3 text-xs">
           <span v-if="taillightMetrics.summary.events_dropped > 0" class="text-t-yellow">
-            {{ formatCount(taillightMetrics.summary.events_dropped) }} syslog events dropped (slow SSE clients)
+            {{ formatCount(taillightMetrics.summary.events_dropped) }} srvlog events dropped (slow SSE clients)
           </span>
           <span v-if="taillightMetrics.summary.applog_events_dropped > 0" class="text-t-yellow">
             {{ formatCount(taillightMetrics.summary.applog_events_dropped) }} applog events dropped (slow SSE clients)
@@ -817,7 +817,7 @@ onUnmounted(() => {
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Events Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="tlEventsData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
-            <VisLine :x="tlDualX" :y="tlSyslogY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
+            <VisLine :x="tlDualX" :y="tlSrvlogY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisLine :x="tlDualX" :y="tlApplogY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
@@ -828,7 +828,7 @@ onUnmounted(() => {
         <div class="mt-2 flex gap-4">
           <span class="flex items-center gap-1 text-xs">
             <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
-            <span class="text-t-fg-dark">Syslog Broadcast</span>
+            <span class="text-t-fg-dark">Srvlog Broadcast</span>
           </span>
           <span class="flex items-center gap-1 text-xs">
             <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />
@@ -842,7 +842,7 @@ onUnmounted(() => {
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">SSE Clients Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="tlSseData" :height="160" :duration="0" :padding="{ top: 8, right: 8 }">
-            <VisLine :x="tlDualX" :y="tlSyslogY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
+            <VisLine :x="tlDualX" :y="tlSrvlogY" :color="accentColors[0]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisLine :x="tlDualX" :y="tlApplogY" :color="accentColors[1]" :curveType="'monotoneX'" :lineWidth="2" />
             <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
             <VisAxis type="y" :gridLine="true" :tickLine="false" />
@@ -853,7 +853,7 @@ onUnmounted(() => {
         <div class="mt-2 flex gap-4">
           <span class="flex items-center gap-1 text-xs">
             <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[0] }" />
-            <span class="text-t-fg-dark">Syslog Clients</span>
+            <span class="text-t-fg-dark">Srvlog Clients</span>
           </span>
           <span class="flex items-center gap-1 text-xs">
             <span class="inline-block h-2.5 w-2.5 rounded-sm" :style="{ backgroundColor: accentColors[1] }" />

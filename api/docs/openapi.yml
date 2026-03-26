@@ -2,7 +2,7 @@ openapi: "3.1.0"
 info:
   title: Taillight API
   description: |
-    Taillight is a centralized syslog and application-log viewer with real-time
+    Taillight is a centralized srvlog and application-log viewer with real-time
     streaming, analysis reports, and rsyslog/Juniper integration.
   version: "1.0.0"
   license:
@@ -16,16 +16,16 @@ servers:
 tags:
   - name: Auth
     description: Authentication, user management, and API keys
-  - name: Syslog
-    description: Syslog event queries and streaming
-  - name: Syslog Metadata
-    description: Distinct values for syslog filter dropdowns
+  - name: Srvlog
+    description: Srvlog event queries and streaming
+  - name: Srvlog Metadata
+    description: Distinct values for srvlog filter dropdowns
   - name: AppLog
     description: Application log queries, streaming, and ingestion
   - name: AppLog Metadata
     description: Distinct values for applog filter dropdowns
   - name: Stats
-    description: Syslog and AppLog volume and summary statistics
+    description: Srvlog and AppLog volume and summary statistics
   - name: Juniper
     description: Juniper syslog reference lookups
   - name: Rsyslog
@@ -307,17 +307,17 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
-  # ── Syslog ──────────────────────────────────────────────────────────────
-  /syslog:
+  # ── Srvlog ──────────────────────────────────────────────────────────────
+  /srvlog:
     get:
-      operationId: listSyslog
-      tags: [Syslog]
-      summary: List syslog events
+      operationId: listSrvlog
+      tags: [Srvlog]
+      summary: List srvlog events
       parameters:
-        - $ref: "#/components/parameters/SyslogHostname"
-        - $ref: "#/components/parameters/SyslogProgramname"
+        - $ref: "#/components/parameters/SrvlogHostname"
+        - $ref: "#/components/parameters/SrvlogProgramname"
         - $ref: "#/components/parameters/SyslogTag"
-        - $ref: "#/components/parameters/SyslogMsgID"
+        - $ref: "#/components/parameters/SrvlogMsgID"
         - $ref: "#/components/parameters/Search"
         - $ref: "#/components/parameters/FromHostIP"
         - $ref: "#/components/parameters/Severity"
@@ -329,7 +329,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":
-          description: Paginated syslog events
+          description: Paginated srvlog events
           content:
             application/json:
               schema:
@@ -338,7 +338,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: "#/components/schemas/SyslogEvent"
+                      $ref: "#/components/schemas/SrvlogEvent"
                   cursor:
                     type: string
                     nullable: true
@@ -347,16 +347,16 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
-  /syslog/{id}:
+  /srvlog/{id}:
     get:
-      operationId: getSyslog
-      tags: [Syslog]
-      summary: Get single syslog event
+      operationId: getSrvlog
+      tags: [Srvlog]
+      summary: Get single srvlog event
       parameters:
         - $ref: "#/components/parameters/IntID"
       responses:
         "200":
-          description: Syslog event with optional Juniper reference
+          description: Srvlog event with optional Juniper reference
           content:
             application/json:
               schema:
@@ -364,7 +364,7 @@ paths:
                 properties:
                   data:
                     allOf:
-                      - $ref: "#/components/schemas/SyslogEvent"
+                      - $ref: "#/components/schemas/SrvlogEvent"
                       - type: object
                         properties:
                           juniper_ref:
@@ -374,22 +374,22 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /syslog/stream:
+  /srvlog/stream:
     get:
-      operationId: streamSyslog
-      tags: [Syslog]
-      summary: Stream syslog events (SSE)
+      operationId: streamSrvlog
+      tags: [Srvlog]
+      summary: Stream srvlog events (SSE)
       description: |
         Server-Sent Events stream. Backfills up to 100 recent events on
         connect, then pushes new events in real time.
 
-        - Event name: `syslog`
+        - Event name: `srvlog`
         - Heartbeat every 15 s: `event: heartbeat`
       parameters:
-        - $ref: "#/components/parameters/SyslogHostname"
-        - $ref: "#/components/parameters/SyslogProgramname"
+        - $ref: "#/components/parameters/SrvlogHostname"
+        - $ref: "#/components/parameters/SrvlogProgramname"
         - $ref: "#/components/parameters/SyslogTag"
-        - $ref: "#/components/parameters/SyslogMsgID"
+        - $ref: "#/components/parameters/SrvlogMsgID"
         - $ref: "#/components/parameters/Search"
         - $ref: "#/components/parameters/FromHostIP"
         - $ref: "#/components/parameters/Severity"
@@ -408,11 +408,11 @@ paths:
           content:
             text/event-stream: {}
 
-  # ── Syslog Metadata ─────────────────────────────────────────────────────
+  # ── Srvlog Metadata ─────────────────────────────────────────────────────
   /meta/hosts:
     get:
-      operationId: syslogHosts
-      tags: [Syslog Metadata]
+      operationId: srvlogHosts
+      tags: [Srvlog Metadata]
       summary: Distinct hostnames
       responses:
         "200":
@@ -420,8 +420,8 @@ paths:
 
   /meta/programs:
     get:
-      operationId: syslogPrograms
-      tags: [Syslog Metadata]
+      operationId: srvlogPrograms
+      tags: [Srvlog Metadata]
       summary: Distinct program names
       responses:
         "200":
@@ -429,8 +429,8 @@ paths:
 
   /meta/facilities:
     get:
-      operationId: syslogFacilities
-      tags: [Syslog Metadata]
+      operationId: srvlogFacilities
+      tags: [Srvlog Metadata]
       summary: Facility codes in use
       responses:
         "200":
@@ -447,9 +447,9 @@ paths:
 
   /meta/tags:
     get:
-      operationId: syslogTags
-      tags: [Syslog Metadata]
-      summary: Distinct syslog tags
+      operationId: srvlogTags
+      tags: [Srvlog Metadata]
+      summary: Distinct srvlog tags
       responses:
         "200":
           $ref: "#/components/responses/StringList"
@@ -457,9 +457,9 @@ paths:
   # ── Stats ───────────────────────────────────────────────────────────────
   /stats/volume:
     get:
-      operationId: syslogVolume
+      operationId: srvlogVolume
       tags: [Stats]
-      summary: Syslog volume over time
+      summary: Srvlog volume over time
       parameters:
         - $ref: "#/components/parameters/Interval"
         - $ref: "#/components/parameters/Range"
@@ -478,9 +478,9 @@ paths:
 
   /stats/summary:
     get:
-      operationId: syslogSummary
+      operationId: srvlogSummary
       tags: [Stats]
-      summary: Syslog summary
+      summary: Srvlog summary
       parameters:
         - $ref: "#/components/parameters/Range"
       responses:
@@ -492,7 +492,7 @@ paths:
                 type: object
                 properties:
                   data:
-                    $ref: "#/components/schemas/SyslogSummary"
+                    $ref: "#/components/schemas/SrvlogSummary"
 
   # ── Juniper ─────────────────────────────────────────────────────────────
   /juniper/lookup:
@@ -1023,8 +1023,8 @@ paths:
     get:
       operationId: getDeviceSummary
       tags: [Device]
-      summary: Syslog device detail
-      description: Aggregated summary for a single syslog device by hostname.
+      summary: Srvlog device detail
+      description: Aggregated summary for a single srvlog device by hostname.
       parameters:
         - name: hostname
           in: path
@@ -1320,15 +1320,15 @@ components:
         enum: [1h, 6h, 12h, 24h, 7d, 30d]
         default: "24h"
 
-    # Syslog-specific
-    SyslogHostname:
+    # Srvlog-specific
+    SrvlogHostname:
       name: hostname
       in: query
       schema:
         type: string
         maxLength: 500
 
-    SyslogProgramname:
+    SrvlogProgramname:
       name: programname
       in: query
       schema:
@@ -1342,7 +1342,7 @@ components:
         type: string
         maxLength: 500
 
-    SyslogMsgID:
+    SrvlogMsgID:
       name: msgid
       in: query
       schema:
@@ -1585,8 +1585,8 @@ components:
           type: string
           format: date-time
 
-    # ── Syslog ────────────────────────────────────────────────────────────
-    SyslogEvent:
+    # ── Srvlog ────────────────────────────────────────────────────────────
+    SrvlogEvent:
       type: object
       properties:
         id:
@@ -1715,7 +1715,7 @@ components:
           additionalProperties:
             type: integer
 
-    SyslogSummary:
+    SrvlogSummary:
       type: object
       properties:
         total:
@@ -1872,7 +1872,7 @@ components:
     TaillightMetrics:
       type: object
       properties:
-        sse_clients_syslog:
+        sse_clients_srvlog:
           type: integer
         sse_clients_applog:
           type: integer
@@ -1963,7 +1963,7 @@ components:
           type: boolean
         event_kind:
           type: string
-          enum: [syslog, applog]
+          enum: [srvlog, applog]
         hostname:
           type: string
         programname:
@@ -2024,7 +2024,7 @@ components:
           type: boolean
         event_kind:
           type: string
-          enum: [syslog, applog]
+          enum: [srvlog, applog]
         hostname:
           type: string
         programname:
@@ -2136,7 +2136,7 @@ components:
         critical_logs:
           type: array
           items:
-            $ref: "#/components/schemas/SyslogEvent"
+            $ref: "#/components/schemas/SrvlogEvent"
 
     SeverityCount:
       type: object

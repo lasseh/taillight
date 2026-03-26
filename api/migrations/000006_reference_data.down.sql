@@ -12,4 +12,4 @@ WHERE name IN (
 );
 
 -- Drop reference table.
-DROP TABLE IF EXISTS juniper_syslog_ref;
+DROP TABLE IF EXISTS juniper_netlog_ref;

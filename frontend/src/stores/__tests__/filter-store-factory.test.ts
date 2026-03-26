@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Mock vue-router before importing the factory.
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ name: 'syslog', query: {} }),
+  useRoute: () => ({ name: 'srvlog', query: {} }),
   useRouter: () => ({
     replace: vi.fn(() => Promise.resolve()),
   }),
@@ -23,7 +23,7 @@ describe('createFilterStore', () => {
   })
 
   it('initializes all filters as empty strings', () => {
-    const useStore = createFilterStore('test-filters', filterKeys, 'syslog')
+    const useStore = createFilterStore('test-filters', filterKeys, 'srvlog')
     const store = useStore()
     expect(store.filters.hostname).toBe('')
     expect(store.filters.severity).toBe('')
@@ -31,14 +31,14 @@ describe('createFilterStore', () => {
   })
 
   it('computes activeFilters from non-empty values', () => {
-    const useStore = createFilterStore('test-active', filterKeys, 'syslog')
+    const useStore = createFilterStore('test-active', filterKeys, 'srvlog')
     const store = useStore()
     store.filters.hostname = 'server-01'
     expect(store.activeFilters).toEqual({ hostname: 'server-01' })
   })
 
   it('hasActiveFilters reflects filter state', () => {
-    const useStore = createFilterStore('test-has', filterKeys, 'syslog')
+    const useStore = createFilterStore('test-has', filterKeys, 'srvlog')
     const store = useStore()
     expect(store.hasActiveFilters).toBe(false)
     store.filters.search = 'error'
@@ -46,7 +46,7 @@ describe('createFilterStore', () => {
   })
 
   it('clearAll resets all filters', () => {
-    const useStore = createFilterStore('test-clear', filterKeys, 'syslog')
+    const useStore = createFilterStore('test-clear', filterKeys, 'srvlog')
     const store = useStore()
     store.filters.hostname = 'a'
     store.filters.severity = 'b'

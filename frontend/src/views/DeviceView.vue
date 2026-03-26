@@ -2,7 +2,7 @@
 import { ref, computed, watch, provide, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute, RouterLink } from 'vue-router'
 import type { DeviceSummary } from '@/types/device'
-import type { SyslogEvent } from '@/types/syslog'
+import type { SrvlogEvent } from '@/types/srvlog'
 import { api, ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
 import { severityLabels, severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
@@ -10,7 +10,7 @@ import { highlightMessage } from '@/lib/highlighter'
 import { useDeviceLogs } from '@/composables/useDeviceLogs'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
-import SyslogRow from '@/components/SyslogRow.vue'
+import SrvlogRow from '@/components/SrvlogRow.vue'
 
 const props = defineProps<{
   hostname: string
@@ -33,7 +33,7 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const errorStatus = ref<number | null>(null)
 
-// Provide collapseSignal for SyslogRow expand/collapse on Escape.
+// Provide collapseSignal for SrvlogRow expand/collapse on Escape.
 const collapseSignal = ref(0)
 provide('collapseSignal', collapseSignal)
 
@@ -50,7 +50,7 @@ const emergAlertCount = computed(() => emergCount.value + alertCount.value)
 const critCount = computed(() => sevCount(2))
 const errCount = computed(() => sevCount(3))
 
-// Compute dynamic column widths for SyslogRow.
+// Compute dynamic column widths for SrvlogRow.
 const colWidths = computed(() => {
   const events = activeTab.value === 'critical'
     ? (summary.value?.critical_logs ?? [])
@@ -110,7 +110,7 @@ onUnmounted(() => {
 
 async function fetchData() {
   try {
-    const res = await api.getDeviceSummary(props.hostname)
+    const res = await api.getSrvlogDeviceSummary(props.hostname)
     summary.value = res.data
     error.value = null
     errorStatus.value = null
@@ -184,7 +184,7 @@ onUnmounted(() => {
   clearInterval(refreshTimer)
 })
 
-function currentEvents(): SyslogEvent[] {
+function currentEvents(): SrvlogEvent[] {
   if (activeTab.value === 'critical') return summary.value?.critical_logs ?? []
   return chronologicalLogs.value
 }
@@ -203,16 +203,16 @@ function currentEvents(): SyslogEvent[] {
         title="failed to load device"
         :message="error"
         :show-back="true"
-        list-route="syslog"
-        list-label="go to syslog"
+        list-route="srvlog"
+        list-label="go to srvlog"
       />
       <ErrorDisplay
         v-else
         title="nobody's home"
         message="the api isn't responding — it's probably down, restarting, or out getting coffee"
         :show-back="true"
-        list-route="syslog"
-        list-label="go to syslog"
+        list-route="srvlog"
+        list-label="go to srvlog"
       />
     </div>
 
@@ -243,9 +243,9 @@ function currentEvents(): SyslogEvent[] {
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Emerg & Alert</div>
             <div class="text-2xl font-bold">
-              <RouterLink :to="{ name: 'syslog', query: { hostname: summary.hostname, severity: '0' } }" class="text-sev-emerg hover:underline">{{ formatNumber(emergCount) }}</RouterLink>
+              <RouterLink :to="{ name: 'srvlog', query: { hostname: summary.hostname, severity: '0' } }" class="text-sev-emerg hover:underline">{{ formatNumber(emergCount) }}</RouterLink>
               <span class="text-t-fg-dark"> / </span>
-              <RouterLink :to="{ name: 'syslog', query: { hostname: summary.hostname, severity: '1' } }" class="text-sev-alert hover:underline">{{ formatNumber(alertCount) }}</RouterLink>
+              <RouterLink :to="{ name: 'srvlog', query: { hostname: summary.hostname, severity: '1' } }" class="text-sev-alert hover:underline">{{ formatNumber(alertCount) }}</RouterLink>
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
               {{ ((emergAlertCount / summary.total_count) * 100).toFixed(1) }}% of total
@@ -256,7 +256,7 @@ function currentEvents(): SyslogEvent[] {
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Criticals</div>
             <div class="text-2xl font-bold">
-              <RouterLink :to="{ name: 'syslog', query: { hostname: summary.hostname, severity: '2' } }" class="text-sev-crit hover:underline">{{ formatNumber(critCount) }}</RouterLink>
+              <RouterLink :to="{ name: 'srvlog', query: { hostname: summary.hostname, severity: '2' } }" class="text-sev-crit hover:underline">{{ formatNumber(critCount) }}</RouterLink>
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
               {{ ((critCount / summary.total_count) * 100).toFixed(1) }}% of total
@@ -267,7 +267,7 @@ function currentEvents(): SyslogEvent[] {
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Errors</div>
             <div class="text-2xl font-bold">
-              <RouterLink :to="{ name: 'syslog', query: { hostname: summary.hostname, severity: '3' } }" class="text-sev-err hover:underline">{{ formatNumber(errCount) }}</RouterLink>
+              <RouterLink :to="{ name: 'srvlog', query: { hostname: summary.hostname, severity: '3' } }" class="text-sev-err hover:underline">{{ formatNumber(errCount) }}</RouterLink>
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
               {{ ((errCount / summary.total_count) * 100).toFixed(1) }}% of total
@@ -285,7 +285,7 @@ function currentEvents(): SyslogEvent[] {
               <RouterLink
                 v-for="(msg, i) in summary.top_messages.slice(0, 8)"
                 :key="'m-' + i"
-                :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
+                :to="{ name: 'srvlog-detail', params: { id: msg.latest_id } }"
                 class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 md:hidden"
                 :class="severityBgClass[msg.severity] ?? ''"
               >
@@ -299,7 +299,7 @@ function currentEvents(): SyslogEvent[] {
               <RouterLink
                 v-for="(msg, i) in summary.top_messages.slice(0, 8)"
                 :key="'d-' + i"
-                :to="{ name: 'syslog-detail', params: { id: msg.latest_id } }"
+                :to="{ name: 'srvlog-detail', params: { id: msg.latest_id } }"
                 class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors md:flex"
                 :class="severityBgClass[msg.severity] ?? ''"
               >
@@ -358,7 +358,7 @@ function currentEvents(): SyslogEvent[] {
             :style="colWidths"
             @scroll="onLogScroll"
           >
-            <SyslogRow
+            <SrvlogRow
               v-for="event in currentEvents()"
               :key="event.id"
               :event="event"

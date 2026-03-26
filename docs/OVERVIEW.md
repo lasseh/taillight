@@ -2,15 +2,15 @@
 
 ## Introduction
 
-Taillight is a real-time syslog and application log viewer built for network operations teams. It streams filtered log events from a TimescaleDB database to browser clients via Server-Sent Events (SSE), providing instant visibility into what is happening across your infrastructure.
+Taillight is a real-time srvlog and application log viewer built for network operations teams. It streams filtered log events from a TimescaleDB database to browser clients via Server-Sent Events (SSE), providing instant visibility into what is happening across your infrastructure.
 
-The primary use case is monitoring syslog output from network devices (Juniper, Cisco, Arista, and others), but taillight also supports application logs ingested over HTTP. Events flow from rsyslog into PostgreSQL, through a Go backend that fans them out to connected browsers, and into a Vue 3 frontend with live filtering, dashboards, and search.
+The primary use case is monitoring syslog output from network devices (Juniper, Cisco, Arista, and others) as srvlog events, but taillight also supports application logs ingested over HTTP. Events flow from rsyslog into PostgreSQL, through a Go backend that fans them out to connected browsers, and into a Vue 3 frontend with live filtering, dashboards, and search.
 
 ## Features
 
 ### Real-time streaming
 
-- Syslog and application log events pushed to the browser via SSE
+- Srvlog and application log events pushed to the browser via SSE
 - Per-client server-side filtering -- only matching events are sent to each connection
 - Automatic reconnection with `Last-Event-ID` resume
 
@@ -22,14 +22,14 @@ The primary use case is monitoring syslog output from network devices (Juniper, 
 
 ### Dual log sources
 
-- **Syslog** -- ingested by rsyslog via ompgsql into PostgreSQL; a trigger fires `pg_notify` to push events to the Go backend in real time
+- **Srvlog** -- ingested by rsyslog via ompgsql into PostgreSQL; a trigger fires `pg_notify` to push events to the Go backend in real time
 - **Application logs** -- ingested via `POST /api/v1/applog/ingest` as JSON batches; stored in a separate hypertable with the same SSE fan-out
 
 ### Dashboard and analytics
 
 - Aggregated volume charts with selectable time ranges
 - Per-host breakdown and top-host rankings
-- Severity distribution summaries for both syslog and applog
+- Severity distribution summaries for both srvlog and applog
 - Continuous aggregates in TimescaleDB for fast dashboard queries
 - Internal metrics history (DB pool, SSE clients, event rates) with volume charts
 
@@ -42,15 +42,15 @@ The primary use case is monitoring syslog output from network devices (Juniper, 
 
 ### Notification system
 
-- Alert rules that match syslog events by host, severity, facility, or program patterns
+- Alert rules that match srvlog events by host, severity, facility, or program patterns
 - Notification channels: Slack, webhooks, and email (SMTP)
 - Anti-spam: burst windows collect matching events before firing, cooldown suppresses repeat alerts
 - Rate limiting and circuit breakers per channel
 - Managed via the API or the ALERTS tab in the UI
 
-### Juniper syslog reference
+### Juniper netlog reference
 
-- Import Juniper syslog message definitions from official XLSX files
+- Import Juniper netlog message definitions from official XLSX files
 - Lookup endpoint for enriching events with description, cause, and recommended action
 - Supports both Junos and Junos Evolved
 
@@ -68,7 +68,7 @@ The primary use case is monitoring syslog output from network devices (Juniper, 
 
 ### AI analysis (experimental)
 
-- Daily syslog analysis using a local Ollama LLM instance
+- Daily srvlog analysis using a local Ollama LLM instance
 - Scheduled morning briefings covering incidents, anomalies, and correlations
 - On-demand analysis trigger via the API
 
@@ -102,9 +102,9 @@ taillight/
 │   │   ├── taillight/             # Main CLI binary (serve, migrate, loadgen, etc.)
 │   │   └── taillight-shipper/     # Standalone log file shipper
 │   ├── internal/
-│   │   ├── analyzer/              # AI-powered syslog analysis
+│   │   ├── analyzer/              # AI-powered srvlog analysis
 │   │   ├── auth/                  # Session + API key middleware, password hashing
-│   │   ├── broker/                # SSE fan-out brokers (SyslogBroker, AppLogBroker)
+│   │   ├── broker/                # SSE fan-out brokers (SrvlogBroker, AppLogBroker)
 │   │   ├── config/                # Viper-based configuration loader
 │   │   ├── handler/               # HTTP handlers (one file per domain)
 │   │   ├── httputil/              # Shared HTTP utilities
@@ -174,13 +174,13 @@ docker compose exec api /app useradd --username admin --password adminadmin
 
 ### Generate test data
 
-Populate the database with realistic syslog events:
+Populate the database with realistic srvlog events:
 
 ```sh
-# Direct SQL insert (fast, bypasses rsyslog)
+# Direct SQL insert into srvlog_events (fast, bypasses rsyslog)
 docker compose exec api /app loadgen -n 500 --delay 50ms --jitter 100ms
 
-# Via rsyslog (full pipeline: UDP -> rsyslog -> ompgsql -> PostgreSQL -> NOTIFY)
+# Via rsyslog (full pipeline: UDP -> rsyslog -> ompgsql -> srvlog_events -> NOTIFY)
 docker compose exec api /app loadgen -n 500 --syslog rsyslog:514 --delay 50ms
 
 # Application log events (via HTTP ingest API)
@@ -190,7 +190,7 @@ docker compose exec api /app applog-loadgen -n 500 --batch 50 \
 
 ### Send syslog messages from the host
 
-The rsyslog container listens on port 1514 (mapped from container port 514). Send RFC 5424 messages:
+The rsyslog container listens on port 1514 (mapped from container port 514) and routes messages to the srvlog pipeline. Send RFC 5424 messages:
 
 ```sh
 # Single test message
@@ -246,7 +246,7 @@ Passwords, ports, and feature toggles that change between environments. Docker C
 | `POSTGRES_PASSWORD` | `taillight` | Database password (shared by all containers) |
 | `POSTGRES_BIND` | `127.0.0.1:5432` | Bind address and port for PostgreSQL (`host:port`). Set to `0.0.0.0:5432` for remote access or change the port to avoid conflicts. |
 | `API_HOST_PORT` | `8080` | Host port for the API |
-| `RSYSLOG_HOST_PORT` | `1514` | Host port for syslog (set to `514` in production) |
+| `RSYSLOG_HOST_PORT` | `1514` | Host port for srvlog syslog input (set to `514` in production) |
 | `FRONTEND_HOST_PORT` | `3000` | Host port for the web UI |
 | `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `AUTH_ENABLED` | `false` | Enable authentication (sessions + API keys) |
@@ -260,7 +260,7 @@ Settings that rarely change between environments. Viper priority: defaults -> `c
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `auth_read_endpoints` | `true` | Require authentication on read endpoints (syslog, applog, meta, stats, SSE). Only takes effect when `AUTH_ENABLED` is true. |
+| `auth_read_endpoints` | `true` | Require authentication on read endpoints (srvlog, applog, meta, stats, SSE). Only takes effect when `AUTH_ENABLED` is true. |
 
 #### CORS
 
@@ -306,7 +306,7 @@ Applied on startup as TimescaleDB retention policies. Minimum 1 day.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `retention.syslog_days` | `90` | Syslog events retention |
+| `retention.srvlog_days` | `90` | Srvlog events retention |
 | `retention.applog_days` | `90` | Application log events retention |
 | `retention.notification_log_days` | `30` | Notification log retention |
 | `retention.rsyslog_stats_days` | `30` | rsyslog statistics retention |
@@ -343,7 +343,7 @@ Channels and rules are managed via the API or the ALERTS tab in the UI.
 
 #### AI analysis
 
-Uses a local Ollama instance to produce daily ops briefings from syslog data.
+Uses a local Ollama instance to produce daily ops briefings from srvlog data.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -356,7 +356,7 @@ Uses a local Ollama instance to produce daily ops briefings from syslog data.
 
 ### Environment variable overrides
 
-Any config key can be overridden by setting an environment variable. Viper maps nested keys using underscores: `retention.syslog_days` becomes `RETENTION_SYSLOG_DAYS`. The following are typically set in `.env` and should not be duplicated in `config.yml`:
+Any config key can be overridden by setting an environment variable. Viper maps nested keys using underscores: `retention.srvlog_days` becomes `RETENTION_SRVLOG_DAYS`. The following are typically set in `.env` and should not be duplicated in `config.yml`:
 
 - `DATABASE_URL`
 - `LISTEN_ADDR`
@@ -410,7 +410,7 @@ taillight migrate force 42          # force set version (use with caution)
 
 ### `loadgen`
 
-Generate random syslog events for testing. Events use realistic hostnames, programs, and messages from Juniper, Cisco, and Arista device profiles.
+Generate random srvlog events for testing. Events use realistic hostnames, programs, and messages from Juniper, Cisco, and Arista device profiles.
 
 ```sh
 # Direct SQL insert (bypasses rsyslog)
@@ -485,16 +485,16 @@ taillight apikey --username admin --name "full-access" --scopes read,admin,inges
 
 ### `import`
 
-Import Juniper syslog reference data from XLSX files. Files are available from Juniper's documentation site.
+Import Juniper netlog reference data from XLSX files. Files are available from Juniper's documentation site.
 
 ```sh
-taillight import --file juniper-syslog.xlsx --os junos
+taillight import --file juniper-netlog.xlsx --os junos
 taillight import --file juniper-evolved.xlsx --os junos-evolved
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-f`, `--file` | *(required)* | Path to Juniper syslog XLSX file |
+| `-f`, `--file` | *(required)* | Path to Juniper netlog XLSX file |
 | `-o`, `--os` | *(required)* | Target OS: `junos` or `junos-evolved` |
 
 ### `version`

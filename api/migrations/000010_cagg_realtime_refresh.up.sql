@@ -10,5 +10,5 @@
 -- inside a transaction, so it is performed at application startup instead.
 -------------------------------------------------------------------------------
 
-ALTER MATERIALIZED VIEW syslog_summary_hourly SET (timescaledb.materialized_only = false);
+ALTER MATERIALIZED VIEW srvlog_summary_hourly SET (timescaledb.materialized_only = false);
 ALTER MATERIALIZED VIEW applog_summary_hourly SET (timescaledb.materialized_only = false);

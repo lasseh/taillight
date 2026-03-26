@@ -1,13 +1,13 @@
 # Notification System
 
-Taillight includes a pluggable notification engine that evaluates incoming syslog and applog events against user-defined rules and dispatches alerts to Slack, webhooks, or email. This document covers configuration, rule management, anti-spam mechanisms, and the full API reference.
+Taillight includes a pluggable notification engine that evaluates incoming srvlog and applog events against user-defined rules and dispatches alerts to Slack, webhooks, or email. This document covers configuration, rule management, anti-spam mechanisms, and the full API reference.
 
 ## Overview
 
 The notification pipeline has four stages:
 
 ```
-Event arrives (syslog or applog)
+Event arrives (srvlog or applog)
   |
   v
 Rule evaluation — each enabled rule's filter is tested against the event
@@ -20,9 +20,9 @@ Dispatch workers — send to backends (Slack, webhook, email)
   with per-channel rate limiting and circuit breakers
 ```
 
-1. **Rule evaluation.** When a syslog or applog event arrives, the engine iterates over all enabled rules of the matching event kind and tests the event against each rule's filter fields. If the event satisfies a rule, it enters the group tracker.
+1. **Rule evaluation.** When a srvlog or applog event arrives, the engine iterates over all enabled rules of the matching event kind and tests the event against each rule's filter fields. If the event satisfies a rule, it enters the group tracker.
 
-2. **Group tracking.** Events are grouped by rule ID and a configurable group key (default: hostname for syslog, host for applog). The group tracker implements burst accumulation and cooldown to prevent alert storms.
+2. **Group tracking.** Events are grouped by rule ID and a configurable group key (default: hostname for srvlog, host for applog). The group tracker implements burst accumulation and cooldown to prevent alert storms.
 
 3. **Dispatch.** When a group flushes (burst window expires or cooldown fires a digest), the engine resolves the rule's associated channels and places a dispatch job on a buffered queue. A pool of dispatch workers processes jobs concurrently.
 
@@ -101,7 +101,7 @@ Channel config:
 Requirements:
 - `webhook_url` must use HTTPS.
 
-Severity color mapping for syslog events:
+Severity color mapping for srvlog events:
 - Emergency, Alert, Critical (0-2): red
 - Error (3): orange
 - Warning (4): yellow
@@ -141,8 +141,8 @@ Default payload format:
 ```json
 {
   "source": "taillight",
-  "rule": "critical-syslog",
-  "kind": "syslog",
+  "rule": "critical-srvlog",
+  "kind": "srvlog",
   "event_count": 5,
   "is_digest": false,
   "group_key": "router1",
@@ -156,7 +156,7 @@ Default payload format:
 }
 ```
 
-For applog events the syslog fields are replaced with `service`, `level`, `host`, and `message`.
+For applog events the srvlog fields are replaced with `service`, `level`, `host`, and `message`.
 
 The template has access to the full `Payload` struct and a `marshal` function for JSON-safe string escaping.
 
@@ -183,15 +183,15 @@ Emails are sent as `text/html` with a responsive layout including a severity-col
 
 ## Rules
 
-A rule defines when to trigger a notification. Rules match events by type (syslog or applog) and a set of filter fields.
+A rule defines when to trigger a notification. Rules match events by type (srvlog or applog) and a set of filter fields.
 
 ### Rule structure
 
 ```json
 {
-  "name": "critical-syslog",
+  "name": "critical-srvlog",
   "enabled": true,
-  "event_kind": "syslog",
+  "event_kind": "srvlog",
   "hostname": "router*",
   "severity": 2,
   "channel_ids": [1, 3],
@@ -204,16 +204,16 @@ A rule defines when to trigger a notification. Rules match events by type (syslo
 
 ### Filter fields
 
-**Syslog rules** (`event_kind: "syslog"`):
+**Srvlog rules** (`event_kind: "srvlog"`):
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `hostname` | string | Exact match or wildcard (e.g. `router*`). |
 | `programname` | string | Exact match on the program name. |
-| `severity` | int | Exact syslog severity (0=emergency through 7=debug). |
+| `severity` | int | Exact severity (0=emergency through 7=debug). |
 | `severity_max` | int | Maximum severity level. Events with severity > this value are excluded. Useful for matching "warning and above" by setting `severity_max: 4`. |
 | `facility` | int | Exact syslog facility code. |
-| `syslogtag` | string | Exact match on the syslog tag. |
+| `syslogtag` | string | Exact match on the syslogtag. |
 | `msgid` | string | Exact match on the structured data message ID. |
 | `search` | string | Case-insensitive substring search within the message body. |
 
@@ -233,7 +233,7 @@ All filter fields are optional. An empty filter matches all events of that kind.
 
 The `group_by` field controls how events are grouped for burst/cooldown tracking. It is a comma-separated list of field names.
 
-For syslog: `hostname`, `programname`, `syslogtag`, `severity`. Default: `hostname`.
+For srvlog: `hostname`, `programname`, `syslogtag`, `severity`. Default: `hostname`.
 
 For applog: `host`, `service`, `component`, `level`. Default: `host`.
 
@@ -325,7 +325,7 @@ See the [Interactive API Docs](http://localhost:8080/api/docs) (Scalar/OpenAPI U
 
 ## Examples
 
-### Alert on all critical syslog events via Slack
+### Alert on all critical srvlog events via Slack
 
 Create a Slack channel:
 
@@ -355,7 +355,7 @@ curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
   -d '{
     "name": "critical-alerts",
     "enabled": true,
-    "event_kind": "syslog",
+    "event_kind": "srvlog",
     "severity_max": 3,
     "channel_ids": [1],
     "burst_window": 30,
@@ -396,7 +396,7 @@ curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
   -d '{
     "name": "core-router-down",
     "enabled": true,
-    "event_kind": "syslog",
+    "event_kind": "srvlog",
     "hostname": "core-rtr-*",
     "severity_max": 3,
     "search": "down",

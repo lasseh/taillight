@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { SyslogEvent, JuniperSyslogRef } from '@/types/syslog'
+import type { SrvlogEvent, JuniperNetlogRef } from '@/types/srvlog'
 import { api, ApiError } from '@/lib/api'
 import { severityColorClass, severityBorderClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
@@ -13,8 +13,8 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const event = ref<SyslogEvent | null>(null)
-const juniperRefs = ref<JuniperSyslogRef[]>([])
+const event = ref<SrvlogEvent | null>(null)
+const juniperRefs = ref<JuniperNetlogRef[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const errorStatus = ref<number | null>(null)
@@ -75,12 +75,12 @@ watch(() => props.id, async (id) => {
   const numId = Number(id)
   if (!Number.isInteger(numId) || numId <= 0) {
     errorStatus.value = 404
-    error.value = `syslog #${id} does not exist`
+    error.value = `srvlog #${id} does not exist`
     loading.value = false
     return
   }
   try {
-    const res = await api.getSyslog(numId)
+    const res = await api.getSrvlog(numId)
     if (version !== fetchVersion) return
     event.value = res.data
     if (res.data.juniper_ref) {
@@ -116,28 +116,28 @@ watch(() => props.id, async (id) => {
       <ErrorDisplay
         v-else-if="error && errorStatus === 404"
         :code="404"
-        title="syslog not found"
-        :message="`syslog #${props.id} does not exist`"
+        title="srvlog not found"
+        :message="`srvlog #${props.id} does not exist`"
         :show-back="false"
-        list-route="syslog"
-        list-label="go to syslog"
+        list-route="srvlog"
+        list-label="go to srvlog"
       />
       <ErrorDisplay
         v-else-if="error && errorStatus"
         :code="errorStatus"
-        title="failed to load syslog"
+        title="failed to load srvlog"
         :message="error"
         :show-back="false"
-        list-route="syslog"
-        list-label="go to syslog"
+        list-route="srvlog"
+        list-label="go to srvlog"
       />
       <ErrorDisplay
         v-else-if="error"
         title="nobody's home"
         message="the api isn't responding — it's probably down, restarting, or out getting coffee"
         :show-back="false"
-        list-route="syslog"
-        list-label="go to syslog"
+        list-route="srvlog"
+        list-label="go to srvlog"
       />
 
       <div v-else-if="event" class="mx-auto max-w-7xl space-y-4" @copy="onCopy">
