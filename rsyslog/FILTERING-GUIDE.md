@@ -287,6 +287,70 @@ make test
 docker compose run --rm test
 ```
 
+## Real-world example: silencing NTP noise from a specific host
+
+You're seeing thousands of these from one firewall:
+
+```
+time: 2026-03-26T09:47:08.664113Z
+hostname: fw-node1
+ip: 10.0.1.10
+program: xntpd
+msgid: -
+severity: err
+facility: ntp
+message: NTP Server 146.2.0.142 is Unreachable
+```
+
+The NTP server is known to be unreachable (decommissioned, firewalled, etc.) and you don't need the alerts. Here's how to filter it, from simplest to most targeted:
+
+### Option A: Drop all NTP messages from this host
+
+Add to `filters/50-by-hostname.conf`:
+
+```
+# --- fw-node1: NTP server is decommissioned, drop NTP noise ---
+if ($fromhost-ip == "10.0.1.10" and $programname == "xntpd") then { stop }
+```
+
+This drops every `xntpd` message from that IP. Simple, but you'll miss if a *different* NTP problem starts.
+
+### Option B: Drop only "Unreachable" messages from this host
+
+Add to `filters/50-by-hostname.conf`:
+
+```
+# --- fw-node1: known-unreachable NTP server 146.2.0.142 ---
+if ($fromhost-ip == "10.0.1.10" and
+    $programname == "xntpd" and
+    $msg contains "146.2.0.142") then { stop }
+```
+
+More targeted -- only drops messages about that specific NTP server. If a different NTP server becomes unreachable, you'll still see it.
+
+### Option C: Drop NTP "Unreachable" globally (all hosts)
+
+Add to `filters/10-by-programname.conf`:
+
+```
+# --- xntpd: drop known-unreachable NTP server across all devices ---
+if ($programname == "xntpd" and
+    $msg contains "146.2.0.142" and
+    $msg contains "Unreachable") then { stop }
+```
+
+Use this when the NTP server is unreachable from *all* devices and you want to silence it everywhere.
+
+### Which option to pick?
+
+| Option | Scope | Risk of missing real problems |
+|--------|-------|------------------------------|
+| A | All NTP from one host | Medium -- misses new NTP issues on that host |
+| B | One NTP server from one host | Low -- only silences the known-bad server |
+| C | One NTP server from all hosts | Low -- but affects every device |
+
+Option B is usually the best balance. Start there and broaden only if needed.
+
 ## Top 10 things to filter in a typical network
 
 These are the highest-volume, lowest-value messages from Juniper devices:
