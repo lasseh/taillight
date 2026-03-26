@@ -321,31 +321,22 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		host, since,
 	)
 
-	// Q3: top normalized messages (24h, capped at 50K rows).
-	// Uses a CTE to limit rows before applying expensive regexp_replace.
-	// left(msg, 200) reduces regex CPU cost — patterns are in the prefix.
+	// Q3: top normalized messages (24h).
+	// Uses the pre-computed msg_pattern column (populated by trigger on INSERT)
+	// so no regex runs at query time. Rows with empty msg_pattern (pre-migration
+	// data) are excluded — fully populated within 24h of deploying migration 000012.
 	msgSince := time.Now().UTC().Add(-24 * time.Hour)
 	batch.Queue(
-		`WITH msgs AS (
-		     SELECT id, received_at, level, msg
-		     FROM applog_events
-		     WHERE host = $1 AND received_at >= $2
-		     ORDER BY received_at DESC, id DESC
-		     LIMIT 50000
-		 )
-		 SELECT
-		     regexp_replace(
-		         regexp_replace(left(msg, 200), '\d{1,3}(\.\d{1,3}){3}(:\d+)?', '<ip>', 'g'),
-		         '\d+', '<n>', 'g'
-		     ) AS pattern,
+		`SELECT msg_pattern AS pattern,
 		     min(msg) AS sample,
 		     count(*) AS cnt,
 		     max(id) AS latest_id,
 		     max(received_at) AS latest_at,
 		     min(level) AS level
-		 FROM msgs
-		 GROUP BY pattern
-		 ORDER BY cnt DESC, pattern
+		 FROM applog_events
+		 WHERE host = $1 AND received_at >= $2 AND msg_pattern != ''
+		 GROUP BY msg_pattern
+		 ORDER BY cnt DESC, msg_pattern
 		 LIMIT 10`,
 		host, msgSince,
 	)
