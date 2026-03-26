@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -32,7 +33,9 @@ func (h *AppLogDeviceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	start := time.Now()
 	summary, err := h.store.GetAppLogDeviceSummary(r.Context(), hostname)
+	dur := time.Since(start)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -40,6 +43,9 @@ func (h *AppLogDeviceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		LoggerFromContext(r.Context()).Error("get applog device summary failed", "host", hostname, "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to get applog device summary")
 		return
+	}
+	if dur > 500*time.Millisecond {
+		LoggerFromContext(r.Context()).Warn("slow applog device summary", "host", hostname, "duration", dur, "total_count", summary.TotalCount)
 	}
 
 	writeJSON(w, itemResponse{Data: summary})

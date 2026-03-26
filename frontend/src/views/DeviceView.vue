@@ -279,7 +279,7 @@ function currentEvents(): SyslogEvent[] {
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <!-- Top Messages -->
           <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border p-4">
-            <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Messages <span class="text-t-fg-dark font-normal normal-case">(7d)</span></h3>
+            <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Messages <span class="text-t-fg-dark font-normal normal-case">(24h)</span></h3>
             <div class="-mx-4">
               <!-- Mobile: color bar + count + message -->
               <RouterLink
