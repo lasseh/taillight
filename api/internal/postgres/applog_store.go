@@ -332,7 +332,13 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		     count(*) AS cnt,
 		     max(id) AS latest_id,
 		     max(received_at) AS latest_at,
-		     min(level) AS level
+		     CASE max(CASE level
+		         WHEN 'FATAL' THEN 4 WHEN 'ERROR' THEN 3
+		         WHEN 'WARN' THEN 2 WHEN 'INFO' THEN 1
+		         ELSE 0 END)
+		         WHEN 4 THEN 'FATAL' WHEN 3 THEN 'ERROR'
+		         WHEN 2 THEN 'WARN' WHEN 1 THEN 'INFO'
+		         ELSE 'DEBUG' END AS level
 		 FROM applog_events
 		 WHERE host = $1 AND received_at >= $2 AND msg_pattern != ''
 		 GROUP BY msg_pattern
