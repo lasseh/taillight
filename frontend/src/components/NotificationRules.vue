@@ -328,14 +328,14 @@ onMounted(fetchData)
             </div>
             <div class="w-32 shrink-0 flex items-center justify-end gap-3">
               <button
-                class="text-t-fg-dark hover:text-t-blue text-xs transition-colors"
+                class="text-t-blue/70 hover:text-t-blue text-xs transition-colors"
                 @click="openEdit(rule)"
               >
                 edit
               </button>
               <template v-if="confirmDelete !== rule.id">
                 <button
-                  class="text-t-fg-dark hover:text-t-red text-xs transition-colors"
+                  class="text-t-red/70 hover:text-t-red text-xs transition-colors"
                   @click="confirmDelete = rule.id"
                 >
                   delete
