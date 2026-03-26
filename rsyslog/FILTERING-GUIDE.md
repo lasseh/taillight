@@ -299,7 +299,7 @@ program: xntpd
 msgid: -
 severity: err
 facility: ntp
-message: NTP Server 146.2.0.142 is Unreachable
+message: NTP Server 192.168.1.100 is Unreachable
 ```
 
 The NTP server is known to be unreachable (decommissioned, firewalled, etc.) and you don't need the alerts. Here's how to filter it, from simplest to most targeted:
@@ -320,10 +320,10 @@ This drops every `xntpd` message from that IP. Simple, but you'll miss if a *dif
 Add to `filters/50-by-hostname.conf`:
 
 ```
-# --- fw-node1: known-unreachable NTP server 146.2.0.142 ---
+# --- fw-node1: known-unreachable NTP server 192.168.1.100 ---
 if ($fromhost-ip == "10.0.1.10" and
     $programname == "xntpd" and
-    $msg contains "146.2.0.142") then { stop }
+    $msg contains "192.168.1.100") then { stop }
 ```
 
 More targeted -- only drops messages about that specific NTP server. If a different NTP server becomes unreachable, you'll still see it.
@@ -335,7 +335,7 @@ Add to `filters/10-by-programname.conf`:
 ```
 # --- xntpd: drop known-unreachable NTP server across all devices ---
 if ($programname == "xntpd" and
-    $msg contains "146.2.0.142" and
+    $msg contains "192.168.1.100" and
     $msg contains "Unreachable") then { stop }
 ```
 
