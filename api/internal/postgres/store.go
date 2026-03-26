@@ -55,6 +55,7 @@ func (s *Store) Ping(ctx context.Context) error {
 // RetentionConfig specifies retention periods for each hypertable.
 type RetentionConfig struct {
 	SrvlogDays          int
+	NetlogDays          int
 	AppLogDays          int
 	NotificationLogDays int
 	RsyslogStatsDays    int
@@ -68,6 +69,7 @@ func (s *Store) ApplyRetentionPolicies(ctx context.Context, cfg RetentionConfig)
 		days int
 	}{
 		{"srvlog_events", cfg.SrvlogDays},
+		{"netlog_events", cfg.NetlogDays},
 		{"applog_events", cfg.AppLogDays},
 		{"notification_log", cfg.NotificationLogDays},
 		{"rsyslog_stats", cfg.RsyslogStatsDays},
@@ -484,7 +486,7 @@ func scanSrvlog(row pgx.Row, e *model.SrvlogEvent) error {
 // run outside a transaction (CALL cannot run inside BEGIN/COMMIT), so it
 // is called at application startup rather than in a SQL migration.
 func (s *Store) RefreshContinuousAggregates(ctx context.Context) error {
-	for _, view := range []string{"srvlog_summary_hourly", "applog_summary_hourly"} {
+	for _, view := range []string{"srvlog_summary_hourly", "netlog_summary_hourly", "applog_summary_hourly"} {
 		//nolint:gosec // view names are hardcoded constants, not user input.
 		if _, err := s.pool.Exec(ctx,
 			fmt.Sprintf("CALL refresh_continuous_aggregate('%s', NULL, now())", view),

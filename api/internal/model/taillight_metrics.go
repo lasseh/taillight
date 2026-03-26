@@ -6,12 +6,15 @@ import "time"
 type MetricsSnapshot struct {
 	CollectedAt           time.Time `json:"collected_at"`
 	SSEClientsSrvlog      int       `json:"sse_clients_srvlog"`
+	SSEClientsNetlog      int       `json:"sse_clients_netlog"`
 	SSEClientsAppLog      int       `json:"sse_clients_applog"`
 	DBPoolActive          int       `json:"db_pool_active"`
 	DBPoolIdle            int       `json:"db_pool_idle"`
 	DBPoolTotal           int       `json:"db_pool_total"`
 	EventsBroadcast       int64     `json:"events_broadcast"`
 	EventsDropped         int64     `json:"events_dropped"`
+	NetlogEventsBroadcast int64     `json:"netlog_events_broadcast"`
+	NetlogEventsDropped   int64     `json:"netlog_events_dropped"`
 	AppLogEventsBroadcast int64     `json:"applog_events_broadcast"`
 	AppLogEventsDropped   int64     `json:"applog_events_dropped"`
 	AppLogIngestTotal     int64     `json:"applog_ingest_total"`
@@ -23,6 +26,7 @@ type MetricsSnapshot struct {
 type MetricsSummary struct {
 	// Latest gauge values.
 	SSEClientsSrvlog int `json:"sse_clients_srvlog"`
+	SSEClientsNetlog int `json:"sse_clients_netlog"`
 	SSEClientsAppLog int `json:"sse_clients_applog"`
 	DBPoolActive     int `json:"db_pool_active"`
 	DBPoolIdle       int `json:"db_pool_idle"`
@@ -31,6 +35,8 @@ type MetricsSummary struct {
 	// Counter deltas over the range (max - min).
 	EventsBroadcast       int64 `json:"events_broadcast"`
 	EventsDropped         int64 `json:"events_dropped"`
+	NetlogEventsBroadcast int64 `json:"netlog_events_broadcast"`
+	NetlogEventsDropped   int64 `json:"netlog_events_dropped"`
 	AppLogEventsBroadcast int64 `json:"applog_events_broadcast"`
 	AppLogEventsDropped   int64 `json:"applog_events_dropped"`
 	AppLogIngestTotal     int64 `json:"applog_ingest_total"`

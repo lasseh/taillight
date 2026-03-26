@@ -16,6 +16,7 @@ type EventKind string
 // Event kind constants.
 const (
 	EventKindSrvlog EventKind = "srvlog"
+	EventKindNetlog EventKind = "netlog"
 	EventKindAppLog EventKind = "applog"
 )
 
@@ -84,6 +85,7 @@ type Payload struct {
 	Timestamp   time.Time          `json:"timestamp"`
 	EventCount  int                `json:"event_count"`
 	SrvlogEvent *model.SrvlogEvent `json:"srvlog_event,omitempty"`
+	NetlogEvent *model.NetlogEvent `json:"netlog_event,omitempty"`
 	AppLogEvent *model.AppLogEvent `json:"applog_event,omitempty"`
 	IsDigest    bool               `json:"is_digest,omitempty"`
 	GroupKey    string             `json:"group_key,omitempty"`

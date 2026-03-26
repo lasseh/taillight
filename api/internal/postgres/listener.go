@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +32,12 @@ const (
 	reconnectMaxBackoff = 30 * time.Second
 )
 
+// channelTable maps a NOTIFY channel name to its source table for gap fill queries.
+var channelTable = map[string]string{
+	"srvlog_ingest": "srvlog_events",
+	"netlog_ingest": "netlog_events",
+}
+
 // Notification carries a row ID and the channel it arrived on.
 type Notification struct {
 	Channel string
@@ -43,9 +50,11 @@ type Listener struct {
 	pool       *pgxpool.Pool
 	logger     *slog.Logger
 	bufferSize int
+	channels   []string // NOTIFY channels to LISTEN on.
 
-	// lastSeenID tracks the most recent notification ID for gap fill on reconnect.
-	lastSeenID atomic.Int64
+	// Per-channel lastSeenID tracking for gap fill on reconnect.
+	lastSeenSrvlogID atomic.Int64
+	lastSeenNetlogID atomic.Int64
 
 	mu     sync.Mutex
 	conn   *pgx.Conn
@@ -54,11 +63,18 @@ type Listener struct {
 
 // NewListener creates a new Listener with the given notification buffer size.
 // The pool is used to query missed events after reconnection.
-func NewListener(connStr string, pool *pgxpool.Pool, bufferSize int, logger *slog.Logger) *Listener {
-	return &Listener{connStr: connStr, pool: pool, bufferSize: bufferSize, logger: logger}
+// channels specifies which NOTIFY channels to LISTEN on (e.g. "srvlog_ingest", "netlog_ingest").
+func NewListener(connStr string, pool *pgxpool.Pool, bufferSize int, logger *slog.Logger, channels []string) *Listener {
+	return &Listener{
+		connStr:    connStr,
+		pool:       pool,
+		bufferSize: bufferSize,
+		logger:     logger,
+		channels:   channels,
+	}
 }
 
-// Listen connects to PostgreSQL, runs LISTEN on srvlog_ingest,
+// Listen connects to PostgreSQL, runs LISTEN on configured channels,
 // and sends notifications on the returned channel.
 // It reconnects automatically on connection loss.
 func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
@@ -121,7 +137,7 @@ func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
 		}
 	}()
 
-	l.logger.Info("listening for notifications", "channel", "srvlog_ingest")
+	l.logger.Info("listening for notifications", "channels", strings.Join(l.channels, ", "))
 	return ch, nil
 }
 
@@ -148,9 +164,11 @@ func (l *Listener) connect(ctx context.Context) (*pgx.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to postgres: %w", err)
 	}
-	if _, err := conn.Exec(ctx, "LISTEN srvlog_ingest"); err != nil {
-		_ = conn.Close(ctx)
-		return nil, fmt.Errorf("listen srvlog_ingest: %w", err)
+	for _, ch := range l.channels {
+		if _, err := conn.Exec(ctx, "LISTEN "+ch); err != nil {
+			_ = conn.Close(ctx)
+			return nil, fmt.Errorf("listen %s: %w", ch, err)
+		}
 	}
 	return conn, nil
 }
@@ -200,30 +218,65 @@ func (l *Listener) recv(ctx context.Context, conn *pgx.Conn, ch chan<- Notificat
 
 		select {
 		case ch <- Notification{Channel: notification.Channel, ID: id}:
-			l.lastSeenID.Store(id)
+			l.storeLastSeenID(notification.Channel, id)
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 }
 
-// fillGap queries for srvlog events inserted while the listener was disconnected
-// and pushes them into the notification channel so the broker doesn't miss any.
+// storeLastSeenID updates the correct per-channel atomic based on the notification channel.
+func (l *Listener) storeLastSeenID(channel string, id int64) {
+	switch channel {
+	case "srvlog_ingest":
+		l.lastSeenSrvlogID.Store(id)
+	case "netlog_ingest":
+		l.lastSeenNetlogID.Store(id)
+	}
+}
+
+// lastSeenIDForChannel returns the last seen ID for the given notification channel.
+func (l *Listener) lastSeenIDForChannel(channel string) int64 {
+	switch channel {
+	case "srvlog_ingest":
+		return l.lastSeenSrvlogID.Load()
+	case "netlog_ingest":
+		return l.lastSeenNetlogID.Load()
+	default:
+		return 0
+	}
+}
+
+// fillGap queries for events inserted while the listener was disconnected
+// and pushes them into the notification channel so the brokers don't miss any.
+// Runs per-channel gap fill for each configured channel.
 func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
-	lastID := l.lastSeenID.Load()
+	for _, notifyCh := range l.channels {
+		l.fillGapForChannel(ctx, ch, notifyCh)
+	}
+}
+
+// fillGapForChannel runs gap fill for a single notification channel.
+func (l *Listener) fillGapForChannel(ctx context.Context, ch chan<- Notification, notifyCh string) {
+	lastID := l.lastSeenIDForChannel(notifyCh)
 	if lastID == 0 {
 		return // no baseline — nothing to fill
 	}
 
-	rows, err := l.pool.Query(ctx,
-		"SELECT id FROM srvlog_events WHERE id > $1 ORDER BY id ASC LIMIT 10000",
-		lastID,
-	)
+	table, ok := channelTable[notifyCh]
+	if !ok {
+		l.logger.Warn("no table mapping for channel", "channel", notifyCh)
+		return
+	}
+
+	//nolint:gosec // table name comes from a hardcoded map, not user input
+	query := fmt.Sprintf("SELECT id FROM %s WHERE id > $1 ORDER BY id ASC LIMIT 10000", table)
+	rows, err := l.pool.Query(ctx, query, lastID)
 	if err != nil {
 		if ctx.Err() != nil {
 			return // shutting down
 		}
-		l.logger.Error("gap fill query failed", "last_seen_id", lastID, "err", err)
+		l.logger.Error("gap fill query failed", "channel", notifyCh, "table", table, "last_seen_id", lastID, "err", err)
 		return
 	}
 	defer rows.Close()
@@ -235,12 +288,12 @@ func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
 			if ctx.Err() != nil {
 				return // shutting down
 			}
-			l.logger.Error("gap fill scan failed", "err", err)
+			l.logger.Error("gap fill scan failed", "channel", notifyCh, "err", err)
 			return
 		}
 		select {
-		case ch <- Notification{Channel: "srvlog_ingest", ID: id}:
-			l.lastSeenID.Store(id)
+		case ch <- Notification{Channel: notifyCh, ID: id}:
+			l.storeLastSeenID(notifyCh, id)
 			count++
 		case <-ctx.Done():
 			return
@@ -250,10 +303,10 @@ func (l *Listener) fillGap(ctx context.Context, ch chan<- Notification) {
 		if ctx.Err() != nil {
 			return // shutting down
 		}
-		l.logger.Error("gap fill rows error", "err", err)
+		l.logger.Error("gap fill rows error", "channel", notifyCh, "err", err)
 		return
 	}
 	if count > 0 {
-		l.logger.Info("gap fill complete", "events", count, "from_id", lastID)
+		l.logger.Info("gap fill complete", "channel", notifyCh, "events", count, "from_id", lastID)
 	}
 }

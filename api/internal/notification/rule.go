@@ -32,9 +32,29 @@ func (r Rule) AppLogFilter() model.AppLogFilter {
 	}
 }
 
+// NetlogFilter converts the rule's filter fields to a model.NetlogFilter
+// for reuse of the existing Matches() logic.
+func (r Rule) NetlogFilter() model.NetlogFilter {
+	return model.NetlogFilter{
+		Hostname:    r.Hostname,
+		Programname: r.Programname,
+		Severity:    r.Severity,
+		SeverityMax: r.SeverityMax,
+		Facility:    r.Facility,
+		SyslogTag:   r.SyslogTag,
+		MsgID:       r.MsgID,
+		Search:      r.Search,
+	}
+}
+
 // MatchesSrvlog reports whether the event satisfies this rule's srvlog filter.
 func (r Rule) MatchesSrvlog(e model.SrvlogEvent) bool {
 	return r.SrvlogFilter().Matches(e)
+}
+
+// MatchesNetlog reports whether the event satisfies this rule's netlog filter.
+func (r Rule) MatchesNetlog(e model.NetlogEvent) bool {
+	return r.NetlogFilter().Matches(e)
 }
 
 // MatchesAppLog reports whether the event satisfies this rule's applog filter.
@@ -45,6 +65,28 @@ func (r Rule) MatchesAppLog(e model.AppLogEvent) bool {
 // GroupKeyFromSrvlog extracts a group key from a srvlog event based on the
 // rule's GroupBy field. Default grouping is by hostname.
 func (r Rule) GroupKeyFromSrvlog(e model.SrvlogEvent) string {
+	fields := r.groupByFields("hostname")
+	var parts []string
+	for _, f := range fields {
+		switch f {
+		case "hostname":
+			parts = append(parts, e.Hostname)
+		case "programname":
+			parts = append(parts, e.Programname)
+		case "syslogtag":
+			parts = append(parts, e.SyslogTag)
+		case "severity":
+			parts = append(parts, e.SeverityLabel)
+		default:
+			parts = append(parts, e.Hostname)
+		}
+	}
+	return strings.Join(parts, "|")
+}
+
+// GroupKeyFromNetlog extracts a group key from a netlog event based on the
+// rule's GroupBy field. Default grouping is by hostname.
+func (r Rule) GroupKeyFromNetlog(e model.NetlogEvent) string {
 	fields := r.groupByFields("hostname")
 	var parts []string
 	for _, f := range fields {

@@ -40,6 +40,12 @@ var defaultWebhookTemplate = `{
   "severity": {{.SrvlogEvent.Severity}},
   "severity_label": {{marshal .SrvlogEvent.SeverityLabel}},
   "message": {{marshal .SrvlogEvent.Message}}
+  {{- else if .NetlogEvent}}
+  "hostname": {{marshal .NetlogEvent.Hostname}},
+  "program": {{marshal .NetlogEvent.Programname}},
+  "severity": {{.NetlogEvent.Severity}},
+  "severity_label": {{marshal .NetlogEvent.SeverityLabel}},
+  "message": {{marshal .NetlogEvent.Message}}
   {{- else if .AppLogEvent}}
   "service": {{marshal .AppLogEvent.Service}},
   "level": {{marshal .AppLogEvent.Level}},

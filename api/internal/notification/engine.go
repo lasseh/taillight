@@ -186,6 +186,48 @@ func (e *Engine) HandleSrvlogEvent(event model.SrvlogEvent) {
 	}
 }
 
+// HandleNetlogEvent evaluates all netlog rules against the event.
+func (e *Engine) HandleNetlogEvent(event model.NetlogEvent) {
+	e.cacheMu.RLock()
+	rules := e.rules
+	e.cacheMu.RUnlock()
+
+	for _, r := range rules {
+		if !r.Enabled || r.EventKind != EventKindNetlog {
+			continue
+		}
+		metrics.NotifRulesEvaluatedTotal.Inc()
+
+		if r.MatchesNetlog(event) {
+			metrics.NotifRulesMatchedTotal.Inc()
+
+			payload := Payload{
+				Kind:        EventKindNetlog,
+				RuleName:    r.Name,
+				Timestamp:   event.ReceivedAt,
+				EventCount:  1,
+				NetlogEvent: &event,
+			}
+
+			groupKey := r.GroupKeyFromNetlog(event)
+			window := time.Duration(r.BurstWindow) * time.Second
+			cooldown := time.Duration(r.CooldownSeconds) * time.Second
+			maxCooldown := time.Duration(r.MaxCooldownSeconds) * time.Second
+			if window <= 0 {
+				window = e.cfg.DefaultBurstWindow
+			}
+			if cooldown <= 0 {
+				cooldown = e.cfg.DefaultCooldown
+			}
+			if maxCooldown <= 0 {
+				maxCooldown = e.cfg.DefaultMaxCooldown
+			}
+
+			e.groups.Add(r.ID, groupKey, window, cooldown, maxCooldown, payload)
+		}
+	}
+}
+
 // HandleAppLogEvent evaluates all applog rules against the event.
 func (e *Engine) HandleAppLogEvent(event model.AppLogEvent) {
 	e.cacheMu.RLock()
@@ -377,10 +419,13 @@ func (e *Engine) sendToChannel(ctx context.Context, rule Rule, ch Channel, paylo
 		return r, nil
 	})
 
-	eventID := int64(0)
-	if payload.SrvlogEvent != nil {
+	var eventID int64
+	switch {
+	case payload.SrvlogEvent != nil:
 		eventID = payload.SrvlogEvent.ID
-	} else if payload.AppLogEvent != nil {
+	case payload.NetlogEvent != nil:
+		eventID = payload.NetlogEvent.ID
+	case payload.AppLogEvent != nil:
 		eventID = payload.AppLogEvent.ID
 	}
 

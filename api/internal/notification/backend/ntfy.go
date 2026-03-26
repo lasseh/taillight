@@ -148,6 +148,14 @@ func buildNtfyInitial(p notification.Payload) (title, body string) {
 		}
 		body = truncate(e.Message, 2900)
 	}
+	if p.NetlogEvent != nil {
+		e := p.NetlogEvent
+		title = fmt.Sprintf("[%s] %s %s", strings.ToUpper(model.SeverityLabel(e.Severity)), e.Hostname, e.Programname)
+		if p.EventCount > 1 {
+			title += fmt.Sprintf(" (%d events)", p.EventCount)
+		}
+		body = truncate(e.Message, 2900)
+	}
 	if p.AppLogEvent != nil {
 		e := p.AppLogEvent
 		title = fmt.Sprintf("[%s] %s %s", e.Level, e.Service, e.Host)
@@ -172,6 +180,11 @@ func buildNtfyDigest(p notification.Payload) (title, body string) {
 		title = fmt.Sprintf("[%s] %s (digest)", strings.ToUpper(model.SeverityLabel(e.Severity)), e.Hostname)
 		body = fmt.Sprintf("%d more events in the last %s\nLast: %s", p.EventCount, windowLabel, truncate(e.Message, 500))
 	}
+	if p.NetlogEvent != nil {
+		e := p.NetlogEvent
+		title = fmt.Sprintf("[%s] %s (digest)", strings.ToUpper(model.SeverityLabel(e.Severity)), e.Hostname)
+		body = fmt.Sprintf("%d more events in the last %s\nLast: %s", p.EventCount, windowLabel, truncate(e.Message, 500))
+	}
 	if p.AppLogEvent != nil {
 		e := p.AppLogEvent
 		title = fmt.Sprintf("[%s] %s (digest)", e.Level, e.Service)
@@ -183,16 +196,10 @@ func buildNtfyDigest(p notification.Payload) (title, body string) {
 // ntfyPriority maps event severity to ntfy priority (1-5).
 func ntfyPriority(p notification.Payload) int {
 	if p.SrvlogEvent != nil {
-		switch {
-		case p.SrvlogEvent.Severity <= 1:
-			return 5 // urgent
-		case p.SrvlogEvent.Severity <= 3:
-			return 4 // high
-		case p.SrvlogEvent.Severity == 4:
-			return 3 // default
-		default:
-			return 2 // low
-		}
+		return syslogNtfyPriority(p.SrvlogEvent.Severity)
+	}
+	if p.NetlogEvent != nil {
+		return syslogNtfyPriority(p.NetlogEvent.Severity)
 	}
 	if p.AppLogEvent != nil {
 		switch p.AppLogEvent.Level {
@@ -212,18 +219,10 @@ func ntfyPriority(p notification.Payload) int {
 // ntfyTags returns comma-separated ntfy tags based on severity.
 func ntfyTags(p notification.Payload) string {
 	if p.SrvlogEvent != nil {
-		switch {
-		case p.SrvlogEvent.Severity <= 2:
-			return "rotating_light"
-		case p.SrvlogEvent.Severity == 3:
-			return "x"
-		case p.SrvlogEvent.Severity == 4:
-			return "warning"
-		case p.SrvlogEvent.Severity <= 6:
-			return "information_source"
-		default:
-			return "mag"
-		}
+		return syslogNtfyTag(p.SrvlogEvent.Severity)
+	}
+	if p.NetlogEvent != nil {
+		return syslogNtfyTag(p.NetlogEvent.Severity)
 	}
 	if p.AppLogEvent != nil {
 		switch p.AppLogEvent.Level {
@@ -238,4 +237,34 @@ func ntfyTags(p notification.Payload) string {
 		}
 	}
 	return ""
+}
+
+// syslogNtfyPriority maps a syslog severity to ntfy priority (1-5).
+func syslogNtfyPriority(severity int) int {
+	switch {
+	case severity <= 1:
+		return 5 // urgent
+	case severity <= 3:
+		return 4 // high
+	case severity == 4:
+		return 3 // default
+	default:
+		return 2 // low
+	}
+}
+
+// syslogNtfyTag maps a syslog severity to an ntfy tag.
+func syslogNtfyTag(severity int) string {
+	switch {
+	case severity <= 2:
+		return "rotating_light"
+	case severity == 3:
+		return "x"
+	case severity == 4:
+		return "warning"
+	case severity <= 6:
+		return "information_source"
+	default:
+		return "mag"
+	}
 }

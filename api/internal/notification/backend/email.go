@@ -208,6 +208,9 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 	if p.SrvlogEvent != nil {
 		return fmt.Sprintf("%s %s - %s", prefix, p.SrvlogEvent.Hostname, strings.ToUpper(model.SeverityLabel(p.SrvlogEvent.Severity)))
 	}
+	if p.NetlogEvent != nil {
+		return fmt.Sprintf("%s %s - %s", prefix, p.NetlogEvent.Hostname, strings.ToUpper(model.SeverityLabel(p.NetlogEvent.Severity)))
+	}
 	if p.AppLogEvent != nil {
 		return fmt.Sprintf("%s %s - %s", prefix, p.AppLogEvent.Host, p.AppLogEvent.Level)
 	}
@@ -249,6 +252,11 @@ func buildEmailInitial(p notification.Payload) (summary, message string) {
 		summary = fmt.Sprintf("%s - %s", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
 		message = e.Message
 	}
+	if p.NetlogEvent != nil {
+		e := p.NetlogEvent
+		summary = fmt.Sprintf("%s - %s", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
+		message = e.Message
+	}
 	if p.AppLogEvent != nil {
 		e := p.AppLogEvent
 		summary = fmt.Sprintf("%s - %s", e.Host, e.Level)
@@ -270,6 +278,11 @@ func buildEmailDigest(p notification.Payload) (summary, message string) {
 
 	if p.SrvlogEvent != nil {
 		e := p.SrvlogEvent
+		summary = fmt.Sprintf("%s - %s (digest)", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
+		message = e.Message
+	}
+	if p.NetlogEvent != nil {
+		e := p.NetlogEvent
 		summary = fmt.Sprintf("%s - %s (digest)", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
 		message = e.Message
 	}

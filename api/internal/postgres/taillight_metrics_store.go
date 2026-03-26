@@ -11,12 +11,15 @@ import (
 // allowedMetricsFields is a whitelist of columns that can be queried for time series.
 var allowedMetricsFields = map[string]struct{}{
 	"sse_clients_srvlog":      {},
+	"sse_clients_netlog":      {},
 	"sse_clients_applog":      {},
 	"db_pool_active":          {},
 	"db_pool_idle":            {},
 	"db_pool_total":           {},
 	"events_broadcast":        {},
 	"events_dropped":          {},
+	"netlog_events_broadcast": {},
+	"netlog_events_dropped":   {},
 	"applog_events_broadcast": {},
 	"applog_events_dropped":   {},
 	"applog_ingest_total":     {},
@@ -28,6 +31,8 @@ var allowedMetricsFields = map[string]struct{}{
 var counterMetricsFields = map[string]struct{}{
 	"events_broadcast":        {},
 	"events_dropped":          {},
+	"netlog_events_broadcast": {},
+	"netlog_events_dropped":   {},
 	"applog_events_broadcast": {},
 	"applog_events_dropped":   {},
 	"applog_ingest_total":     {},
@@ -39,16 +44,18 @@ var counterMetricsFields = map[string]struct{}{
 func (s *Store) InsertMetricsSnapshot(ctx context.Context, snap model.MetricsSnapshot) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO taillight_metrics (
-			sse_clients_srvlog, sse_clients_applog,
+			sse_clients_srvlog, sse_clients_netlog, sse_clients_applog,
 			db_pool_active, db_pool_idle, db_pool_total,
 			events_broadcast, events_dropped,
+			netlog_events_broadcast, netlog_events_dropped,
 			applog_events_broadcast, applog_events_dropped,
 			applog_ingest_total, applog_ingest_errors,
 			listener_reconnects
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		snap.SSEClientsSrvlog, snap.SSEClientsAppLog,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+		snap.SSEClientsSrvlog, snap.SSEClientsNetlog, snap.SSEClientsAppLog,
 		snap.DBPoolActive, snap.DBPoolIdle, snap.DBPoolTotal,
 		snap.EventsBroadcast, snap.EventsDropped,
+		snap.NetlogEventsBroadcast, snap.NetlogEventsDropped,
 		snap.AppLogEventsBroadcast, snap.AppLogEventsDropped,
 		snap.AppLogIngestTotal, snap.AppLogIngestErrors,
 		snap.ListenerReconnects,
@@ -67,6 +74,7 @@ func (s *Store) GetMetricsSummary(ctx context.Context, rangeDur time.Duration) (
 	query := `SELECT
 		-- Latest gauge values (from most recent snapshot).
 		(SELECT sse_clients_srvlog FROM taillight_metrics WHERE collected_at >= $1 ORDER BY collected_at DESC LIMIT 1),
+		(SELECT sse_clients_netlog FROM taillight_metrics WHERE collected_at >= $1 ORDER BY collected_at DESC LIMIT 1),
 		(SELECT sse_clients_applog FROM taillight_metrics WHERE collected_at >= $1 ORDER BY collected_at DESC LIMIT 1),
 		(SELECT db_pool_active FROM taillight_metrics WHERE collected_at >= $1 ORDER BY collected_at DESC LIMIT 1),
 		(SELECT db_pool_idle FROM taillight_metrics WHERE collected_at >= $1 ORDER BY collected_at DESC LIMIT 1),
@@ -74,6 +82,8 @@ func (s *Store) GetMetricsSummary(ctx context.Context, rangeDur time.Duration) (
 		-- Counter deltas (max - min over range).
 		COALESCE(MAX(events_broadcast) - MIN(events_broadcast), 0),
 		COALESCE(MAX(events_dropped) - MIN(events_dropped), 0),
+		COALESCE(MAX(netlog_events_broadcast) - MIN(netlog_events_broadcast), 0),
+		COALESCE(MAX(netlog_events_dropped) - MIN(netlog_events_dropped), 0),
 		COALESCE(MAX(applog_events_broadcast) - MIN(applog_events_broadcast), 0),
 		COALESCE(MAX(applog_events_dropped) - MIN(applog_events_dropped), 0),
 		COALESCE(MAX(applog_ingest_total) - MIN(applog_ingest_total), 0),
@@ -85,12 +95,15 @@ func (s *Store) GetMetricsSummary(ctx context.Context, rangeDur time.Duration) (
 	var summary model.MetricsSummary
 	err := s.pool.QueryRow(ctx, query, since).Scan(
 		&summary.SSEClientsSrvlog,
+		&summary.SSEClientsNetlog,
 		&summary.SSEClientsAppLog,
 		&summary.DBPoolActive,
 		&summary.DBPoolIdle,
 		&summary.DBPoolTotal,
 		&summary.EventsBroadcast,
 		&summary.EventsDropped,
+		&summary.NetlogEventsBroadcast,
+		&summary.NetlogEventsDropped,
 		&summary.AppLogEventsBroadcast,
 		&summary.AppLogEventsDropped,
 		&summary.AppLogIngestTotal,

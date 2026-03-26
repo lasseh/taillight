@@ -145,6 +145,12 @@ func buildSlackInitial(p notification.Payload) string {
 		message = e.Message
 	}
 
+	if p.NetlogEvent != nil {
+		e := p.NetlogEvent
+		summary = fmt.Sprintf("%s - %s", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
+		message = e.Message
+	}
+
 	if p.AppLogEvent != nil {
 		e := p.AppLogEvent
 		summary = fmt.Sprintf("%s - %s", e.Host, e.Level)
@@ -173,6 +179,12 @@ func buildSlackDigest(p notification.Payload) string {
 		lastMessage = e.Message
 	}
 
+	if p.NetlogEvent != nil {
+		e := p.NetlogEvent
+		summary = fmt.Sprintf("%s - %s (digest)", e.Hostname, strings.ToUpper(model.SeverityLabel(e.Severity)))
+		lastMessage = e.Message
+	}
+
 	if p.AppLogEvent != nil {
 		e := p.AppLogEvent
 		summary = fmt.Sprintf("%s - %s (digest)", e.Host, e.Level)
@@ -185,18 +197,10 @@ func buildSlackDigest(p notification.Payload) string {
 
 func severityColor(p notification.Payload) string {
 	if p.SrvlogEvent != nil {
-		switch {
-		case p.SrvlogEvent.Severity <= 2:
-			return "#E74C3C" // red
-		case p.SrvlogEvent.Severity == 3:
-			return "#E67E22" // orange
-		case p.SrvlogEvent.Severity == 4:
-			return "#F1C40F" // yellow
-		case p.SrvlogEvent.Severity <= 6:
-			return "#2ECC71" // green
-		default:
-			return "#95A5A6" // gray
-		}
+		return syslogSeverityColor(p.SrvlogEvent.Severity)
+	}
+	if p.NetlogEvent != nil {
+		return syslogSeverityColor(p.NetlogEvent.Severity)
 	}
 	if p.AppLogEvent != nil {
 		switch p.AppLogEvent.Level {
@@ -211,6 +215,22 @@ func severityColor(p notification.Payload) string {
 		}
 	}
 	return "#3498DB"
+}
+
+// syslogSeverityColor maps a syslog severity integer to a Slack attachment color.
+func syslogSeverityColor(severity int) string {
+	switch {
+	case severity <= 2:
+		return "#E74C3C" // red
+	case severity == 3:
+		return "#E67E22" // orange
+	case severity == 4:
+		return "#F1C40F" // yellow
+	case severity <= 6:
+		return "#2ECC71" // green
+	default:
+		return "#95A5A6" // gray
+	}
 }
 
 // escapeSlackCodeBlock replaces triple-backtick sequences that would break

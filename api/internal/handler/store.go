@@ -20,6 +20,22 @@ type SrvlogStore interface {
 	GetVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
 }
 
+// NetlogStore defines the netlog data access interface.
+type NetlogStore interface {
+	GetNetlog(ctx context.Context, id int64) (model.NetlogEvent, error)
+	ListNetlogs(ctx context.Context, f model.NetlogFilter, cursor *model.Cursor, limit int) ([]model.NetlogEvent, *model.Cursor, error)
+	ListNetlogsSince(ctx context.Context, f model.NetlogFilter, sinceID int64, limit int) ([]model.NetlogEvent, error)
+	ListNetlogHosts(ctx context.Context) ([]string, error)
+	ListNetlogPrograms(ctx context.Context) ([]string, error)
+	ListNetlogTags(ctx context.Context) ([]string, error)
+	ListNetlogFacilities(ctx context.Context) ([]int, error)
+	GetNetlogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
+	GetNetlogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
+	GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (model.SrvlogSummary, error)
+	GetNetlogDeviceSummary(ctx context.Context, hostname string) (model.NetlogDeviceSummary, error)
+	LookupJuniperRef(ctx context.Context, name string) ([]model.JuniperNetlogRef, error)
+}
+
 // AppLogStore defines the application log data access interface.
 type AppLogStore interface {
 	GetAppLog(ctx context.Context, id int64) (model.AppLogEvent, error)

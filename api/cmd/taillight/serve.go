@@ -75,6 +75,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Apply configurable retention policies.
 	if err := store.ApplyRetentionPolicies(ctx, postgres.RetentionConfig{
 		SrvlogDays:          cfg.Retention.SrvlogDays,
+		NetlogDays:          cfg.Retention.NetlogDays,
 		AppLogDays:          cfg.Retention.AppLogDays,
 		NotificationLogDays: cfg.Retention.NotificationLogDays,
 		RsyslogStatsDays:    cfg.Retention.RsyslogStatsDays,
@@ -89,7 +90,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	// Dedicated LISTEN connection.
-	listener := postgres.NewListener(cfg.DatabaseURL, pool, cfg.NotificationBufferSize, logger)
+	var listenChannels []string
+	if cfg.Features.Srvlog {
+		listenChannels = append(listenChannels, "srvlog_ingest")
+	}
+	if cfg.Features.Netlog {
+		listenChannels = append(listenChannels, "netlog_ingest")
+	}
+	listener := postgres.NewListener(cfg.DatabaseURL, pool, cfg.NotificationBufferSize, logger, listenChannels)
 	notifications, err := listener.Listen(ctx)
 	if err != nil {
 		return err
@@ -97,6 +105,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// SSE brokers.
 	srvlogBroker := broker.NewSrvlogBroker(logger)
+	var netlogBroker *broker.NetlogBroker
+	if cfg.Features.Netlog {
+		netlogBroker = broker.NewNetlogBroker(logger)
+	}
 	applogBroker := broker.NewAppLogBroker(logger)
 
 	// Notification engine (optional).
@@ -129,7 +141,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		notifEngine.Start(ctx)
 	}
 
-	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, srvlogBroker, notifEngine, cfg.NotificationWorkers)
+	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, srvlogBroker, netlogBroker, notifEngine, cfg.NotificationWorkers)
 
 	// Analysis (optional).
 	var analysisHandler *handler.AnalysisHandler
@@ -137,7 +149,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		analysisHandler = setupAnalysis(ctx, cfg, store, logger)
 	}
 
-	r := setupRouter(cfg, logger, store, authStore, srvlogBroker, applogBroker, analysisHandler, notifEngine)
+	r := setupRouter(cfg, logger, store, authStore, srvlogBroker, netlogBroker, applogBroker, analysisHandler, notifEngine)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -166,6 +178,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// Close SSE brokers first so clients disconnect cleanly.
 	srvlogBroker.Shutdown()
+	if netlogBroker != nil {
+		netlogBroker.Shutdown()
+	}
 	applogBroker.Shutdown()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -246,6 +261,7 @@ func startBackgroundWorkers(
 	pool *pgxpool.Pool,
 	notifications <-chan postgres.Notification,
 	srvlogBroker *broker.SrvlogBroker,
+	netlogBroker *broker.NetlogBroker,
 	notifEngine *notification.Engine,
 	notifWorkers int,
 ) {
@@ -255,12 +271,13 @@ func startBackgroundWorkers(
 
 	// Bridge: fetch each notified row by ID and broadcast to SSE clients.
 	// Multiple workers drain the channel concurrently so that DB fetch
-	// latency doesn't cause backpressure under high srvlog volume.
+	// latency doesn't cause backpressure under high event volume.
 	for range notifWorkers {
 		go func() {
 			for n := range notifications {
 				metrics.NotificationsReceivedTotal.WithLabelValues(n.Channel).Inc()
-				if n.Channel == "srvlog_ingest" {
+				switch n.Channel {
+				case "srvlog_ingest":
 					queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
 					event, err := store.GetSrvlog(queryCtx, n.ID)
 					queryCancel()
@@ -271,6 +288,20 @@ func startBackgroundWorkers(
 					srvlogBroker.Broadcast(event)
 					if notifEngine != nil {
 						notifEngine.HandleSrvlogEvent(event)
+					}
+				case "netlog_ingest":
+					if netlogBroker != nil {
+						queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
+						event, err := store.GetNetlog(queryCtx, n.ID)
+						queryCancel()
+						if err != nil {
+							logger.Warn("fetch netlog event for broadcast", "id", n.ID, "err", err)
+							continue
+						}
+						netlogBroker.Broadcast(event)
+						if notifEngine != nil {
+							notifEngine.HandleNetlogEvent(event)
+						}
 					}
 				}
 			}
@@ -360,6 +391,7 @@ func setupRouter(
 	store *postgres.Store,
 	authStore *postgres.AuthStore,
 	srvlogBroker *broker.SrvlogBroker,
+	netlogBroker *broker.NetlogBroker,
 	applogBroker *broker.AppLogBroker,
 	analysisHandler *handler.AnalysisHandler,
 	notifEngine *notification.Engine,
@@ -411,6 +443,7 @@ func setupRouter(
 		logger.Warn("read endpoints are unauthenticated — set auth_read_endpoints=true for production")
 	}
 
+	// Srvlog handlers.
 	srvlogHandler := handler.NewSrvlogHandler(store)
 	srvlogMetaHandler := handler.NewSrvlogMetaHandler(store)
 	statsHandler := handler.NewStatsHandler(store)
@@ -418,7 +451,19 @@ func setupRouter(
 	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
 	taillightMetricsHandler := handler.NewTaillightMetricsHandler(store)
 	srvlogSSEHandler := handler.NewSrvlogSSEHandler(srvlogBroker, store, logger)
-	deviceHandler := handler.NewDeviceHandler(store)
+	srvlogDeviceHandler := handler.NewDeviceHandler(store)
+
+	// Netlog handlers (feature-gated).
+	var netlogHandler *handler.NetlogHandler
+	var netlogSSEHandler *handler.NetlogSSEHandler
+	var netlogMetaHandler *handler.NetlogMetaHandler
+	var netlogDeviceHandler *handler.NetlogDeviceHandler
+	if cfg.Features.Netlog && netlogBroker != nil {
+		netlogHandler = handler.NewNetlogHandler(store)
+		netlogSSEHandler = handler.NewNetlogSSEHandler(netlogBroker, store, logger)
+		netlogMetaHandler = handler.NewNetlogMetaHandler(store)
+		netlogDeviceHandler = handler.NewNetlogDeviceHandler(store)
+	}
 
 	// AppLog handlers.
 	applogIngestHandler := handler.NewAppLogIngestHandler(store, applogBroker, logger, notifEngine)
@@ -482,30 +527,61 @@ func setupRouter(
 			}
 			r.Use(auth.RequireScope("read"))
 
-			// SSE stream — long-lived, no timeout.
-			r.Get("/srvlog/stream", srvlogSSEHandler.Stream)
+			// Srvlog routes — all under /srvlog/ prefix.
+			r.Route("/srvlog", func(r chi.Router) {
+				// SSE stream — long-lived, no timeout.
+				r.Get("/stream", srvlogSSEHandler.Stream)
 
-			// REST endpoints — with request timeout.
+				// REST endpoints — with request timeout.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(30 * time.Second))
+
+					r.Get("/", srvlogHandler.List)
+					r.Get("/{id}", srvlogHandler.Get)
+
+					r.Get("/meta/hosts", srvlogMetaHandler.Hosts)
+					r.Get("/meta/programs", srvlogMetaHandler.Programs)
+					r.Get("/meta/facilities", srvlogMetaHandler.Facilities)
+					r.Get("/meta/tags", srvlogMetaHandler.Tags)
+
+					r.Get("/stats/volume", statsHandler.Volume)
+					r.Get("/stats/severity-volume", statsHandler.SeverityVolume)
+					r.Get("/stats/summary", statsHandler.SrvlogSummary)
+
+					r.Get("/device/{hostname}", srvlogDeviceHandler.Get)
+				})
+			})
+
+			// Netlog routes — feature-gated, all under /netlog/ prefix.
+			if netlogHandler != nil {
+				r.Route("/netlog", func(r chi.Router) {
+					// SSE stream — long-lived, no timeout.
+					r.Get("/stream", netlogSSEHandler.Stream)
+
+					// REST endpoints — with request timeout.
+					r.Group(func(r chi.Router) {
+						r.Use(middleware.Timeout(30 * time.Second))
+
+						r.Get("/", netlogHandler.List)
+						r.Get("/{id}", netlogHandler.Get)
+
+						r.Get("/meta/hosts", netlogMetaHandler.Hosts)
+						r.Get("/meta/programs", netlogMetaHandler.Programs)
+						r.Get("/meta/facilities", netlogMetaHandler.Facilities)
+						r.Get("/meta/tags", netlogMetaHandler.Tags)
+
+						r.Get("/stats/volume", statsHandler.NetlogVolume)
+						r.Get("/stats/severity-volume", statsHandler.NetlogSeverityVolume)
+						r.Get("/stats/summary", statsHandler.NetlogSummary)
+
+						r.Get("/device/{hostname}", netlogDeviceHandler.Get)
+					})
+				})
+			}
+
+			// Shared endpoints — with request timeout.
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.Timeout(30 * time.Second))
-
-				r.Get("/srvlog", srvlogHandler.List)
-				r.Get("/srvlog/{id}", srvlogHandler.Get)
-
-				r.Route("/meta", func(r chi.Router) {
-					r.Get("/hosts", srvlogMetaHandler.Hosts)
-					r.Get("/programs", srvlogMetaHandler.Programs)
-					r.Get("/facilities", srvlogMetaHandler.Facilities)
-					r.Get("/tags", srvlogMetaHandler.Tags)
-				})
-
-				r.Route("/stats", func(r chi.Router) {
-					r.Get("/volume", statsHandler.Volume)
-					r.Get("/severity-volume", statsHandler.SeverityVolume)
-					r.Get("/summary", statsHandler.SrvlogSummary)
-				})
-
-				r.Get("/device/{hostname}", deviceHandler.Get)
 
 				r.Route("/juniper", func(r chi.Router) {
 					r.Get("/lookup", juniperHandler.Lookup)

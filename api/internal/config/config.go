@@ -11,6 +11,14 @@ import (
 	"github.com/spf13/viper"
 )
 
+// FeaturesConfig controls which log feeds are enabled.
+// When a feed is disabled, its API routes return 404 and its broker is not started.
+type FeaturesConfig struct {
+	Srvlog bool // Default true.
+	Netlog bool // Default true.
+	AppLog bool // Default true.
+}
+
 // Config holds application configuration.
 type Config struct {
 	DatabaseURL            string
@@ -26,6 +34,7 @@ type Config struct {
 	CookieSecure           bool     // When true, force Secure flag on session cookies regardless of X-Forwarded-Proto.
 	NotificationBufferSize int      // LISTEN/NOTIFY channel buffer size (0 = default 1024).
 	NotificationWorkers    int      // Number of goroutines consuming LISTEN/NOTIFY events (0 = default 4).
+	Features               FeaturesConfig
 	LogShipper             LogShipperConfig
 	Analysis               AnalysisConfig
 	Notification           NotificationConfig
@@ -37,6 +46,7 @@ type Config struct {
 // Values are in days. Minimum 1 day to prevent accidental data loss.
 type RetentionConfig struct {
 	SrvlogDays          int // Default 90.
+	NetlogDays          int // Default 90.
 	AppLogDays          int // Default 90.
 	NotificationLogDays int // Default 30.
 	RsyslogStatsDays    int // Default 30.
@@ -88,6 +98,7 @@ type AnalysisConfig struct {
 	Temperature float64 // Sampling temperature.
 	NumCtx      int     // Context window size.
 	ScheduleAt  string  // Cron-style schedule (e.g. "03:00").
+	Feed        string  // Feed to analyze: "srvlog", "netlog", or "all" (default "netlog").
 }
 
 // Load reads configuration from config.yml with environment variable overrides.
@@ -115,13 +126,18 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("logshipper.service", "taillight")
 	v.SetDefault("logshipper.component", "server")
 	v.SetDefault("logshipper.min_level", "info")
+	v.SetDefault("features.srvlog", true)
+	v.SetDefault("features.netlog", true)
+	v.SetDefault("features.applog", true)
 	v.SetDefault("analysis.enabled", false)
 	v.SetDefault("analysis.ollama_url", "http://localhost:11434")
 	v.SetDefault("analysis.model", "llama3")
 	v.SetDefault("analysis.temperature", 0.3)
 	v.SetDefault("analysis.num_ctx", 8192)
 	v.SetDefault("analysis.schedule_at", "03:00")
+	v.SetDefault("analysis.feed", "netlog")
 	v.SetDefault("retention.srvlog_days", 90)
+	v.SetDefault("retention.netlog_days", 90)
 	v.SetDefault("retention.applog_days", 90)
 	v.SetDefault("retention.notification_log_days", 30)
 	v.SetDefault("retention.rsyslog_stats_days", 30)
@@ -175,6 +191,11 @@ func Load(configFile ...string) (Config, error) {
 		NotificationBufferSize: v.GetInt("notification_buffer_size"),
 		NotificationWorkers:    v.GetInt("notification_workers"),
 		MetricsAddr:            v.GetString("metrics_addr"),
+		Features: FeaturesConfig{
+			Srvlog: v.GetBool("features.srvlog"),
+			Netlog: v.GetBool("features.netlog"),
+			AppLog: v.GetBool("features.applog"),
+		},
 		LogShipper: LogShipperConfig{
 			Enabled:     v.GetBool("logshipper.enabled"),
 			APIKey:      v.GetString("logshipper.api_key"),
@@ -193,6 +214,7 @@ func Load(configFile ...string) (Config, error) {
 			Temperature: v.GetFloat64("analysis.temperature"),
 			NumCtx:      v.GetInt("analysis.num_ctx"),
 			ScheduleAt:  v.GetString("analysis.schedule_at"),
+			Feed:        v.GetString("analysis.feed"),
 		},
 		Notification: NotificationConfig{
 			Enabled:             v.GetBool("notification.enabled"),
@@ -215,6 +237,7 @@ func Load(configFile ...string) (Config, error) {
 		},
 		Retention: RetentionConfig{
 			SrvlogDays:          max(v.GetInt("retention.srvlog_days"), 1),
+			NetlogDays:          max(v.GetInt("retention.netlog_days"), 1),
 			AppLogDays:          max(v.GetInt("retention.applog_days"), 1),
 			NotificationLogDays: max(v.GetInt("retention.notification_log_days"), 1),
 			RsyslogStatsDays:    max(v.GetInt("retention.rsyslog_stats_days"), 1),

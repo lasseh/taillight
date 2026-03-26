@@ -50,6 +50,29 @@ var (
 		Help:      "Total number of listener reconnection attempts.",
 	})
 
+	// Netlog metrics.
+
+	// NetlogSSEClientsActive tracks the current number of connected netlog SSE clients.
+	NetlogSSEClientsActive = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "taillight",
+		Name:      "netlog_sse_clients_active",
+		Help:      "Number of currently connected netlog SSE clients.",
+	})
+
+	// NetlogEventsBroadcastTotal counts netlog events broadcast to SSE clients.
+	NetlogEventsBroadcastTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "netlog_events_broadcast_total",
+		Help:      "Total number of netlog events broadcast.",
+	})
+
+	// NetlogEventsDroppedTotal counts netlog events dropped due to slow clients.
+	NetlogEventsDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "netlog_events_dropped_total",
+		Help:      "Total number of netlog events dropped for slow clients.",
+	})
+
 	// AppLog metrics.
 
 	// AppLogSSEClientsActive tracks the current number of connected applog SSE clients.
