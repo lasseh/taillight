@@ -11,12 +11,13 @@ import (
 )
 
 // Store defines the data access methods needed by the analyzer.
+// Methods that query log events accept a feed parameter ("srvlog", "netlog", or "all").
 type Store interface {
-	GetTopMsgIDs(ctx context.Context, since time.Time, limit int) ([]model.MsgIDCount, error)
-	GetSeverityComparison(ctx context.Context, currentSince, baselineSince time.Time) (model.SeverityComparison, error)
-	GetTopErrorHosts(ctx context.Context, since time.Time, limit int) ([]model.HostErrorCount, error)
-	GetNewMsgIDs(ctx context.Context, since, baselineSince time.Time) ([]string, error)
-	GetEventClusters(ctx context.Context, since time.Time, windowMinutes int) ([]model.EventCluster, error)
+	GetTopMsgIDs(ctx context.Context, feed string, since time.Time, limit int) ([]model.MsgIDCount, error)
+	GetSeverityComparison(ctx context.Context, feed string, currentSince, baselineSince time.Time) (model.SeverityComparison, error)
+	GetTopErrorHosts(ctx context.Context, feed string, since time.Time, limit int) ([]model.HostErrorCount, error)
+	GetNewMsgIDs(ctx context.Context, feed string, since, baselineSince time.Time) ([]string, error)
+	GetEventClusters(ctx context.Context, feed string, since time.Time, windowMinutes int) ([]model.EventCluster, error)
 	LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error)
 	InsertReport(ctx context.Context, r model.AnalysisReport) (int64, error)
 }
@@ -26,6 +27,7 @@ type Config struct {
 	Model       string
 	Temperature float64
 	NumCtx      int
+	Feed        string // "srvlog", "netlog", or "all" (default "netlog").
 }
 
 // Analyzer orchestrates data gathering, prompt building, and LLM inference.

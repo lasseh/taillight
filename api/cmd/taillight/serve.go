@@ -373,6 +373,7 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 		Model:       cfg.Analysis.Model,
 		Temperature: cfg.Analysis.Temperature,
 		NumCtx:      cfg.Analysis.NumCtx,
+		Feed:        cfg.Analysis.Feed,
 	}, logger)
 
 	sched := scheduler.New(a, scheduler.Config{

@@ -12,13 +12,49 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
+const (
+	// feedAll indicates analysis should query both srvlog and netlog tables.
+	feedAll = "all"
+)
+
+// analysisTableName returns the table name for the given feed.
+// Valid feeds: "srvlog", "netlog". For "all", use analysisUnionSource instead.
+func analysisTableName(feed string) string {
+	switch feed {
+	case "netlog":
+		return "netlog_events"
+	case "srvlog":
+		return "srvlog_events"
+	default:
+		return "srvlog_events"
+	}
+}
+
+// analysisUnionSource returns a SQL subquery expression that unions
+// the given columns from both srvlog_events and netlog_events.
+// The result can be used as a FROM source: `FROM (... ) AS combined`.
+func analysisUnionSource(columns string) string {
+	return fmt.Sprintf(
+		"(SELECT %s FROM srvlog_events UNION ALL SELECT %s FROM netlog_events) AS combined",
+		columns, columns,
+	)
+}
+
 // GetTopMsgIDs returns the top msgids by count since the given time,
-// with per-severity breakdowns.
-func (s *Store) GetTopMsgIDs(ctx context.Context, since time.Time, limit int) ([]model.MsgIDCount, error) {
+// with per-severity breakdowns. The feed parameter selects which table(s)
+// to query: "srvlog", "netlog", or "all".
+func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, limit int) ([]model.MsgIDCount, error) {
+	var table string
+	if feed == feedAll {
+		table = analysisUnionSource("received_at, msgid, severity")
+	} else {
+		table = analysisTableName(feed)
+	}
+
 	// First get top msgids by total count.
 	query, args, err := psq.
 		Select("msgid", "count(*) AS cnt").
-		From("srvlog_events").
+		From(table).
 		Where(sq.GtOrEq{"received_at": since}).
 		Where(sq.NotEq{"msgid": ""}).
 		GroupBy("msgid").
@@ -62,7 +98,7 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, since time.Time, limit int) ([
 
 	sevQuery, sevArgs, err := psq.
 		Select("msgid", "severity", "count(*) AS cnt").
-		From("srvlog_events").
+		From(table).
 		Where(sq.GtOrEq{"received_at": since}).
 		Where(sq.Eq{"msgid": msgids}).
 		GroupBy("msgid", "severity").
@@ -96,11 +132,19 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, since time.Time, limit int) ([
 }
 
 // GetSeverityComparison compares current period severity counts against baseline daily average.
-func (s *Store) GetSeverityComparison(ctx context.Context, currentSince, baselineSince time.Time) (model.SeverityComparison, error) {
+// The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
+func (s *Store) GetSeverityComparison(ctx context.Context, feed string, currentSince, baselineSince time.Time) (model.SeverityComparison, error) {
+	var table string
+	if feed == feedAll {
+		table = analysisUnionSource("received_at, severity")
+	} else {
+		table = analysisTableName(feed)
+	}
+
 	// Current period counts.
 	curQuery, curArgs, err := psq.
 		Select("severity", "count(*) AS cnt").
-		From("srvlog_events").
+		From(table).
 		Where(sq.GtOrEq{"received_at": currentSince}).
 		GroupBy("severity").
 		OrderBy("severity").
@@ -131,7 +175,7 @@ func (s *Store) GetSeverityComparison(ctx context.Context, currentSince, baselin
 	// Baseline: daily average over 7 days before current period.
 	baseQuery, baseArgs, err := psq.
 		Select("severity", "count(*) AS cnt").
-		From("srvlog_events").
+		From(table).
 		Where(sq.GtOrEq{"received_at": baselineSince}).
 		Where(sq.Lt{"received_at": currentSince}).
 		GroupBy("severity").
@@ -197,11 +241,21 @@ func (s *Store) GetSeverityComparison(ctx context.Context, currentSince, baselin
 }
 
 // GetTopErrorHosts returns hosts with the most errors (severity <= 3).
-func (s *Store) GetTopErrorHosts(ctx context.Context, since time.Time, limit int) ([]model.HostErrorCount, error) {
-	query := `
-		WITH host_counts AS (
+// The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
+func (s *Store) GetTopErrorHosts(ctx context.Context, feed string, since time.Time, limit int) ([]model.HostErrorCount, error) {
+	var source string
+	if feed == feedAll {
+		source = analysisUnionSource("received_at, hostname, severity, msgid")
+	} else {
+		source = analysisTableName(feed)
+	}
+
+	query := fmt.Sprintf(`
+		WITH events AS (
+			SELECT * FROM %s
+		), host_counts AS (
 			SELECT hostname, count(*) AS cnt
-			FROM srvlog_events
+			FROM events
 			WHERE received_at >= $1 AND severity <= 3
 			GROUP BY hostname
 			ORDER BY cnt DESC
@@ -211,13 +265,13 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, since time.Time, limit int
 		FROM host_counts hc
 		LEFT JOIN LATERAL (
 			SELECT msgid
-			FROM srvlog_events
+			FROM events
 			WHERE hostname = hc.hostname AND received_at >= $1 AND severity <= 3 AND msgid != ''
 			GROUP BY msgid
 			ORDER BY count(*) DESC
 			LIMIT 1
 		) tm ON true
-		ORDER BY hc.cnt DESC`
+		ORDER BY hc.cnt DESC`, source)
 
 	rows, err := s.pool.Query(ctx, query, since, limit)
 	if err != nil {
@@ -241,17 +295,28 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, since time.Time, limit int
 }
 
 // GetNewMsgIDs returns msgids seen in the current period but not in the baseline period.
-func (s *Store) GetNewMsgIDs(ctx context.Context, since, baselineSince time.Time) ([]string, error) {
-	query := `
-		SELECT DISTINCT msgid FROM srvlog_events curr
+// The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
+func (s *Store) GetNewMsgIDs(ctx context.Context, feed string, since, baselineSince time.Time) ([]string, error) {
+	var source string
+	if feed == feedAll {
+		source = analysisUnionSource("received_at, msgid")
+	} else {
+		source = analysisTableName(feed)
+	}
+
+	query := fmt.Sprintf(`
+		WITH events AS (
+			SELECT * FROM %s
+		)
+		SELECT DISTINCT msgid FROM events curr
 		WHERE curr.received_at >= $1 AND curr.msgid != ''
 		  AND NOT EXISTS (
-		    SELECT 1 FROM srvlog_events base
+		    SELECT 1 FROM events base
 		    WHERE base.msgid = curr.msgid
 		      AND base.received_at >= $2 AND base.received_at < $1
 		      AND base.msgid != ''
 		  )
-		ORDER BY msgid`
+		ORDER BY msgid`, source)
 
 	rows, err := s.pool.Query(ctx, query, since, baselineSince)
 	if err != nil {
@@ -271,18 +336,26 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, since, baselineSince time.Time
 }
 
 // GetEventClusters returns time windows where events from multiple hosts overlap.
-func (s *Store) GetEventClusters(ctx context.Context, since time.Time, windowMinutes int) ([]model.EventCluster, error) {
-	query := `
+// The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
+func (s *Store) GetEventClusters(ctx context.Context, feed string, since time.Time, windowMinutes int) ([]model.EventCluster, error) {
+	var source string
+	if feed == feedAll {
+		source = analysisUnionSource("received_at, hostname, msgid")
+	} else {
+		source = analysisTableName(feed)
+	}
+
+	query := fmt.Sprintf(`
 		SELECT time_bucket($2::interval, received_at) AS bucket,
 		       array_agg(DISTINCT hostname) AS hosts,
 		       array_agg(DISTINCT msgid) FILTER (WHERE msgid != '') AS msgids,
 		       count(*) AS total
-		FROM srvlog_events
+		FROM %s
 		WHERE received_at >= $1
 		GROUP BY bucket
 		HAVING count(DISTINCT hostname) > 1
 		ORDER BY total DESC
-		LIMIT 20`
+		LIMIT 20`, source)
 
 	interval := fmt.Sprintf("%d minutes", windowMinutes)
 	rows, err := s.pool.Query(ctx, query, since, interval)

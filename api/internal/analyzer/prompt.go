@@ -9,7 +9,36 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-const systemPrompt = `You are a senior network operations analyst reviewing srvlog data from a Juniper-based network infrastructure. Produce a concise daily operations briefing in markdown format.
+// feedDescription returns a human-readable description of the feed for use in prompts.
+func feedDescription(feed string) string {
+	switch feed {
+	case feedNetlog:
+		return "network device syslog data (routers, switches, firewalls)"
+	case feedSrvlog:
+		return "server syslog data (Linux, Windows servers)"
+	case feedAll:
+		return "combined syslog data from both network devices and servers"
+	default:
+		return "syslog data"
+	}
+}
+
+// feedTitle returns a short title for the feed.
+func feedTitle(feed string) string {
+	switch feed {
+	case feedNetlog:
+		return "Netlog"
+	case feedSrvlog:
+		return "Srvlog"
+	case feedAll:
+		return "All Feeds"
+	default:
+		return "Log"
+	}
+}
+
+var systemPromptTemplate = template.Must(template.New("system").Parse(
+	`You are a senior network operations analyst reviewing {{ .FeedDescription }}. Produce a concise daily operations briefing in markdown format.
 
 Your report MUST include these sections:
 
@@ -40,12 +69,12 @@ Guidelines:
 - Flag anything with severity 0-3 (emerg/alert/crit/err) as requiring attention
 - Note percentage changes vs baseline that exceed ±50%
 - Keep the report actionable — tell operators what to DO, not just what happened
-- If there is little activity, say so briefly — do not fabricate issues`
+- If there is little activity, say so briefly — do not fabricate issues`))
 
 var userPromptTemplate = template.Must(template.New("user").Funcs(template.FuncMap{
 	"severityLabel": model.SeverityLabel,
 	"join":          strings.Join,
-}).Parse(`# Srvlog Analysis Data — Last 24 Hours
+}).Parse(`# {{ .FeedTitle }} Analysis Data — Last 24 Hours
 Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} to {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }}
 
 ## Top Event Types (by volume)
@@ -78,11 +107,29 @@ Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} to {{ .PeriodEnd.Format
 {{ end }}
 {{- end }}`))
 
+// promptData wraps analysisData with feed-specific template fields.
+type promptData struct {
+	analysisData
+	FeedDescription string
+	FeedTitle       string
+}
+
 // buildPrompt renders the system and user prompts from gathered data.
 func buildPrompt(data analysisData) (string, string, error) {
-	var buf bytes.Buffer
-	if err := userPromptTemplate.Execute(&buf, data); err != nil {
+	pd := promptData{
+		analysisData:    data,
+		FeedDescription: feedDescription(data.Feed),
+		FeedTitle:       feedTitle(data.Feed),
+	}
+
+	var sysBuf bytes.Buffer
+	if err := systemPromptTemplate.Execute(&sysBuf, pd); err != nil {
+		return "", "", fmt.Errorf("render system prompt: %w", err)
+	}
+
+	var userBuf bytes.Buffer
+	if err := userPromptTemplate.Execute(&userBuf, pd); err != nil {
 		return "", "", fmt.Errorf("render user prompt: %w", err)
 	}
-	return systemPrompt, buf.String(), nil
+	return sysBuf.String(), userBuf.String(), nil
 }
