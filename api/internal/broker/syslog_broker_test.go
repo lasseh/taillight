@@ -144,12 +144,12 @@ func TestBroadcast_SlowClient(t *testing.T) {
 	sub := mustSubscribe(t, b, model.SyslogFilter{})
 	defer b.Unsubscribe(sub)
 
-	// Fill the channel (capacity 64).
-	for i := range 65 {
+	// Fill the channel (capacity = subscriptionBufferSize = 512).
+	for i := range 513 {
 		b.Broadcast(model.SyslogEvent{ID: int64(i), Hostname: "router1"})
 	}
 
-	// Drain and count — should get exactly 64 (channel capacity).
+	// Drain and count — should get exactly 512 (channel capacity).
 	count := 0
 	for {
 		select {
@@ -160,8 +160,8 @@ func TestBroadcast_SlowClient(t *testing.T) {
 		}
 	}
 done:
-	if count != 64 {
-		t.Errorf("received %d messages, want 64 (channel capacity)", count)
+	if count != 512 {
+		t.Errorf("received %d messages, want 512 (channel capacity)", count)
 	}
 }
 

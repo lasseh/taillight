@@ -140,12 +140,12 @@ func TestAppLogBroadcast_SlowClient(t *testing.T) {
 	sub := mustAppLogSubscribe(t, b, model.AppLogFilter{})
 	defer b.Unsubscribe(sub)
 
-	// Fill the channel (capacity 64).
-	for i := range 65 {
+	// Fill the channel (capacity = subscriptionBufferSize = 512).
+	for i := range 513 {
 		b.Broadcast(model.AppLogEvent{ID: int64(i), Service: "api", Level: "INFO", Msg: "msg"})
 	}
 
-	// Drain and count — should get exactly 64 (channel capacity).
+	// Drain and count — should get exactly 512 (channel capacity).
 	count := 0
 	for {
 		select {
@@ -156,8 +156,8 @@ func TestAppLogBroadcast_SlowClient(t *testing.T) {
 		}
 	}
 done:
-	if count != 64 {
-		t.Errorf("received %d messages, want 64 (channel capacity)", count)
+	if count != 512 {
+		t.Errorf("received %d messages, want 512 (channel capacity)", count)
 	}
 }
 
