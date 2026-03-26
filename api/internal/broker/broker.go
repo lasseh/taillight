@@ -11,7 +11,7 @@ import (
 const (
 	// subscriptionBufferSize is the channel buffer size for each SSE client subscription.
 	// A larger buffer allows clients to briefly fall behind without dropping events.
-	subscriptionBufferSize = 64
+	subscriptionBufferSize = 512
 
 	// maxSubscribers is the maximum number of concurrent SSE clients per broker.
 	// Prevents memory exhaustion from too many open connections.
