@@ -304,8 +304,10 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 	batch := &pgx.Batch{}
 
 	// Q1: last seen (most recent event for this host).
+	// Use received_at (not timestamp) so the idx_applog_host_received index
+	// can serve this as an index-only scan.
 	batch.Queue(
-		"SELECT MAX(timestamp) FROM applog_events WHERE host = $1",
+		"SELECT MAX(received_at) FROM applog_events WHERE host = $1",
 		host,
 	)
 
