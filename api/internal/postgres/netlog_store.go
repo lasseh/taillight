@@ -81,7 +81,7 @@ func (s *Store) ListNetlogs(ctx context.Context, f model.NetlogFilter, cursor *m
 
 	var nextCursor *model.Cursor
 	if len(events) > limit {
-		last := events[limit-1]
+		last := events[limit]
 		nextCursor = &model.Cursor{
 			ReceivedAt: last.ReceivedAt,
 			ID:         last.ID,
@@ -229,7 +229,7 @@ func (s *Store) GetNetlogSeverityVolume(ctx context.Context, interval model.Volu
 
 // GetNetlogSummary returns summary statistics for netlog events over the given range.
 // Uses netlog_summary_hourly continuous aggregate.
-func (s *Store) GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (model.SrvlogSummary, error) {
+func (s *Store) GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error) {
 	since := time.Now().UTC().Add(-rangeDur)
 	prevStart := since.Add(-rangeDur)
 
@@ -430,6 +430,9 @@ func (s *Store) GetNetlogDeviceSummary(ctx context.Context, hostname string) (mo
 		})
 	}
 	sevRows.Close()
+	if err := sevRows.Err(); err != nil {
+		return summary, fmt.Errorf("netlog device severity rows: %w", err)
+	}
 
 	var total int64
 	for _, sc := range summary.SeverityBreakdown {
@@ -457,6 +460,9 @@ func (s *Store) GetNetlogDeviceSummary(ctx context.Context, hostname string) (mo
 		summary.TopMessages = append(summary.TopMessages, tm)
 	}
 	msgRows.Close()
+	if err := msgRows.Err(); err != nil {
+		return summary, fmt.Errorf("netlog device msg rows: %w", err)
+	}
 
 	// R4: critical logs.
 	critRows, err := results.Query()

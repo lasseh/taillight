@@ -452,7 +452,7 @@ func setupRouter(
 	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
 	taillightMetricsHandler := handler.NewTaillightMetricsHandler(store)
 	srvlogSSEHandler := handler.NewSrvlogSSEHandler(srvlogBroker, store, logger)
-	srvlogDeviceHandler := handler.NewDeviceHandler(store)
+	srvlogDeviceHandler := handler.NewSrvlogDeviceHandler(store)
 
 	// Netlog handlers (feature-gated).
 	var netlogHandler *handler.NetlogHandler
@@ -693,7 +693,9 @@ func setupRouter(
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if err := store.Ping(r.Context()); err != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if err := store.Ping(ctx); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy"}) //nolint:errcheck // Static map encode cannot fail; write error is not recoverable.
 			return

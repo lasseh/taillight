@@ -95,10 +95,10 @@ func (n *Ntfy) Send(ctx context.Context, ch notification.Channel, payload notifi
 	if err != nil {
 		return notification.SendResult{Error: fmt.Errorf("create request: %w", err), Duration: time.Since(start)}
 	}
-	req.Header.Set("Title", title)
+	req.Header.Set("Title", sanitizeHeaderValue(title))
 	req.Header.Set("Priority", strconv.Itoa(priority))
 	if tags != "" {
-		req.Header.Set("Tags", tags)
+		req.Header.Set("Tags", sanitizeHeaderValue(tags))
 	}
 	if cfg.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)

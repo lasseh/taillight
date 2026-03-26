@@ -142,7 +142,7 @@ func (s *Store) ListSrvlogs(ctx context.Context, f model.SrvlogFilter, cursor *m
 
 	var nextCursor *model.Cursor
 	if len(events) > limit {
-		last := events[limit-1]
+		last := events[limit]
 		nextCursor = &model.Cursor{
 			ReceivedAt: last.ReceivedAt,
 			ID:         last.ID,
@@ -175,23 +175,23 @@ func (s *Store) ListSrvlogsSince(ctx context.Context, f model.SrvlogFilter, sinc
 	return collectSrvlogs(rows)
 }
 
-// ListHosts returns distinct hostnames ordered alphabetically.
-func (s *Store) ListHosts(ctx context.Context) ([]string, error) {
+// ListSrvlogHosts returns distinct hostnames ordered alphabetically.
+func (s *Store) ListSrvlogHosts(ctx context.Context) ([]string, error) {
 	return s.listDistinctStrings(ctx, "hostname")
 }
 
-// ListPrograms returns distinct program names ordered alphabetically.
-func (s *Store) ListPrograms(ctx context.Context) ([]string, error) {
+// ListSrvlogPrograms returns distinct program names ordered alphabetically.
+func (s *Store) ListSrvlogPrograms(ctx context.Context) ([]string, error) {
 	return s.listDistinctStrings(ctx, "programname")
 }
 
-// ListTags returns distinct syslog tags ordered alphabetically.
-func (s *Store) ListTags(ctx context.Context) ([]string, error) {
+// ListSrvlogTags returns distinct syslog tags ordered alphabetically.
+func (s *Store) ListSrvlogTags(ctx context.Context) ([]string, error) {
 	return s.listDistinctStrings(ctx, "syslogtag")
 }
 
-// ListFacilities returns distinct facility codes ordered numerically.
-func (s *Store) ListFacilities(ctx context.Context) ([]int, error) {
+// ListSrvlogFacilities returns distinct facility codes ordered numerically.
+func (s *Store) ListSrvlogFacilities(ctx context.Context) ([]int, error) {
 	rows, err := s.pool.Query(ctx, "SELECT facility FROM srvlog_facility_cache ORDER BY facility LIMIT $1", metaLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list facilities: %w", err)
@@ -499,7 +499,7 @@ func (s *Store) RefreshContinuousAggregates(ctx context.Context) error {
 
 // GetSrvlogSummary returns summary statistics for the given range.
 // Uses srvlog_summary_hourly continuous aggregate.
-func (s *Store) GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (model.SrvlogSummary, error) {
+func (s *Store) GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error) {
 	since := time.Now().UTC().Add(-rangeDur)
 	prevStart := since.Add(-rangeDur)
 
@@ -707,11 +707,11 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 	return summary, nil
 }
 
-// GetDeviceSummary returns aggregated device information for the given hostname.
+// GetSrvlogDeviceSummary returns aggregated device information for the given hostname.
 // It fetches last-seen time, severity breakdown (7d), top normalized messages (7d),
 // and recent critical logs using a single pgx.Batch round-trip.
-func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.DeviceSummary, error) {
-	summary := model.DeviceSummary{
+func (s *Store) GetSrvlogDeviceSummary(ctx context.Context, hostname string) (model.SrvlogDeviceSummary, error) {
+	summary := model.SrvlogDeviceSummary{
 		Hostname:          hostname,
 		SeverityBreakdown: make([]model.SeverityCount, 0),
 		TopMessages:       make([]model.TopMessage, 0),
@@ -808,6 +808,9 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		})
 	}
 	sevRows.Close()
+	if err := sevRows.Err(); err != nil {
+		return summary, fmt.Errorf("device severity rows: %w", err)
+	}
 
 	var total int64
 	for _, sc := range summary.SeverityBreakdown {
@@ -835,6 +838,9 @@ func (s *Store) GetDeviceSummary(ctx context.Context, hostname string) (model.De
 		summary.TopMessages = append(summary.TopMessages, tm)
 	}
 	msgRows.Close()
+	if err := msgRows.Err(); err != nil {
+		return summary, fmt.Errorf("device msg rows: %w", err)
+	}
 
 	// R4: critical logs.
 	critRows, err := results.Query()

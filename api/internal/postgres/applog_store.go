@@ -125,7 +125,7 @@ func (s *Store) ListAppLogs(ctx context.Context, f model.AppLogFilter, cursor *m
 
 	var nextCursor *model.Cursor
 	if len(events) > limit {
-		last := events[limit-1]
+		last := events[limit]
 		nextCursor = &model.Cursor{
 			ReceivedAt: last.ReceivedAt,
 			ID:         last.ID,
@@ -384,6 +384,9 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		})
 	}
 	levelRows.Close()
+	if err := levelRows.Err(); err != nil {
+		return summary, fmt.Errorf("applog device level rows: %w", err)
+	}
 
 	summary.TotalCount = total
 	for i := range summary.LevelBreakdown {
@@ -406,6 +409,9 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		summary.TopMessages = append(summary.TopMessages, tm)
 	}
 	msgRows.Close()
+	if err := msgRows.Err(); err != nil {
+		return summary, fmt.Errorf("applog device msg rows: %w", err)
+	}
 
 	// R4: error logs.
 	errRows, err := results.Query()
