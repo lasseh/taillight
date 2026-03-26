@@ -83,11 +83,12 @@ services:
       options:
         tag: rsyslog
     ports:
-      # Uses 1514 to avoid conflicts during development.
-      # Change to 514 in production so devices can send to the standard syslog port.
-      # This port feeds the srvlog pipeline (server/network device logs).
-      - "${RSYSLOG_HOST_PORT:-1514}:514/udp"
-      - "${RSYSLOG_HOST_PORT:-1514}:514/tcp"
+      # Dual-port setup: netlog (network devices) on 514, srvlog (servers) on 515.
+      # Dev ports use 1514/1515 to avoid conflicts; change to 514/515 in production.
+      - "${RSYSLOG_NETLOG_PORT:-1514}:514/udp"
+      - "${RSYSLOG_NETLOG_PORT:-1514}:514/tcp"
+      - "${RSYSLOG_SRVLOG_PORT:-1515}:515/udp"
+      - "${RSYSLOG_SRVLOG_PORT:-1515}:515/tcp"
     environment:
       # Only the password needs passing; server/port/db/user defaults match
       # docker-compose networking. Override all PGSQL_* vars in

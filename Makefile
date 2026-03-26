@@ -53,4 +53,11 @@ rsyslog-reload: ## Rebuild and restart rsyslog container
 psql: ## Connect to the database via psql
 	docker compose exec postgres psql -U taillight -d taillight
 
+##@ Verification
+verify-features: ## Verify frontend/backend feature flags match
+	@api=$$(grep -A3 '^features:' api/config.yml | grep -oE '(netlog|srvlog|applog): true' | sort); \
+	 fe=$$(grep -oE '(netlog|srvlog|applog): true' frontend/src/config.ts | sort); \
+	 if [ "$$api" != "$$fe" ]; then echo "Feature flags out of sync"; echo "api: $$api"; echo "fe: $$fe"; exit 1; fi
+	@echo "Feature flags in sync"
+
 .DEFAULT_GOAL := help

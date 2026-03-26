@@ -1,20 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { SrvlogEvent } from '@/types/srvlog'
+import type { NetlogEvent } from '@/types/netlog'
 import { severityBorderClass, severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
 import { formatDateTime } from '@/lib/format'
-import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
+import { useNetlogFilterStore } from '@/stores/netlog-filters'
 
 const props = defineProps<{
-  event: SrvlogEvent
+  event: NetlogEvent
 }>()
 
-const filterStore = useSrvlogFilterStore()
+const filterStore = useNetlogFilterStore()
 
 interface Field {
   label: string
-  key: keyof SrvlogEvent
+  key: keyof NetlogEvent
   color?: string
   filter?: string // filter store key to set on click
 }
@@ -34,7 +34,7 @@ const sevClass = severityColorClass[props.event.severity] ?? 'text-t-fg'
 
 const highlightedMsg = computed(() => highlight(props.event.message))
 const copyText = computed(() => {
-  const lines = fields.map((f) => `${f.label}: ${props.event[f.key] ?? '–'}`)
+  const lines = fields.map((f) => `${f.label}: ${props.event[f.key] ?? '-'}`)
   lines.push(`message: ${props.event.message}`)
   return lines.join('\n')
 })
@@ -49,7 +49,7 @@ function onCopy(e: ClipboardEvent) {
 function fieldValue(field: Field): string {
   const val = props.event[field.key]
   if (field.key === 'received_at' && typeof val === 'string') return formatDateTime(val)
-  return String(val ?? '–')
+  return String(val ?? '-')
 }
 
 function fieldColor(field: Field): string {
@@ -80,7 +80,7 @@ function applyFilter(field: Field) {
   >
     <!-- permalink -->
     <RouterLink
-      :to="{ name: 'srvlog-detail', params: { id: event.id } }"
+      :to="{ name: 'netlog-detail', params: { id: event.id } }"
       class="absolute right-3 top-1.5 text-xs font-normal leading-none text-t-purple transition-all hover:font-extrabold hover:brightness-125"
       title="permalink"
       @click.stop
@@ -97,11 +97,11 @@ function applyFilter(field: Field) {
       <span class="text-t-fg-dark w-24 shrink-0 text-right">{{ field.label }}</span>
       <RouterLink
         v-if="field.key === 'hostname'"
-        :to="{ name: 'srvlog-device-detail', params: { hostname: event.hostname } }"
+        :to="{ name: 'netlog-device-detail', params: { hostname: event.hostname } }"
         class="min-w-0 break-all hover:underline" :class="fieldColor(field)"
         @click.stop
       >
-        {{ event.hostname || '–' }} →
+        {{ event.hostname || '-' }} &rarr;
       </RouterLink>
       <button
         v-else-if="field.filter"

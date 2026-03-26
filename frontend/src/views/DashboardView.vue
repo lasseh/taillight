@@ -3,16 +3,19 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { VisXYContainer, VisStackedBar, VisLine, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 import { useDashboardStore } from '@/stores/dashboard'
+import { useNetlogDashboardStore } from '@/stores/netlog-dashboard'
 import { useAppLogDashboardStore } from '@/stores/applog-dashboard'
 import { useRsyslogStatsStore } from '@/stores/rsyslog-stats'
 import { useTaillightMetricsStore } from '@/stores/taillight-metrics'
 import { useTheme } from '@/composables/useTheme'
+import { features } from '@/config'
 import type { VolumeDataRecord } from '@/types/stats'
 import type { SimplePoint } from '@/types/chart'
 
 const route = useRoute()
 const router = useRouter()
 const dashboard = useDashboardStore()
+const netlogDashboard = useNetlogDashboardStore()
 const applogDashboard = useAppLogDashboardStore()
 const rsyslogStats = useRsyslogStatsStore()
 const taillightMetrics = useTaillightMetricsStore()
@@ -22,8 +25,9 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
-type Tab = 'srvlog' | 'applog' | 'rsyslog' | 'taillight'
-const activeTab = ref<Tab>((route.query.tab as Tab) || 'srvlog')
+type Tab = 'netlog' | 'srvlog' | 'applog' | 'rsyslog' | 'taillight'
+const defaultTab = features.netlog ? 'netlog' : features.srvlog ? 'srvlog' : 'applog'
+const activeTab = ref<Tab>((route.query.tab as Tab) || defaultTab)
 
 const accentColors = computed(() => theme.value.chartColors)
 
@@ -68,6 +72,7 @@ const dataStep = computed(() => {
   if (activeTab.value === 'taillight') return intervalMs[taillightMetrics.interval] ?? 60_000
   if (activeTab.value === 'rsyslog') return intervalMs[rsyslogStats.interval] ?? 60_000
   if (activeTab.value === 'applog') return intervalMs[applogDashboard.interval] ?? 60_000
+  if (activeTab.value === 'netlog') return intervalMs[netlogDashboard.interval] ?? 60_000
   return intervalMs[dashboard.interval] ?? 60_000
 })
 
@@ -75,25 +80,30 @@ const activeRange = computed(() => {
   if (activeTab.value === 'taillight') return taillightMetrics.range
   if (activeTab.value === 'rsyslog') return rsyslogStats.range
   if (activeTab.value === 'applog') return applogDashboard.range
+  if (activeTab.value === 'netlog') return netlogDashboard.range
   return dashboard.range
 })
 const activeLoading = computed(() => {
   if (activeTab.value === 'taillight') return taillightMetrics.loading
   if (activeTab.value === 'rsyslog') return rsyslogStats.loading
   if (activeTab.value === 'applog') return applogDashboard.loading
+  if (activeTab.value === 'netlog') return netlogDashboard.loading
   return dashboard.loading
 })
 const activeError = computed(() => {
   if (activeTab.value === 'taillight') return taillightMetrics.error
   if (activeTab.value === 'rsyslog') return rsyslogStats.error
   if (activeTab.value === 'applog') return applogDashboard.error
+  if (activeTab.value === 'netlog') return netlogDashboard.error
   return dashboard.error
 })
 
 function switchTab(tab: Tab) {
   activeTab.value = tab
   router.replace({ query: { ...route.query, tab } })
-  if (tab === 'srvlog' && dashboard.buckets?.length === 0) {
+  if (tab === 'netlog' && netlogDashboard.buckets?.length === 0) {
+    netlogDashboard.fetchVolume()
+  } else if (tab === 'srvlog' && dashboard.buckets?.length === 0) {
     dashboard.fetchVolume()
   } else if (tab === 'applog' && applogDashboard.buckets?.length === 0) {
     applogDashboard.fetchVolume()
@@ -111,6 +121,8 @@ function selectPreset(range: string, interval: string) {
     rsyslogStats.setPreset(range, interval)
   } else if (activeTab.value === 'applog') {
     applogDashboard.setPreset(range, interval)
+  } else if (activeTab.value === 'netlog') {
+    netlogDashboard.setPreset(range, interval)
   } else {
     dashboard.setPreset(range, interval)
   }
@@ -178,6 +190,13 @@ const hostColorAccessor = makeColorAccessor
 function hostTemplate(d: VolumeDataRecord) { return makeTemplate(dashboard.hosts)(d) }
 function singleHostYAccessor(host: string) { return makeSingleYAccessor(host) }
 function singleHostTracker(host: string) { return makeSingleTracker(hoveredHost, host) }
+
+// Netlog-specific wrappers using generic helpers.
+function netlogHostYAccessors() { return makeYAccessors(netlogDashboard.hosts) }
+const netlogHostColorAccessor = makeColorAccessor
+function netlogHostTemplate(d: VolumeDataRecord) { return makeTemplate(netlogDashboard.hosts)(d) }
+function singleNetlogHostYAccessor(host: string) { return makeSingleYAccessor(host) }
+function singleNetlogHostTracker(host: string) { return makeSingleTracker(hoveredHost, host) }
 
 // Applog-specific wrappers using generic helpers.
 function serviceYAccessors() { return makeYAccessors(applogDashboard.services) }
@@ -351,13 +370,21 @@ const xTickFormat = (v: number) => {
 
 onMounted(() => {
   const tab = route.query.tab as Tab | undefined
-  if (tab === 'applog') activeTab.value = 'applog'
+  if (tab === 'netlog') activeTab.value = 'netlog'
+  else if (tab === 'applog') activeTab.value = 'applog'
   else if (tab === 'rsyslog') activeTab.value = 'rsyslog'
   else if (tab === 'taillight') activeTab.value = 'taillight'
 
   const r = route.query.range as string | undefined
 
-  if (activeTab.value === 'taillight') {
+  if (activeTab.value === 'netlog') {
+    const preset = r ? volumePresets.find((p) => p.range === r) : undefined
+    if (preset) {
+      netlogDashboard.setPreset(preset.range, preset.interval)
+    } else {
+      netlogDashboard.fetchVolume()
+    }
+  } else if (activeTab.value === 'taillight') {
     const preset = r ? taillightPresets.find((p) => p.range === r) : undefined
     if (preset) {
       taillightMetrics.setPreset(preset.range, preset.interval)
@@ -392,6 +419,19 @@ onUnmounted(() => {
     <div class="flex items-center gap-4">
       <div class="flex gap-1">
         <button
+          v-if="features.netlog"
+          class="px-2 py-0.5 text-xs transition-colors"
+          :class="
+            activeTab === 'netlog'
+              ? 'bg-t-bg-highlight text-t-purple'
+              : 'text-t-fg-dark hover:text-t-fg'
+          "
+          @click="switchTab('netlog')"
+        >
+          NETLOG
+        </button>
+        <button
+          v-if="features.srvlog"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             activeTab === 'srvlog'
@@ -403,6 +443,7 @@ onUnmounted(() => {
           SRVLOG
         </button>
         <button
+          v-if="features.applog"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             activeTab === 'applog'
@@ -456,6 +497,80 @@ onUnmounted(() => {
       <span v-if="activeLoading" class="text-t-fg-dark ml-2 text-xs">loading...</span>
       <span v-if="activeError" class="text-t-red ml-2 text-xs">{{ activeError }}</span>
     </div>
+
+    <!-- ═══════════════ NETLOG TAB ═══════════════ -->
+    <template v-if="activeTab === 'netlog'">
+      <!-- Chart 1: Total volume (stacked bar by host) -->
+      <div>
+        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">
+          Total Volume
+        </h3>
+        <div class="bg-t-bg-dark border-t-border rounded border p-3">
+          <VisXYContainer :data="netlogDashboard.chartData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
+            <VisStackedBar
+              :x="xTotal"
+              :y="netlogHostYAccessors()"
+              :color="netlogHostColorAccessor"
+              :barPadding="0.6"
+              :roundedCorners="2"
+              :dataStep="dataStep"
+            />
+            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
+            <VisAxis type="y" :gridLine="true" :tickLine="false" />
+            <VisCrosshair :template="netlogHostTemplate" />
+            <VisTooltip />
+          </VisXYContainer>
+        </div>
+
+        <!-- Legend -->
+        <div class="mt-2 flex flex-wrap gap-3">
+          <span
+            v-for="(host, i) in netlogDashboard.hosts"
+            :key="host"
+            class="flex items-center gap-1 text-xs"
+          >
+            <span
+              class="inline-block h-2.5 w-2.5 rounded-sm"
+              :style="{ backgroundColor: accentColors[i % accentColors.length] }"
+            />
+            <span :style="{ color: accentColors[i % accentColors.length] }">{{ host }}</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Per-host sparklines -->
+      <div
+        v-for="(host, idx) in netlogDashboard.hosts"
+        :key="host"
+      >
+        <div class="flex items-center gap-2">
+          <h3 class="text-t-fg-dark text-xs font-semibold uppercase tracking-wide" :style="{ color: accentColors[idx % accentColors.length] }">
+            {{ host }}
+          </h3>
+          <span
+            v-if="hoveredHost[host]"
+            class="text-t-fg-dark text-xs"
+          >
+            {{ formatHoverTime(hoveredHost[host]!.x) }} &mdash;
+            <span class="text-t-fg">{{ (hoveredHost[host]![host] as number) ?? 0 }}</span>
+          </span>
+        </div>
+        <div class="bg-t-bg-dark border-t-border rounded border p-2">
+          <VisXYContainer :data="netlogDashboard.chartData" :height="80" :duration="0" :padding="{ top: 4, right: 8 }">
+            <VisStackedBar
+              :x="xTotal"
+              :y="singleNetlogHostYAccessor(host)"
+              :color="() => accentColors[idx % accentColors.length]"
+              :barPadding="0.6"
+              :roundedCorners="2"
+              :dataStep="dataStep"
+            />
+            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
+            <VisCrosshair :template="singleNetlogHostTracker(host)" />
+          </VisXYContainer>
+        </div>
+      </div>
+    </template>
 
     <!-- ═══════════════ SRVLOG TAB ═══════════════ -->
     <template v-if="activeTab === 'srvlog'">

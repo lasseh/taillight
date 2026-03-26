@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
-import { useMetaStore } from '@/stores/meta'
+import { useNetlogFilterStore } from '@/stores/netlog-filters'
+import { useNetlogMetaStore } from '@/stores/netlog-meta'
 import { facilityLabels, severityOptions } from '@/lib/constants'
 import FilterSelect from '@/components/FilterSelect.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
 
-const filterStore = useSrvlogFilterStore()
-const meta = useMetaStore()
+const filterStore = useNetlogFilterStore()
+const meta = useNetlogMetaStore()
 
 const mobileOpen = ref(false)
 const activeFilterCount = computed(() => Object.keys(filterStore.activeFilters).length)
@@ -58,7 +58,7 @@ const searchInput = computed({
       </button>
       <RouterLink
         v-if="filterStore.filters.hostname && !filterStore.filters.hostname.includes('*')"
-        :to="{ name: 'srvlog-device-detail', params: { hostname: filterStore.filters.hostname } }"
+        :to="{ name: 'netlog-device-detail', params: { hostname: filterStore.filters.hostname } }"
         class="text-t-teal text-xs hover:underline"
         @click.stop
       >
@@ -85,8 +85,8 @@ const searchInput = computed({
         <input
           v-model="searchInput"
           type="text"
-          placeholder="message…"
-          aria-label="Search srvlog messages"
+          placeholder="message..."
+          aria-label="Search netlog messages"
           class="bg-t-bg-dark border-t-border text-t-fg placeholder:text-t-fg-gutter hover:border-t-terminal focus:border-t-blue w-full border px-2 py-0.5 text-xs outline-none"
         />
       </label>
@@ -116,8 +116,8 @@ const searchInput = computed({
       <input
         v-model="searchInput"
         type="text"
-        placeholder="message…"
-        aria-label="Search srvlog messages"
+        placeholder="message..."
+        aria-label="Search netlog messages"
         class="bg-t-bg-dark border-t-border text-t-fg placeholder:text-t-fg-gutter hover:border-t-terminal focus:border-t-blue w-64 border px-2 py-0.5 text-xs outline-none"
       />
     </label>
@@ -134,7 +134,7 @@ const searchInput = computed({
     <span v-if="filterStore.filters.hostname && !filterStore.filters.hostname.includes('*')" class="text-t-fg-dark text-xs">-</span>
     <RouterLink
       v-if="filterStore.filters.hostname && !filterStore.filters.hostname.includes('*')"
-      :to="{ name: 'srvlog-device-detail', params: { hostname: filterStore.filters.hostname } }"
+      :to="{ name: 'netlog-device-detail', params: { hostname: filterStore.filters.hostname } }"
       class="text-t-teal text-xs hover:underline"
     >
       {{ filterStore.filters.hostname }} details &rarr;

@@ -270,7 +270,7 @@ function getSeverityBgClass(level: string): string {
                   <RouterLink
                     v-for="(host, idx) in visibleHosts"
                     :key="host.name"
-                    :to="{ name: 'device-detail', params: { hostname: host.name } }"
+                    :to="{ name: 'srvlog-device-detail', params: { hostname: host.name } }"
                     class="group flex cursor-pointer items-center gap-2"
                   >
                     <span class="text-t-fg-dark w-4 text-xs">{{ idx + 1 }}.</span>

@@ -1,4 +1,5 @@
 import type { SrvlogListResponse, JuniperNetlogRef, MetaResponse, SingleSrvlogResponse } from '@/types/srvlog'
+import type { NetlogListResponse, SingleNetlogResponse } from '@/types/netlog'
 import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
 import type { VolumeResponse, SeverityVolumeResponse, SrvlogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
 import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
@@ -159,27 +160,69 @@ export const api = {
   },
 
   getHosts(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/meta/hosts')
+    return fetchAPI('/api/v1/srvlog/meta/hosts')
   },
 
   getPrograms(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/meta/programs')
+    return fetchAPI('/api/v1/srvlog/meta/programs')
   },
 
   getFacilities(): Promise<MetaResponse<number>> {
-    return fetchAPI('/api/v1/meta/facilities')
+    return fetchAPI('/api/v1/srvlog/meta/facilities')
   },
 
   getTags(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/meta/tags')
+    return fetchAPI('/api/v1/srvlog/meta/tags')
   },
 
   getSrvlogVolume(params: URLSearchParams): Promise<VolumeResponse> {
-    return fetchAPI(`/api/v1/stats/volume?${params}`)
+    return fetchAPI(`/api/v1/srvlog/stats/volume?${params}`)
   },
 
   getJuniperLookup(name: string): Promise<MetaResponse<JuniperNetlogRef>> {
     return fetchAPI(`/api/v1/juniper/lookup?name=${encodeURIComponent(name)}`)
+  },
+
+  // Netlog
+  getNetlogs(params: URLSearchParams, signal?: AbortSignal): Promise<NetlogListResponse> {
+    return fetchAPI(`/api/v1/netlog?${params}`, signal)
+  },
+
+  getNetlog(id: number): Promise<SingleNetlogResponse> {
+    return fetchAPI(`/api/v1/netlog/${id}`)
+  },
+
+  getNetlogHosts(): Promise<MetaResponse<string>> {
+    return fetchAPI('/api/v1/netlog/meta/hosts')
+  },
+
+  getNetlogPrograms(): Promise<MetaResponse<string>> {
+    return fetchAPI('/api/v1/netlog/meta/programs')
+  },
+
+  getNetlogFacilities(): Promise<MetaResponse<number>> {
+    return fetchAPI('/api/v1/netlog/meta/facilities')
+  },
+
+  getNetlogTags(): Promise<MetaResponse<string>> {
+    return fetchAPI('/api/v1/netlog/meta/tags')
+  },
+
+  getNetlogVolume(params: URLSearchParams): Promise<VolumeResponse> {
+    return fetchAPI(`/api/v1/netlog/stats/volume?${params}`)
+  },
+
+  getNetlogSeverityVolume(params: URLSearchParams): Promise<SeverityVolumeResponse> {
+    return fetchAPI(`/api/v1/netlog/stats/severity-volume?${params}`)
+  },
+
+  getNetlogDeviceSummary(hostname: string): Promise<DeviceSummaryResponse> {
+    return fetchAPI(`/api/v1/netlog/device/${encodeURIComponent(hostname)}`)
+  },
+
+  getNetlogSummary(range?: string): Promise<SrvlogSummaryResponse> {
+    const q = range ? `?range=${encodeURIComponent(range)}` : ''
+    return fetchAPI(`/api/v1/netlog/stats/summary${q}`)
   },
 
   // App log
@@ -208,7 +251,7 @@ export const api = {
   },
 
   getSrvlogSeverityVolume(params: URLSearchParams): Promise<SeverityVolumeResponse> {
-    return fetchAPI(`/api/v1/stats/severity-volume?${params}`)
+    return fetchAPI(`/api/v1/srvlog/stats/severity-volume?${params}`)
   },
 
   getAppLogSeverityVolume(params: URLSearchParams): Promise<SeverityVolumeResponse> {
@@ -217,7 +260,7 @@ export const api = {
 
   // Device
   getSrvlogDeviceSummary(hostname: string): Promise<DeviceSummaryResponse> {
-    return fetchAPI(`/api/v1/device/${encodeURIComponent(hostname)}`)
+    return fetchAPI(`/api/v1/srvlog/device/${encodeURIComponent(hostname)}`)
   },
 
   getAppLogDeviceSummary(hostname: string): Promise<AppLogDeviceSummaryResponse> {
@@ -226,7 +269,7 @@ export const api = {
 
   getSrvlogSummary(range?: string): Promise<SrvlogSummaryResponse> {
     const q = range ? `?range=${encodeURIComponent(range)}` : ''
-    return fetchAPI(`/api/v1/stats/summary${q}`)
+    return fetchAPI(`/api/v1/srvlog/stats/summary${q}`)
   },
 
   getAppLogSummary(range?: string): Promise<AppLogSummaryResponse> {

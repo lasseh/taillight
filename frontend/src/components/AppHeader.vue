@@ -6,6 +6,7 @@ import { useNotifications } from '@/composables/useNotifications'
 import { useTheme } from '@/composables/useTheme'
 import { useScrollStore } from '@/stores/scroll'
 import { useDashboardLayout } from '@/composables/useDashboardLayout'
+import { features } from '@/config'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,10 +18,18 @@ const { startEditing } = useDashboardLayout()
 
 const isAuthenticated = computed(() => auth.user?.username !== 'anonymous')
 
-function navigateToLog(routeName: 'srvlog' | 'applog') {
+function navigateToLog(routeName: 'netlog' | 'srvlog' | 'applog') {
   scrollStore.requestScrollToBottom(routeName)
   router.push({ name: routeName })
 }
+
+/** Determine the dashboard tab based on the current route context. */
+const dashboardTab = computed(() => {
+  const name = String(route.name)
+  if (name.startsWith('applog')) return 'applog'
+  if (name.startsWith('netlog') && features.netlog) return 'netlog'
+  return 'srvlog'
+})
 
 const homeLink = '/'
 
@@ -33,7 +42,7 @@ function closeMobileMenu() {
   mobileMenuOpen.value = false
 }
 
-function mobileNavigateToLog(routeName: 'srvlog' | 'applog') {
+function mobileNavigateToLog(routeName: 'netlog' | 'srvlog' | 'applog') {
   closeMobileMenu()
   navigateToLog(routeName)
 }
@@ -141,6 +150,19 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           HOME
         </router-link>
         <button
+          v-if="features.netlog"
+          class="px-2 py-0.5 text-xs transition-colors"
+          :class="
+            String(route.name).startsWith('netlog')
+              ? 'bg-t-bg-highlight text-t-purple'
+              : 'text-t-fg-dark hover:text-t-purple'
+          "
+          @click="navigateToLog('netlog')"
+        >
+          NETLOG
+        </button>
+        <button
+          v-if="features.srvlog"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             String(route.name).startsWith('srvlog')
@@ -152,6 +174,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           SRVLOG
         </button>
         <button
+          v-if="features.applog"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             String(route.name).startsWith('applog')
@@ -163,7 +186,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           APPLOG
         </button>
         <router-link
-          :to="{ path: '/dashboard', query: { tab: String(route.name).startsWith('applog') ? 'applog' : 'srvlog' } }"
+          :to="{ path: '/dashboard', query: { tab: dashboardTab } }"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             route.name === 'dashboard'
@@ -363,6 +386,19 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             HOME
           </router-link>
           <button
+            v-if="features.netlog"
+            class="px-2 py-1.5 text-left text-xs transition-colors"
+            :class="
+              String(route.name).startsWith('netlog')
+                ? 'bg-t-bg-highlight text-t-purple'
+                : 'text-t-fg-dark hover:text-t-purple'
+            "
+            @click="mobileNavigateToLog('netlog')"
+          >
+            NETLOG
+          </button>
+          <button
+            v-if="features.srvlog"
             class="px-2 py-1.5 text-left text-xs transition-colors"
             :class="
               String(route.name).startsWith('srvlog')
@@ -374,6 +410,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             SRVLOG
           </button>
           <button
+            v-if="features.applog"
             class="px-2 py-1.5 text-left text-xs transition-colors"
             :class="
               String(route.name).startsWith('applog')
@@ -385,7 +422,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             APPLOG
           </button>
           <router-link
-            :to="{ path: '/dashboard', query: { tab: String(route.name).startsWith('applog') ? 'applog' : 'srvlog' } }"
+            :to="{ path: '/dashboard', query: { tab: dashboardTab } }"
             class="px-2 py-1.5 text-xs transition-colors"
             :class="
               route.name === 'dashboard'

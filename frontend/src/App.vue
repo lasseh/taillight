@@ -4,15 +4,20 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useMetaStore } from '@/stores/meta'
 import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
+import { useNetlogFilterStore } from '@/stores/netlog-filters'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
 import { useAppLogMetaStore } from '@/stores/applog-meta'
+import { useNetlogMetaStore } from '@/stores/netlog-meta'
 import { useScrollStore } from '@/stores/scroll'
 import { useSrvlogStream } from '@/composables/useSrvlogStream'
+import { useNetlogStream } from '@/composables/useNetlogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
 import { useNotifications } from '@/composables/useNotifications'
 import { useFavicon } from '@/composables/useFavicon'
+import { features } from '@/config'
 import AppHeader from '@/components/AppHeader.vue'
 import FilterBar from '@/components/FilterBar.vue'
+import NetlogFilterBar from '@/components/NetlogFilterBar.vue'
 import AppLogFilterBar from '@/components/AppLogFilterBar.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ConnectionBanner from '@/components/ConnectionBanner.vue'
@@ -22,8 +27,10 @@ const router = useRouter()
 const auth = useAuthStore()
 const meta = useMetaStore()
 const filters = useSrvlogFilterStore()
+const netlogFilters = useNetlogFilterStore()
 const appLogFilters = useAppLogFilterStore()
 const appLogMeta = useAppLogMetaStore()
+const netlogMeta = useNetlogMetaStore()
 const scrollStore = useScrollStore()
 
 // Wait for initial navigation to complete before rendering the layout.
@@ -33,7 +40,7 @@ const routerReady = ref(false)
 router.isReady().then(() => { routerReady.value = true })
 
 const isLoginRoute = computed(() => route.name === 'login')
-const isLogRoute = computed(() => route.name === 'srvlog' || route.name === 'applog')
+const isLogRoute = computed(() => route.name === 'netlog' || route.name === 'srvlog' || route.name === 'applog')
 const showJumpToLatest = computed(() => {
   if (!isLogRoute.value) return false
   return !scrollStore.isPinned(String(route.name))
@@ -42,12 +49,14 @@ const showJumpToLatest = computed(() => {
 const newEventCount = computed(() => scrollStore.getNewEventCount(String(route.name)))
 
 const srvlogStream = useSrvlogStream()
+const netlogStream = useNetlogStream()
 const applogStream = useAppLogStream()
 const { notifySrvlog, notifyApplog } = useNotifications()
 
-const connected = computed(() => srvlogStream.connected.value || applogStream.connected.value)
+const connected = computed(() => srvlogStream.connected.value || netlogStream.connected.value || applogStream.connected.value)
 
 const isHistoricalMode = computed(() => {
+  if (route.name === 'netlog') return Boolean(netlogFilters.filters.from || netlogFilters.filters.to)
   if (route.name === 'srvlog') return Boolean(filters.filters.from || filters.filters.to)
   if (route.name === 'applog') return Boolean(appLogFilters.filters.from || appLogFilters.filters.to)
   return false
@@ -56,14 +65,18 @@ const isHistoricalMode = computed(() => {
 useFavicon(connected)
 
 let unsubSrvlog: (() => void) | null = null
+let unsubNetlog: (() => void) | null = null
 let unsubApplog: (() => void) | null = null
 
 function startStreams() {
   filters.initFromURL()
+  netlogFilters.initFromURL()
   appLogFilters.initFromURL()
   meta.fetchAll()
+  if (features.netlog) netlogMeta.fetchAll()
   appLogMeta.fetchAll()
   srvlogStream.start()
+  if (features.netlog) netlogStream.start()
   applogStream.start()
   unsubSrvlog = srvlogStream.subscribe(notifySrvlog)
   unsubApplog = applogStream.subscribe(notifyApplog)
@@ -71,10 +84,13 @@ function startStreams() {
 
 function stopStreams() {
   unsubSrvlog?.()
+  unsubNetlog?.()
   unsubApplog?.()
   unsubSrvlog = null
+  unsubNetlog = null
   unsubApplog = null
   srvlogStream.stop()
+  netlogStream.stop()
   applogStream.stop()
 }
 
@@ -120,12 +136,13 @@ onErrorCaptured((err) => {
   <router-view v-else-if="isLoginRoute" />
   <div v-else-if="routerReady && auth.user" class="flex h-dvh flex-col">
     <AppHeader />
+    <NetlogFilterBar v-if="route.name === 'netlog'" />
     <FilterBar v-if="route.name === 'srvlog'" />
     <AppLogFilterBar v-if="route.name === 'applog'" />
     <ConnectionBanner :connected="connected" />
     <main class="flex min-h-0 flex-1 flex-col">
       <router-view v-slot="{ Component }">
-        <KeepAlive include="SrvlogListView,AppLogListView">
+        <KeepAlive include="NetlogListView,SrvlogListView,AppLogListView">
           <component :is="Component" />
         </KeepAlive>
       </router-view>

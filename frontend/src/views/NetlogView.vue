@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { SrvlogEvent, JuniperNetlogRef } from '@/types/srvlog'
+import type { NetlogEvent, JuniperNetlogRef } from '@/types/netlog'
 import { api, ApiError } from '@/lib/api'
 import { severityColorClass, severityBorderClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
@@ -13,7 +13,7 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const event = ref<SrvlogEvent | null>(null)
+const event = ref<NetlogEvent | null>(null)
 const juniperRefs = ref<JuniperNetlogRef[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -43,11 +43,11 @@ const copyText = computed(() => {
     `message: ${e.message}`,
     `received: ${formatDateTime(e.received_at)}`,
     `reported: ${formatDateTime(e.reported_at)}`,
-    `hostname: ${e.hostname || '–'}`,
-    `ip: ${e.fromhost_ip || '–'}`,
-    `program: ${e.programname || '–'}`,
-    `tag: ${e.syslogtag || '–'}`,
-    `msgid: ${e.msgid || '–'}`,
+    `hostname: ${e.hostname || '-'}`,
+    `ip: ${e.fromhost_ip || '-'}`,
+    `program: ${e.programname || '-'}`,
+    `tag: ${e.syslogtag || '-'}`,
+    `msgid: ${e.msgid || '-'}`,
     `facility: ${e.facility_label} (${e.facility})`,
   ]
   if (e.structured_data) lines.push(`structured data: ${e.structured_data}`)
@@ -75,12 +75,12 @@ watch(() => props.id, async (id) => {
   const numId = Number(id)
   if (!Number.isInteger(numId) || numId <= 0) {
     errorStatus.value = 404
-    error.value = `srvlog #${id} does not exist`
+    error.value = `netlog #${id} does not exist`
     loading.value = false
     return
   }
   try {
-    const res = await api.getSrvlog(numId)
+    const res = await api.getNetlog(numId)
     if (version !== fetchVersion) return
     event.value = res.data
     if (res.data.juniper_ref) {
@@ -116,28 +116,28 @@ watch(() => props.id, async (id) => {
       <ErrorDisplay
         v-else-if="error && errorStatus === 404"
         :code="404"
-        title="srvlog not found"
-        :message="`srvlog #${props.id} does not exist`"
+        title="netlog not found"
+        :message="`netlog #${props.id} does not exist`"
         :show-back="false"
-        list-route="srvlog"
-        list-label="go to srvlog"
+        list-route="netlog"
+        list-label="go to netlog"
       />
       <ErrorDisplay
         v-else-if="error && errorStatus"
         :code="errorStatus"
-        title="failed to load srvlog"
+        title="failed to load netlog"
         :message="error"
         :show-back="false"
-        list-route="srvlog"
-        list-label="go to srvlog"
+        list-route="netlog"
+        list-label="go to netlog"
       />
       <ErrorDisplay
         v-else-if="error"
         title="nobody's home"
         message="the api isn't responding — it's probably down, restarting, or out getting coffee"
         :show-back="false"
-        list-route="srvlog"
-        list-label="go to srvlog"
+        list-route="netlog"
+        list-label="go to netlog"
       />
 
       <div v-else-if="event" class="mx-auto max-w-7xl space-y-4" @copy="onCopy">
@@ -171,23 +171,23 @@ watch(() => props.id, async (id) => {
             <div class="flex gap-2 px-4 py-1.5">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">hostname</span>
               <RouterLink
-                :to="{ name: 'srvlog-device-detail', params: { hostname: event.hostname } }"
+                :to="{ name: 'netlog-device-detail', params: { hostname: event.hostname } }"
                 class="text-t-teal font-mono hover:underline"
               >
-                {{ event.hostname || '–' }} <span class="text-t-fg-dark text-xs">&rarr;</span>
+                {{ event.hostname || '-' }} <span class="text-t-fg-dark text-xs">&rarr;</span>
               </RouterLink>
             </div>
             <div class="flex gap-2 px-4 py-1.5">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">ip</span>
-              <span class="text-t-blue font-mono">{{ event.fromhost_ip || '–' }}</span>
+              <span class="text-t-blue font-mono">{{ event.fromhost_ip || '-' }}</span>
             </div>
             <div class="flex gap-2 px-4 py-1.5">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">program</span>
-              <span class="text-t-purple font-mono">{{ event.programname || '–' }}</span>
+              <span class="text-t-purple font-mono">{{ event.programname || '-' }}</span>
             </div>
             <div class="flex gap-2 px-4 py-1.5">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">msgid</span>
-              <span class="text-t-fg font-mono">{{ event.msgid || '–' }}</span>
+              <span class="text-t-fg font-mono">{{ event.msgid || '-' }}</span>
             </div>
             <div class="flex gap-2 px-4 py-1.5">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">severity</span>

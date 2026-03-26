@@ -21,7 +21,7 @@ RUN useradd --system --no-create-home --shell /usr/sbin/nologin rsyslog && \
 # Validate config
 RUN rsyslogd -N1 -f /etc/rsyslog.conf
 
-EXPOSE 514/udp 514/tcp 1514/udp
+EXPOSE 514/udp 514/tcp 515/udp 515/tcp
 
 USER rsyslog
 

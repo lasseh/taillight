@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { features } from '@/config'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -9,45 +10,98 @@ const router = createRouter({
       name: 'home',
       component: () => import('@/views/HomeView.vue'),
     },
-    {
-      path: '/srvlog',
-      name: 'srvlog',
-      component: () => import('@/views/SrvlogListView.vue'),
-    },
+    // Netlog routes (feature-gated)
+    ...(features.netlog
+      ? [
+          {
+            path: '/netlog',
+            name: 'netlog',
+            component: () => import('@/views/NetlogListView.vue'),
+          },
+          {
+            path: '/netlog/device/:hostname',
+            name: 'netlog-device-detail',
+            component: () => import('@/views/NetlogDeviceView.vue'),
+            props: true,
+          },
+          {
+            path: '/netlog/:id',
+            name: 'netlog-detail',
+            component: () => import('@/views/NetlogView.vue'),
+            props: true,
+          },
+        ]
+      : [
+          {
+            path: '/netlog/:pathMatch(.*)*',
+            name: 'netlog-disabled',
+            component: () => import('@/views/FeatureDisabledView.vue'),
+            props: { feature: 'netlog' },
+          },
+        ]),
+    // Srvlog routes (feature-gated)
+    ...(features.srvlog
+      ? [
+          {
+            path: '/srvlog',
+            name: 'srvlog',
+            component: () => import('@/views/SrvlogListView.vue'),
+          },
+          {
+            path: '/srvlog/device/:hostname',
+            name: 'srvlog-device-detail',
+            component: () => import('@/views/DeviceView.vue'),
+            props: true,
+          },
+          {
+            path: '/srvlog/:id',
+            name: 'srvlog-detail',
+            component: () => import('@/views/SrvlogView.vue'),
+            props: true,
+          },
+        ]
+      : [
+          {
+            path: '/srvlog/:pathMatch(.*)*',
+            name: 'srvlog-disabled',
+            component: () => import('@/views/FeatureDisabledView.vue'),
+            props: { feature: 'srvlog' },
+          },
+        ]),
     {
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('@/views/DashboardView.vue'),
     },
-    {
-      path: '/srvlog/:id',
-      name: 'srvlog-detail',
-      component: () => import('@/views/SrvlogView.vue'),
-      props: true,
-    },
-    {
-      path: '/device/:hostname',
-      name: 'device-detail',
-      component: () => import('@/views/DeviceView.vue'),
-      props: true,
-    },
-    {
-      path: '/applog',
-      name: 'applog',
-      component: () => import('@/views/AppLogListView.vue'),
-    },
-    {
-      path: '/applog/device/:hostname',
-      name: 'applog-device-detail',
-      component: () => import('@/views/AppLogDeviceView.vue'),
-      props: true,
-    },
-    {
-      path: '/applog/:id',
-      name: 'applog-detail',
-      component: () => import('@/views/AppLogView.vue'),
-      props: true,
-    },
+    // Applog routes (feature-gated)
+    ...(features.applog
+      ? [
+          {
+            path: '/applog',
+            name: 'applog',
+            component: () => import('@/views/AppLogListView.vue'),
+          },
+          {
+            path: '/applog/device/:hostname',
+            name: 'applog-device-detail',
+            component: () => import('@/views/AppLogDeviceView.vue'),
+            props: true,
+          },
+          {
+            path: '/applog/:id',
+            name: 'applog-detail',
+            component: () => import('@/views/AppLogView.vue'),
+            props: true,
+          },
+        ]
+      : [
+          {
+            path: '/applog/:pathMatch(.*)*',
+            name: 'applog-disabled',
+            component: () => import('@/views/FeatureDisabledView.vue'),
+            props: { feature: 'applog' },
+          },
+        ]),
     {
       path: '/notifications',
       name: 'notifications',
