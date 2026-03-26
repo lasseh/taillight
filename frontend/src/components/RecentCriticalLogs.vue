@@ -5,14 +5,17 @@ import { severityColorClassByLabel, severityBgClass, severityBgClassByLabel } fr
 import { formatTime } from '@/lib/format'
 import { highlightMessage } from '@/lib/highlighter'
 
-defineProps<{
+const props = withDefaults(defineProps<{
   events: SrvlogEvent[]
   title?: string
   showHostname?: boolean
   flashIds?: Set<number>
   highlightSeverity?: boolean
   hideHeader?: boolean
-}>()
+  routeName?: string
+}>(), {
+  routeName: 'srvlog-detail',
+})
 </script>
 
 <template>
@@ -26,7 +29,7 @@ defineProps<{
       <RouterLink
         v-for="event in events"
         :key="'m-' + event.id"
-        :to="{ name: 'srvlog-detail', params: { id: event.id } }"
+        :to="{ name: props.routeName, params: { id: event.id } }"
         class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 md:hidden"
         :class="[
           flashIds?.has(event.id) ? 'row-flash' : '',
@@ -43,7 +46,7 @@ defineProps<{
       <RouterLink
         v-for="event in events"
         :key="'d-' + event.id"
-        :to="{ name: 'srvlog-detail', params: { id: event.id } }"
+        :to="{ name: props.routeName, params: { id: event.id } }"
         class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug md:flex"
         :class="[
           flashIds?.has(event.id) ? 'row-flash' : '',

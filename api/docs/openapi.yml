@@ -24,8 +24,12 @@ tags:
     description: Application log queries, streaming, and ingestion
   - name: AppLog Metadata
     description: Distinct values for applog filter dropdowns
+  - name: Netlog
+    description: Netlog (network device) event queries and streaming
+  - name: Netlog Metadata
+    description: Distinct values for netlog filter dropdowns
   - name: Stats
-    description: Srvlog and AppLog volume and summary statistics
+    description: Srvlog, Netlog, and AppLog volume and summary statistics
   - name: Juniper
     description: Juniper syslog reference lookups
   - name: Rsyslog
@@ -356,21 +360,14 @@ paths:
         - $ref: "#/components/parameters/IntID"
       responses:
         "200":
-          description: Srvlog event with optional Juniper reference
+          description: Srvlog event
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   data:
-                    allOf:
-                      - $ref: "#/components/schemas/SrvlogEvent"
-                      - type: object
-                        properties:
-                          juniper_ref:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/JuniperRef"
+                    $ref: "#/components/schemas/SrvlogEvent"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -409,7 +406,7 @@ paths:
             text/event-stream: {}
 
   # ── Srvlog Metadata ─────────────────────────────────────────────────────
-  /meta/hosts:
+  /srvlog/meta/hosts:
     get:
       operationId: srvlogHosts
       tags: [Srvlog Metadata]
@@ -418,7 +415,7 @@ paths:
         "200":
           $ref: "#/components/responses/StringList"
 
-  /meta/programs:
+  /srvlog/meta/programs:
     get:
       operationId: srvlogPrograms
       tags: [Srvlog Metadata]
@@ -427,7 +424,7 @@ paths:
         "200":
           $ref: "#/components/responses/StringList"
 
-  /meta/facilities:
+  /srvlog/meta/facilities:
     get:
       operationId: srvlogFacilities
       tags: [Srvlog Metadata]
@@ -445,7 +442,7 @@ paths:
                     items:
                       type: integer
 
-  /meta/tags:
+  /srvlog/meta/tags:
     get:
       operationId: srvlogTags
       tags: [Srvlog Metadata]
@@ -454,8 +451,8 @@ paths:
         "200":
           $ref: "#/components/responses/StringList"
 
-  # ── Stats ───────────────────────────────────────────────────────────────
-  /stats/volume:
+  # ── Srvlog Stats ──────────────────────────────────────────────────────
+  /srvlog/stats/volume:
     get:
       operationId: srvlogVolume
       tags: [Stats]
@@ -476,7 +473,28 @@ paths:
                     items:
                       $ref: "#/components/schemas/VolumeBucket"
 
-  /stats/summary:
+  /srvlog/stats/severity-volume:
+    get:
+      operationId: srvlogSeverityVolume
+      tags: [Stats]
+      summary: Srvlog severity volume over time
+      parameters:
+        - $ref: "#/components/parameters/Interval"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Severity volume buckets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SeverityVolumeBucket"
+
+  /srvlog/stats/summary:
     get:
       operationId: srvlogSummary
       tags: [Stats]
@@ -493,6 +511,264 @@ paths:
                 properties:
                   data:
                     $ref: "#/components/schemas/SrvlogSummary"
+
+  /srvlog/device/{hostname}:
+    get:
+      operationId: getSrvlogDeviceSummary
+      tags: [Device]
+      summary: Srvlog device detail
+      description: Aggregated summary for a single srvlog device by hostname.
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Device summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeviceSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # ── Netlog ─────────────────────────────────────────────────────────────
+  /netlog:
+    get:
+      operationId: listNetlog
+      tags: [Netlog]
+      summary: List netlog events
+      parameters:
+        - $ref: "#/components/parameters/SrvlogHostname"
+        - $ref: "#/components/parameters/SrvlogProgramname"
+        - $ref: "#/components/parameters/SyslogTag"
+        - $ref: "#/components/parameters/SrvlogMsgID"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/FromHostIP"
+        - $ref: "#/components/parameters/Severity"
+        - $ref: "#/components/parameters/SeverityMax"
+        - $ref: "#/components/parameters/Facility"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated netlog events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NetlogEvent"
+                  cursor:
+                    type: string
+                    nullable: true
+                  has_more:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /netlog/{id}:
+    get:
+      operationId: getNetlog
+      tags: [Netlog]
+      summary: Get single netlog event
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Netlog event with optional Juniper reference
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/NetlogEvent"
+                      - type: object
+                        properties:
+                          juniper_ref:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/JuniperRef"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /netlog/stream:
+    get:
+      operationId: streamNetlog
+      tags: [Netlog]
+      summary: Stream netlog events (SSE)
+      description: |
+        Server-Sent Events stream. Backfills up to 100 recent events on
+        connect, then pushes new events in real time.
+
+        - Event name: `netlog`
+        - Heartbeat every 15 s: `event: heartbeat`
+      parameters:
+        - $ref: "#/components/parameters/SrvlogHostname"
+        - $ref: "#/components/parameters/SrvlogProgramname"
+        - $ref: "#/components/parameters/SyslogTag"
+        - $ref: "#/components/parameters/SrvlogMsgID"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/FromHostIP"
+        - $ref: "#/components/parameters/Severity"
+        - $ref: "#/components/parameters/SeverityMax"
+        - $ref: "#/components/parameters/Facility"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: lastEventId
+          in: query
+          schema:
+            type: string
+          description: Resume from this event ID (alternative to `Last-Event-ID` header)
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream: {}
+
+  # ── Netlog Metadata ─────────────────────────────────────────────────────
+  /netlog/meta/hosts:
+    get:
+      operationId: netlogHosts
+      tags: [Netlog Metadata]
+      summary: Distinct hostnames
+      responses:
+        "200":
+          $ref: "#/components/responses/StringList"
+
+  /netlog/meta/programs:
+    get:
+      operationId: netlogPrograms
+      tags: [Netlog Metadata]
+      summary: Distinct program names
+      responses:
+        "200":
+          $ref: "#/components/responses/StringList"
+
+  /netlog/meta/facilities:
+    get:
+      operationId: netlogFacilities
+      tags: [Netlog Metadata]
+      summary: Facility codes in use
+      responses:
+        "200":
+          description: List of integer facility codes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: integer
+
+  /netlog/meta/tags:
+    get:
+      operationId: netlogTags
+      tags: [Netlog Metadata]
+      summary: Distinct netlog tags
+      responses:
+        "200":
+          $ref: "#/components/responses/StringList"
+
+  # ── Netlog Stats ──────────────────────────────────────────────────────
+  /netlog/stats/volume:
+    get:
+      operationId: netlogVolume
+      tags: [Stats]
+      summary: Netlog volume over time
+      parameters:
+        - $ref: "#/components/parameters/Interval"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Volume buckets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VolumeBucket"
+
+  /netlog/stats/severity-volume:
+    get:
+      operationId: netlogSeverityVolume
+      tags: [Stats]
+      summary: Netlog severity volume over time
+      parameters:
+        - $ref: "#/components/parameters/Interval"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Severity volume buckets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SeverityVolumeBucket"
+
+  /netlog/stats/summary:
+    get:
+      operationId: netlogSummary
+      tags: [Stats]
+      summary: Netlog summary
+      parameters:
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Summary statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SrvlogSummary"
+
+  /netlog/device/{hostname}:
+    get:
+      operationId: getNetlogDeviceSummary
+      tags: [Device]
+      summary: Netlog device detail
+      description: Aggregated summary for a single network device by hostname.
+      parameters:
+        - name: hostname
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Device summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeviceSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   # ── Juniper ─────────────────────────────────────────────────────────────
   /juniper/lookup:
@@ -1019,31 +1295,6 @@ paths:
                       $ref: "#/components/schemas/NotificationLogEntry"
 
   # ── Device ─────────────────────────────────────────────────────────────
-  /device/{hostname}:
-    get:
-      operationId: getDeviceSummary
-      tags: [Device]
-      summary: Srvlog device detail
-      description: Aggregated summary for a single srvlog device by hostname.
-      parameters:
-        - name: hostname
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Device summary
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    $ref: "#/components/schemas/DeviceSummary"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-
   /applog/device/{hostname}:
     get:
       operationId: getAppLogDeviceSummary
@@ -1090,6 +1341,27 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/VolumeBucket"
+
+  /applog/stats/severity-volume:
+    get:
+      operationId: applogSeverityVolume
+      tags: [Stats]
+      summary: AppLog severity volume over time
+      parameters:
+        - $ref: "#/components/parameters/Interval"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Severity volume buckets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SeverityVolumeBucket"
 
   /applog/stats/summary:
     get:
@@ -1629,6 +1901,50 @@ components:
           type: string
           nullable: true
 
+    # ── Netlog ────────────────────────────────────────────────────────────
+    NetlogEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        received_at:
+          type: string
+          format: date-time
+        reported_at:
+          type: string
+          format: date-time
+        hostname:
+          type: string
+        fromhost_ip:
+          type: string
+        programname:
+          type: string
+        msgid:
+          type: string
+        severity:
+          type: integer
+          minimum: 0
+          maximum: 7
+        severity_label:
+          type: string
+          enum: [emerg, alert, crit, err, warning, notice, info, debug]
+        facility:
+          type: integer
+          minimum: 0
+          maximum: 23
+        facility_label:
+          type: string
+        syslogtag:
+          type: string
+        structured_data:
+          type: string
+          nullable: true
+        message:
+          type: string
+        raw_message:
+          type: string
+          nullable: true
+
     # ── AppLog ────────────────────────────────────────────────────────────
     AppLogEvent:
       type: object
@@ -1711,6 +2027,19 @@ components:
         total:
           type: integer
         by_host:
+          type: object
+          additionalProperties:
+            type: integer
+
+    SeverityVolumeBucket:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        total:
+          type: integer
+        by_severity:
           type: object
           additionalProperties:
             type: integer
@@ -1963,7 +2292,7 @@ components:
           type: boolean
         event_kind:
           type: string
-          enum: [srvlog, applog]
+          enum: [srvlog, netlog, applog]
         hostname:
           type: string
         programname:
@@ -2024,7 +2353,7 @@ components:
           type: boolean
         event_kind:
           type: string
-          enum: [srvlog, applog]
+          enum: [srvlog, netlog, applog]
         hostname:
           type: string
         programname:

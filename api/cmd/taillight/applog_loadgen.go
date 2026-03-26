@@ -25,7 +25,7 @@ var (
 )
 
 var applogLoadgenCmd = &cobra.Command{
-	Use:   "applog-loadgen",
+	Use:   "loadgen-applog",
 	Short: "Generate random application log events via the ingest API",
 	RunE:  runApplogLoadgen,
 }

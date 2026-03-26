@@ -1,10 +1,13 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, ApiError } from '@/lib/api'
+import { features } from '@/config'
 import { useSrvlogStream } from '@/composables/useSrvlogStream'
+import { useNetlogStream } from '@/composables/useNetlogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
 import type { SrvlogSummary, AppLogSummary, VolumeBucket, SeverityVolumeBucket } from '@/types/stats'
 import type { SrvlogEvent } from '@/types/srvlog'
+import type { NetlogEvent } from '@/types/netlog'
 import type { AppLogEvent } from '@/types/applog'
 
 const SUMMARY_REFRESH_INTERVAL = 30_000 // 30 seconds
@@ -45,12 +48,16 @@ function pad2(n: number): string {
 
 export const useHomeStore = defineStore('home', () => {
   const srvlogSummary = ref<SrvlogSummary | null>(null)
+  const netlogSummary = ref<SrvlogSummary | null>(null)
   const applogSummary = ref<AppLogSummary | null>(null)
   const recentSrvlogEvents = ref<SrvlogEvent[]>([])
+  const recentNetlogEvents = ref<NetlogEvent[]>([])
   const recentApplogEvents = ref<AppLogEvent[]>([])
   const srvlogHeatmap = ref<Record<string, number>>({})
+  const netlogHeatmap = ref<Record<string, number>>({})
   const applogHeatmap = ref<Record<string, number>>({})
   const srvlogSeverityVolume = ref<SeverityVolumeBucket[]>([])
+  const netlogSeverityVolume = ref<SeverityVolumeBucket[]>([])
   const applogSeverityVolume = ref<SeverityVolumeBucket[]>([])
   const loading = ref(false)
   const loaded = ref(false)
@@ -61,8 +68,10 @@ export const useHomeStore = defineStore('home', () => {
   let refreshTimer: ReturnType<typeof setInterval> | null = null
   let fetchVersion = 0
   let unsubSrvlog: (() => void) | null = null
+  let unsubNetlog: (() => void) | null = null
   let unsubApplog: (() => void) | null = null
   const srvlogSeenIds = new Set<number>()
+  const netlogSeenIds = new Set<number>()
   const applogSeenIds = new Set<number>()
 
   // ── SSE handlers: prepend matching live events ──
@@ -72,6 +81,13 @@ export const useHomeStore = defineStore('home', () => {
     if (srvlogSeenIds.has(event.id)) return
     srvlogSeenIds.add(event.id)
     recentSrvlogEvents.value = [event, ...recentSrvlogEvents.value].slice(0, MAX_RECENT_EVENTS)
+  }
+
+  function onNetlogEvent(event: NetlogEvent) {
+    if (event.severity > HIGH_SEVERITY_MAX) return
+    if (netlogSeenIds.has(event.id)) return
+    netlogSeenIds.add(event.id)
+    recentNetlogEvents.value = [event, ...recentNetlogEvents.value].slice(0, MAX_RECENT_EVENTS)
   }
 
   function onApplogEvent(event: AppLogEvent) {
@@ -89,21 +105,35 @@ export const useHomeStore = defineStore('home', () => {
     }
 
     let srvlogErr: unknown = null
+    let netlogErr: unknown = null
     let applogErr: unknown = null
 
     // Fetch independently so one failure doesn't block the other.
-    try {
-      const res = await api.getSrvlogSummary(range_.value)
-      srvlogSummary.value = res.data
-    } catch (e) {
-      srvlogErr = e
+    if (features.srvlog) {
+      try {
+        const res = await api.getSrvlogSummary(range_.value)
+        srvlogSummary.value = res.data
+      } catch (e) {
+        srvlogErr = e
+      }
     }
 
-    try {
-      const res = await api.getAppLogSummary(range_.value)
-      applogSummary.value = res.data
-    } catch (e) {
-      applogErr = e
+    if (features.netlog) {
+      try {
+        const res = await api.getNetlogSummary(range_.value)
+        netlogSummary.value = res.data
+      } catch (e) {
+        netlogErr = e
+      }
+    }
+
+    if (features.applog) {
+      try {
+        const res = await api.getAppLogSummary(range_.value)
+        applogSummary.value = res.data
+      } catch (e) {
+        applogErr = e
+      }
     }
 
     // Detect connection-level failures: network errors or gateway errors (502-504).
@@ -112,15 +142,21 @@ export const useHomeStore = defineStore('home', () => {
     const errMsg = (e: unknown) =>
       (e instanceof Error && e.message) ? e.message : 'unknown error'
 
-    if (srvlogErr && applogErr && isConnectionErr(srvlogErr) && isConnectionErr(applogErr)) {
+    // Collect all errors from enabled feeds.
+    const feedErrors: { name: string; err: unknown }[] = []
+    if (features.srvlog && srvlogErr) feedErrors.push({ name: 'srvlog', err: srvlogErr })
+    if (features.netlog && netlogErr) feedErrors.push({ name: 'netlog', err: netlogErr })
+    if (features.applog && applogErr) feedErrors.push({ name: 'applog', err: applogErr })
+
+    const enabledCount = [features.srvlog, features.netlog, features.applog].filter(Boolean).length
+    const allFailed = feedErrors.length === enabledCount && enabledCount > 0
+    const allConnection = feedErrors.every(f => isConnectionErr(f.err))
+
+    if (allFailed && allConnection) {
       error.value = 'connection'
       startReconnect()
-    } else if (srvlogErr && applogErr) {
-      error.value = `srvlog: ${errMsg(srvlogErr)}; applog: ${errMsg(applogErr)}`
-    } else if (srvlogErr) {
-      error.value = `srvlog summary: ${errMsg(srvlogErr)}`
-    } else if (applogErr) {
-      error.value = `applog summary: ${errMsg(applogErr)}`
+    } else if (feedErrors.length > 0) {
+      error.value = feedErrors.map(f => `${f.name}: ${errMsg(f.err)}`).join('; ')
     } else {
       error.value = null
     }
@@ -133,30 +169,49 @@ export const useHomeStore = defineStore('home', () => {
     const version = ++fetchVersion
     const from = rangeToFrom(range_.value)
 
-    try {
-      const srvlogEventsRes = await api.getSrvlogs(
-        new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS), from }),
-      )
-      if (version !== fetchVersion) return
-      const events = (srvlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
-      recentSrvlogEvents.value = events
-      srvlogSeenIds.clear()
-      for (const e of events) srvlogSeenIds.add(e.id)
-    } catch {
-      // Non-critical — keep existing data
+    if (features.srvlog) {
+      try {
+        const srvlogEventsRes = await api.getSrvlogs(
+          new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS), from }),
+        )
+        if (version !== fetchVersion) return
+        const events = (srvlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+        recentSrvlogEvents.value = events
+        srvlogSeenIds.clear()
+        for (const e of events) srvlogSeenIds.add(e.id)
+      } catch {
+        // Non-critical — keep existing data
+      }
     }
 
-    try {
-      const applogEventsRes = await api.getAppLogs(
-        new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS), from }),
-      )
-      if (version !== fetchVersion) return
-      const events = (applogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
-      recentApplogEvents.value = events
-      applogSeenIds.clear()
-      for (const e of events) applogSeenIds.add(e.id)
-    } catch {
-      // Non-critical — keep existing data
+    if (features.netlog) {
+      try {
+        const netlogEventsRes = await api.getNetlogs(
+          new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS), from }),
+        )
+        if (version !== fetchVersion) return
+        const events = (netlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+        recentNetlogEvents.value = events
+        netlogSeenIds.clear()
+        for (const e of events) netlogSeenIds.add(e.id)
+      } catch {
+        // Non-critical — keep existing data
+      }
+    }
+
+    if (features.applog) {
+      try {
+        const applogEventsRes = await api.getAppLogs(
+          new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS), from }),
+        )
+        if (version !== fetchVersion) return
+        const events = (applogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+        recentApplogEvents.value = events
+        applogSeenIds.clear()
+        for (const e of events) applogSeenIds.add(e.id)
+      } catch {
+        // Non-critical — keep existing data
+      }
     }
 
     if (version === fetchVersion) {
@@ -167,36 +222,62 @@ export const useHomeStore = defineStore('home', () => {
   async function fetchHeatmaps() {
     const params = new URLSearchParams({ interval: '30m', range: '7d' })
 
-    try {
-      const res = await api.getSrvlogVolume(params)
-      srvlogHeatmap.value = volumeToHeatmap(res.data ?? [])
-    } catch {
-      // Non-critical — keep existing data
+    if (features.srvlog) {
+      try {
+        const res = await api.getSrvlogVolume(params)
+        srvlogHeatmap.value = volumeToHeatmap(res.data ?? [])
+      } catch {
+        // Non-critical — keep existing data
+      }
     }
 
-    try {
-      const res = await api.getAppLogVolume(params)
-      applogHeatmap.value = volumeToHeatmap(res.data ?? [])
-    } catch {
-      // Non-critical — keep existing data
+    if (features.netlog) {
+      try {
+        const res = await api.getNetlogVolume(params)
+        netlogHeatmap.value = volumeToHeatmap(res.data ?? [])
+      } catch {
+        // Non-critical — keep existing data
+      }
+    }
+
+    if (features.applog) {
+      try {
+        const res = await api.getAppLogVolume(params)
+        applogHeatmap.value = volumeToHeatmap(res.data ?? [])
+      } catch {
+        // Non-critical — keep existing data
+      }
     }
   }
 
   async function fetchSeverityTimelines() {
     const params = new URLSearchParams({ interval: '15m', range: '24h' })
 
-    try {
-      const res = await api.getSrvlogSeverityVolume(params)
-      srvlogSeverityVolume.value = res.data ?? []
-    } catch {
-      // Non-critical — keep existing data
+    if (features.srvlog) {
+      try {
+        const res = await api.getSrvlogSeverityVolume(params)
+        srvlogSeverityVolume.value = res.data ?? []
+      } catch {
+        // Non-critical — keep existing data
+      }
     }
 
-    try {
-      const res = await api.getAppLogSeverityVolume(params)
-      applogSeverityVolume.value = res.data ?? []
-    } catch {
-      // Non-critical — keep existing data
+    if (features.netlog) {
+      try {
+        const res = await api.getNetlogSeverityVolume(params)
+        netlogSeverityVolume.value = res.data ?? []
+      } catch {
+        // Non-critical — keep existing data
+      }
+    }
+
+    if (features.applog) {
+      try {
+        const res = await api.getAppLogSeverityVolume(params)
+        applogSeverityVolume.value = res.data ?? []
+      } catch {
+        // Non-critical — keep existing data
+      }
     }
   }
 
@@ -210,16 +291,26 @@ export const useHomeStore = defineStore('home', () => {
   }
 
   function subscribeStreams() {
-    const srvlog = useSrvlogStream()
-    const applog = useAppLogStream()
-    unsubSrvlog = srvlog.subscribe(onSrvlogEvent)
-    unsubApplog = applog.subscribe(onApplogEvent)
+    if (features.srvlog) {
+      const srvlog = useSrvlogStream()
+      unsubSrvlog = srvlog.subscribe(onSrvlogEvent)
+    }
+    if (features.netlog) {
+      const netlog = useNetlogStream()
+      unsubNetlog = netlog.subscribe(onNetlogEvent)
+    }
+    if (features.applog) {
+      const applog = useAppLogStream()
+      unsubApplog = applog.subscribe(onApplogEvent)
+    }
   }
 
   function unsubscribeStreams() {
     unsubSrvlog?.()
+    unsubNetlog?.()
     unsubApplog?.()
     unsubSrvlog = null
+    unsubNetlog = null
     unsubApplog = null
   }
 
@@ -268,8 +359,10 @@ export const useHomeStore = defineStore('home', () => {
     range_.value = r
     localStorage.setItem('home-range', r)
     recentSrvlogEvents.value = []
+    recentNetlogEvents.value = []
     recentApplogEvents.value = []
     srvlogSeenIds.clear()
+    netlogSeenIds.clear()
     applogSeenIds.clear()
     fetchSummaries()
     fetchRecentEvents()
@@ -288,12 +381,16 @@ export const useHomeStore = defineStore('home', () => {
 
   return {
     srvlogSummary,
+    netlogSummary,
     applogSummary,
     recentSrvlogEvents,
+    recentNetlogEvents,
     recentApplogEvents,
     srvlogHeatmap,
+    netlogHeatmap,
     applogHeatmap,
     srvlogSeverityVolume,
+    netlogSeverityVolume,
     applogSeverityVolume,
     loading,
     loaded,

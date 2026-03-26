@@ -33,6 +33,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(loadgenCmd)
+	rootCmd.AddCommand(srvlogLoadgenCmd)
 	rootCmd.AddCommand(applogLoadgenCmd)
 	rootCmd.AddCommand(importCmd)
 	rootCmd.AddCommand(useraddCmd)

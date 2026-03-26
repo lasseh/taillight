@@ -169,7 +169,7 @@ CREATE TRIGGER trg_netlog_msg_pattern
 -- 8. Columnstore policy
 -------------------------------------------------------------------------------
 
-CALL add_columnstore_policy('netlog_events', after => INTERVAL '1 day');
+CALL add_columnstore_policy('netlog_events', after => INTERVAL '1 day', if_not_exists => true);
 
 -------------------------------------------------------------------------------
 -- 9. Retention policy
