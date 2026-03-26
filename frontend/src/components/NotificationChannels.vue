@@ -16,12 +16,15 @@ const saveError = ref('')
 
 // Form fields.
 const formName = ref('')
-const formType = ref<'slack' | 'webhook'>('slack')
+const formType = ref<'slack' | 'webhook' | 'ntfy'>('slack')
 const formEnabled = ref(true)
 const formWebhookURL = ref('')
 const formWebhookMethod = ref('POST')
 const formWebhookHeaders = ref('')
 const formWebhookTemplate = ref('')
+const formNtfyServerURL = ref('')
+const formNtfyTopic = ref('')
+const formNtfyToken = ref('')
 
 const modalEl = ref<HTMLElement | null>(null)
 useFocusTrap(modalEl)
@@ -45,7 +48,10 @@ function formatDate(ts: string): string {
 }
 
 function typeLabel(type: string): string {
-  return type === 'slack' ? 'Slack' : type === 'webhook' ? 'Webhook' : type
+  if (type === 'slack') return 'Slack'
+  if (type === 'webhook') return 'Webhook'
+  if (type === 'ntfy') return 'ntfy'
+  return type
 }
 
 async function fetchChannels() {
@@ -68,6 +74,9 @@ function openCreate() {
   formWebhookMethod.value = 'POST'
   formWebhookHeaders.value = ''
   formWebhookTemplate.value = ''
+  formNtfyServerURL.value = ''
+  formNtfyTopic.value = ''
+  formNtfyToken.value = ''
   saveError.value = ''
   showModal.value = true
 }
@@ -86,6 +95,11 @@ function openEdit(ch: NotificationChannel) {
     formWebhookMethod.value = cfg.method || 'POST'
     formWebhookHeaders.value = cfg.headers ? JSON.stringify(cfg.headers, null, 2) : ''
     formWebhookTemplate.value = cfg.template || ''
+  } else if (ch.type === 'ntfy') {
+    const cfg = ch.config as Record<string, string>
+    formNtfyServerURL.value = cfg.server_url || ''
+    formNtfyTopic.value = cfg.topic || ''
+    formNtfyToken.value = cfg.token || ''
   }
   saveError.value = ''
   showModal.value = true
@@ -99,6 +113,16 @@ function closeModal() {
 function buildConfig(): Record<string, unknown> {
   if (formType.value === 'slack') {
     return { webhook_url: formWebhookURL.value }
+  }
+  if (formType.value === 'ntfy') {
+    const cfg: Record<string, unknown> = {
+      server_url: formNtfyServerURL.value,
+      topic: formNtfyTopic.value,
+    }
+    if (formNtfyToken.value.trim()) {
+      cfg.token = formNtfyToken.value
+    }
+    return cfg
   }
   const cfg: Record<string, unknown> = { url: formWebhookURL.value }
   if (formWebhookMethod.value && formWebhookMethod.value !== 'POST') {
@@ -124,7 +148,16 @@ async function saveChannel() {
     saveError.value = 'name is required'
     return
   }
-  if (!formWebhookURL.value.trim()) {
+  if (formType.value === 'ntfy') {
+    if (!formNtfyServerURL.value.trim()) {
+      saveError.value = 'server URL is required'
+      return
+    }
+    if (!formNtfyTopic.value.trim()) {
+      saveError.value = 'topic is required'
+      return
+    }
+  } else if (!formWebhookURL.value.trim()) {
     saveError.value = formType.value === 'slack' ? 'webhook URL is required' : 'URL is required'
     return
   }
@@ -195,7 +228,7 @@ onMounted(fetchChannels)
   <div class="space-y-4">
     <!-- Header -->
     <div class="flex items-center justify-between">
-      <p class="text-t-fg-dark text-sm">notification destinations (Slack, webhooks)</p>
+      <p class="text-t-fg-dark text-sm">notification destinations (Slack, webhooks, ntfy)</p>
       <button
         class="bg-t-bg-highlight text-t-fg hover:brightness-125 border-t-border border px-4 py-2 text-sm transition-all"
         @click="openCreate"
@@ -251,7 +284,7 @@ onMounted(fetchChannels)
             <div class="w-28 shrink-0">
               <span
                 class="inline-block rounded px-1.5 py-0.5 text-xs uppercase"
-                :class="ch.type === 'slack' ? 'bg-t-purple/10 text-t-purple' : 'bg-t-blue/10 text-t-blue'"
+                :class="ch.type === 'slack' ? 'bg-t-purple/10 text-t-purple' : ch.type === 'ntfy' ? 'bg-t-teal/10 text-t-teal' : 'bg-t-blue/10 text-t-blue'"
               >
                 {{ typeLabel(ch.type) }}
               </span>
@@ -360,6 +393,14 @@ onMounted(fetchChannels)
                   >
                     Webhook
                   </button>
+                  <button
+                    class="border px-3 py-1.5 text-sm transition-all"
+                    :class="formType === 'ntfy' ? 'border-t-yellow text-t-yellow' : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'"
+                    :disabled="!!editing"
+                    @click="formType = 'ntfy'"
+                  >
+                    ntfy
+                  </button>
                 </div>
               </label>
 
@@ -381,6 +422,38 @@ onMounted(fetchChannels)
                   />
                 </label>
                 <p class="text-t-fg-gutter text-xs">The webhook is tied to the channel you selected when creating it in Slack. To send to a different channel, create a separate webhook.</p>
+              </template>
+
+              <!-- ntfy config -->
+              <template v-if="formType === 'ntfy'">
+                <label class="block">
+                  <span class="text-t-fg-dark text-sm">Server URL</span>
+                  <input
+                    v-model="formNtfyServerURL"
+                    type="url"
+                    placeholder="https://ntfy.sh"
+                    class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-3 py-2 text-sm outline-none"
+                  />
+                </label>
+                <label class="block">
+                  <span class="text-t-fg-dark text-sm">Topic</span>
+                  <input
+                    v-model="formNtfyTopic"
+                    type="text"
+                    placeholder="taillight-alerts"
+                    class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-3 py-2 text-sm outline-none"
+                  />
+                </label>
+                <label class="block">
+                  <span class="text-t-fg-dark text-sm">Token <span class="text-t-fg-gutter">(optional)</span></span>
+                  <input
+                    v-model="formNtfyToken"
+                    type="password"
+                    placeholder="Bearer token for authentication"
+                    class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-3 py-2 text-sm outline-none"
+                  />
+                </label>
+                <p class="text-t-fg-gutter text-xs">Priority is automatically mapped from the event severity. Use a self-hosted server or ntfy.sh.</p>
               </template>
 
               <!-- Webhook config -->

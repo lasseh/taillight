@@ -1,7 +1,7 @@
 export interface NotificationChannel {
   id: number
   name: string
-  type: 'slack' | 'webhook'
+  type: 'slack' | 'webhook' | 'ntfy'
   config: Record<string, unknown>
   enabled: boolean
   created_at: string
