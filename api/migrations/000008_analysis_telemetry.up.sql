@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS taillight_metrics (
     -- Gauges (point-in-time values)
     sse_clients_srvlog      INTEGER NOT NULL DEFAULT 0,
     sse_clients_applog      INTEGER NOT NULL DEFAULT 0,
+    sse_clients_netlog      INTEGER NOT NULL DEFAULT 0,
     db_pool_active          INTEGER NOT NULL DEFAULT 0,
     db_pool_idle            INTEGER NOT NULL DEFAULT 0,
     db_pool_total           INTEGER NOT NULL DEFAULT 0,
@@ -62,6 +63,8 @@ CREATE TABLE IF NOT EXISTS taillight_metrics (
     events_dropped          BIGINT NOT NULL DEFAULT 0,
     applog_events_broadcast BIGINT NOT NULL DEFAULT 0,
     applog_events_dropped   BIGINT NOT NULL DEFAULT 0,
+    netlog_events_broadcast BIGINT NOT NULL DEFAULT 0,
+    netlog_events_dropped   BIGINT NOT NULL DEFAULT 0,
     applog_ingest_total     BIGINT NOT NULL DEFAULT 0,
     applog_ingest_errors    BIGINT NOT NULL DEFAULT 0,
     listener_reconnects     BIGINT NOT NULL DEFAULT 0

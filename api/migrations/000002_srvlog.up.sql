@@ -1,4 +1,4 @@
--- Srvlog events hypertable, indexes, triggers, and meta caches.
+-- Srvlog events hypertable, indexes, triggers, meta caches, and continuous aggregate.
 
 -------------------------------------------------------------------------------
 -- 1. Hypertable
@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS srvlog_events (
     syslogtag       TEXT        NOT NULL DEFAULT '',
     structured_data TEXT,
     message         TEXT        NOT NULL,
-    raw_message     TEXT
+    raw_message     TEXT,
+    msg_pattern     TEXT        NOT NULL DEFAULT ''
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'received_at',
@@ -82,7 +83,27 @@ CREATE TRIGGER trg_srvlog_notify
     FOR EACH ROW EXECUTE FUNCTION notify_srvlog_insert();
 
 -------------------------------------------------------------------------------
--- 4. Columnstore + retention policies
+-- 4. Msg pattern trigger
+-------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION compute_srvlog_msg_pattern()
+RETURNS trigger AS $$
+BEGIN
+    NEW.msg_pattern := regexp_replace(
+        regexp_replace(left(NEW.message, 200), '\d{1,3}(\.\d{1,3}){3}(:\d+)?', '<ip>', 'g'),
+        '\d+', '<n>', 'g'
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_srvlog_msg_pattern ON srvlog_events;
+CREATE TRIGGER trg_srvlog_msg_pattern
+    BEFORE INSERT ON srvlog_events
+    FOR EACH ROW EXECUTE FUNCTION compute_srvlog_msg_pattern();
+
+-------------------------------------------------------------------------------
+-- 5. Columnstore + retention policies
 -------------------------------------------------------------------------------
 
 CALL remove_columnstore_policy('srvlog_events');
@@ -97,7 +118,7 @@ ALTER TABLE srvlog_events SET (
 );
 
 -------------------------------------------------------------------------------
--- 5. Meta caches
+-- 6. Meta caches
 -------------------------------------------------------------------------------
 
 -- Srvlog meta cache (last_seen_at tracks hostname freshness).
@@ -108,19 +129,16 @@ CREATE TABLE IF NOT EXISTS srvlog_meta_cache (
     PRIMARY KEY (column_name, value)
 );
 
+-- ON CONFLICT DO NOTHING: once a value exists, skip with no lock/WAL/dead tuple.
 CREATE OR REPLACE FUNCTION cache_srvlog_meta()
 RETURNS trigger AS $$
 BEGIN
-    INSERT INTO srvlog_meta_cache (column_name, value, last_seen_at)
+    INSERT INTO srvlog_meta_cache (column_name, value)
     VALUES
-        ('hostname', NEW.hostname, now()),
-        ('programname', NEW.programname, NULL),
-        ('syslogtag', NEW.syslogtag, NULL)
-    ON CONFLICT (column_name, value) DO UPDATE
-        SET last_seen_at = CASE
-            WHEN EXCLUDED.column_name = 'hostname' THEN now()
-            ELSE srvlog_meta_cache.last_seen_at
-        END;
+        ('hostname', NEW.hostname),
+        ('programname', NEW.programname),
+        ('syslogtag', NEW.syslogtag)
+    ON CONFLICT DO NOTHING;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -149,3 +167,35 @@ DROP TRIGGER IF EXISTS trg_srvlog_facility_cache ON srvlog_events;
 CREATE TRIGGER trg_srvlog_facility_cache
     AFTER INSERT ON srvlog_events
     FOR EACH ROW EXECUTE FUNCTION cache_srvlog_facility();
+
+-------------------------------------------------------------------------------
+-- 7. Continuous aggregate
+-------------------------------------------------------------------------------
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS srvlog_summary_hourly
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', received_at) AS bucket,
+    hostname,
+    severity,
+    count(*) AS cnt
+FROM srvlog_events
+GROUP BY bucket, hostname, severity
+WITH NO DATA;
+
+SELECT add_continuous_aggregate_policy('srvlog_summary_hourly',
+    start_offset    => INTERVAL '90 days',
+    end_offset      => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '1 hour',
+    if_not_exists   => true
+);
+
+ALTER MATERIALIZED VIEW srvlog_summary_hourly SET (timescaledb.materialized_only = false);
+
+-- Columnstore compression on the continuous aggregate.
+ALTER MATERIALIZED VIEW srvlog_summary_hourly SET (
+    timescaledb.enable_columnstore,
+    timescaledb.segmentby = 'hostname, severity',
+    timescaledb.orderby = 'bucket DESC'
+);
+CALL add_columnstore_policy('srvlog_summary_hourly', after => INTERVAL '3 days');

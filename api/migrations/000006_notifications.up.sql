@@ -7,7 +7,7 @@
 CREATE TABLE notification_channels (
     id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name       TEXT UNIQUE NOT NULL,
-    type       TEXT NOT NULL CHECK (type IN ('slack', 'webhook', 'email')),
+    type       TEXT NOT NULL CHECK (type IN ('slack', 'webhook', 'email', 'ntfy')),
     config     JSONB NOT NULL DEFAULT '{}',
     enabled    BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -22,8 +22,8 @@ CREATE TABLE notification_rules (
     id                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name                TEXT UNIQUE NOT NULL,
     enabled             BOOLEAN NOT NULL DEFAULT true,
-    event_kind          TEXT NOT NULL CHECK (event_kind IN ('srvlog', 'applog')),
-    -- Srvlog filter fields (nullable = don't filter on this field).
+    event_kind          TEXT NOT NULL CHECK (event_kind IN ('srvlog', 'applog', 'netlog')),
+    -- Srvlog/Netlog filter fields (nullable = don't filter on this field).
     hostname            TEXT,
     programname         TEXT,
     severity            SMALLINT CHECK (severity BETWEEN 0 AND 7),
@@ -47,8 +47,11 @@ CREATE TABLE notification_rules (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_notif_rules_event_kind
+    ON notification_rules (event_kind, enabled);
+
 -------------------------------------------------------------------------------
--- 3. Many-to-many: rules → channels
+-- 3. Many-to-many: rules -> channels
 -------------------------------------------------------------------------------
 
 CREATE TABLE notification_rule_channels (
