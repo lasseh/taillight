@@ -18,7 +18,7 @@ Lightweight, real-time log viewer for network operations teams. Stream netlog (n
 
 ![Device detail](docs/screenshots/device.png)
 
-![Dashboard](docs/screenshots/dashboard.png)
+![Volume](docs/screenshots/dashboard.png)
 
 </details>
 
@@ -189,7 +189,8 @@ This starts TimescaleDB, the API, rsyslog, and the frontend.
 | Frontend   | 3000      | `FRONTEND_HOST_PORT` |
 | API        | 8080      | `API_HOST_PORT`      |
 | PostgreSQL | 5432      | `POSTGRES_BIND`      |
-| rsyslog    | 1514      | `RSYSLOG_HOST_PORT`  |
+| rsyslog (netlog) | 1514 | `RSYSLOG_NETLOG_PORT` |
+| rsyslog (srvlog) | 1515 | `RSYSLOG_SRVLOG_PORT` |
 
 ### Create a user
 
@@ -234,7 +235,8 @@ See [`cmd/taillight-shipper/`](api/cmd/taillight-shipper/) for configuration and
 | `POSTGRES_PASSWORD` | `taillight` | Database password |
 | `POSTGRES_BIND` | `127.0.0.1:5432` | Bind address and port for PostgreSQL (`host:port`). Set to `0.0.0.0:5432` for remote access or change the port to avoid conflicts. |
 | `API_HOST_PORT` | `8080` | Host port for the API |
-| `RSYSLOG_HOST_PORT` | `1514` | Host port for syslog input — netlog + srvlog (`514` in production) |
+| `RSYSLOG_NETLOG_PORT` | `1514` | Host port for netlog syslog input (`514` in production) |
+| `RSYSLOG_SRVLOG_PORT` | `1515` | Host port for srvlog syslog input (`515` in production) |
 | `FRONTEND_HOST_PORT` | `3000` | Host port for the web UI |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `AUTH_ENABLED` | `false` | Enable authentication |

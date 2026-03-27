@@ -14,7 +14,7 @@ var cfgFile string
 
 var rootCmd = &cobra.Command{
 	Use:          "taillight",
-	Short:        "Taillight — real-time srvlog and application log viewer",
+	Short:        "Taillight — real-time netlog, srvlog, and application log viewer",
 	SilenceUsage: true,
 }
 
@@ -32,7 +32,7 @@ func init() {
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(migrateCmd)
-	rootCmd.AddCommand(loadgenCmd)
+	rootCmd.AddCommand(netlogLoadgenCmd)
 	rootCmd.AddCommand(srvlogLoadgenCmd)
 	rootCmd.AddCommand(applogLoadgenCmd)
 	rootCmd.AddCommand(importCmd)

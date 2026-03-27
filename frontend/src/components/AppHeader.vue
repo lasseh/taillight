@@ -398,8 +398,8 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             class="px-2 py-1.5 text-left text-xs transition-colors"
             :class="
               String(route.name).startsWith('netlog')
-                ? 'bg-t-bg-highlight text-t-purple'
-                : 'text-t-purple/50 hover:text-t-purple'
+                ? 'bg-t-bg-highlight text-t-fuchsia'
+                : 'text-t-fuchsia/50 hover:text-t-fuchsia'
             "
             @click="mobileNavigateToLog('netlog')"
           >

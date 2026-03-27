@@ -14,14 +14,14 @@ import (
 )
 
 var (
-	loadgenN        int
-	loadgenDelay    time.Duration
-	loadgenJitter   time.Duration
-	loadgenSyslog   string
-	loadgenProtocol string
+	netlogLoadgenN        int
+	netlogLoadgenDelay    time.Duration
+	netlogLoadgenJitter   time.Duration
+	netlogLoadgenSyslog   string
+	netlogLoadgenProtocol string
 )
 
-var loadgenCmd = &cobra.Command{
+var netlogLoadgenCmd = &cobra.Command{
 	Use:   "loadgen-netlog",
 	Short: "Generate random netlog events (network device logs) for testing",
 	Long: `Generate random netlog events (Juniper, Cisco, Arista) for testing.
@@ -29,15 +29,15 @@ var loadgenCmd = &cobra.Command{
 By default, events are inserted directly into PostgreSQL.
 Use --syslog to send RFC 5424 messages over UDP/TCP to a rsyslog instance instead,
 testing the full ingestion pipeline.`,
-	RunE: runLoadgen,
+	RunE: runNetlogLoadgen,
 }
 
 func init() {
-	loadgenCmd.Flags().IntVarP(&loadgenN, "n", "n", 100, "number of events to insert")
-	loadgenCmd.Flags().DurationVar(&loadgenDelay, "delay", 0, "fixed delay between inserts (e.g. 100ms)")
-	loadgenCmd.Flags().DurationVar(&loadgenJitter, "jitter", 0, "random jitter added to delay (e.g. 200ms)")
-	loadgenCmd.Flags().StringVar(&loadgenSyslog, "syslog", "", "send via syslog instead of SQL (host:port, e.g. localhost:514)")
-	loadgenCmd.Flags().StringVar(&loadgenProtocol, "protocol", "udp", "syslog transport protocol (udp or tcp)")
+	netlogLoadgenCmd.Flags().IntVarP(&netlogLoadgenN, "n", "n", 100, "number of events to insert")
+	netlogLoadgenCmd.Flags().DurationVar(&netlogLoadgenDelay, "delay", 0, "fixed delay between inserts (e.g. 100ms)")
+	netlogLoadgenCmd.Flags().DurationVar(&netlogLoadgenJitter, "jitter", 0, "random jitter added to delay (e.g. 200ms)")
+	netlogLoadgenCmd.Flags().StringVar(&netlogLoadgenSyslog, "syslog", "", "send via syslog instead of SQL (host:port, e.g. localhost:514)")
+	netlogLoadgenCmd.Flags().StringVar(&netlogLoadgenProtocol, "protocol", "udp", "syslog transport protocol (udp or tcp)")
 }
 
 // vendorWeightTotal is the sum of all vendor weights, computed at init.
@@ -105,42 +105,42 @@ func formatRFC5424(facility, severity int, hostname, program, msgid, message str
 	return fmt.Appendf(nil, "<%d>1 %s %s %s %d %s - %s\n", pri, ts, hostname, program, pid, msgid, message)
 }
 
-func runLoadgen(_ *cobra.Command, _ []string) error {
-	if loadgenSyslog != "" {
-		return runLoadgenSyslog()
+func runNetlogLoadgen(_ *cobra.Command, _ []string) error {
+	if netlogLoadgenSyslog != "" {
+		return runNetlogLoadgenSyslog()
 	}
-	return runLoadgenSQL()
+	return runNetlogLoadgenSQL()
 }
 
-func runLoadgenSyslog() error {
-	if loadgenProtocol != "udp" && loadgenProtocol != "tcp" {
-		return fmt.Errorf("unsupported protocol %q: use udp or tcp", loadgenProtocol)
+func runNetlogLoadgenSyslog() error {
+	if netlogLoadgenProtocol != "udp" && netlogLoadgenProtocol != "tcp" {
+		return fmt.Errorf("unsupported protocol %q: use udp or tcp", netlogLoadgenProtocol)
 	}
 
 	// Use udp4/tcp4 to avoid IPv6 issues on macOS where Docker
 	// maps ports on 0.0.0.0 but Go's dialer prefers [::1].
-	network := loadgenProtocol + "4"
+	network := netlogLoadgenProtocol + "4"
 
-	fmt.Printf("connecting to %s://%s...\n", loadgenProtocol, loadgenSyslog)
+	fmt.Printf("connecting to %s://%s...\n", netlogLoadgenProtocol, netlogLoadgenSyslog)
 
 	ctx := context.Background()
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, network, loadgenSyslog)
+	conn, err := d.DialContext(ctx, network, netlogLoadgenSyslog)
 	if err != nil {
-		return fmt.Errorf("dial %s: %w", loadgenSyslog, err)
+		return fmt.Errorf("dial %s: %w", netlogLoadgenSyslog, err)
 	}
 	defer func() { _ = conn.Close() }()
 
 	fmt.Printf("connected\n")
 
-	if loadgenDelay > 0 || loadgenJitter > 0 {
-		fmt.Printf("sending %d syslog messages (delay=%s jitter=%s)...\n", loadgenN, loadgenDelay, loadgenJitter)
+	if netlogLoadgenDelay > 0 || netlogLoadgenJitter > 0 {
+		fmt.Printf("sending %d syslog messages (delay=%s jitter=%s)...\n", netlogLoadgenN, netlogLoadgenDelay, netlogLoadgenJitter)
 	} else {
-		fmt.Printf("sending %d syslog messages as fast as possible...\n", loadgenN)
+		fmt.Printf("sending %d syslog messages as fast as possible...\n", netlogLoadgenN)
 	}
 
 	start := time.Now()
-	for i := range loadgenN {
+	for i := range netlogLoadgenN {
 		v := pickVendor()
 		host := v.hostnames[rand.IntN(len(v.hostnames))]
 		prog := v.programs[rand.IntN(len(v.programs))]
@@ -155,20 +155,20 @@ func runLoadgenSyslog() error {
 		}
 
 		if (i+1)%10 == 0 {
-			fmt.Printf("  %d/%d (%.0f msgs/sec)\n", i+1, loadgenN, float64(i+1)/time.Since(start).Seconds())
+			fmt.Printf("  %d/%d (%.0f msgs/sec)\n", i+1, netlogLoadgenN, float64(i+1)/time.Since(start).Seconds())
 		}
 
-		if wait := loadgenDelay + time.Duration(rand.Int64N(int64(loadgenJitter+1))); wait > 0 {
+		if wait := netlogLoadgenDelay + time.Duration(rand.Int64N(int64(netlogLoadgenJitter+1))); wait > 0 {
 			time.Sleep(wait)
 		}
 	}
 
 	elapsed := time.Since(start)
-	fmt.Printf("done: %d messages in %s (%.0f msgs/sec)\n", loadgenN, elapsed, float64(loadgenN)/elapsed.Seconds())
+	fmt.Printf("done: %d messages in %s (%.0f msgs/sec)\n", netlogLoadgenN, elapsed, float64(netlogLoadgenN)/elapsed.Seconds())
 	return nil
 }
 
-func runLoadgenSQL() error {
+func runNetlogLoadgenSQL() error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -191,14 +191,14 @@ func runLoadgenSQL() error {
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 
-	if loadgenDelay > 0 || loadgenJitter > 0 {
-		fmt.Printf("inserting %d events (delay=%s jitter=%s)...\n", loadgenN, loadgenDelay, loadgenJitter)
+	if netlogLoadgenDelay > 0 || netlogLoadgenJitter > 0 {
+		fmt.Printf("inserting %d events (delay=%s jitter=%s)...\n", netlogLoadgenN, netlogLoadgenDelay, netlogLoadgenJitter)
 	} else {
-		fmt.Printf("inserting %d events as fast as possible...\n", loadgenN)
+		fmt.Printf("inserting %d events as fast as possible...\n", netlogLoadgenN)
 	}
 
 	start := time.Now()
-	for i := range loadgenN {
+	for i := range netlogLoadgenN {
 		v := pickVendor()
 		host := v.hostnames[rand.IntN(len(v.hostnames))]
 		prog := v.programs[rand.IntN(len(v.programs))]
@@ -224,15 +224,15 @@ func runLoadgenSQL() error {
 		}
 
 		if (i+1)%10 == 0 {
-			fmt.Printf("  %d/%d (%.0f events/sec)\n", i+1, loadgenN, float64(i+1)/time.Since(start).Seconds())
+			fmt.Printf("  %d/%d (%.0f events/sec)\n", i+1, netlogLoadgenN, float64(i+1)/time.Since(start).Seconds())
 		}
 
-		if wait := loadgenDelay + time.Duration(rand.Int64N(int64(loadgenJitter+1))); wait > 0 {
+		if wait := netlogLoadgenDelay + time.Duration(rand.Int64N(int64(netlogLoadgenJitter+1))); wait > 0 {
 			time.Sleep(wait)
 		}
 	}
 
 	elapsed := time.Since(start)
-	fmt.Printf("done: %d events in %s (%.0f events/sec)\n", loadgenN, elapsed, float64(loadgenN)/elapsed.Seconds())
+	fmt.Printf("done: %d events in %s (%.0f events/sec)\n", netlogLoadgenN, elapsed, float64(netlogLoadgenN)/elapsed.Seconds())
 	return nil
 }
