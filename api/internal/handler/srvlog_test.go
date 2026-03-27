@@ -39,24 +39,24 @@ func (m *mockSrvlogStore) ListSrvlogsSince(_ context.Context, _ model.SrvlogFilt
 	return m.events, m.listErr
 }
 
-func (m *mockSrvlogStore) ListHosts(_ context.Context) ([]string, error) {
+func (m *mockSrvlogStore) ListSrvlogHosts(_ context.Context) ([]string, error) {
 	return nil, nil
 }
 
-func (m *mockSrvlogStore) ListPrograms(_ context.Context) ([]string, error) {
+func (m *mockSrvlogStore) ListSrvlogPrograms(_ context.Context) ([]string, error) {
 	return nil, nil
 }
 
-func (m *mockSrvlogStore) ListTags(_ context.Context) ([]string, error) {
+func (m *mockSrvlogStore) ListSrvlogTags(_ context.Context) ([]string, error) {
 	return nil, nil
 }
 
-func (m *mockSrvlogStore) ListFacilities(_ context.Context) ([]int, error) {
+func (m *mockSrvlogStore) ListSrvlogFacilities(_ context.Context) ([]int, error) {
 	return nil, nil
 }
 
-func (m *mockSrvlogStore) GetVolume(_ context.Context, _ model.VolumeInterval, _ time.Duration) ([]model.VolumeBucket, error) {
-	return nil, nil
+func (m *mockSrvlogStore) GetSrvlogDeviceSummary(_ context.Context, _ string) (model.SrvlogDeviceSummary, error) {
+	return model.SrvlogDeviceSummary{}, nil
 }
 
 func TestSrvlogList(t *testing.T) {

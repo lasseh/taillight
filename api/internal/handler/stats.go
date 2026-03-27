@@ -16,9 +16,9 @@ type StatsStore interface {
 	GetSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
 	GetAppLogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
 	GetNetlogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
-	GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (model.SrvlogSummary, error)
+	GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
 	GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (model.AppLogSummary, error)
-	GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (model.SrvlogSummary, error)
+	GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
 }
 
 // StatsHandler handles REST endpoints for dashboard statistics.

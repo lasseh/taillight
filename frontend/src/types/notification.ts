@@ -12,9 +12,9 @@ export interface NotificationRule {
   id: number
   name: string
   enabled: boolean
-  event_kind: 'srvlog' | 'applog'
+  event_kind: 'srvlog' | 'netlog' | 'applog'
 
-  // Srvlog filter fields.
+  // Srvlog/Netlog filter fields (shared — both are syslog-based).
   hostname?: string
   programname?: string
   severity?: number | null

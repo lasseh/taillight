@@ -98,8 +98,9 @@ type TopSource struct {
 	Pct   float64 `json:"pct"`
 }
 
-// SrvlogSummary contains summary statistics for srvlog events.
-type SrvlogSummary struct {
+// SyslogSummary contains summary statistics for syslog-based event tables
+// (srvlog and netlog share the same summary structure).
+type SyslogSummary struct {
 	Total             int64           `json:"total"`
 	Trend             float64         `json:"trend"` // percentage change vs previous period
 	Errors            int64           `json:"errors"`
@@ -107,6 +108,9 @@ type SrvlogSummary struct {
 	SeverityBreakdown []SeverityCount `json:"severity_breakdown"`
 	TopHosts          []TopSource     `json:"top_hosts"`
 }
+
+// SrvlogSummary is an alias for backward compatibility.
+type SrvlogSummary = SyslogSummary
 
 // AppLogSummary contains summary statistics for applog events.
 type AppLogSummary struct {

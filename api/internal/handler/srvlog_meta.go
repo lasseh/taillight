@@ -16,7 +16,7 @@ func NewSrvlogMetaHandler(store SrvlogStore) *SrvlogMetaHandler {
 
 // Hosts handles GET /api/v1/meta/hosts.
 func (h *SrvlogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
-	hosts, err := h.store.ListHosts(r.Context())
+	hosts, err := h.store.ListSrvlogHosts(r.Context())
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -30,7 +30,7 @@ func (h *SrvlogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 
 // Programs handles GET /api/v1/meta/programs.
 func (h *SrvlogMetaHandler) Programs(w http.ResponseWriter, r *http.Request) {
-	programs, err := h.store.ListPrograms(r.Context())
+	programs, err := h.store.ListSrvlogPrograms(r.Context())
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -44,7 +44,7 @@ func (h *SrvlogMetaHandler) Programs(w http.ResponseWriter, r *http.Request) {
 
 // Facilities handles GET /api/v1/meta/facilities.
 func (h *SrvlogMetaHandler) Facilities(w http.ResponseWriter, r *http.Request) {
-	facilities, err := h.store.ListFacilities(r.Context())
+	facilities, err := h.store.ListSrvlogFacilities(r.Context())
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -58,7 +58,7 @@ func (h *SrvlogMetaHandler) Facilities(w http.ResponseWriter, r *http.Request) {
 
 // Tags handles GET /api/v1/meta/tags.
 func (h *SrvlogMetaHandler) Tags(w http.ResponseWriter, r *http.Request) {
-	tags, err := h.store.ListTags(r.Context())
+	tags, err := h.store.ListSrvlogTags(r.Context())
 	if err != nil {
 		if isClientGone(r) {
 			return

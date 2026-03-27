@@ -18,7 +18,7 @@ const saveError = ref('')
 // Form fields.
 const formName = ref('')
 const formEnabled = ref(true)
-const formEventKind = ref<'srvlog' | 'applog'>('srvlog')
+const formEventKind = ref<'srvlog' | 'netlog' | 'applog'>('srvlog')
 const formHostname = ref('')
 const formProgramname = ref('')
 const formSeverity = ref('')
@@ -176,7 +176,7 @@ function buildRule(): Partial<NotificationRule> {
     cooldown_seconds: formCooldownSeconds.value,
   }
 
-  if (formEventKind.value === 'srvlog') {
+  if (formEventKind.value === 'srvlog' || formEventKind.value === 'netlog') {
     if (formHostname.value) rule.hostname = formHostname.value
     if (formProgramname.value) rule.programname = formProgramname.value
     if (formSeverity.value) rule.severity = Number(formSeverity.value)
@@ -298,7 +298,7 @@ onMounted(fetchData)
             <div class="w-24 shrink-0">
               <span
                 class="inline-block rounded px-1.5 py-0.5 text-xs uppercase"
-                :class="rule.event_kind === 'srvlog' ? 'bg-t-teal/10 text-t-teal' : 'bg-t-magenta/10 text-t-magenta'"
+                :class="rule.event_kind === 'applog' ? 'bg-t-magenta/10 text-t-magenta' : rule.event_kind === 'netlog' ? 'bg-t-blue/10 text-t-blue' : 'bg-t-teal/10 text-t-teal'"
               >
                 {{ rule.event_kind }}
               </span>
@@ -318,7 +318,7 @@ onMounted(fetchData)
             </div>
             <div class="min-w-0 flex-1 truncate">
               <span class="text-t-fg-gutter text-xs">
-                <template v-if="rule.event_kind === 'srvlog'">
+                <template v-if="rule.event_kind === 'srvlog' || rule.event_kind === 'netlog'">
                   {{ [rule.hostname, rule.programname, rule.search].filter(Boolean).join(', ') || 'all events' }}
                 </template>
                 <template v-else>
@@ -403,6 +403,13 @@ onMounted(fetchData)
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
+                    :class="formEventKind === 'netlog' ? 'border-t-blue text-t-blue' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    @click="formEventKind = 'netlog'"
+                  >
+                    Netlog
+                  </button>
+                  <button
+                    class="border px-3 py-1.5 text-sm transition-all"
                     :class="formEventKind === 'applog' ? 'border-t-magenta text-t-magenta' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
                     @click="formEventKind = 'applog'"
                   >
@@ -417,10 +424,10 @@ onMounted(fetchData)
                 <span class="text-t-fg-dark text-sm">Enabled</span>
               </label>
 
-              <!-- Srvlog filters -->
-              <template v-if="formEventKind === 'srvlog'">
+              <!-- Srvlog/Netlog filters (shared syslog fields) -->
+              <template v-if="formEventKind === 'srvlog' || formEventKind === 'netlog'">
                 <div class="border-t-border space-y-3 border-t pt-3">
-                  <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Srvlog Filters</span>
+                  <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">{{ formEventKind === 'netlog' ? 'Netlog' : 'Srvlog' }} Filters</span>
                   <div class="grid grid-cols-2 gap-3">
                     <label class="block">
                       <span class="text-t-fg-dark text-xs">Hostname</span>

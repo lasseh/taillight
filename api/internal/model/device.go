@@ -2,8 +2,8 @@ package model
 
 import "time"
 
-// DeviceSummary holds aggregated information for a single device (hostname).
-type DeviceSummary struct {
+// SrvlogDeviceSummary holds aggregated information for a single device (hostname).
+type SrvlogDeviceSummary struct {
 	Hostname          string          `json:"hostname"`
 	LastSeenAt        *time.Time      `json:"last_seen_at"`
 	TotalCount        int64           `json:"total_count"`
