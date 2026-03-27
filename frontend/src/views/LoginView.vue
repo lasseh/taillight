@@ -143,7 +143,7 @@ async function handleSubmit() {
       </template>
     </div>
 
-    <p class="footer-text">Log aggregation &amp; search</p>
+    <p class="footer-text">Real-time syslog monitoring &amp; alerting</p>
   </div>
 </template>
 
