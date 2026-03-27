@@ -115,10 +115,10 @@ func (s *Store) GetRsyslogStatsSummary(ctx context.Context, rangeDur time.Durati
 			}
 		}
 
-		// Use the ompgsql syslog action as the canonical "processed" count.
-		// Match by explicit name or auto-generated pattern (action-N-builtin:ompgsql),
-		// but exclude the stats writer action.
-		isSyslogPgsql := name == "syslog_to_pgsql" ||
+		// Use the ompgsql syslog actions as the canonical "processed" count.
+		// Match by explicit name (srvlog/netlog/legacy) or auto-generated pattern
+		// (action-N-builtin:ompgsql), but exclude the stats writer action.
+		isSyslogPgsql := name == "srvlog_to_pgsql" || name == "netlog_to_pgsql" || name == "syslog_to_pgsql" ||
 			(strings.Contains(name, "ompgsql") && name != "stats_to_pgsql")
 		if isSyslogPgsql {
 			summary.TotalProcessed += processed
@@ -213,9 +213,9 @@ func (s *Store) GetRsyslogStatsTimeSeries(ctx context.Context, field string, int
 			` AND %s IN ('imudp', 'imtcp', 'imptcp') AND NOT (%[2]s ~ '\(w\d+\)' OR %[2]s ~ '^w\d+/')`,
 			originExpr, nameExpr)
 	case "processed", "failed", "suspended":
-		// Only the syslog-to-DB action, matching the summary KPI filter.
+		// Only the syslog-to-DB actions, matching the summary KPI filter.
 		extraWhere = fmt.Sprintf(
-			` AND (%[1]s = 'syslog_to_pgsql' OR (%[1]s LIKE '%%ompgsql%%' AND %[1]s != 'stats_to_pgsql'))`,
+			` AND (%[1]s IN ('srvlog_to_pgsql', 'netlog_to_pgsql', 'syslog_to_pgsql') OR (%[1]s LIKE '%%ompgsql%%' AND %[1]s != 'stats_to_pgsql'))`,
 			nameExpr)
 	case "enqueued", "size", "maxqsize":
 		// Only the main queue — other queues (action queues, disk-assisted)
