@@ -2,8 +2,8 @@ import { ref, computed, type ComputedRef, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { VolumeBucket, VolumeDataRecord, VolumeResponse } from '@/types/stats'
 
-/** Base return type for volume dashboard stores */
-export interface VolumeDashboardState {
+/** Base return type for volume stores */
+export interface VolumeStoreState {
   interval: Ref<string>
   range: Ref<string>
   buckets: Ref<VolumeBucket[]>
@@ -15,12 +15,12 @@ export interface VolumeDashboardState {
   setPreset: (r: string, i: string) => void
 }
 
-export function createVolumeDashboardStore<K extends string>(
+export function createVolumeStore<K extends string>(
   id: string,
   fetchFn: (params: URLSearchParams) => Promise<VolumeResponse>,
   groupKey: K,
 ) {
-  return defineStore(id, (): VolumeDashboardState & Record<K, ComputedRef<string[]>> => {
+  return defineStore(id, (): VolumeStoreState & Record<K, ComputedRef<string[]>> => {
     const interval = ref('1m')
     const range = ref('1h')
     const buckets = ref<VolumeBucket[]>([])
@@ -84,6 +84,6 @@ export function createVolumeDashboardStore<K extends string>(
       chartData,
       fetchVolume,
       setPreset,
-    } as VolumeDashboardState & Record<K, ComputedRef<string[]>>
+    } as VolumeStoreState & Record<K, ComputedRef<string[]>>
   })
 }

@@ -69,9 +69,9 @@ const router = createRouter({
           },
         ]),
     {
-      path: '/dashboard',
-      name: 'dashboard',
-      component: () => import('@/views/DashboardView.vue'),
+      path: '/volume',
+      name: 'volume',
+      component: () => import('@/views/VolumeView.vue'),
     },
     // Applog routes (feature-gated)
     ...(features.applog

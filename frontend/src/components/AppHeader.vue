@@ -23,8 +23,8 @@ function navigateToLog(routeName: 'netlog' | 'srvlog' | 'applog') {
   router.push({ name: routeName })
 }
 
-/** Determine the dashboard tab based on the current route context. */
-const dashboardTab = computed(() => {
+/** Determine the volume tab based on the current route context. */
+const volumeTab = computed(() => {
   const name = String(route.name)
   if (name.startsWith('applog')) return 'applog'
   if (name.startsWith('netlog') && features.netlog) return 'netlog'
@@ -73,6 +73,18 @@ function goToAnalysis() {
   menuOpen.value = false
   closeMobileMenu()
   router.push({ name: 'analysis' })
+}
+
+function goToVolume() {
+  menuOpen.value = false
+  closeMobileMenu()
+  router.push({ path: '/volume', query: { tab: volumeTab.value } })
+}
+
+function goToNotifications() {
+  menuOpen.value = false
+  closeMobileMenu()
+  router.push({ name: 'notifications' })
 }
 
 function handleEditDashboard() {
@@ -147,7 +159,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
               : 'text-t-blue/50 hover:text-t-blue'
           "
         >
-          HOME
+          DASHBOARD
         </router-link>
         <button
           v-if="features.netlog"
@@ -185,35 +197,13 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         >
           APPLOG
         </button>
-        <router-link
-          :to="{ path: '/dashboard', query: { tab: dashboardTab } }"
-          class="px-2 py-0.5 text-xs transition-colors"
-          :class="
-            route.name === 'dashboard'
-              ? 'bg-t-bg-highlight text-t-purple'
-              : 'text-t-purple/50 hover:text-t-purple'
-          "
-        >
-          DASHBOARD
-        </router-link>
-        <router-link
-          to="/notifications"
-          class="px-2 py-0.5 text-xs transition-colors"
-          :class="
-            route.name === 'notifications'
-              ? 'bg-t-bg-highlight text-t-yellow'
-              : 'text-t-yellow/50 hover:text-t-yellow'
-          "
-        >
-          ALERTS
-        </router-link>
       </div>
 
       <!-- Desktop: settings menu -->
       <div ref="menuRef" class="relative hidden md:block">
         <button
           class="text-t-fg-dark hover:text-t-fg flex items-center gap-1 px-1.5 py-0.5 text-xs transition-colors"
-          :class="menuOpen || String(route.name).startsWith('settings') || route.name === 'api-keys' || route.name === 'analysis' || route.name === 'admin-users' ? 'text-t-fg' : ''"
+          :class="menuOpen || String(route.name).startsWith('settings') || route.name === 'api-keys' || route.name === 'analysis' || route.name === 'admin-users' || route.name === 'notifications' || route.name === 'volume' ? 'text-t-fg' : ''"
           @click.stop="menuOpen = !menuOpen"
         >
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -227,8 +217,11 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             v-if="menuOpen"
             class="bg-t-bg-dark border-t-border absolute right-0 top-full z-50 mt-1.5 min-w-60 rounded border shadow-lg"
           >
-            <!-- User label -->
-            <div class="border-t-border flex items-center gap-2 border-b px-3 py-2">
+            <!-- User label (clickable → user settings) -->
+            <button
+              class="border-t-border hover:bg-t-bg-hover flex w-full items-center gap-2 border-b px-3 py-2 text-left transition-colors"
+              @click="goToSettings"
+            >
               <img
                 v-if="auth.user?.gravatar_url"
                 :src="auth.user.gravatar_url"
@@ -236,7 +229,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
                 class="h-5 w-5 rounded-full"
               />
               <span class="text-t-fg-dark text-xs">{{ auth.user?.username }}</span>
-            </div>
+            </button>
 
             <!-- Settings section (authenticated only) -->
             <div v-if="isAuthenticated" class="border-t-border border-b py-1">
@@ -253,16 +246,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
                   <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                 </svg>
                 <span>Manage Users</span>
-              </button>
-              <button
-                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="goToSettings"
-              >
-                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-                <span>User Settings</span>
               </button>
               <button
                 class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
@@ -284,6 +267,31 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
                   <line x1="16" y1="17" x2="8" y2="17" />
                 </svg>
                 <span>Analysis Reports</span>
+              </button>
+            </div>
+
+            <!-- Always-visible items -->
+            <div class="border-t-border border-b py-1">
+              <button
+                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
+                @click="goToVolume"
+              >
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="20" x2="18" y2="10" />
+                  <line x1="12" y1="20" x2="12" y2="4" />
+                  <line x1="6" y1="20" x2="6" y2="14" />
+                </svg>
+                <span>Volume</span>
+              </button>
+              <button
+                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
+                @click="goToNotifications"
+              >
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                <span>Alerts</span>
               </button>
               <button
                 class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
@@ -383,7 +391,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             "
             @click="closeMobileMenu"
           >
-            HOME
+            DASHBOARD
           </router-link>
           <button
             v-if="features.netlog"
@@ -421,35 +429,14 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           >
             APPLOG
           </button>
-          <router-link
-            :to="{ path: '/dashboard', query: { tab: dashboardTab } }"
-            class="px-2 py-1.5 text-xs transition-colors"
-            :class="
-              route.name === 'dashboard'
-                ? 'bg-t-bg-highlight text-t-purple'
-                : 'text-t-purple/50 hover:text-t-purple'
-            "
-            @click="closeMobileMenu"
-          >
-            DASHBOARD
-          </router-link>
-          <router-link
-            to="/notifications"
-            class="px-2 py-1.5 text-xs transition-colors"
-            :class="
-              route.name === 'notifications'
-                ? 'bg-t-bg-highlight text-t-yellow'
-                : 'text-t-yellow/50 hover:text-t-yellow'
-            "
-            @click="closeMobileMenu"
-          >
-            ALERTS
-          </router-link>
         </div>
 
-        <!-- User label -->
+        <!-- User label (clickable → user settings) -->
         <div class="bg-t-border my-3 h-px"></div>
-        <div class="flex items-center gap-2 px-2 py-1">
+        <button
+          class="hover:text-t-fg flex w-full items-center gap-2 px-2 py-1 text-left transition-colors"
+          @click="goToSettings"
+        >
           <img
             v-if="auth.user?.gravatar_url"
             :src="auth.user.gravatar_url"
@@ -457,7 +444,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             class="h-5 w-5 rounded-full"
           />
           <span class="text-t-fg-dark text-xs">{{ auth.user?.username }}</span>
-        </div>
+        </button>
 
         <!-- Settings section (authenticated only) -->
         <template v-if="isAuthenticated">
@@ -476,16 +463,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
                 <path d="M16 3.13a4 4 0 0 1 0 7.75" />
               </svg>
               <span>Manage Users</span>
-            </button>
-            <button
-              class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
-              @click="goToSettings"
-            >
-              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-              <span>User Settings</span>
             </button>
             <button
               class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
@@ -508,20 +485,46 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
               </svg>
               <span>Analysis Reports</span>
             </button>
-            <button
-              class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
-              @click="handleEditDashboard"
-            >
-              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" />
-                <rect x="14" y="14" width="7" height="7" />
-              </svg>
-              <span>Edit Dashboard</span>
-            </button>
           </div>
         </template>
+
+        <!-- Always-visible items -->
+        <div class="bg-t-border my-3 h-px"></div>
+        <div class="flex flex-col gap-1">
+          <button
+            class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
+            @click="goToVolume"
+          >
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="20" x2="18" y2="10" />
+              <line x1="12" y1="20" x2="12" y2="4" />
+              <line x1="6" y1="20" x2="6" y2="14" />
+            </svg>
+            <span>Volume</span>
+          </button>
+          <button
+            class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
+            @click="goToNotifications"
+          >
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            <span>Alerts</span>
+          </button>
+          <button
+            class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
+            @click="handleEditDashboard"
+          >
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+            </svg>
+            <span>Edit Dashboard</span>
+          </button>
+        </div>
 
         <!-- Theme section -->
         <div class="bg-t-border my-3 h-px"></div>

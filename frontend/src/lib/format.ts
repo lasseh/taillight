@@ -32,6 +32,7 @@ export function formatAttrs(attrs: Record<string, unknown>): string {
     .join(' ')
 }
 
+
 import { highlightJson } from '@/lib/highlighter'
 
 /** Format attrs as syntax-highlighted JSON (returns HTML). */

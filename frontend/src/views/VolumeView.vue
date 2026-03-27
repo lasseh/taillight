@@ -2,9 +2,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { VisXYContainer, VisStackedBar, VisLine, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
-import { useDashboardStore } from '@/stores/dashboard'
-import { useNetlogDashboardStore } from '@/stores/netlog-dashboard'
-import { useAppLogDashboardStore } from '@/stores/applog-dashboard'
+import { useSrvlogVolumeStore } from '@/stores/srvlog-volume'
+import { useNetlogVolumeStore } from '@/stores/netlog-volume'
+import { useAppLogVolumeStore } from '@/stores/applog-volume'
 import { useRsyslogStatsStore } from '@/stores/rsyslog-stats'
 import { useTaillightMetricsStore } from '@/stores/taillight-metrics'
 import { useTheme } from '@/composables/useTheme'
@@ -14,9 +14,9 @@ import type { SimplePoint } from '@/types/chart'
 
 const route = useRoute()
 const router = useRouter()
-const dashboard = useDashboardStore()
-const netlogDashboard = useNetlogDashboardStore()
-const applogDashboard = useAppLogDashboardStore()
+const srvlogVolume = useSrvlogVolumeStore()
+const netlogVolume = useNetlogVolumeStore()
+const applogVolume = useAppLogVolumeStore()
 const rsyslogStats = useRsyslogStatsStore()
 const taillightMetrics = useTaillightMetricsStore()
 const { current: theme } = useTheme()
@@ -53,6 +53,21 @@ const taillightPresets: { label: string; range: string; interval: string }[] = [
   { label: '7d', range: '7d', interval: '1h' },
 ]
 
+/** Resolve the best interval for a given range, respecting tab-specific presets. */
+function rangeToInterval(range: string): string {
+  for (const p of volumePresets) {
+    if (p.range === range) return p.interval
+  }
+  for (const p of rsyslogPresets) {
+    if (p.range === range) return p.interval
+  }
+  return '15m'
+}
+
+// Shared range/interval across all tabs
+const selectedRange = ref((route.query.range as string) || '24h')
+const selectedInterval = ref(rangeToInterval(selectedRange.value))
+
 const activePresets = computed(() => {
   if (activeTab.value === 'rsyslog') return rsyslogPresets
   if (activeTab.value === 'taillight') return taillightPresets
@@ -68,64 +83,62 @@ const intervalMs: Record<string, number> = {
   '6h': 21_600_000,
 }
 
-const dataStep = computed(() => {
-  if (activeTab.value === 'taillight') return intervalMs[taillightMetrics.interval] ?? 60_000
-  if (activeTab.value === 'rsyslog') return intervalMs[rsyslogStats.interval] ?? 60_000
-  if (activeTab.value === 'applog') return intervalMs[applogDashboard.interval] ?? 60_000
-  if (activeTab.value === 'netlog') return intervalMs[netlogDashboard.interval] ?? 60_000
-  return intervalMs[dashboard.interval] ?? 60_000
-})
+const dataStep = computed(() => intervalMs[selectedInterval.value] ?? 60_000)
 
-const activeRange = computed(() => {
-  if (activeTab.value === 'taillight') return taillightMetrics.range
-  if (activeTab.value === 'rsyslog') return rsyslogStats.range
-  if (activeTab.value === 'applog') return applogDashboard.range
-  if (activeTab.value === 'netlog') return netlogDashboard.range
-  return dashboard.range
-})
+const activeRange = computed(() => selectedRange.value)
 const activeLoading = computed(() => {
   if (activeTab.value === 'taillight') return taillightMetrics.loading
   if (activeTab.value === 'rsyslog') return rsyslogStats.loading
-  if (activeTab.value === 'applog') return applogDashboard.loading
-  if (activeTab.value === 'netlog') return netlogDashboard.loading
-  return dashboard.loading
+  if (activeTab.value === 'applog') return applogVolume.loading
+  if (activeTab.value === 'netlog') return netlogVolume.loading
+  return srvlogVolume.loading
 })
 const activeError = computed(() => {
   if (activeTab.value === 'taillight') return taillightMetrics.error
   if (activeTab.value === 'rsyslog') return rsyslogStats.error
-  if (activeTab.value === 'applog') return applogDashboard.error
-  if (activeTab.value === 'netlog') return netlogDashboard.error
-  return dashboard.error
+  if (activeTab.value === 'applog') return applogVolume.error
+  if (activeTab.value === 'netlog') return netlogVolume.error
+  return srvlogVolume.error
 })
+
+/** Sync a store to the shared range (using the appropriate interval for its preset set). */
+function syncStore(tab: Tab) {
+  const r = selectedRange.value
+  const i = selectedInterval.value
+  // rsyslog/taillight cap at 7d; clamp to their max if needed
+  const rsI = rsyslogPresets.find(p => p.range === r)?.interval
+  const tlI = taillightPresets.find(p => p.range === r)?.interval
+
+  if (tab === 'netlog') netlogVolume.setPreset(r, i)
+  else if (tab === 'srvlog') srvlogVolume.setPreset(r, i)
+  else if (tab === 'applog') applogVolume.setPreset(r, i)
+  else if (tab === 'rsyslog' && rsI) rsyslogStats.setPreset(r, rsI)
+  else if (tab === 'taillight' && tlI) taillightMetrics.setPreset(r, tlI)
+}
 
 function switchTab(tab: Tab) {
   activeTab.value = tab
-  router.replace({ query: { ...route.query, tab } })
-  if (tab === 'netlog' && netlogDashboard.buckets?.length === 0) {
-    netlogDashboard.fetchVolume()
-  } else if (tab === 'srvlog' && dashboard.buckets?.length === 0) {
-    dashboard.fetchVolume()
-  } else if (tab === 'applog' && applogDashboard.buckets?.length === 0) {
-    applogDashboard.fetchVolume()
-  } else if (tab === 'rsyslog' && !rsyslogStats.summary) {
-    rsyslogStats.startRefresh()
-  } else if (tab === 'taillight' && !taillightMetrics.summary) {
-    taillightMetrics.startRefresh()
+  router.replace({ query: { ...route.query, tab, range: selectedRange.value } })
+  // Ensure the tab's store has data at the current range
+  if (tab === 'netlog' && (netlogVolume.buckets?.length === 0 || netlogVolume.range !== selectedRange.value)) {
+    syncStore('netlog')
+  } else if (tab === 'srvlog' && (srvlogVolume.buckets?.length === 0 || srvlogVolume.range !== selectedRange.value)) {
+    syncStore('srvlog')
+  } else if (tab === 'applog' && (applogVolume.buckets?.length === 0 || applogVolume.range !== selectedRange.value)) {
+    syncStore('applog')
+  } else if (tab === 'rsyslog' && (!rsyslogStats.summary || rsyslogStats.range !== selectedRange.value)) {
+    if (rsyslogPresets.some(p => p.range === selectedRange.value)) syncStore('rsyslog')
+    else rsyslogStats.startRefresh()
+  } else if (tab === 'taillight' && (!taillightMetrics.summary || taillightMetrics.range !== selectedRange.value)) {
+    if (taillightPresets.some(p => p.range === selectedRange.value)) syncStore('taillight')
+    else taillightMetrics.startRefresh()
   }
 }
 
 function selectPreset(range: string, interval: string) {
-  if (activeTab.value === 'taillight') {
-    taillightMetrics.setPreset(range, interval)
-  } else if (activeTab.value === 'rsyslog') {
-    rsyslogStats.setPreset(range, interval)
-  } else if (activeTab.value === 'applog') {
-    applogDashboard.setPreset(range, interval)
-  } else if (activeTab.value === 'netlog') {
-    netlogDashboard.setPreset(range, interval)
-  } else {
-    dashboard.setPreset(range, interval)
-  }
+  selectedRange.value = range
+  selectedInterval.value = interval
+  syncStore(activeTab.value)
   router.replace({ query: { ...route.query, range } })
 }
 
@@ -185,23 +198,23 @@ function makeSingleTracker(hovered: typeof hoveredHost, key: string) {
 }
 
 // Srvlog-specific wrappers using generic helpers.
-function hostYAccessors() { return makeYAccessors(dashboard.hosts) }
+function hostYAccessors() { return makeYAccessors(srvlogVolume.hosts) }
 const hostColorAccessor = makeColorAccessor
-function hostTemplate(d: VolumeDataRecord) { return makeTemplate(dashboard.hosts)(d) }
+function hostTemplate(d: VolumeDataRecord) { return makeTemplate(srvlogVolume.hosts)(d) }
 function singleHostYAccessor(host: string) { return makeSingleYAccessor(host) }
 function singleHostTracker(host: string) { return makeSingleTracker(hoveredHost, host) }
 
 // Netlog-specific wrappers using generic helpers.
-function netlogHostYAccessors() { return makeYAccessors(netlogDashboard.hosts) }
+function netlogHostYAccessors() { return makeYAccessors(netlogVolume.hosts) }
 const netlogHostColorAccessor = makeColorAccessor
-function netlogHostTemplate(d: VolumeDataRecord) { return makeTemplate(netlogDashboard.hosts)(d) }
+function netlogHostTemplate(d: VolumeDataRecord) { return makeTemplate(netlogVolume.hosts)(d) }
 function singleNetlogHostYAccessor(host: string) { return makeSingleYAccessor(host) }
 function singleNetlogHostTracker(host: string) { return makeSingleTracker(hoveredHost, host) }
 
 // Applog-specific wrappers using generic helpers.
-function serviceYAccessors() { return makeYAccessors(applogDashboard.services) }
+function serviceYAccessors() { return makeYAccessors(applogVolume.services) }
 const serviceColorAccessor = makeColorAccessor
-function serviceTemplate(d: VolumeDataRecord) { return makeTemplate(applogDashboard.services)(d) }
+function serviceTemplate(d: VolumeDataRecord) { return makeTemplate(applogVolume.services)(d) }
 function singleServiceYAccessor(service: string) { return makeSingleYAccessor(service) }
 function singleServiceTracker(service: string) { return makeSingleTracker(hoveredService, service) }
 
@@ -369,41 +382,15 @@ const xTickFormat = (v: number) => {
 }
 
 onMounted(() => {
-  const tab = route.query.tab as Tab | undefined
-  if (tab === 'netlog') activeTab.value = 'netlog'
-  else if (tab === 'applog') activeTab.value = 'applog'
-  else if (tab === 'rsyslog') activeTab.value = 'rsyslog'
-  else if (tab === 'taillight') activeTab.value = 'taillight'
-
-  const r = route.query.range as string | undefined
-
-  if (activeTab.value === 'netlog') {
-    const preset = r ? volumePresets.find((p) => p.range === r) : undefined
-    if (preset) {
-      netlogDashboard.setPreset(preset.range, preset.interval)
-    } else {
-      netlogDashboard.fetchVolume()
-    }
-  } else if (activeTab.value === 'taillight') {
-    const preset = r ? taillightPresets.find((p) => p.range === r) : undefined
-    if (preset) {
-      taillightMetrics.setPreset(preset.range, preset.interval)
-    }
-    taillightMetrics.startRefresh()
-  } else if (activeTab.value === 'rsyslog') {
-    const preset = r ? rsyslogPresets.find((p) => p.range === r) : undefined
-    if (preset) {
-      rsyslogStats.setPreset(preset.range, preset.interval)
-    }
+  // Sync the active tab's store to the shared range and fetch
+  if (activeTab.value === 'rsyslog') {
+    if (rsyslogPresets.some(p => p.range === selectedRange.value)) syncStore('rsyslog')
     rsyslogStats.startRefresh()
+  } else if (activeTab.value === 'taillight') {
+    if (taillightPresets.some(p => p.range === selectedRange.value)) syncStore('taillight')
+    taillightMetrics.startRefresh()
   } else {
-    const preset = r ? volumePresets.find((p) => p.range === r) : undefined
-    const store = activeTab.value === 'srvlog' ? dashboard : applogDashboard
-    if (preset) {
-      store.setPreset(preset.range, preset.interval)
-    } else {
-      store.fetchVolume()
-    }
+    syncStore(activeTab.value)
   }
 })
 
@@ -506,7 +493,7 @@ onUnmounted(() => {
           Total Volume
         </h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="netlogDashboard.chartData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="netlogVolume.chartData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisStackedBar
               :x="xTotal"
               :y="netlogHostYAccessors()"
@@ -525,7 +512,7 @@ onUnmounted(() => {
         <!-- Legend -->
         <div class="mt-2 flex flex-wrap gap-3">
           <span
-            v-for="(host, i) in netlogDashboard.hosts"
+            v-for="(host, i) in netlogVolume.hosts"
             :key="host"
             class="flex items-center gap-1 text-xs"
           >
@@ -538,37 +525,50 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Per-host sparklines -->
-      <div
-        v-for="(host, idx) in netlogDashboard.hosts"
-        :key="host"
-      >
-        <div class="flex items-center gap-2">
-          <h3 class="text-t-fg-dark text-xs font-semibold uppercase tracking-wide" :style="{ color: accentColors[idx % accentColors.length] }">
-            {{ host }}
-          </h3>
-          <span
-            v-if="hoveredHost[host]"
-            class="text-t-fg-dark text-xs"
-          >
-            {{ formatHoverTime(hoveredHost[host]!.x) }} &mdash;
-            <span class="text-t-fg">{{ (hoveredHost[host]![host] as number) ?? 0 }}</span>
-          </span>
-        </div>
-        <div class="bg-t-bg-dark border-t-border rounded border p-2">
-          <VisXYContainer :data="netlogDashboard.chartData" :height="80" :duration="0" :padding="{ top: 4, right: 8 }">
-            <VisStackedBar
-              :x="xTotal"
-              :y="singleNetlogHostYAccessor(host)"
-              :color="() => accentColors[idx % accentColors.length]"
-              :barPadding="0.6"
-              :roundedCorners="2"
-              :dataStep="dataStep"
+      <!-- Chart 2: Individual bar chart per host -->
+      <div v-if="netlogVolume.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <div v-for="(host, idx) in netlogVolume.hosts" :key="host">
+          <h3 class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+            <span
+              class="inline-block h-2 w-2 rounded-sm"
+              :style="{ backgroundColor: accentColors[idx % accentColors.length] }"
             />
-            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
-            <VisCrosshair :template="singleNetlogHostTracker(host)" />
-          </VisXYContainer>
+            {{ host }}
+            <span
+              v-if="hoveredHost[host]"
+              class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
+            >
+              <span class="text-t-fg-dark">{{ formatHoverTime(hoveredHost[host]!.x) }} - </span>
+              <span
+                class="font-bold"
+                :style="{ color: accentColors[idx % accentColors.length] }"
+              >{{ (hoveredHost[host]![host] as number) ?? 0 }}</span>
+            </span>
+          </h3>
+          <div
+            class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
+            @mouseleave="hoveredHost[host] = null"
+          >
+            <VisXYContainer :data="netlogVolume.chartData" :height="120" :duration="0" :padding="{ top: 4, right: 4 }">
+              <VisStackedBar
+                :x="xTotal"
+                :y="singleNetlogHostYAccessor(host)"
+                :color="() => accentColors[idx % accentColors.length]"
+                :barPadding="0.6"
+                :roundedCorners="2"
+                :dataStep="dataStep"
+              />
+              <VisAxis type="x" :tickFormat="xTickFormat" :numTicks="3" :gridLine="false" :tickLine="false" />
+              <VisAxis type="y" :gridLine="true" :tickLine="false" />
+              <VisCrosshair :template="singleNetlogHostTracker(host)" />
+              <VisTooltip />
+            </VisXYContainer>
+          </div>
         </div>
+      </div>
+      <div v-else-if="!netlogVolume.loading && !netlogVolume.error"
+        class="bg-t-bg-dark border-t-border text-t-fg-dark flex items-center justify-center rounded border py-16 text-sm">
+        No data for the selected time range. Try a longer period.
       </div>
     </template>
 
@@ -580,7 +580,7 @@ onUnmounted(() => {
           Total Volume
         </h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="dashboard.chartData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="srvlogVolume.chartData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisStackedBar
               :x="xTotal"
               :y="hostYAccessors()"
@@ -599,7 +599,7 @@ onUnmounted(() => {
         <!-- Legend -->
         <div class="mt-2 flex flex-wrap gap-3">
           <span
-            v-for="(host, i) in dashboard.hosts"
+            v-for="(host, i) in srvlogVolume.hosts"
             :key="host"
             class="flex items-center gap-1 text-xs"
           >
@@ -613,8 +613,8 @@ onUnmounted(() => {
       </div>
 
       <!-- Chart 2: Individual bar chart per host -->
-      <div v-if="dashboard.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <div v-for="(host, i) in dashboard.hosts" :key="host">
+      <div v-if="srvlogVolume.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <div v-for="(host, i) in srvlogVolume.hosts" :key="host">
           <h3 class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
             <span
               class="inline-block h-2 w-2 rounded-sm"
@@ -636,7 +636,7 @@ onUnmounted(() => {
             class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
             @mouseleave="hoveredHost[host] = null"
           >
-            <VisXYContainer :data="dashboard.chartData" :height="120" :duration="0" :padding="{ top: 4, right: 4 }">
+            <VisXYContainer :data="srvlogVolume.chartData" :height="120" :duration="0" :padding="{ top: 4, right: 4 }">
               <VisStackedBar
                 :x="xTotal"
                 :y="singleHostYAccessor(host)"
@@ -653,7 +653,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="!dashboard.loading && !dashboard.error"
+      <div v-else-if="!srvlogVolume.loading && !srvlogVolume.error"
         class="bg-t-bg-dark border-t-border text-t-fg-dark flex items-center justify-center rounded border py-16 text-sm">
         No data for the selected time range. Try a longer period.
       </div>
@@ -667,7 +667,7 @@ onUnmounted(() => {
           Total Volume
         </h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer :data="applogDashboard.chartData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
+          <VisXYContainer :data="applogVolume.chartData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
             <VisStackedBar
               :x="xTotal"
               :y="serviceYAccessors()"
@@ -686,7 +686,7 @@ onUnmounted(() => {
         <!-- Legend -->
         <div class="mt-2 flex flex-wrap gap-3">
           <span
-            v-for="(service, i) in applogDashboard.services"
+            v-for="(service, i) in applogVolume.services"
             :key="service"
             class="flex items-center gap-1 text-xs"
           >
@@ -700,8 +700,8 @@ onUnmounted(() => {
       </div>
 
       <!-- Chart 2: Individual bar chart per service -->
-      <div v-if="applogDashboard.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <div v-for="(service, i) in applogDashboard.services" :key="service">
+      <div v-if="applogVolume.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <div v-for="(service, i) in applogVolume.services" :key="service">
           <h3 class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
             <span
               class="inline-block h-2 w-2 rounded-sm"
@@ -723,7 +723,7 @@ onUnmounted(() => {
             class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
             @mouseleave="hoveredService[service] = null"
           >
-            <VisXYContainer :data="applogDashboard.chartData" :height="120" :duration="0" :padding="{ top: 4, right: 4 }">
+            <VisXYContainer :data="applogVolume.chartData" :height="120" :duration="0" :padding="{ top: 4, right: 4 }">
               <VisStackedBar
                 :x="xTotal"
                 :y="singleServiceYAccessor(service)"
@@ -740,7 +740,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="!applogDashboard.loading && !applogDashboard.error"
+      <div v-else-if="!applogVolume.loading && !applogVolume.error"
         class="bg-t-bg-dark border-t-border text-t-fg-dark flex items-center justify-center rounded border py-16 text-sm">
         No data for the selected time range. Try a longer period.
       </div>
