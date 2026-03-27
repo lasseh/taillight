@@ -96,7 +96,7 @@ func syslogPriority(facility, severity int) int {
 // formatRFC5424 builds an RFC 5424 syslog message with optional structured data.
 func formatRFC5424(facility, severity int, hostname, program, msgid, message string) []byte {
 	pri := syslogPriority(facility, severity)
-	ts := time.Now().Format(time.RFC3339Nano)
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
 	if msgid == "" {
 		msgid = "-"
 	}
