@@ -144,7 +144,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           :class="
             route.name === 'home'
               ? 'bg-t-bg-highlight text-t-blue'
-              : 'text-t-fg-dark hover:text-t-blue'
+              : 'text-t-blue/50 hover:text-t-blue'
           "
         >
           HOME
@@ -154,8 +154,8 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             String(route.name).startsWith('netlog')
-              ? 'bg-t-bg-highlight text-t-purple'
-              : 'text-t-fg-dark hover:text-t-purple'
+              ? 'bg-t-bg-highlight text-t-fuchsia'
+              : 'text-t-fuchsia/50 hover:text-t-fuchsia'
           "
           @click="navigateToLog('netlog')"
         >
@@ -167,7 +167,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           :class="
             String(route.name).startsWith('srvlog')
               ? 'bg-t-bg-highlight text-t-teal'
-              : 'text-t-fg-dark hover:text-t-teal'
+              : 'text-t-teal/50 hover:text-t-teal'
           "
           @click="navigateToLog('srvlog')"
         >
@@ -179,7 +179,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           :class="
             String(route.name).startsWith('applog')
               ? 'bg-t-bg-highlight text-t-magenta'
-              : 'text-t-fg-dark hover:text-t-magenta'
+              : 'text-t-magenta/50 hover:text-t-magenta'
           "
           @click="navigateToLog('applog')"
         >
@@ -191,7 +191,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           :class="
             route.name === 'dashboard'
               ? 'bg-t-bg-highlight text-t-purple'
-              : 'text-t-fg-dark hover:text-t-purple'
+              : 'text-t-purple/50 hover:text-t-purple'
           "
         >
           DASHBOARD
@@ -202,7 +202,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           :class="
             route.name === 'notifications'
               ? 'bg-t-bg-highlight text-t-yellow'
-              : 'text-t-fg-dark hover:text-t-yellow'
+              : 'text-t-yellow/50 hover:text-t-yellow'
           "
         >
           ALERTS
@@ -379,7 +379,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             :class="
               route.name === 'home'
                 ? 'bg-t-bg-highlight text-t-blue'
-                : 'text-t-fg-dark hover:text-t-blue'
+                : 'text-t-blue/50 hover:text-t-blue'
             "
             @click="closeMobileMenu"
           >
@@ -391,7 +391,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             :class="
               String(route.name).startsWith('netlog')
                 ? 'bg-t-bg-highlight text-t-purple'
-                : 'text-t-fg-dark hover:text-t-purple'
+                : 'text-t-purple/50 hover:text-t-purple'
             "
             @click="mobileNavigateToLog('netlog')"
           >
@@ -403,7 +403,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             :class="
               String(route.name).startsWith('srvlog')
                 ? 'bg-t-bg-highlight text-t-teal'
-                : 'text-t-fg-dark hover:text-t-teal'
+                : 'text-t-teal/50 hover:text-t-teal'
             "
             @click="mobileNavigateToLog('srvlog')"
           >
@@ -415,7 +415,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             :class="
               String(route.name).startsWith('applog')
                 ? 'bg-t-bg-highlight text-t-magenta'
-                : 'text-t-fg-dark hover:text-t-magenta'
+                : 'text-t-magenta/50 hover:text-t-magenta'
             "
             @click="mobileNavigateToLog('applog')"
           >
@@ -427,7 +427,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             :class="
               route.name === 'dashboard'
                 ? 'bg-t-bg-highlight text-t-purple'
-                : 'text-t-fg-dark hover:text-t-purple'
+                : 'text-t-purple/50 hover:text-t-purple'
             "
             @click="closeMobileMenu"
           >
@@ -439,7 +439,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             :class="
               route.name === 'notifications'
                 ? 'bg-t-bg-highlight text-t-yellow'
-                : 'text-t-fg-dark hover:text-t-yellow'
+                : 'text-t-yellow/50 hover:text-t-yellow'
             "
             @click="closeMobileMenu"
           >

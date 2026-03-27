@@ -38,7 +38,7 @@ db_min_conns: 2
 notification_buffer_size: 8192
 
 # Number of worker goroutines consuming LISTEN/NOTIFY events.
-# Each worker fetches the srvlog row from the DB and broadcasts it.
+# Each worker fetches the srvlog/netlog row from the DB and broadcasts it.
 # Increase if the notification channel still fills up under high volume.
 notification_workers: 4
 
@@ -85,7 +85,7 @@ notification:
   # send_timeout: 10s             # HTTP timeout for each backend send.
   # global_rate_limit: 100        # Reserved for future use.
 
-# AI-powered daily srvlog analysis using a local Ollama instance.
+# AI-powered daily log analysis using a local Ollama instance.
 # Produces a morning ops briefing covering incidents, anomalies, and correlations.
 analysis:
   enabled: false

@@ -1,6 +1,6 @@
 # rsyslog Juniper Filtering
 
-Modular rsyslog configuration for receiving, filtering, and routing syslog from Juniper network devices (MX, SRX, EX, QFX) into the srvlog feed. Designed to reduce noise from high-volume senders while preserving operationally important events.
+Modular rsyslog configuration for receiving, filtering, and routing syslog from Juniper network devices (MX, SRX, EX, QFX) into the netlog feed. Designed to reduce noise from high-volume senders while preserving operationally important events.
 
 ## Overview
 
@@ -18,7 +18,7 @@ UDP/TCP input (514, 1514)
   -> filter by facility      (local7 info noise)
   -> filter by severity      (drop debug globally)
   -> filter by hostname/IP   (optional, all commented out)
-  -> output to LibreNMS, per-host log files, PostgreSQL (srvlog), remote forwarding
+  -> output to LibreNMS, per-host log files, PostgreSQL (netlog), remote forwarding
 ```
 
 ## Project structure
@@ -27,8 +27,8 @@ UDP/TCP input (514, 1514)
 rsyslog.conf              Main config -- global settings, queue tuning, includes
 conf.d/
   00-modules.conf         Module loading (imudp, imtcp, mmpstrucdata, omprog, ...)
-  01-templates.conf       Output format templates (srvlog, JSON, LibreNMS, PostgreSQL, debug)
-  02-outputs.conf         Output rulesets (local files, remote, LibreNMS, JSON, PostgreSQL srvlog)
+  01-templates.conf       Output format templates (netlog, srvlog, JSON, LibreNMS, PostgreSQL, debug)
+  02-outputs.conf         Output rulesets (local files, remote, LibreNMS, JSON, PostgreSQL netlog/srvlog)
   10-inputs.conf          UDP/TCP listeners bound to network_devices ruleset
   20-ruleset.conf         Main processing ruleset -- filter chain and output routing
 filters/

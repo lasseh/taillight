@@ -5,10 +5,18 @@ import { severityColorClassByLabel, severityBgClass, severityBgClassByLabel } fr
 import { formatTime } from '@/lib/format'
 import { highlightMessage } from '@/lib/highlighter'
 
+type TaggedEvent = SrvlogEvent & { _feed?: string; _routeName?: string }
+
+const feedBadge: Record<string, { label: string; cls: string }> = {
+  srvlog: { label: 'S', cls: 'text-t-teal' },
+  netlog: { label: 'N', cls: 'text-t-fuchsia' },
+}
+
 const props = withDefaults(defineProps<{
-  events: SrvlogEvent[]
+  events: TaggedEvent[]
   title?: string
   showHostname?: boolean
+  showFeed?: boolean
   flashIds?: Set<number>
   highlightSeverity?: boolean
   hideHeader?: boolean
@@ -16,6 +24,10 @@ const props = withDefaults(defineProps<{
 }>(), {
   routeName: 'srvlog-detail',
 })
+
+function eventRoute(event: TaggedEvent) {
+  return { name: event._routeName ?? props.routeName, params: { id: event.id } }
+}
 </script>
 
 <template>
@@ -29,7 +41,7 @@ const props = withDefaults(defineProps<{
       <RouterLink
         v-for="event in events"
         :key="'m-' + event.id"
-        :to="{ name: props.routeName, params: { id: event.id } }"
+        :to="eventRoute(event)"
         class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 md:hidden"
         :class="[
           flashIds?.has(event.id) ? 'row-flash' : '',
@@ -38,7 +50,9 @@ const props = withDefaults(defineProps<{
       >
         <div class="w-[3px] shrink-0 rounded-r" :class="severityBgClassByLabel[event.severity_label] ?? 'bg-sev-info'" />
         <div class="min-w-0 flex-1">
-          <div v-if="showHostname" class="text-t-teal/60 truncate text-[10px] leading-tight">{{ event.hostname }}</div>
+          <div v-if="showHostname" class="text-t-teal/60 truncate text-[10px] leading-tight">
+            <span v-if="showFeed && event._feed && feedBadge[event._feed]" :class="feedBadge[event._feed]!.cls" class="mr-1 font-bold">{{ feedBadge[event._feed]!.label }}</span>{{ event.hostname }}
+          </div>
           <div class="min-w-0 truncate text-xs leading-snug" v-html="highlightMessage(event.id, event.message)" />
         </div>
       </RouterLink>
@@ -46,7 +60,7 @@ const props = withDefaults(defineProps<{
       <RouterLink
         v-for="event in events"
         :key="'d-' + event.id"
-        :to="{ name: props.routeName, params: { id: event.id } }"
+        :to="eventRoute(event)"
         class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug md:flex"
         :class="[
           flashIds?.has(event.id) ? 'row-flash' : '',
@@ -54,6 +68,7 @@ const props = withDefaults(defineProps<{
         ]"
       >
         <span class="text-t-fg-dark w-[8ch] shrink-0">{{ formatTime(event.received_at) }}</span>
+        <span v-if="showFeed && event._feed && feedBadge[event._feed]" class="w-[2ch] shrink-0 text-center font-bold" :class="feedBadge[event._feed]!.cls">{{ feedBadge[event._feed]!.label }}</span>
         <span class="w-[8ch] shrink-0 uppercase" :class="severityColorClassByLabel[event.severity_label] ?? 'text-t-fg'">{{ event.severity_label }}</span>
         <span v-if="showHostname" class="text-t-teal w-[20ch] shrink-0 truncate">{{ event.hostname }}</span>
         <span class="text-t-purple w-[10ch] shrink-0 truncate">{{ event.programname }}</span>

@@ -26,8 +26,12 @@ services:
       - ../company-repo/conf.d/:/etc/rsyslog.d/conf.d/:ro
       - ../company-repo/filters/:/etc/rsyslog.d/filters/:ro
     ports:
+      # Dual-port setup: netlog (network devices) on 514, srvlog (servers) on 515.
+      # In production, use standard ports (514/515).
       - "514:514/udp"
       - "514:514/tcp"
+      - "515:515/udp"
+      - "515:515/tcp"
 
   # Uncomment below to run rsyslog with host networking (e.g. when rsyslog
   # must bind to specific interfaces or reach a postgres on the host).

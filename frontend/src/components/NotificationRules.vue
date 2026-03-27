@@ -18,7 +18,7 @@ const saveError = ref('')
 // Form fields.
 const formName = ref('')
 const formEnabled = ref(true)
-const formEventKind = ref<'srvlog' | 'netlog' | 'applog'>('srvlog')
+const formEventKind = ref<'srvlog' | 'netlog' | 'applog'>('netlog')
 const formHostname = ref('')
 const formProgramname = ref('')
 const formSeverity = ref('')
@@ -102,7 +102,7 @@ async function fetchData() {
 function resetForm() {
   formName.value = ''
   formEnabled.value = true
-  formEventKind.value = 'srvlog'
+  formEventKind.value = 'netlog'
   formHostname.value = ''
   formProgramname.value = ''
   formSeverity.value = ''
@@ -298,7 +298,7 @@ onMounted(fetchData)
             <div class="w-24 shrink-0">
               <span
                 class="inline-block rounded px-1.5 py-0.5 text-xs uppercase"
-                :class="rule.event_kind === 'applog' ? 'bg-t-magenta/10 text-t-magenta' : rule.event_kind === 'netlog' ? 'bg-t-blue/10 text-t-blue' : 'bg-t-teal/10 text-t-teal'"
+                :class="rule.event_kind === 'applog' ? 'bg-t-magenta/10 text-t-magenta' : rule.event_kind === 'netlog' ? 'bg-t-fuchsia/10 text-t-fuchsia' : 'bg-t-teal/10 text-t-teal'"
               >
                 {{ rule.event_kind }}
               </span>
@@ -403,7 +403,7 @@ onMounted(fetchData)
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formEventKind === 'netlog' ? 'border-t-blue text-t-blue' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="formEventKind === 'netlog' ? 'border-t-fuchsia text-t-fuchsia' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
                     @click="formEventKind = 'netlog'"
                   >
                     Netlog

@@ -20,6 +20,7 @@
   --color-t-teal: #2ac3de;
   --color-t-blue: #7aa2f7;
   --color-t-purple: #bb9af7;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #ff007c;
 
   /* Severity-specific aliases */
@@ -108,6 +109,7 @@ select {
   --color-t-teal: #2ac3de;
   --color-t-blue: #7aa2f7;
   --color-t-purple: #bb9af7;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #ff007c;
   --color-t-border: #292e42;
 }
@@ -130,6 +132,7 @@ select {
   --color-t-teal: #4fd6be;
   --color-t-blue: #82aaff;
   --color-t-purple: #c099ff;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #ff007c;
   --color-t-border: #2f334d;
   --color-sev-emerg: #ff007c;
@@ -162,6 +165,7 @@ select {
   --color-t-teal: #118c74;
   --color-t-blue: #2e7de9;
   --color-t-purple: #7847bd;
+  --color-t-fuchsia: #a21caf;
   --color-t-magenta: #9854f1;
   --color-t-border: #d0d2da;
   --color-sev-emerg: #a8004e;
@@ -194,6 +198,7 @@ select {
   --color-t-teal: #8be9fd;
   --color-t-blue: #bd93f9;
   --color-t-purple: #ff79c6;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #ff79c6;
   --color-t-border: #44475a;
   --color-sev-emerg: #ff007c;
@@ -226,6 +231,7 @@ select {
   --color-t-teal: #94e2d5;
   --color-t-blue: #89b4fa;
   --color-t-purple: #cba6f7;
+  --color-t-fuchsia: #e879f9;
   --color-t-magenta: #f5c2e7;
   --color-t-border: #45475a;
   --color-sev-emerg: #ff007c;
@@ -258,6 +264,7 @@ select {
   --color-t-teal: #8bd5ca;
   --color-t-blue: #8aadf4;
   --color-t-purple: #c6a0f6;
+  --color-t-fuchsia: #e879f9;
   --color-t-magenta: #f5bde6;
   --color-t-border: #494d64;
   --color-sev-emerg: #ff007c;
@@ -290,6 +297,7 @@ select {
   --color-t-teal: #81c8be;
   --color-t-blue: #8caaee;
   --color-t-purple: #ca9ee6;
+  --color-t-fuchsia: #e879f9;
   --color-t-magenta: #f4b8e4;
   --color-t-border: #51576d;
   --color-sev-emerg: #ff007c;
@@ -322,6 +330,7 @@ select {
   --color-t-teal: #179299;
   --color-t-blue: #1e66f5;
   --color-t-purple: #8839ef;
+  --color-t-fuchsia: #a21caf;
   --color-t-magenta: #ea76cb;
   --color-t-border: #cdd1dc;
   --color-sev-emerg: #a8004e;
@@ -354,6 +363,7 @@ select {
   --color-t-teal: #56b6c2;
   --color-t-blue: #61afef;
   --color-t-purple: #c678dd;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #e06c75;
   --color-t-border: #3e4452;
   --color-sev-emerg: #ff007c;
@@ -386,6 +396,7 @@ select {
   --color-t-teal: #2aa198;
   --color-t-blue: #268bd2;
   --color-t-purple: #6c71c4;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #d33682;
   --color-t-border: #073642;
   --color-sev-emerg: #ff007c;
@@ -418,6 +429,7 @@ select {
   --color-t-teal: #66d9ef;
   --color-t-blue: #66d9ef;
   --color-t-purple: #ae81ff;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #f92672;
   --color-t-border: #3e3d32;
   --color-sev-emerg: #ff007c;
@@ -450,6 +462,7 @@ select {
   --color-t-teal: #88c0d0;
   --color-t-blue: #81a1c1;
   --color-t-purple: #b48ead;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #bf616a;
   --color-t-border: #434c5e;
   --color-sev-emerg: #ff007c;
@@ -482,6 +495,7 @@ select {
   --color-t-teal: #8ec07c;
   --color-t-blue: #83a598;
   --color-t-purple: #d3869b;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #fb4934;
   --color-t-border: #3c3836;
   --color-sev-emerg: #ff007c;
@@ -514,6 +528,7 @@ select {
   --color-t-teal: #31748f;
   --color-t-blue: #c4a7e7;
   --color-t-purple: #c4a7e7;
+  --color-t-fuchsia: #c084fc;
   --color-t-magenta: #eb6f92;
   --color-t-border: #26233a;
   --color-sev-emerg: #ff007c;
@@ -546,6 +561,7 @@ select {
   --color-t-teal: #0969da;
   --color-t-blue: #0550ae;
   --color-t-purple: #8250df;
+  --color-t-fuchsia: #a21caf;
   --color-t-magenta: #bf3989;
   --color-t-border: #d8dde4;
   --color-sev-emerg: #a8004e;
@@ -577,6 +593,7 @@ select {
   --color-t-teal: #36f9f6;
   --color-t-blue: #03edf9;
   --color-t-purple: #b893ce;
+  --color-t-fuchsia: #d946ef;
   --color-t-magenta: #ff7edb;
   --color-t-border: #495495;
   --color-sev-bg-alert: #c026d318;
@@ -600,6 +617,7 @@ select {
   --color-t-teal: #0184bc;
   --color-t-blue: #4078f2;
   --color-t-purple: #a626a4;
+  --color-t-fuchsia: #a21caf;
   --color-t-magenta: #ca1243;
   --color-t-border: #d5d5d8;
   --color-sev-emerg: #a8004e;
@@ -631,6 +649,7 @@ select {
   --color-t-teal: #4fb4d8;
   --color-t-blue: #2970c7;
   --color-t-purple: #7c2cbd;
+  --color-t-fuchsia: #a21caf;
   --color-t-magenta: #dc3eb7;
   --color-t-border: #d0dae4;
   --color-sev-emerg: #a8004e;
