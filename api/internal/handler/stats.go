@@ -19,16 +19,18 @@ type StatsStore interface {
 	GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
 	GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (model.AppLogSummary, error)
 	GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
+	ListHosts(ctx context.Context, rangeDur time.Duration, includeNetlog bool) ([]model.HostEntry, error)
 }
 
 // StatsHandler handles REST endpoints for dashboard statistics.
 type StatsHandler struct {
-	store StatsStore
+	store         StatsStore
+	includeNetlog bool
 }
 
 // NewStatsHandler creates a new StatsHandler.
-func NewStatsHandler(store StatsStore) *StatsHandler {
-	return &StatsHandler{store: store}
+func NewStatsHandler(store StatsStore, includeNetlog bool) *StatsHandler {
+	return &StatsHandler{store: store, includeNetlog: includeNetlog}
 }
 
 // Volume handles GET /api/v1/stats/volume.
@@ -218,4 +220,25 @@ func (h *StatsHandler) NetlogSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, itemResponse{Data: summary})
+}
+
+// Hosts handles GET /api/v1/stats/hosts.
+func (h *StatsHandler) Hosts(w http.ResponseWriter, r *http.Request) {
+	rangeDur, err := model.ParseRange(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_params", err.Error())
+		return
+	}
+
+	hosts, err := h.store.ListHosts(r.Context(), rangeDur, h.includeNetlog)
+	if err != nil {
+		if isClientGone(r) {
+			return
+		}
+		LoggerFromContext(r.Context()).Error("list hosts failed", "err", err, "range", rangeDur)
+		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list hosts")
+		return
+	}
+
+	writeJSON(w, itemResponse{Data: emptySlice(hosts)})
 }

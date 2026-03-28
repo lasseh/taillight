@@ -447,7 +447,7 @@ func setupRouter(
 	// Srvlog handlers.
 	srvlogHandler := handler.NewSrvlogHandler(store)
 	srvlogMetaHandler := handler.NewSrvlogMetaHandler(store)
-	statsHandler := handler.NewStatsHandler(store)
+	statsHandler := handler.NewStatsHandler(store, cfg.Features.Netlog)
 	juniperHandler := handler.NewJuniperHandler(store)
 	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
 	taillightMetricsHandler := handler.NewTaillightMetricsHandler(store)
@@ -548,6 +548,7 @@ func setupRouter(
 					r.Get("/stats/volume", statsHandler.Volume)
 					r.Get("/stats/severity-volume", statsHandler.SeverityVolume)
 					r.Get("/stats/summary", statsHandler.SrvlogSummary)
+					r.Get("/stats/hosts", statsHandler.Hosts)
 
 					r.Get("/device/{hostname}", srvlogDeviceHandler.Get)
 				})
