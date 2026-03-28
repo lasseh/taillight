@@ -55,7 +55,9 @@ function onScroll() {
 function onKeydown(e: KeyboardEvent) {
   if (e.code !== 'Escape') return
   collapseSignal.value++
-  scrollToBottom()
+  // Use instant scroll to reliably reach the bottom even during high-volume
+  // event ingestion where smooth scroll can't keep up with DOM changes.
+  scrollToBottom('instant')
 }
 
 onMounted(() => {

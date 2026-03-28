@@ -156,7 +156,7 @@ async function changePassword() {
           <h3 class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide">
             Change Password
           </h3>
-          <div class="space-y-4 p-5">
+          <form class="space-y-4 p-5" @submit.prevent="changePassword">
             <label class="block">
               <span class="text-t-fg-dark text-sm">current password</span>
               <input
@@ -187,16 +187,16 @@ async function changePassword() {
 
             <div class="flex items-center gap-3 pt-1">
               <button
+                type="submit"
                 class="bg-t-bg-highlight text-t-fg hover:brightness-125 border-t-border border px-4 py-2 text-sm transition-all"
                 :disabled="saving"
-                @click="changePassword"
               >
                 {{ saving ? 'updating...' : 'update password' }}
               </button>
               <span v-if="passwordError" class="text-t-red text-sm">{{ passwordError }}</span>
               <span v-if="passwordSuccess" class="text-t-green text-sm">{{ passwordSuccess }}</span>
             </div>
-          </div>
+          </form>
         </div>
       </div>
     </div>

@@ -125,12 +125,18 @@ const syslogTopHosts = computed(() => {
   const srvlog = home.srvlogSummary?.top_hosts ?? []
   const netlog = home.netlogSummary?.top_hosts ?? []
   const total = syslogTotal.value
+  const srvlogNames = new Set(srvlog.map(h => h.name))
   const map = new Map<string, number>()
   for (const h of [...srvlog, ...netlog]) {
     map.set(h.name, (map.get(h.name) ?? 0) + h.count)
   }
   return [...map.entries()]
-    .map(([name, count]) => ({ name, count, pct: total > 0 ? (count / total) * 100 : 0 }))
+    .map(([name, count]) => ({
+      name,
+      count,
+      pct: total > 0 ? (count / total) * 100 : 0,
+      feed: srvlogNames.has(name) ? 'srvlog' : 'netlog' as 'srvlog' | 'netlog',
+    }))
     .sort((a, b) => b.count - a.count)
 })
 
@@ -227,23 +233,8 @@ function getSeverityBgClass(level: string): string {
     </div>
 
     <template v-else>
-      <!-- Connection error — full-page centered state -->
-      <div v-if="home.error === 'connection'" class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <svg class="text-t-fg-dark h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="1" y1="1" x2="23" y2="23" />
-          <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
-          <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
-          <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
-          <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
-          <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-          <line x1="12" y1="20" x2="12.01" y2="20" />
-        </svg>
-        <p class="text-t-fg text-sm font-semibold">Cannot connect to server</p>
-        <p class="text-t-fg-dark text-xs">The API may be down or restarting. Retrying automatically...</p>
-      </div>
-
-      <!-- Partial API error banner -->
-      <div v-else-if="home.error" class="text-t-red bg-t-red/10 border-t-red/30 rounded border px-4 py-2 text-sm">
+      <!-- Partial API error banner (connection errors handled by global ConnectionBanner) -->
+      <div v-if="home.error && home.error !== 'connection'" class="text-t-red bg-t-red/10 border-t-red/30 rounded border px-4 py-2 text-sm">
         {{ home.error }}
       </div>
 
@@ -336,7 +327,7 @@ function getSeverityBgClass(level: string): string {
                   <RouterLink
                     v-for="(host, idx) in visibleHosts"
                     :key="host.name"
-                    :to="{ name: 'srvlog-device-detail', params: { hostname: host.name } }"
+                    :to="{ name: host.feed === 'netlog' ? 'netlog-device-detail' : 'srvlog-device-detail', params: { hostname: host.name } }"
                     class="group flex cursor-pointer items-center gap-2"
                   >
                     <span class="text-t-fg-dark w-4 text-xs">{{ idx + 1 }}.</span>
