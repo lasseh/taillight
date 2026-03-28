@@ -279,6 +279,18 @@ npm install && npm run dev
 | `import` | Import Juniper netlog reference data (XLSX) |
 | `version` | Print the build version |
 
+### Importing Juniper Reference Data
+
+Copy the XLSX files into the container, then run the import:
+
+```sh
+docker compose cp System_Log_Messages_Junos_OS_25.4R1.xlsx api:/tmp/
+docker compose cp System_Log_Messages_Junos_OS_Evolved_25.4R1.xlsx api:/tmp/
+
+docker compose exec api /app import --file /tmp/System_Log_Messages_Junos_OS_25.4R1.xlsx --os junos
+docker compose exec api /app import --file /tmp/System_Log_Messages_Junos_OS_Evolved_25.4R1.xlsx --os junos-evolved
+```
+
 ## Components
 
 | Directory | Description |
