@@ -7,6 +7,7 @@ import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } 
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse, ListUsersResponse, AdminUser } from '@/types/auth'
 import type { ChannelListResponse, ChannelResponse, RuleListResponse, RuleResponse, LogListResponse, TestChannelResult, NotificationChannel, NotificationRule } from '@/types/notification'
 import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
+import type { HostsResponse } from '@/types/host'
 import type { AnalysisReportListResponse, AnalysisReportResponse, AnalysisTriggerResponse } from '@/types/analysis'
 import { config } from './config'
 
@@ -270,6 +271,11 @@ export const api = {
   getSrvlogSummary(range?: string): Promise<SrvlogSummaryResponse> {
     const q = range ? `?range=${encodeURIComponent(range)}` : ''
     return fetchAPI(`/api/v1/srvlog/stats/summary${q}`)
+  },
+
+  getHostsSummary(range?: string): Promise<HostsResponse> {
+    const q = range ? `?range=${encodeURIComponent(range)}` : ''
+    return fetchAPI(`/api/v1/srvlog/stats/hosts${q}`)
   },
 
   getAppLogSummary(range?: string): Promise<AppLogSummaryResponse> {

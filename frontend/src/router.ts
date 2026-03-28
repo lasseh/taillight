@@ -69,6 +69,11 @@ const router = createRouter({
           },
         ]),
     {
+      path: '/hosts',
+      name: 'hosts',
+      component: () => import('@/views/HostsView.vue'),
+    },
+    {
       path: '/volume',
       name: 'volume',
       component: () => import('@/views/VolumeView.vue'),

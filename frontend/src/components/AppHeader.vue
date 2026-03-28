@@ -75,6 +75,12 @@ function goToAnalysis() {
   router.push({ name: 'analysis' })
 }
 
+function goToHosts() {
+  menuOpen.value = false
+  closeMobileMenu()
+  router.push({ name: 'hosts' })
+}
+
 function goToVolume() {
   menuOpen.value = false
   closeMobileMenu()
@@ -203,7 +209,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
       <div ref="menuRef" class="relative hidden md:block">
         <button
           class="text-t-fg-dark hover:text-t-fg flex items-center gap-1 px-1.5 py-0.5 text-xs transition-colors"
-          :class="menuOpen || String(route.name).startsWith('settings') || route.name === 'api-keys' || route.name === 'analysis' || route.name === 'admin-users' || route.name === 'notifications' || route.name === 'volume' ? 'text-t-fg' : ''"
+          :class="menuOpen || String(route.name).startsWith('settings') || route.name === 'api-keys' || route.name === 'analysis' || route.name === 'admin-users' || route.name === 'notifications' || route.name === 'volume' || route.name === 'hosts' ? 'text-t-fg' : ''"
           @click.stop="menuOpen = !menuOpen"
         >
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -233,6 +239,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
             <!-- Menu items -->
             <div class="border-t-border border-b py-1">
+              <button
+                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
+                @click="goToHosts"
+              >
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                  <line x1="6" y1="6" x2="6.01" y2="6" />
+                  <line x1="6" y1="18" x2="6.01" y2="18" />
+                </svg>
+                <span>Hosts</span>
+              </button>
               <button
                 class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
                 @click="goToVolume"
@@ -448,6 +466,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         <!-- Menu items -->
         <div class="bg-t-border my-3 h-px"></div>
         <div class="flex flex-col gap-1">
+          <button
+            class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
+            @click="goToHosts"
+          >
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+              <line x1="6" y1="6" x2="6.01" y2="6" />
+              <line x1="6" y1="18" x2="6.01" y2="18" />
+            </svg>
+            <span>Hosts</span>
+          </button>
           <button
             class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
             @click="goToVolume"
