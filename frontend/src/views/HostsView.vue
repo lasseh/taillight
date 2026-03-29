@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useHostsStore } from '@/stores/hosts'
 import { features } from '@/config'
 import { formatNumber, formatRelativeTime, lastSeenColorClass } from '@/lib/format'
-import { severityBgClassByLabel } from '@/lib/constants'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import type { HostEntry } from '@/types/host'
-import type { SeverityCount } from '@/types/stats'
 
 const router = useRouter()
 const store = useHostsStore()
@@ -21,12 +19,25 @@ const rangePresets = [
   { label: '30d', value: '30d' },
 ]
 
+// Max total across all hosts — used to scale bars relative to each other.
+const maxTotal = computed(() => {
+  let max = 0
+  for (const h of store.filteredHosts) {
+    if (h.total_count > max) max = h.total_count
+  }
+  return max || 1
+})
+
 function goToDevice(host: HostEntry) {
   if (host.feed === 'netlog' && features.netlog) {
     router.push({ name: 'netlog-device-detail', params: { hostname: host.hostname } })
   } else {
     router.push({ name: 'srvlog-device-detail', params: { hostname: host.hostname } })
   }
+}
+
+function barPct(count: number): number {
+  return (count / maxTotal.value) * 100
 }
 
 function trendArrow(trend: number): string {
@@ -39,10 +50,6 @@ function trendColor(trend: number): string {
   if (trend > 1) return 'text-t-red'
   if (trend < -1) return 'text-t-green'
   return 'text-t-fg-dark'
-}
-
-function severityBarSegments(breakdown: SeverityCount[]): { label: string; pct: number }[] {
-  return breakdown.filter((s) => s.pct > 0).map((s) => ({ label: s.label, pct: s.pct }))
 }
 
 onMounted(() => store.startRefresh())
@@ -105,65 +112,52 @@ onUnmounted(() => store.stopRefresh())
       No hosts have sent events in the selected time range.
     </div>
 
-    <!-- Table -->
+    <!-- Host bars -->
     <div v-else class="flex-1 overflow-y-auto">
-      <table class="w-full border-collapse">
-        <thead class="bg-t-bg sticky top-0 z-10">
-          <tr class="border-t-border border-b text-left text-[10px] uppercase tracking-wide text-t-fg-dark">
-            <th class="py-1.5 pl-3 pr-2 font-medium">Hostname</th>
-            <th class="px-2 font-medium">Feed</th>
-            <th class="px-2 text-right font-medium">Last Seen</th>
-            <th class="px-2 text-right font-medium">Total</th>
-            <th class="px-2 text-right font-medium">Errors</th>
-            <th class="px-2 text-right font-medium">Trend</th>
-            <th class="px-2 pr-3 font-medium">Severity</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="host in store.filteredHosts"
-            :key="host.hostname"
-            class="border-t-border hover:bg-t-bg-dark cursor-pointer border-b transition-colors"
-            @click="goToDevice(host)"
-          >
-            <td class="py-1.5 pl-3 pr-2">
-              <span class="text-t-fg text-xs font-medium">{{ host.hostname }}</span>
-            </td>
-            <td class="px-2">
-              <span class="flex gap-0.5">
-                <span v-if="host.feed === 'srvlog' || host.feed === 'both'" class="rounded bg-t-teal/20 px-1 text-[10px] text-t-teal">S</span>
-                <span v-if="host.feed === 'netlog' || host.feed === 'both'" class="rounded bg-t-fuchsia/20 px-1 text-[10px] text-t-fuchsia">N</span>
-              </span>
-            </td>
-            <td class="px-2 text-right">
-              <span v-if="host.last_seen_at" class="text-xs" :class="lastSeenColorClass(host.last_seen_at)">{{ formatRelativeTime(host.last_seen_at) }}</span>
-              <span v-else class="text-t-fg-dark text-xs">&mdash;</span>
-            </td>
-            <td class="px-2 text-right">
-              <span class="text-t-fg text-xs">{{ formatNumber(host.total_count) }}</span>
-            </td>
-            <td class="px-2 text-right">
-              <span class="text-xs" :class="host.error_count ? 'text-t-red' : 'text-t-fg-dark'">{{ formatNumber(host.error_count) }}</span>
-            </td>
-            <td class="px-2 text-right">
-              <span class="text-xs" :class="trendColor(host.trend)">{{ trendArrow(host.trend) }} {{ Math.abs(host.trend).toFixed(0) }}%</span>
-            </td>
-            <td class="px-2 pr-3">
-              <div class="h-2 w-full max-w-32 overflow-hidden rounded bg-t-bg-highlight">
-                <div class="flex h-full">
-                  <div
-                    v-for="seg in severityBarSegments(host.severity_breakdown)"
-                    :key="seg.label"
-                    class="h-full"
-                    :class="severityBgClassByLabel[seg.label] ?? 'bg-t-fg'"
-                    :style="{ width: seg.pct + '%', opacity: 0.7 }"
-                  ></div>
-                </div>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="space-y-px">
+        <div
+          v-for="host in store.filteredHosts"
+          :key="host.hostname"
+          class="group relative flex cursor-pointer items-center gap-2 py-1 transition-colors hover:bg-t-bg-dark"
+          @click="goToDevice(host)"
+        >
+          <!-- Left: hostname + feed + last seen -->
+          <div class="flex w-48 shrink-0 items-center gap-1.5 pl-2">
+            <span class="text-t-fg min-w-0 flex-1 truncate text-xs font-medium">{{ host.hostname }}</span>
+            <span v-if="host.feed === 'srvlog' || host.feed === 'both'" class="rounded bg-t-teal/20 px-0.5 text-[9px] text-t-teal">S</span>
+            <span v-if="host.feed === 'netlog' || host.feed === 'both'" class="rounded bg-t-fuchsia/20 px-0.5 text-[9px] text-t-fuchsia">N</span>
+          </div>
+
+          <!-- Bar area: fills remaining width -->
+          <div class="relative flex-1">
+            <!-- Total bar (teal, background) -->
+            <div
+              class="h-4 rounded-sm bg-t-teal/20 transition-all"
+              :style="{ width: barPct(host.total_count) + '%' }"
+            >
+              <!-- Error bar (red, overlaid on the left of the total bar) -->
+              <div
+                v-if="host.error_count > 0"
+                class="absolute left-0 top-0 h-4 rounded-sm bg-t-red/40"
+                :style="{ width: barPct(host.error_count) + '%' }"
+              ></div>
+            </div>
+
+            <!-- Labels overlaid on the bar -->
+            <div class="pointer-events-none absolute inset-0 flex items-center gap-3 px-2">
+              <span class="text-t-fg text-[10px] font-medium">{{ formatNumber(host.total_count) }}</span>
+              <span v-if="host.error_count" class="text-t-red text-[10px]">{{ formatNumber(host.error_count) }} err</span>
+            </div>
+          </div>
+
+          <!-- Right: trend + last seen -->
+          <div class="flex w-28 shrink-0 items-center justify-end gap-3 pr-2">
+            <span class="text-[10px]" :class="trendColor(host.trend)">{{ trendArrow(host.trend) }}{{ Math.abs(host.trend).toFixed(0) }}%</span>
+            <span v-if="host.last_seen_at" class="w-12 text-right text-[10px]" :class="lastSeenColorClass(host.last_seen_at)">{{ formatRelativeTime(host.last_seen_at) }}</span>
+            <span v-else class="text-t-fg-dark w-12 text-right text-[10px]">&mdash;</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
