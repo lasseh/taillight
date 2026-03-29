@@ -4,10 +4,8 @@ import { useRouter } from 'vue-router'
 import { useHostsStore } from '@/stores/hosts'
 import { features } from '@/config'
 import { formatNumber, formatRelativeTime, lastSeenColorClass } from '@/lib/format'
-import { severityColorClassByLabel } from '@/lib/constants'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import type { HostEntry, HourlyBucket } from '@/types/host'
-import type { SeverityCount } from '@/types/stats'
 
 const router = useRouter()
 const store = useHostsStore()
@@ -54,14 +52,6 @@ function errorRatio(host: HostEntry): string {
   const pct = (host.error_count / host.total_count) * 100
   if (pct < 0.1 && pct > 0) return '<0.1'
   return pct.toFixed(1)
-}
-
-// Return the most critical severity level that has events.
-function worstSeverity(breakdown: SeverityCount[]): SeverityCount | null {
-  for (const s of breakdown) {
-    if (s.count > 0) return s
-  }
-  return null
 }
 
 // Render sparkline as array of bar heights (0-1) for CSS rendering.
@@ -155,12 +145,11 @@ onUnmounted(() => store.stopRefresh())
             <th class="w-3 py-1.5 pl-3 pr-0 font-medium"></th>
             <th class="py-1.5 pl-2 pr-2 font-medium">Hostname</th>
             <th class="px-2 font-medium">Feed</th>
-            <th class="hidden px-2 font-medium md:table-cell">Activity</th>
             <th class="px-2 text-right font-medium">Total</th>
             <th class="px-2 text-right font-medium">Errors</th>
             <th class="px-2 text-right font-medium">Err%</th>
             <th class="px-2 text-right font-medium">Trend</th>
-            <th class="hidden px-2 font-medium lg:table-cell">Worst</th>
+            <th class="hidden px-2 font-medium md:table-cell">Activity (24h)</th>
             <th class="px-2 pr-3 text-right font-medium">Last Seen</th>
           </tr>
         </thead>
@@ -189,19 +178,6 @@ onUnmounted(() => store.stopRefresh())
               </span>
             </td>
 
-            <!-- Activity sparkline -->
-            <td class="hidden px-2 md:table-cell">
-              <div class="flex h-3 items-end gap-px">
-                <div
-                  v-for="(bar, i) in sparkBars(host.hourly_buckets)"
-                  :key="i"
-                  class="w-1 rounded-t-sm"
-                  :class="bar.hasErrors ? 'bg-t-red/60' : 'bg-t-teal/40'"
-                  :style="{ height: (bar.height * 100) + '%' }"
-                ></div>
-              </div>
-            </td>
-
             <!-- Total -->
             <td class="px-2 text-right">
               <span class="text-t-fg text-xs">{{ formatNumber(host.total_count) }}</span>
@@ -222,14 +198,17 @@ onUnmounted(() => store.stopRefresh())
               <span class="text-xs" :class="trendColor(host.trend)">{{ trendArrow(host.trend) }} {{ Math.abs(host.trend).toFixed(0) }}%</span>
             </td>
 
-            <!-- Worst severity -->
-            <td class="hidden px-2 lg:table-cell">
-              <span
-                v-if="worstSeverity(host.severity_breakdown)"
-                class="text-[10px] font-medium uppercase"
-                :class="severityColorClassByLabel[worstSeverity(host.severity_breakdown)!.label] ?? 'text-t-fg-dark'"
-              >{{ worstSeverity(host.severity_breakdown)!.label }}</span>
-              <span v-else class="text-t-fg-dark text-[10px]">&mdash;</span>
+            <!-- Activity sparkline -->
+            <td class="hidden px-2 md:table-cell">
+              <div class="flex h-4 items-end gap-px">
+                <div
+                  v-for="(bar, i) in sparkBars(host.hourly_buckets)"
+                  :key="i"
+                  class="w-1.5 rounded-t-sm"
+                  :class="bar.hasErrors ? 'bg-t-red/60' : 'bg-t-teal/40'"
+                  :style="{ height: (bar.height * 100) + '%' }"
+                ></div>
+              </div>
             </td>
 
             <!-- Last seen -->
