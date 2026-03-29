@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useHostsStore } from '@/stores/hosts'
 import { features } from '@/config'
 import { formatNumber, formatRelativeTime, lastSeenColorClass } from '@/lib/format'
-import { severityBgClassByLabel } from '@/lib/constants'
+import { severityColorClassByLabel } from '@/lib/constants'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import type { HostEntry, HourlyBucket } from '@/types/host'
 import type { SeverityCount } from '@/types/stats'
@@ -56,8 +56,12 @@ function errorRatio(host: HostEntry): string {
   return pct.toFixed(1)
 }
 
-function severityBarSegments(breakdown: SeverityCount[]): { label: string; pct: number }[] {
-  return breakdown.filter((s) => s.pct > 0).map((s) => ({ label: s.label, pct: s.pct }))
+// Return the most critical severity level that has events.
+function worstSeverity(breakdown: SeverityCount[]): SeverityCount | null {
+  for (const s of breakdown) {
+    if (s.count > 0) return s
+  }
+  return null
 }
 
 // Render sparkline as array of bar heights (0-1) for CSS rendering.
@@ -156,7 +160,7 @@ onUnmounted(() => store.stopRefresh())
             <th class="px-2 text-right font-medium">Errors</th>
             <th class="px-2 text-right font-medium">Err%</th>
             <th class="px-2 text-right font-medium">Trend</th>
-            <th class="hidden px-2 font-medium lg:table-cell">Severity</th>
+            <th class="hidden px-2 font-medium lg:table-cell">Worst</th>
             <th class="px-2 pr-3 text-right font-medium">Last Seen</th>
           </tr>
         </thead>
@@ -218,19 +222,14 @@ onUnmounted(() => store.stopRefresh())
               <span class="text-xs" :class="trendColor(host.trend)">{{ trendArrow(host.trend) }} {{ Math.abs(host.trend).toFixed(0) }}%</span>
             </td>
 
-            <!-- Severity bar -->
+            <!-- Worst severity -->
             <td class="hidden px-2 lg:table-cell">
-              <div class="h-2 w-24 overflow-hidden rounded bg-t-bg-highlight">
-                <div class="flex h-full">
-                  <div
-                    v-for="seg in severityBarSegments(host.severity_breakdown)"
-                    :key="seg.label"
-                    class="h-full"
-                    :class="severityBgClassByLabel[seg.label] ?? 'bg-t-fg'"
-                    :style="{ width: seg.pct + '%', opacity: 0.7 }"
-                  ></div>
-                </div>
-              </div>
+              <span
+                v-if="worstSeverity(host.severity_breakdown)"
+                class="text-[10px] font-medium uppercase"
+                :class="severityColorClassByLabel[worstSeverity(host.severity_breakdown)!.label] ?? 'text-t-fg-dark'"
+              >{{ worstSeverity(host.severity_breakdown)!.label }}</span>
+              <span v-else class="text-t-fg-dark text-[10px]">&mdash;</span>
             </td>
 
             <!-- Last seen -->
