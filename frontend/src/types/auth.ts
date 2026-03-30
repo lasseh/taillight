@@ -14,6 +14,7 @@ export interface AuthUser {
   email?: string
   is_admin?: boolean
   is_active?: boolean
+  auth_source: string
   gravatar_url: string
   preferences?: UserPreferences
   created_at?: string
@@ -26,6 +27,7 @@ export interface AdminUser {
   email?: string
   is_admin: boolean
   is_active: boolean
+  auth_source: string
   gravatar_url: string
   created_at: string
   last_login_at?: string

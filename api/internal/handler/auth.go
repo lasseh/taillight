@@ -19,11 +19,13 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/lasseh/taillight/internal/auth"
+	"github.com/lasseh/taillight/internal/ldap"
 	"github.com/lasseh/taillight/internal/model"
 	"github.com/lasseh/taillight/internal/postgres"
 )
 
 const (
+	authSourceLDAP     = "ldap"
 	sessionCookieName  = "tl_session"
 	sessionDuration    = 30 * 24 * time.Hour // 30 days.
 	maxSessionsPerUser = 10
@@ -113,17 +115,20 @@ type AuthStore interface {
 	ListAPIKeysByUser(ctx context.Context, userID [16]byte) ([]model.APIKeyRow, error)
 	RevokeAPIKey(ctx context.Context, id [16]byte) error
 	GetAPIKeyByID(ctx context.Context, id [16]byte) (model.APIKeyRow, error)
+	UpsertLDAPUser(ctx context.Context, username, email string, isAdmin bool) (model.User, error)
 }
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
 	store        AuthStore
-	cookieSecure bool // Force Secure flag on session cookies.
+	ldap         ldap.Authenticator // nil when LDAP is disabled.
+	cookieSecure bool               // Force Secure flag on session cookies.
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(store AuthStore, cookieSecure bool) *AuthHandler {
-	return &AuthHandler{store: store, cookieSecure: cookieSecure}
+// Pass nil for ldapAuth to disable LDAP authentication.
+func NewAuthHandler(store AuthStore, ldapAuth ldap.Authenticator, cookieSecure bool) *AuthHandler {
+	return &AuthHandler{store: store, ldap: ldapAuth, cookieSecure: cookieSecure}
 }
 
 type loginRequest struct {
@@ -141,6 +146,7 @@ type userInfo struct {
 	Email       *string         `json:"email,omitempty"`
 	IsAdmin     bool            `json:"is_admin"`
 	IsActive    bool            `json:"is_active"`
+	AuthSource  string          `json:"auth_source"`
 	GravatarURL string          `json:"gravatar_url"`
 	Preferences json.RawMessage `json:"preferences"`
 	CreatedAt   string          `json:"created_at"`
@@ -159,6 +165,7 @@ func buildUserInfo(u model.User) userInfo {
 		Email:       u.Email,
 		IsAdmin:     u.IsAdmin,
 		IsActive:    u.IsActive,
+		AuthSource:  u.AuthSource,
 		GravatarURL: gravatarURL(u.Email),
 		Preferences: prefs,
 		CreatedAt:   u.CreatedAt.Format(time.RFC3339),
@@ -215,27 +222,75 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	logger := LoggerFromContext(r.Context())
 
-	user, err := h.store.GetUserByUsername(r.Context(), req.Username)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Burn the same CPU time as a real bcrypt check to prevent
-			// timing-based username enumeration.
-			auth.DummyCheckPassword(req.Password)
-			logger.Warn("login failed: unknown user", "username", req.Username, "ip", ip)
+	var user model.User
+	var authenticated bool
+
+	// Phase 1: try LDAP if enabled.
+	if h.ldap != nil {
+		result, err := h.ldap.Authenticate(r.Context(), req.Username, req.Password)
+		switch {
+		case err == nil:
+			// LDAP auth succeeded — upsert user into local DB.
+			user, err = h.store.UpsertLDAPUser(r.Context(), result.Username, result.Email, result.IsAdmin)
+			if err != nil {
+				logger.Error("login: upsert ldap user", "err", err)
+				writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
+				return
+			}
+			authenticated = true
+
+		case errors.Is(err, ldap.ErrUserNotFound):
+			// User not in LDAP directory — fall through to local auth.
+
+		case errors.Is(err, ldap.ErrAccountLocked):
+			auth.DummyCheckPassword(req.Password) // timing safety
+			logger.Warn("login failed: LDAP account locked", "username", req.Username, "ip", ip)
+			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+			return
+
+		case errors.Is(err, ldap.ErrInvalidPassword):
+			// User exists in LDAP but wrong password — do NOT fall through.
+			logger.Warn("login failed: LDAP wrong password", "username", req.Username, "ip", ip)
+			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+			return
+
+		default:
+			// LDAP connection/server error — log and fall through to local auth.
+			logger.Error("login: LDAP error, falling back to local auth", "err", err, "username", req.Username)
+		}
+	}
+
+	// Phase 2: local auth (if LDAP didn't authenticate).
+	if !authenticated {
+		var err error
+		user, err = h.store.GetUserByUsername(r.Context(), req.Username)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				auth.DummyCheckPassword(req.Password)
+				logger.Warn("login failed: unknown user", "username", req.Username, "ip", ip)
+				writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+				return
+			}
+			logger.Error("login: get user failed", "err", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
+			return
+		}
+
+		// Block local password auth for LDAP-sourced users.
+		if user.AuthSource == authSourceLDAP {
+			auth.DummyCheckPassword(req.Password) // timing safety
+			logger.Warn("login failed: LDAP user attempted local auth", "username", req.Username, "ip", ip)
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 			return
 		}
-		logger.Error("login: get user failed", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
-		return
-	}
 
-	// Always run bcrypt before checking active status so the response
-	// time is identical for active vs inactive accounts.
-	if err := auth.CheckPassword(req.Password, user.PasswordHash); err != nil {
-		logger.Warn("login failed: wrong password", "username", req.Username, "ip", ip)
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
-		return
+		// Always run bcrypt before checking active status so the response
+		// time is identical for active vs inactive accounts.
+		if err := auth.CheckPassword(req.Password, user.PasswordHash); err != nil {
+			logger.Warn("login failed: wrong password", "username", req.Username, "ip", ip)
+			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+			return
+		}
 	}
 
 	if !user.IsActive {
@@ -247,7 +302,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Create session.
 	rawToken, tokenHash, err := auth.GenerateSessionToken()
 	if err != nil {
-		LoggerFromContext(r.Context()).Error("login: generate session token", "err", err)
+		logger.Error("login: generate session token", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
 		return
 	}
@@ -256,31 +311,29 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ua := r.UserAgent()
 
 	if err := h.store.CreateSession(r.Context(), tokenHash, user.ID.Bytes, expiresAt, ip, ua); err != nil {
-		LoggerFromContext(r.Context()).Error("login: create session", "err", err)
+		logger.Error("login: create session", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
 		return
 	}
 
 	// Cap sessions per user to prevent unbounded growth.
 	if err := h.store.PruneUserSessions(r.Context(), user.ID.Bytes, maxSessionsPerUser); err != nil {
-		LoggerFromContext(r.Context()).Warn("login: prune sessions", "err", err)
+		logger.Warn("login: prune sessions", "err", err)
 	}
 
 	// Update last login timestamp.
 	if err := h.store.UpdateLastLogin(r.Context(), user.ID.Bytes); err != nil {
 		logger.Warn("login: update last login", "err", err)
 	}
-	logger.Info("login succeeded", "username", user.Username, "ip", ip)
+	logger.Info("login succeeded", "username", user.Username, "auth_source", user.AuthSource, "ip", ip)
 
 	secure := h.cookieSecure || isSecureRequest(r)
 	if !secure {
-		LoggerFromContext(r.Context()).Warn("setting session cookie without Secure flag")
+		logger.Warn("setting session cookie without Secure flag")
 	}
 	// SameSite=Lax is used intentionally instead of adding a separate CSRF
 	// token. Lax prevents cross-site POST requests from sending the cookie,
-	// which covers the primary CSRF vector. If this application ever needs
-	// to support cross-origin POST requests with credentials (e.g. embedded
-	// forms from partner sites), a CSRF token should be added at that point.
+	// which covers the primary CSRF vector.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    rawToken,
@@ -713,6 +766,19 @@ func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request)
 	if !isSelf && !user.IsAdmin {
 		writeError(w, http.StatusForbidden, "forbidden", "can only change your own password")
 		return
+	}
+
+	// Block password changes for LDAP-managed users.
+	if isSelf && user.AuthSource == authSourceLDAP {
+		writeError(w, http.StatusForbidden, "forbidden", "password is managed by your LDAP directory")
+		return
+	}
+	if !isSelf {
+		target, err := h.store.GetUserByID(r.Context(), id)
+		if err == nil && target.AuthSource == authSourceLDAP {
+			writeError(w, http.StatusForbidden, "forbidden", "cannot set password for LDAP-managed user")
+			return
+		}
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBody)

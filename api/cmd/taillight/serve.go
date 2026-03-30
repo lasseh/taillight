@@ -27,6 +27,7 @@ import (
 	"github.com/lasseh/taillight/internal/broker"
 	"github.com/lasseh/taillight/internal/config"
 	"github.com/lasseh/taillight/internal/handler"
+	ldapauth "github.com/lasseh/taillight/internal/ldap"
 	"github.com/lasseh/taillight/internal/metrics"
 	"github.com/lasseh/taillight/internal/notification"
 	"github.com/lasseh/taillight/internal/notification/backend"
@@ -149,7 +150,23 @@ func runServe(_ *cobra.Command, _ []string) error {
 		analysisHandler = setupAnalysis(ctx, cfg, store, logger)
 	}
 
-	r := setupRouter(cfg, logger, store, authStore, srvlogBroker, netlogBroker, applogBroker, analysisHandler, notifEngine)
+	// LDAP authentication (optional).
+	var ldapAuth ldapauth.Authenticator
+	if cfg.LDAP.Enabled {
+		ldapAuth = ldapauth.NewClient(ldapauth.Config{
+			URL:            cfg.LDAP.URL,
+			StartTLS:       cfg.LDAP.StartTLS,
+			TLSSkipVerify:  cfg.LDAP.TLSSkipVerify,
+			BindDN:         cfg.LDAP.BindDN,
+			BindPassword:   cfg.LDAP.BindPassword,
+			UserSearchBase: cfg.LDAP.UserSearchBase,
+			UserFilter:     cfg.LDAP.UserFilter,
+			AdminGroup:     cfg.LDAP.AdminGroup,
+		}, logger)
+		logger.Info("LDAP authentication enabled", "url", cfg.LDAP.URL)
+	}
+
+	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysisHandler, notifEngine)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -391,6 +408,7 @@ func setupRouter(
 	logger *slog.Logger,
 	store *postgres.Store,
 	authStore *postgres.AuthStore,
+	ldapAuth ldapauth.Authenticator,
 	srvlogBroker *broker.SrvlogBroker,
 	netlogBroker *broker.NetlogBroker,
 	applogBroker *broker.AppLogBroker,
@@ -472,7 +490,7 @@ func setupRouter(
 	applogSSEHandler := handler.NewAppLogSSEHandler(applogBroker, store, logger)
 	applogMetaHandler := handler.NewAppLogMetaHandler(store)
 	applogDeviceHandler := handler.NewAppLogDeviceHandler(store)
-	authHandler := handler.NewAuthHandler(authStore, cfg.CookieSecure)
+	authHandler := handler.NewAuthHandler(authStore, ldapAuth, cfg.CookieSecure)
 	notifHandler := handler.NewNotificationHandler(store, notifEngine)
 
 	r.Route("/api/v1", func(r chi.Router) {

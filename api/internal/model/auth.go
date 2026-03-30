@@ -15,6 +15,7 @@ type User struct {
 	PasswordHash string             `json:"-"`
 	IsActive     bool               `json:"is_active"`
 	IsAdmin      bool               `json:"is_admin"`
+	AuthSource   string             `json:"auth_source"`
 	Preferences  json.RawMessage    `json:"preferences"`
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`

@@ -40,6 +40,23 @@ type Config struct {
 	Notification           NotificationConfig
 	Retention              RetentionConfig
 	SMTP                   SMTPConfig
+	LDAP                   LDAPConfig
+}
+
+// LDAPConfig configures LDAP (FreeIPA) authentication.
+// When enabled, login attempts are first verified against the LDAP directory.
+// Users authenticated via LDAP are synced to the local database for session
+// and API key support. Local bcrypt auth continues to work for local users.
+type LDAPConfig struct {
+	Enabled        bool   // Enable LDAP authentication.
+	URL            string // LDAP server URL (e.g. "ldaps://ipa.example.com:636").
+	StartTLS       bool   // Use STARTTLS on port 389 instead of LDAPS.
+	TLSSkipVerify  bool   // Skip TLS certificate verification (dev only).
+	BindDN         string // Service account DN for user lookups.
+	BindPassword   string // Service account password.
+	UserSearchBase string // Base DN for user searches (e.g. "cn=users,cn=accounts,dc=example,dc=com").
+	UserFilter     string // LDAP filter with %s placeholder for escaped username.
+	AdminGroup     string // DN of the group that maps to is_admin=true.
 }
 
 // RetentionConfig controls how long data is kept in each hypertable.
@@ -147,6 +164,15 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("smtp.from", "taillight@localhost")
 	v.SetDefault("smtp.tls", true)
 	v.SetDefault("smtp.auth_type", "plain")
+	v.SetDefault("ldap.enabled", false)
+	v.SetDefault("ldap.url", "ldaps://ipa.example.com:636")
+	v.SetDefault("ldap.starttls", false)
+	v.SetDefault("ldap.tls_skip_verify", false)
+	v.SetDefault("ldap.bind_dn", "")
+	v.SetDefault("ldap.bind_password", "")
+	v.SetDefault("ldap.user_search_base", "cn=users,cn=accounts,dc=example,dc=com")
+	v.SetDefault("ldap.user_filter", "(&(objectClass=person)(uid=%s))")
+	v.SetDefault("ldap.admin_group", "")
 	v.SetDefault("notification.enabled", false)
 	v.SetDefault("notification.rule_refresh_interval", "30s")
 	v.SetDefault("notification.dispatch_workers", 4)
@@ -225,6 +251,17 @@ func Load(configFile ...string) (Config, error) {
 			DefaultCooldown:     v.GetDuration("notification.default_cooldown"),
 			DefaultMaxCooldown:  v.GetDuration("notification.default_max_cooldown"),
 			SendTimeout:         v.GetDuration("notification.send_timeout"),
+		},
+		LDAP: LDAPConfig{
+			Enabled:        v.GetBool("ldap.enabled"),
+			URL:            v.GetString("ldap.url"),
+			StartTLS:       v.GetBool("ldap.starttls"),
+			TLSSkipVerify:  v.GetBool("ldap.tls_skip_verify"),
+			BindDN:         v.GetString("ldap.bind_dn"),
+			BindPassword:   v.GetString("ldap.bind_password"),
+			UserSearchBase: v.GetString("ldap.user_search_base"),
+			UserFilter:     v.GetString("ldap.user_filter"),
+			AdminGroup:     v.GetString("ldap.admin_group"),
 		},
 		SMTP: SMTPConfig{
 			Host:     v.GetString("smtp.host"),

@@ -127,6 +127,10 @@ func (m *mockAuthStore) UpdatePreferences(_ context.Context, _ [16]byte, _ json.
 	return nil
 }
 
+func (m *mockAuthStore) UpsertLDAPUser(_ context.Context, _, _ string, _ bool) (model.User, error) {
+	return m.user, m.userErr
+}
+
 func testUser(t *testing.T) model.User {
 	t.Helper()
 	hash, err := auth.HashPassword("correctpassword")
@@ -138,6 +142,7 @@ func testUser(t *testing.T) model.User {
 		Username:     "testuser",
 		PasswordHash: hash,
 		IsActive:     true,
+		AuthSource:   "local",
 		CreatedAt:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
@@ -213,7 +218,7 @@ func TestLogin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store, false)
+			h := NewAuthHandler(tt.store, nil, false)
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
@@ -278,7 +283,7 @@ func TestLogout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store, false)
+			h := NewAuthHandler(tt.store, nil, false)
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/logout", nil)
 			if tt.cookie != nil {
 				req.AddCookie(tt.cookie)
@@ -335,7 +340,7 @@ func TestLogoutAll(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store, false)
+			h := NewAuthHandler(tt.store, nil, false)
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/sessions/revoke-all", nil)
 			if tt.user != nil {
 				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
@@ -410,7 +415,7 @@ func TestRevokeUserSessions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store, false)
+			h := NewAuthHandler(tt.store, nil, false)
 
 			r := chi.NewRouter()
 			r.Post("/users/{id}/revoke-sessions", h.RevokeUserSessions)
@@ -450,7 +455,7 @@ func TestMe(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(&mockAuthStore{}, false)
+			h := NewAuthHandler(&mockAuthStore{}, nil, false)
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/auth/me", nil)
 			if tt.user != nil {
 				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
@@ -543,7 +548,7 @@ func TestCreateKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store, false)
+			h := NewAuthHandler(tt.store, nil, false)
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/keys", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			if tt.user != nil {
@@ -591,7 +596,7 @@ func TestListKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store, false)
+			h := NewAuthHandler(tt.store, nil, false)
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/auth/keys", nil)
 			if tt.user != nil {
 				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
@@ -670,7 +675,7 @@ func TestRevokeKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewAuthHandler(tt.store, false)
+			h := NewAuthHandler(tt.store, nil, false)
 
 			// Use chi router to inject URL params.
 			r := chi.NewRouter()
