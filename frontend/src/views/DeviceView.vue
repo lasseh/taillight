@@ -234,6 +234,7 @@ function currentEvents(): SrvlogEvent[] {
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Hostname</div>
             <div class="text-t-teal truncate font-mono text-lg font-bold" :title="summary.hostname">{{ summary.hostname }}</div>
+            <div v-if="summary.fromhost_ip" class="text-t-fg-dark font-mono text-xs">{{ summary.fromhost_ip }}</div>
             <div class="mt-1 font-mono text-xs" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
               {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never seen' }}
             </div>

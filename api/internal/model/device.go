@@ -5,6 +5,7 @@ import "time"
 // SrvlogDeviceSummary holds aggregated information for a single device (hostname).
 type SrvlogDeviceSummary struct {
 	Hostname          string          `json:"hostname"`
+	FromhostIP        string          `json:"fromhost_ip"`
 	LastSeenAt        *time.Time      `json:"last_seen_at"`
 	TotalCount        int64           `json:"total_count"`
 	CriticalCount     int64           `json:"critical_count"`

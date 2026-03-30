@@ -398,6 +398,12 @@ func (s *Store) GetNetlogDeviceSummary(ctx context.Context, hostname string) (mo
 	// Q4: recent critical logs.
 	batch.Queue(critQuery, critArgs...)
 
+	// Q5: latest IP for this host.
+	batch.Queue(
+		"SELECT fromhost_ip FROM netlog_events WHERE hostname = $1 ORDER BY received_at DESC, id DESC LIMIT 1",
+		hostname,
+	)
+
 	results := s.pool.SendBatch(ctx, batch)
 	defer results.Close() //nolint:errcheck // best-effort close
 
@@ -477,6 +483,13 @@ func (s *Store) GetNetlogDeviceSummary(ctx context.Context, hostname string) (mo
 	if critEvents != nil {
 		summary.CriticalLogs = critEvents
 	}
+
+	// R5: latest IP.
+	var ip netip.Addr
+	if err := results.QueryRow().Scan(&ip); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return summary, fmt.Errorf("netlog device latest ip: %w", err)
+	}
+	summary.FromhostIP = ip.String()
 
 	return summary, nil
 }

@@ -14,6 +14,7 @@ export interface TopMessage {
 
 export interface DeviceSummary {
   hostname: string
+  fromhost_ip: string
   last_seen_at: string | null
   total_count: number
   critical_count: number
