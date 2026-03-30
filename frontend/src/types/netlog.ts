@@ -28,5 +28,8 @@ export interface NetlogListResponse {
 }
 
 export interface SingleNetlogResponse {
-  data: NetlogEvent
+  data: {
+    event: NetlogEvent
+    juniper_ref?: JuniperNetlogRef[]
+  }
 }

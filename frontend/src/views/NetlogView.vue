@@ -82,7 +82,7 @@ watch(() => props.id, async (id) => {
   try {
     const res = await api.getNetlog(numId)
     if (version !== fetchVersion) return
-    event.value = res.data
+    event.value = res.data.event
     if (res.data.juniper_ref) {
       juniperRefs.value = res.data.juniper_ref
     }
