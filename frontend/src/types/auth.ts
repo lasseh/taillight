@@ -1,3 +1,13 @@
+export interface BrowserNotificationSettings {
+  srvlog?: { enabled: boolean; max_severity: number }
+  netlog?: { enabled: boolean; max_severity: number }
+  applog?: { enabled: boolean; levels: string[] }
+}
+
+export interface UserPreferences {
+  browser_notifications?: BrowserNotificationSettings
+}
+
 export interface AuthUser {
   id: string
   username: string
@@ -5,6 +15,7 @@ export interface AuthUser {
   is_admin?: boolean
   is_active?: boolean
   gravatar_url: string
+  preferences?: UserPreferences
   created_at?: string
   last_login_at?: string
 }

@@ -51,7 +51,7 @@ const newEventCount = computed(() => scrollStore.getNewEventCount(String(route.n
 const srvlogStream = useSrvlogStream()
 const netlogStream = useNetlogStream()
 const applogStream = useAppLogStream()
-const { notifySrvlog, notifyApplog } = useNotifications()
+const { notifySrvlog, notifyNetlog, notifyApplog } = useNotifications()
 
 const connected = computed(() => srvlogStream.connected.value || netlogStream.connected.value || applogStream.connected.value)
 
@@ -79,6 +79,7 @@ function startStreams() {
   if (features.netlog) netlogStream.start()
   applogStream.start()
   unsubSrvlog = srvlogStream.subscribe(notifySrvlog)
+  if (features.netlog) unsubNetlog = netlogStream.subscribe(notifyNetlog)
   unsubApplog = applogStream.subscribe(notifyApplog)
 }
 

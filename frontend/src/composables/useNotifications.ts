@@ -1,14 +1,17 @@
 import { ref } from 'vue'
 import router from '@/router'
+import { useAuthStore } from '@/stores/auth'
 import type { SrvlogEvent } from '@/types/srvlog'
+import type { NetlogEvent } from '@/types/netlog'
 import type { AppLogEvent } from '@/types/applog'
+import type { BrowserNotificationSettings } from '@/types/auth'
 import { severityLabels } from '@/lib/constants'
 
-/** Severity threshold — notify for events with severity <= this value. */
-const NOTIFY_MAX_SEVERITY = 2 // emerg(0), alert(1), crit(2)
+/** Default severity threshold — emerg(0), alert(1), crit(2). */
+const DEFAULT_MAX_SEVERITY = 2
 
-/** Applog levels that trigger browser push. */
-const APPLOG_NOTIFY_LEVELS = new Set(['ERROR', 'FATAL'])
+/** Default applog levels that trigger browser push. */
+const DEFAULT_APPLOG_LEVELS = ['ERROR', 'FATAL']
 
 /** Ignore backfilled events older than this (ms). */
 const MAX_AGE_MS = 30_000
@@ -37,12 +40,21 @@ function isTooOld(receivedAt: string): boolean {
   return Date.now() - new Date(receivedAt).getTime() > MAX_AGE_MS
 }
 
+function getPrefs(): BrowserNotificationSettings | undefined {
+  const auth = useAuthStore()
+  return auth.user?.preferences?.browser_notifications
+}
+
 function notifySrvlog(event: SrvlogEvent) {
   if (!supported) return
   if (!enabled.value) return
   if (permission.value !== 'granted') return
-  if (event.severity > NOTIFY_MAX_SEVERITY) return
   if (isTooOld(event.received_at)) return
+
+  const prefs = getPrefs()
+  if (prefs?.srvlog?.enabled === false) return
+  const maxSev = prefs?.srvlog?.max_severity ?? DEFAULT_MAX_SEVERITY
+  if (event.severity > maxSev) return
 
   const level = severityLabels[event.severity] ?? 'unknown'
   const title = `[${level}] ${event.hostname}`
@@ -59,12 +71,43 @@ function notifySrvlog(event: SrvlogEvent) {
   }
 }
 
+function notifyNetlog(event: NetlogEvent) {
+  if (!supported) return
+  if (!enabled.value) return
+  if (permission.value !== 'granted') return
+  if (isTooOld(event.received_at)) return
+
+  const prefs = getPrefs()
+  // Netlog defaults to enabled.
+  if (prefs?.netlog?.enabled === false) return
+  const maxSev = prefs?.netlog?.max_severity ?? DEFAULT_MAX_SEVERITY
+  if (event.severity > maxSev) return
+
+  const level = severityLabels[event.severity] ?? 'unknown'
+  const title = `[${level}] ${event.hostname}`
+  const body = event.message.slice(0, 120)
+
+  const n = new Notification(title, {
+    body,
+    tag: `netlog-${event.id}`,
+  })
+  n.onclick = () => {
+    window.focus()
+    router.push(`/netlog/${event.id}`)
+    n.close()
+  }
+}
+
 function notifyApplog(event: AppLogEvent) {
   if (!supported) return
   if (!enabled.value) return
   if (permission.value !== 'granted') return
-  if (!APPLOG_NOTIFY_LEVELS.has(event.level)) return
   if (isTooOld(event.received_at)) return
+
+  const prefs = getPrefs()
+  if (prefs?.applog?.enabled === false) return
+  const levels = new Set(prefs?.applog?.levels ?? DEFAULT_APPLOG_LEVELS)
+  if (!levels.has(event.level)) return
 
   const title = `[${event.level}] ${event.service}`
   const body = event.msg.slice(0, 120)
@@ -81,5 +124,5 @@ function notifyApplog(event: AppLogEvent) {
 }
 
 export function useNotifications() {
-  return { supported, permission, enabled, requestPermission, setEnabled, notifySrvlog, notifyApplog }
+  return { supported, permission, enabled, requestPermission, setEnabled, notifySrvlog, notifyNetlog, notifyApplog }
 }

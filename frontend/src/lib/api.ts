@@ -4,7 +4,7 @@ import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
 import type { VolumeResponse, SeverityVolumeResponse, SrvlogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
 import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
 import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } from '@/types/taillight-metrics'
-import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse, ListUsersResponse, AdminUser } from '@/types/auth'
+import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse, ListUsersResponse, AdminUser, UserPreferences } from '@/types/auth'
 import type { ChannelListResponse, ChannelResponse, RuleListResponse, RuleResponse, LogListResponse, TestChannelResult, NotificationChannel, NotificationRule } from '@/types/notification'
 import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
 import type { HostsResponse } from '@/types/host'
@@ -128,6 +128,10 @@ export const api = {
 
   updateEmail(email: string): Promise<MeResponse> {
     return patchAPI('/api/v1/auth/me/email', { email })
+  },
+
+  updatePreferences(preferences: UserPreferences): Promise<MeResponse> {
+    return patchAPI('/api/v1/auth/me/preferences', { preferences })
   },
 
   // Admin user management

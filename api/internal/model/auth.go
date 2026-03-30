@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -14,6 +15,7 @@ type User struct {
 	PasswordHash string             `json:"-"`
 	IsActive     bool               `json:"is_active"`
 	IsAdmin      bool               `json:"is_admin"`
+	Preferences  json.RawMessage    `json:"preferences"`
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
 	LastLoginAt  pgtype.Timestamptz `json:"last_login_at"`

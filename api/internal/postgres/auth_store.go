@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -59,9 +60,9 @@ func (s *AuthStore) CreateUser(ctx context.Context, username, passwordHash strin
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO users (username, password_hash, is_admin)
 		 VALUES ($1, $2, $3)
-		 RETURNING id, username, email, password_hash, is_active, is_admin, created_at, updated_at, last_login_at`,
+		 RETURNING id, username, email, password_hash, is_active, is_admin, preferences, created_at, updated_at, last_login_at`,
 		username, passwordHash, isAdmin,
-	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.Preferences, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
 	if err != nil {
 		return model.User{}, fmt.Errorf("create user: %w", err)
 	}
@@ -72,10 +73,10 @@ func (s *AuthStore) CreateUser(ctx context.Context, username, passwordHash strin
 func (s *AuthStore) GetUserByUsername(ctx context.Context, username string) (model.User, error) {
 	var u model.User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, username, email, password_hash, is_active, is_admin, created_at, updated_at, last_login_at
+		`SELECT id, username, email, password_hash, is_active, is_admin, preferences, created_at, updated_at, last_login_at
 		 FROM users WHERE LOWER(username) = LOWER($1)`,
 		username,
-	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.Preferences, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
 	if err != nil {
 		return model.User{}, fmt.Errorf("get user by username: %w", err)
 	}
@@ -86,10 +87,10 @@ func (s *AuthStore) GetUserByUsername(ctx context.Context, username string) (mod
 func (s *AuthStore) GetUserByID(ctx context.Context, id [16]byte) (model.User, error) {
 	var u model.User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, username, email, password_hash, is_active, is_admin, created_at, updated_at, last_login_at
+		`SELECT id, username, email, password_hash, is_active, is_admin, preferences, created_at, updated_at, last_login_at
 		 FROM users WHERE id = $1`,
 		id,
-	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.Preferences, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
 	if err != nil {
 		return model.User{}, fmt.Errorf("get user by id: %w", err)
 	}
@@ -108,7 +109,7 @@ func (s *AuthStore) UpdateLastLogin(ctx context.Context, id [16]byte) error {
 // ListUsers returns all users ordered by username.
 func (s *AuthStore) ListUsers(ctx context.Context) ([]model.User, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, username, email, password_hash, is_active, is_admin, created_at, updated_at, last_login_at
+		`SELECT id, username, email, password_hash, is_active, is_admin, preferences, created_at, updated_at, last_login_at
 		 FROM users ORDER BY username`)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
@@ -136,6 +137,17 @@ func (s *AuthStore) UpdateEmail(ctx context.Context, id [16]byte, email string) 
 		id, email)
 	if err != nil {
 		return fmt.Errorf("update email: %w", err)
+	}
+	return nil
+}
+
+// UpdatePreferences replaces a user's preferences JSON.
+func (s *AuthStore) UpdatePreferences(ctx context.Context, id [16]byte, prefs json.RawMessage) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET preferences = $2, updated_at = now() WHERE id = $1`,
+		id, prefs)
+	if err != nil {
+		return fmt.Errorf("update preferences: %w", err)
 	}
 	return nil
 }
@@ -178,7 +190,7 @@ func (s *AuthStore) GetSession(ctx context.Context, tokenHash string) (SessionWi
 	err := s.pool.QueryRow(ctx,
 		`SELECT s.token_hash, s.user_id, s.created_at, s.expires_at, s.last_seen_at,
 		        s.ip_address::text, s.user_agent,
-		        u.id, u.username, u.email, u.password_hash, u.is_active, u.is_admin, u.created_at, u.updated_at, u.last_login_at
+		        u.id, u.username, u.email, u.password_hash, u.is_active, u.is_admin, u.preferences, u.created_at, u.updated_at, u.last_login_at
 		 FROM sessions s
 		 JOIN users u ON u.id = s.user_id
 		 WHERE s.token_hash = $1
@@ -188,7 +200,7 @@ func (s *AuthStore) GetSession(ctx context.Context, tokenHash string) (SessionWi
 	).Scan(
 		&sw.Session.TokenHash, &sw.Session.UserID, &sw.Session.CreatedAt,
 		&sw.Session.ExpiresAt, &sw.Session.LastSeenAt, &sw.Session.IPAddress, &sw.Session.UserAgent,
-		&sw.User.ID, &sw.User.Username, &sw.User.Email, &sw.User.PasswordHash, &sw.User.IsActive, &sw.User.IsAdmin,
+		&sw.User.ID, &sw.User.Username, &sw.User.Email, &sw.User.PasswordHash, &sw.User.IsActive, &sw.User.IsAdmin, &sw.User.Preferences,
 		&sw.User.CreatedAt, &sw.User.UpdatedAt, &sw.User.LastLoginAt,
 	)
 	if err != nil {
@@ -284,7 +296,7 @@ func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey
 	err := s.pool.QueryRow(ctx,
 		`SELECT k.id, k.user_id, k.name, k.key_hash, k.key_prefix, k.scopes,
 		        k.expires_at, k.revoked_at, k.last_used_at, k.created_at,
-		        u.id, u.username, u.email, u.password_hash, u.is_active, u.is_admin, u.created_at, u.updated_at, u.last_login_at
+		        u.id, u.username, u.email, u.password_hash, u.is_active, u.is_admin, u.preferences, u.created_at, u.updated_at, u.last_login_at
 		 FROM api_keys k
 		 JOIN users u ON u.id = k.user_id
 		 WHERE k.key_hash = $1
@@ -295,7 +307,7 @@ func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey
 	).Scan(
 		&kw.Key.ID, &kw.Key.UserID, &kw.Key.Name, &kw.Key.KeyHash, &kw.Key.KeyPrefix, &kw.Key.Scopes,
 		&kw.Key.ExpiresAt, &kw.Key.RevokedAt, &kw.Key.LastUsedAt, &kw.Key.CreatedAt,
-		&kw.User.ID, &kw.User.Username, &kw.User.Email, &kw.User.PasswordHash, &kw.User.IsActive, &kw.User.IsAdmin,
+		&kw.User.ID, &kw.User.Username, &kw.User.Email, &kw.User.PasswordHash, &kw.User.IsActive, &kw.User.IsAdmin, &kw.User.Preferences,
 		&kw.User.CreatedAt, &kw.User.UpdatedAt, &kw.User.LastLoginAt,
 	)
 	if err != nil {
@@ -384,7 +396,7 @@ func collectUsers(rows pgx.Rows) ([]model.User, error) {
 	var users []model.User
 	for rows.Next() {
 		var u model.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin,
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.Preferences,
 			&u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}

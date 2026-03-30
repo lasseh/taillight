@@ -98,6 +98,7 @@ type AuthStore interface {
 	GetUserByID(ctx context.Context, id [16]byte) (model.User, error)
 	UpdateLastLogin(ctx context.Context, id [16]byte) error
 	UpdateEmail(ctx context.Context, id [16]byte, email string) error
+	UpdatePreferences(ctx context.Context, id [16]byte, prefs json.RawMessage) error
 	ListUsers(ctx context.Context) ([]model.User, error)
 	SetUserActive(ctx context.Context, id [16]byte, active bool) error
 	UpdatePassword(ctx context.Context, id [16]byte, passwordHash string) error
@@ -135,18 +136,23 @@ type loginResponse struct {
 }
 
 type userInfo struct {
-	ID          string  `json:"id"`
-	Username    string  `json:"username"`
-	Email       *string `json:"email,omitempty"`
-	IsAdmin     bool    `json:"is_admin"`
-	IsActive    bool    `json:"is_active"`
-	GravatarURL string  `json:"gravatar_url"`
-	CreatedAt   string  `json:"created_at"`
-	LastLoginAt *string `json:"last_login_at,omitempty"`
+	ID          string          `json:"id"`
+	Username    string          `json:"username"`
+	Email       *string         `json:"email,omitempty"`
+	IsAdmin     bool            `json:"is_admin"`
+	IsActive    bool            `json:"is_active"`
+	GravatarURL string          `json:"gravatar_url"`
+	Preferences json.RawMessage `json:"preferences"`
+	CreatedAt   string          `json:"created_at"`
+	LastLoginAt *string         `json:"last_login_at,omitempty"`
 }
 
 // buildUserInfo converts a model.User into the userInfo response type.
 func buildUserInfo(u model.User) userInfo {
+	prefs := u.Preferences
+	if len(prefs) == 0 {
+		prefs = json.RawMessage(`{}`)
+	}
 	info := userInfo{
 		ID:          formatUUID(u.ID.Bytes),
 		Username:    u.Username,
@@ -154,6 +160,7 @@ func buildUserInfo(u model.User) userInfo {
 		IsAdmin:     u.IsAdmin,
 		IsActive:    u.IsActive,
 		GravatarURL: gravatarURL(u.Email),
+		Preferences: prefs,
 		CreatedAt:   u.CreatedAt.Format(time.RFC3339),
 	}
 	// Only set if the timestamp is valid (user has logged in at least once).
@@ -800,6 +807,47 @@ func (h *AuthHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, loginResponse{
 		User: buildUserInfo(updated),
 	})
+}
+
+type updatePreferencesRequest struct {
+	Preferences json.RawMessage `json:"preferences"`
+}
+
+// UpdatePreferences handles PATCH /api/v1/auth/me/preferences.
+func (h *AuthHandler) UpdatePreferences(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBody)
+
+	var req updatePreferencesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+		return
+	}
+
+	if !json.Valid(req.Preferences) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "preferences must be valid JSON")
+		return
+	}
+
+	if err := h.store.UpdatePreferences(r.Context(), user.ID.Bytes, req.Preferences); err != nil {
+		LoggerFromContext(r.Context()).Error("update preferences: store", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update preferences")
+		return
+	}
+
+	updated, err := h.store.GetUserByID(r.Context(), user.ID.Bytes)
+	if err != nil {
+		LoggerFromContext(r.Context()).Error("update preferences: re-fetch", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update preferences")
+		return
+	}
+
+	writeJSON(w, loginResponse{User: buildUserInfo(updated)})
 }
 
 // isSecureRequest returns true when the request arrived over TLS or via a

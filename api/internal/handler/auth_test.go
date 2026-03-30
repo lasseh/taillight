@@ -123,6 +123,10 @@ func (m *mockAuthStore) GetAPIKeyByID(_ context.Context, _ [16]byte) (model.APIK
 	return m.keyByID, m.keyByIDErr
 }
 
+func (m *mockAuthStore) UpdatePreferences(_ context.Context, _ [16]byte, _ json.RawMessage) error {
+	return nil
+}
+
 func testUser(t *testing.T) model.User {
 	t.Helper()
 	hash, err := auth.HashPassword("correctpassword")

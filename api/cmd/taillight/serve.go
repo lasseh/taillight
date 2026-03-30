@@ -490,6 +490,7 @@ func setupRouter(
 				r.Use(auth.SessionOrAPIKey(authStore, authStore))
 				r.Get("/auth/me", authHandler.Me)
 				r.Patch("/auth/me/email", authHandler.UpdateEmail)
+				r.Patch("/auth/me/preferences", authHandler.UpdatePreferences)
 				r.Get("/auth/keys", authHandler.ListKeys)
 				r.Post("/auth/keys", authHandler.CreateKey)
 				r.Delete("/auth/keys/{id}", authHandler.RevokeKey)
