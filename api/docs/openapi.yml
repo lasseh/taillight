@@ -251,6 +251,10 @@ paths:
       operationId: updateUserPassword
       tags: [Auth]
       summary: Update user password
+      description: |
+        Self-change requires `current_password` in the request body. Admin can
+        reset without it. Returns 403 for LDAP-managed users (password changes
+        must go through the LDAP directory).
       parameters:
         - $ref: "#/components/parameters/UUID"
       requestBody:
@@ -1753,33 +1757,7 @@ components:
         password:
           type: string
 
-    UserResponse:
-      type: object
-      properties:
-        user:
-          type: object
-          properties:
-            id:
-              type: string
-              format: uuid
-            username:
-              type: string
-            email:
-              type: string
-              nullable: true
-            is_admin:
-              type: boolean
-            gravatar_url:
-              type: string
-            created_at:
-              type: string
-              format: date-time
-            last_login_at:
-              type: string
-              format: date-time
-              nullable: true
-
-    AdminUser:
+    UserInfo:
       type: object
       properties:
         id:
@@ -1790,20 +1768,36 @@ components:
         email:
           type: string
           nullable: true
-        is_active:
-          type: boolean
         is_admin:
           type: boolean
-        created_at:
+        is_active:
+          type: boolean
+        auth_source:
           type: string
-          format: date-time
-        updated_at:
+          description: '"local" for bcrypt-authenticated users, "ldap" for LDAP-authenticated users'
+          enum: [local, ldap]
+        gravatar_url:
+          type: string
+        preferences:
+          type: object
+          description: Arbitrary user preferences JSON
+        created_at:
           type: string
           format: date-time
         last_login_at:
           type: string
           format: date-time
           nullable: true
+
+    UserResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/UserInfo"
+
+    AdminUser:
+      description: Same shape as UserInfo (ListUsers uses the same serializer)
+      $ref: "#/components/schemas/UserInfo"
 
     CreateKeyRequest:
       type: object
