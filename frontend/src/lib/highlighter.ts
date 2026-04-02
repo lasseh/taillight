@@ -49,6 +49,45 @@ Prism.languages.insertBefore('log', 'string', {
 
   // ASN references: AS64512, AS 174
   'junos-asn': /\bAS\s?\d{1,10}\b/,
+
+  // --- State indicators (from jink/cink) ---
+
+  // Good states: up, established, forwarding, online, etc.
+  'state-good': {
+    pattern: /\b(?:up|Up|UP|Established|established|Establ|establ|Full|full|forwarding|Forwarding|learning|Learning|Master|master|Primary|primary|Enabled|enabled|online|Online|running|Running|ready|Ready|ok|OK|Ok|connected|Connected)\b/,
+    alias: 'state-good',
+  },
+
+  // Bad states: down, idle, failed, error, disabled, etc.
+  'state-bad': {
+    pattern: /\b(?:down|Down|DOWN|Idle|idle|failed|Failed|FAILED|error|Error|ERROR|offline|Offline|disabled|Disabled|OpenSent|OpenConfirm|flapping|Flapping|errdisabled|blocked|Blocked|unreachable|Unreachable)\b/,
+    alias: 'state-bad',
+  },
+
+  // Warning/transitional states: discarding, init, exchange, etc.
+  'state-warning': {
+    pattern: /\b(?:discarding|Discarding|ExStart|Exchange|Loading|2Way|Init|init|degraded|Degraded|standby|Standby|backup|Backup|inactive|Inactive|warning|Warning)\b/,
+    alias: 'state-warning',
+  },
+
+  // --- Multi-vendor interface names ---
+
+  // Cisco/Arista interfaces: Ethernet1/2, GigabitEthernet0/0/0, Vlan100, Loopback0, Port-channel1, Vxlan1
+  'eos-interface':
+    /\b(?:(?:Ethernet|GigabitEthernet|FastEthernet|TenGigabitEthernet|TwentyFiveGigE|FortyGigabitEthernet|HundredGigE|Gi|Fa|Te|Twe|Fo|Hu|Et)\d+(?:\/\d+)*(?:\.\d+)?|(?:Vlan|Loopback|Port-[Cc]hannel|Vxlan|Management|Tunnel|BDI|nve)\d+)\b/,
+
+  // MAC addresses: 00:5f:67:52:ba:0d or 0011.2233.4455
+  'mac-address':
+    /\b(?:[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}|[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4})\b/,
+
+  // VLAN references: vlan 100, VLAN 4094
+  'vlan-id': {
+    pattern: /\b[Vv][Ll][Aa][Nn]\s+\d{1,4}\b/,
+    alias: 'vlan-id',
+  },
+
+  // Arista/Cisco event tags: %BFD-5-STATE_CHANGE
+  'eos-event-tag': /\B%[A-Z][A-Z0-9_]*-[0-9]+-[A-Z][A-Z0-9_]+\b/,
 })
 
 export function highlight(msg: string): string {

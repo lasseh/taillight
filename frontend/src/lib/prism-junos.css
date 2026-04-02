@@ -160,3 +160,41 @@
 .token.junos-asn {
   color: var(--color-t-orange);
 }
+
+/* --- State indicators (from jink/cink) --- */
+
+/* Good: up, established, forwarding, online */
+.token.state-good {
+  color: var(--color-t-green);
+  font-weight: 600;
+}
+
+/* Bad: down, failed, error, flapping */
+.token.state-bad {
+  color: var(--color-t-red);
+  font-weight: 600;
+}
+
+/* Warning: discarding, standby, inactive */
+.token.state-warning {
+  color: var(--color-t-yellow);
+  font-weight: 600;
+}
+
+/* --- Multi-vendor tokens --- */
+
+/* Cisco/Arista interfaces: Ethernet1/2, Vlan100, Vxlan1 */
+.token.eos-interface {
+  color: var(--color-t-teal);
+  font-weight: 600;
+}
+
+/* Arista/Cisco event tags: %BFD-5-STATE_CHANGE */
+.token.eos-event-tag {
+  color: var(--color-t-yellow);
+}
+
+/* VLAN references: vlan 100 */
+.token.vlan-id {
+  color: var(--color-t-orange);
+}
