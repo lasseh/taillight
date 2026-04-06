@@ -9,7 +9,7 @@ Lightweight, real-time log viewer for network operations teams. Stream netlog (n
 
 ![Home dashboard](docs/screenshots/home.png)
 
-![Srvlog stream](docs/screenshots/syslog-stream.png)
+![Srvlog stream](docs/screenshots/srvlog-stream.png)
 
 <details>
 <summary>More screenshots</summary>
