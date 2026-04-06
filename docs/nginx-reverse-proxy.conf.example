@@ -97,7 +97,7 @@ server {
     # Only 4 directives beyond standard proxy: buffering off, long read
     # timeout, HTTP/1.1, and empty Connection header for keepalive.
     # Backend sends heartbeat comments every 30s to prevent read timeout.
-    location ~ ^/api/v1/(syslog|applog)/stream$ {
+    location ~ ^/api/v1/(srvlog|netlog|applog)/stream$ {
         proxy_pass http://taillight_api;
 
         proxy_buffering            off;
