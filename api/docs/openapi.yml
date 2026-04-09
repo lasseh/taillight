@@ -137,6 +137,34 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /auth/me/preferences:
+    patch:
+      operationId: updatePreferences
+      tags: [Auth]
+      summary: Update user preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [preferences]
+              properties:
+                preferences:
+                  type: object
+                  description: Arbitrary JSON preferences object
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /auth/keys:
     get:
       operationId: listKeys
