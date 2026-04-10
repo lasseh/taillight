@@ -562,6 +562,12 @@ func setupRouter(
 				// SSE stream — long-lived, no timeout.
 				r.Get("/stream", srvlogSSEHandler.Stream)
 
+				// Export — longer timeout for streaming CSV.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(5 * time.Minute))
+					r.Get("/export", exportHandler.ExportSrvlogs)
+				})
+
 				// REST endpoints — with request timeout.
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.Timeout(30 * time.Second))
@@ -581,12 +587,6 @@ func setupRouter(
 
 					r.Get("/device/{hostname}", srvlogDeviceHandler.Get)
 				})
-
-				// Export — longer timeout for streaming CSV.
-				r.Group(func(r chi.Router) {
-					r.Use(middleware.Timeout(5 * time.Minute))
-					r.Get("/export", exportHandler.ExportSrvlogs)
-				})
 			})
 
 			// Netlog routes — feature-gated, all under /netlog/ prefix.
@@ -594,6 +594,12 @@ func setupRouter(
 				r.Route("/netlog", func(r chi.Router) {
 					// SSE stream — long-lived, no timeout.
 					r.Get("/stream", netlogSSEHandler.Stream)
+
+					// Export — longer timeout for streaming CSV.
+					r.Group(func(r chi.Router) {
+						r.Use(middleware.Timeout(5 * time.Minute))
+						r.Get("/export", exportHandler.ExportNetlogs)
+					})
 
 					// REST endpoints — with request timeout.
 					r.Group(func(r chi.Router) {
@@ -612,12 +618,6 @@ func setupRouter(
 						r.Get("/stats/summary", statsHandler.NetlogSummary)
 
 						r.Get("/device/{hostname}", netlogDeviceHandler.Get)
-					})
-
-					// Export — longer timeout for streaming CSV.
-					r.Group(func(r chi.Router) {
-						r.Use(middleware.Timeout(5 * time.Minute))
-						r.Get("/export", exportHandler.ExportNetlogs)
 					})
 				})
 			}
@@ -656,6 +656,12 @@ func setupRouter(
 				// SSE stream — long-lived, no timeout.
 				r.Get("/stream", applogSSEHandler.Stream)
 
+				// Export — longer timeout for streaming CSV.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(5 * time.Minute))
+					r.Get("/export", exportHandler.ExportAppLogs)
+				})
+
 				// REST endpoints — with request timeout.
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.Timeout(30 * time.Second))
@@ -672,12 +678,6 @@ func setupRouter(
 					r.Get("/stats/summary", statsHandler.AppLogSummary)
 
 					r.Get("/device/{hostname}", applogDeviceHandler.Get)
-				})
-
-				// Export — longer timeout for streaming CSV.
-				r.Group(func(r chi.Router) {
-					r.Use(middleware.Timeout(5 * time.Minute))
-					r.Get("/export", exportHandler.ExportAppLogs)
 				})
 			})
 
