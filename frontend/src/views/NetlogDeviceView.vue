@@ -223,7 +223,7 @@ function currentEvents(): NetlogEvent[] {
         <!-- Navigation -->
         <div class="flex items-center justify-between">
           <button
-            class="text-t-fg-dark hover:text-t-fg text-sm transition-colors"
+            class="text-t-teal text-xs hover:underline"
             @click="router.back()"
           >
             &larr; back
