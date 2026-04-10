@@ -16,7 +16,7 @@ const saveError = ref('')
 
 // Form fields.
 const formName = ref('')
-const formType = ref<'slack' | 'webhook' | 'ntfy'>('slack')
+const formType = ref<'slack' | 'webhook' | 'ntfy' | 'email'>('slack')
 const formEnabled = ref(true)
 const formWebhookURL = ref('')
 const formWebhookMethod = ref('POST')
@@ -25,6 +25,8 @@ const formWebhookTemplate = ref('')
 const formNtfyServerURL = ref('')
 const formNtfyTopic = ref('')
 const formNtfyToken = ref('')
+const formEmailTo = ref('')
+const formEmailSubjectTemplate = ref('')
 
 const modalEl = ref<HTMLElement | null>(null)
 useFocusTrap(modalEl)
@@ -51,6 +53,7 @@ function typeLabel(type: string): string {
   if (type === 'slack') return 'Slack'
   if (type === 'webhook') return 'Webhook'
   if (type === 'ntfy') return 'ntfy'
+  if (type === 'email') return 'Email'
   return type
 }
 
@@ -77,6 +80,8 @@ function openCreate() {
   formNtfyServerURL.value = ''
   formNtfyTopic.value = ''
   formNtfyToken.value = ''
+  formEmailTo.value = ''
+  formEmailSubjectTemplate.value = ''
   saveError.value = ''
   showModal.value = true
 }
@@ -100,6 +105,10 @@ function openEdit(ch: NotificationChannel) {
     formNtfyServerURL.value = cfg.server_url || ''
     formNtfyTopic.value = cfg.topic || ''
     formNtfyToken.value = cfg.token || ''
+  } else if (ch.type === 'email') {
+    const cfg = ch.config as Record<string, unknown>
+    formEmailTo.value = Array.isArray(cfg.to) ? (cfg.to as string[]).join(', ') : ''
+    formEmailSubjectTemplate.value = (cfg.subject_template as string) || ''
   }
   saveError.value = ''
   showModal.value = true
@@ -113,6 +122,14 @@ function closeModal() {
 function buildConfig(): Record<string, unknown> {
   if (formType.value === 'slack') {
     return { webhook_url: formWebhookURL.value }
+  }
+  if (formType.value === 'email') {
+    const to = formEmailTo.value.split(',').map(s => s.trim()).filter(Boolean)
+    const cfg: Record<string, unknown> = { to }
+    if (formEmailSubjectTemplate.value.trim()) {
+      cfg.subject_template = formEmailSubjectTemplate.value
+    }
+    return cfg
   }
   if (formType.value === 'ntfy') {
     const cfg: Record<string, unknown> = {
@@ -148,7 +165,13 @@ async function saveChannel() {
     saveError.value = 'name is required'
     return
   }
-  if (formType.value === 'ntfy') {
+  if (formType.value === 'email') {
+    const to = formEmailTo.value.split(',').map(s => s.trim()).filter(Boolean)
+    if (to.length === 0) {
+      saveError.value = 'at least one email address is required'
+      return
+    }
+  } else if (formType.value === 'ntfy') {
     if (!formNtfyServerURL.value.trim()) {
       saveError.value = 'server URL is required'
       return
@@ -228,7 +251,7 @@ onMounted(fetchChannels)
   <div class="space-y-4">
     <!-- Header -->
     <div class="flex items-center justify-between">
-      <p class="text-t-fg-dark text-sm">notification destinations (Slack, webhooks, ntfy)</p>
+      <p class="text-t-fg-dark text-sm">notification destinations (Slack, webhooks, ntfy, email)</p>
       <button
         class="bg-t-bg-highlight text-t-fg hover:brightness-125 border-t-border border px-4 py-2 text-sm transition-all"
         @click="openCreate"
@@ -284,7 +307,7 @@ onMounted(fetchChannels)
             <div class="w-28 shrink-0">
               <span
                 class="inline-block rounded px-1.5 py-0.5 text-xs uppercase"
-                :class="ch.type === 'slack' ? 'bg-t-purple/10 text-t-purple' : ch.type === 'ntfy' ? 'bg-t-teal/10 text-t-teal' : 'bg-t-blue/10 text-t-blue'"
+                :class="ch.type === 'slack' ? 'bg-t-purple/10 text-t-purple' : ch.type === 'email' ? 'bg-t-green/10 text-t-green' : ch.type === 'ntfy' ? 'bg-t-teal/10 text-t-teal' : 'bg-t-blue/10 text-t-blue'"
               >
                 {{ typeLabel(ch.type) }}
               </span>
@@ -401,6 +424,14 @@ onMounted(fetchChannels)
                   >
                     ntfy
                   </button>
+                  <button
+                    class="border px-3 py-1.5 text-sm transition-all"
+                    :class="formType === 'email' ? 'border-t-yellow text-t-yellow' : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'"
+                    :disabled="!!editing"
+                    @click="formType = 'email'"
+                  >
+                    Email
+                  </button>
                 </div>
               </label>
 
@@ -454,6 +485,31 @@ onMounted(fetchChannels)
                   />
                 </label>
                 <p class="text-t-fg-gutter text-xs">Priority is automatically mapped from the event severity. Use a self-hosted server or ntfy.sh.</p>
+              </template>
+
+              <!-- Email config -->
+              <template v-if="formType === 'email'">
+                <label class="block">
+                  <span class="text-t-fg-dark text-sm">To</span>
+                  <input
+                    v-model="formEmailTo"
+                    type="text"
+                    placeholder="ops@example.com, oncall@example.com"
+                    class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-3 py-2 text-sm outline-none"
+                  />
+                  <p class="text-t-fg-gutter mt-1 text-xs">comma-separated email addresses</p>
+                </label>
+                <label class="block">
+                  <span class="text-t-fg-dark text-sm">Subject Template <span class="text-t-fg-gutter">(optional)</span></span>
+                  <input
+                    v-model="formEmailSubjectTemplate"
+                    type="text"
+                    placeholder="[Taillight] {{.RuleName}}"
+                    class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-3 py-2 font-mono text-sm outline-none"
+                  />
+                  <p class="text-t-fg-gutter mt-1 text-xs">Go text/template syntax. Leave empty for default subject.</p>
+                </label>
+                <p class="text-t-fg-gutter text-xs">SMTP server settings are configured globally in config.yml (smtp section).</p>
               </template>
 
               <!-- Webhook config -->
