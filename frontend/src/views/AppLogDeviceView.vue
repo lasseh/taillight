@@ -66,6 +66,7 @@ const colWidths = computed(() => {
     '--col-host': `${Math.min(20, Math.max(8, hostLen + 1))}ch`,
     '--col-svc': `${Math.min(16, Math.max(6, maxSvc + 1))}ch`,
     '--col-comp': `${Math.min(16, Math.max(6, maxComp + 1))}ch`,
+    '--msg-lines': '3',
   }
 })
 

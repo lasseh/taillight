@@ -63,6 +63,7 @@ const colWidths = computed(() => {
   return {
     '--col-host': `${Math.min(20, Math.max(8, hostLen + 1))}ch`,
     '--col-prog': `${Math.min(16, Math.max(6, maxProg + 1))}ch`,
+    '--msg-lines': '3',
   }
 })
 

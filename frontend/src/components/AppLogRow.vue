@@ -91,8 +91,18 @@ const copyText = computed(() => {
       </button>
       <span class="text-t-purple shrink-0 truncate" :style="{ width: 'var(--col-svc, 14ch)' }">{{ event.service }}</span>
       <span class="text-t-yellow shrink-0 truncate" :style="{ width: 'var(--col-comp, 14ch)' }">{{ event.component }}</span>
-      <span class="text-t-fg min-w-0 flex-1 truncate">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></span>
+      <span class="text-t-fg msg-clamp min-w-0 flex-1">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></span>
     </div>
     <AppLogDetail v-if="expanded" :event="event" />
   </div>
 </template>
+
+<style scoped>
+.msg-clamp {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--msg-lines, 1);
+  word-break: break-all;
+}
+</style>

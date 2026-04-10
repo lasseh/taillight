@@ -89,8 +89,18 @@ const copyText = computed(() => {
         {{ event.hostname }}
       </button>
       <span class="text-t-purple shrink-0 truncate" :style="{ width: 'var(--col-prog, 14ch)' }">{{ event.programname }}</span>
-      <span class="min-w-0 flex-1 truncate" v-html="highlightedMessage" />
+      <span class="msg-clamp min-w-0 flex-1" v-html="highlightedMessage" />
     </div>
     <SrvlogDetail v-if="expanded" :event="event" />
   </div>
 </template>
+
+<style scoped>
+.msg-clamp {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--msg-lines, 1);
+  word-break: break-all;
+}
+</style>
