@@ -298,6 +298,33 @@ func (e *Engine) SendTestNotification(ctx context.Context, ch Channel) (SendResu
 	return result, nil
 }
 
+// SendSummary dispatches a summary report to the specified channels.
+func (e *Engine) SendSummary(ctx context.Context, report SummaryReport, channelIDs []int64) {
+	e.cacheMu.RLock()
+	channels := e.resolveChannels(channelIDs)
+	e.cacheMu.RUnlock()
+
+	if len(channels) == 0 {
+		e.logger.Warn("no channels for summary schedule", "schedule", report.Schedule.Name)
+		return
+	}
+
+	payload := Payload{
+		Kind:          "summary",
+		RuleName:      report.Schedule.Name,
+		Timestamp:     time.Now(),
+		SummaryReport: &report,
+	}
+
+	rule := Rule{Name: report.Schedule.Name}
+	for _, ch := range channels {
+		if !ch.Enabled {
+			continue
+		}
+		e.safeSendToChannel(ctx, rule, ch, payload)
+	}
+}
+
 // ValidateChannel validates a channel's config against its backend.
 func (e *Engine) ValidateChannel(ch Channel) error {
 	backend, ok := e.backends[ch.Type]

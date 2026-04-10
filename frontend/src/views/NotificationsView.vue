@@ -2,9 +2,10 @@
 import { ref } from 'vue'
 import NotificationChannels from '@/components/NotificationChannels.vue'
 import NotificationRules from '@/components/NotificationRules.vue'
+import NotificationSummaries from '@/components/NotificationSummaries.vue'
 import NotificationLog from '@/components/NotificationLog.vue'
 
-const tabs = ['Channels', 'Rules', 'Log'] as const
+const tabs = ['Channels', 'Rules', 'Summaries', 'Log'] as const
 type Tab = (typeof tabs)[number]
 const activeTab = ref<Tab>('Channels')
 </script>
@@ -44,6 +45,7 @@ const activeTab = ref<Tab>('Channels')
         <!-- Tab content -->
         <NotificationChannels v-if="activeTab === 'Channels'" />
         <NotificationRules v-else-if="activeTab === 'Rules'" />
+        <NotificationSummaries v-else-if="activeTab === 'Summaries'" />
         <NotificationLog v-else-if="activeTab === 'Log'" />
 
       </div>

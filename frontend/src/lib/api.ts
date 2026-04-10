@@ -6,6 +6,7 @@ import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/
 import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } from '@/types/taillight-metrics'
 import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse, ListUsersResponse, AdminUser, UserPreferences } from '@/types/auth'
 import type { ChannelListResponse, ChannelResponse, RuleListResponse, RuleResponse, LogListResponse, TestChannelResult, NotificationChannel, NotificationRule } from '@/types/notification'
+import type { SummaryScheduleListResponse, SummaryScheduleResponse, SummarySchedule } from '@/types/summary'
 import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
 import type { HostsResponse } from '@/types/host'
 import type { AnalysisReportListResponse, AnalysisReportResponse, AnalysisTriggerResponse } from '@/types/analysis'
@@ -372,5 +373,26 @@ export const api = {
 
   triggerAnalysis(signal?: AbortSignal): Promise<AnalysisTriggerResponse> {
     return postAPI('/api/v1/analysis/reports/trigger', {}, signal)
+  },
+
+  // Summary Schedules
+  listSummarySchedules(): Promise<SummaryScheduleListResponse> {
+    return fetchAPI('/api/v1/notifications/summaries')
+  },
+
+  createSummarySchedule(s: Partial<SummarySchedule>): Promise<SummaryScheduleResponse> {
+    return postAPI('/api/v1/notifications/summaries', s)
+  },
+
+  updateSummarySchedule(id: number, s: Partial<SummarySchedule>): Promise<SummaryScheduleResponse> {
+    return putAPI(`/api/v1/notifications/summaries/${id}`, s)
+  },
+
+  deleteSummarySchedule(id: number): Promise<void> {
+    return deleteAPI(`/api/v1/notifications/summaries/${id}`)
+  },
+
+  triggerSummarySchedule(id: number): Promise<{ success: boolean }> {
+    return postAPI(`/api/v1/notifications/summaries/${id}/trigger`, {})
   },
 }

@@ -205,6 +205,19 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 	}
 
 	prefix := "[Taillight]"
+	if p.SummaryReport != nil {
+		r := p.SummaryReport
+		freq := r.Schedule.Frequency
+		if freq != "" {
+			freq = strings.ToUpper(freq[:1]) + freq[1:]
+		}
+		return fmt.Sprintf("%s %s Summary — %s to %s",
+			prefix,
+			freq,
+			r.From.Format("Jan 2"),
+			r.To.Format("Jan 2, 2006"),
+		)
+	}
 	if p.SrvlogEvent != nil {
 		return fmt.Sprintf("%s %s - %s", prefix, p.SrvlogEvent.Hostname, strings.ToUpper(model.SeverityLabel(p.SrvlogEvent.Severity)))
 	}
@@ -219,6 +232,10 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 
 // buildEmailBody creates an HTML email body with severity color coding.
 func buildEmailBody(p notification.Payload) string {
+	if p.SummaryReport != nil {
+		return buildEmailSummary(p.SummaryReport)
+	}
+
 	color := severityColor(p)
 
 	var summary, message string
@@ -266,6 +283,183 @@ func buildEmailInitial(p notification.Payload) (summary, message string) {
 		summary += fmt.Sprintf(" (%d events)", p.EventCount)
 	}
 	return summary, message
+}
+
+// Summary email color constants.
+const (
+	colorGray   = "#6b7280"
+	colorRed    = "#ef4444"
+	colorGreen  = "#22c55e"
+	trendStable = "—"
+)
+
+// buildEmailSummary renders a full HTML summary report email.
+func buildEmailSummary(r *notification.SummaryReport) string {
+	var b strings.Builder
+
+	b.WriteString(`<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5;">
+  <div style="max-width: 700px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">`)
+
+	// Header.
+	freq := r.Schedule.Frequency
+	if freq != "" {
+		freq = strings.ToUpper(freq[:1]) + freq[1:]
+	}
+	fmt.Fprintf(&b, `<div style="background: #2563eb; padding: 16px 20px; color: #fff;">
+      <div style="font-size: 18px; font-weight: bold;">Taillight %s Summary</div>
+      <div style="font-size: 13px; opacity: 0.85; margin-top: 4px;">%s — %s (%s)</div>
+    </div>`,
+		html.EscapeString(freq),
+		r.From.Format("Jan 2 15:04 UTC"),
+		r.To.Format("Jan 2 15:04 UTC"),
+		html.EscapeString(r.PeriodLabel),
+	)
+
+	b.WriteString(`<div style="padding: 20px;">`)
+
+	// Per-kind overview sections.
+	if r.Srvlog != nil {
+		writeSyslogSection(&b, "Srvlog", r.Srvlog)
+	}
+	if r.Netlog != nil {
+		writeSyslogSection(&b, "Netlog", r.Netlog)
+	}
+	if r.AppLog != nil {
+		writeAppLogSection(&b, r.AppLog)
+	}
+
+	// Top issues table.
+	if len(r.TopIssues) > 0 {
+		b.WriteString(`<h3 style="font-size: 14px; color: #374151; margin: 20px 0 8px;">Top Issues</h3>`)
+		b.WriteString(`<table style="width: 100%; border-collapse: collapse; font-size: 12px;">`)
+		b.WriteString(`<tr style="background: #f8f9fa; text-align: left;">
+        <th style="padding: 6px 8px; border-bottom: 1px solid #e5e7eb;">Severity</th>
+        <th style="padding: 6px 8px; border-bottom: 1px solid #e5e7eb;">Source</th>
+        <th style="padding: 6px 8px; border-bottom: 1px solid #e5e7eb;">Program</th>
+        <th style="padding: 6px 8px; border-bottom: 1px solid #e5e7eb;">Message</th>
+        <th style="padding: 6px 8px; border-bottom: 1px solid #e5e7eb; text-align: right;">Count</th>
+      </tr>`)
+		for _, issue := range r.TopIssues {
+			color := issueSeverityColor(issue.Severity)
+			fmt.Fprintf(&b, `<tr>
+          <td style="padding: 4px 8px; border-bottom: 1px solid #f3f4f6; color: %s; font-weight: bold;">%s</td>
+          <td style="padding: 4px 8px; border-bottom: 1px solid #f3f4f6;">%s</td>
+          <td style="padding: 4px 8px; border-bottom: 1px solid #f3f4f6;">%s</td>
+          <td style="padding: 4px 8px; border-bottom: 1px solid #f3f4f6; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">%s</td>
+          <td style="padding: 4px 8px; border-bottom: 1px solid #f3f4f6; text-align: right; font-weight: bold;">%d</td>
+        </tr>`,
+				color,
+				html.EscapeString(strings.ToUpper(issue.Label)),
+				html.EscapeString(issue.Source),
+				html.EscapeString(issue.Program),
+				html.EscapeString(truncate(issue.Message, 120)),
+				issue.Count,
+			)
+		}
+		b.WriteString(`</table>`)
+	}
+
+	b.WriteString(`</div>`)
+
+	// Footer.
+	fmt.Fprintf(&b, `<div style="padding: 12px 20px; background: #f8f9fa; color: #888; font-size: 12px;">
+      Schedule: %s | Generated: %s
+    </div>`,
+		html.EscapeString(r.Schedule.Name),
+		r.To.Format(time.RFC3339),
+	)
+
+	b.WriteString(`</div></body></html>`)
+	return b.String()
+}
+
+func writeSyslogSection(b *strings.Builder, kind string, s *model.SyslogSummary) {
+	trendArrow := trendStable
+	trendColor := colorGray
+	if s.Trend > 0 {
+		trendArrow = fmt.Sprintf("↑ %.0f%%", s.Trend)
+		trendColor = colorRed
+	} else if s.Trend < 0 {
+		trendArrow = fmt.Sprintf("↓ %.0f%%", -s.Trend)
+		trendColor = colorGreen
+	}
+
+	fmt.Fprintf(b, `<h3 style="font-size: 14px; color: #374151; margin: 16px 0 8px;">%s</h3>
+    <table style="font-size: 13px; margin-bottom: 8px;">
+      <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Total</td><td style="font-weight: bold;">%d</td><td style="padding-left: 12px; color: %s; font-size: 12px;">%s</td></tr>
+      <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Errors</td><td style="font-weight: bold; color: #ef4444;">%d</td></tr>
+      <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Warnings</td><td style="font-weight: bold; color: #f59e0b;">%d</td></tr>
+    </table>`,
+		html.EscapeString(kind),
+		s.Total, trendColor, trendArrow,
+		s.Errors, s.Warnings,
+	)
+
+	if len(s.TopHosts) > 0 {
+		b.WriteString(`<div style="font-size: 12px; color: #6b7280; margin-bottom: 12px;">Top hosts: `)
+		for i, h := range s.TopHosts {
+			if i > 4 {
+				break
+			}
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(b, "%s (%d)", html.EscapeString(h.Name), h.Count)
+		}
+		b.WriteString(`</div>`)
+	}
+}
+
+func writeAppLogSection(b *strings.Builder, s *model.AppLogSummary) {
+	trendArrow := trendStable
+	trendColor := colorGray
+	if s.Trend > 0 {
+		trendArrow = fmt.Sprintf("↑ %.0f%%", s.Trend)
+		trendColor = colorRed
+	} else if s.Trend < 0 {
+		trendArrow = fmt.Sprintf("↓ %.0f%%", -s.Trend)
+		trendColor = colorGreen
+	}
+
+	fmt.Fprintf(b, `<h3 style="font-size: 14px; color: #374151; margin: 16px 0 8px;">AppLog</h3>
+    <table style="font-size: 13px; margin-bottom: 8px;">
+      <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Total</td><td style="font-weight: bold;">%d</td><td style="padding-left: 12px; color: %s; font-size: 12px;">%s</td></tr>
+      <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Errors</td><td style="font-weight: bold; color: #ef4444;">%d</td></tr>
+      <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Warnings</td><td style="font-weight: bold; color: #f59e0b;">%d</td></tr>
+    </table>`,
+		s.Total, trendColor, trendArrow,
+		s.Errors, s.Warnings,
+	)
+
+	if len(s.TopServices) > 0 {
+		b.WriteString(`<div style="font-size: 12px; color: #6b7280; margin-bottom: 12px;">Top services: `)
+		for i, svc := range s.TopServices {
+			if i > 4 {
+				break
+			}
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(b, "%s (%d)", html.EscapeString(svc.Name), svc.Count)
+		}
+		b.WriteString(`</div>`)
+	}
+}
+
+func issueSeverityColor(severity int) string {
+	switch {
+	case severity <= 2:
+		return "#dc2626" // Critical/alert/emergency — red.
+	case severity <= 3:
+		return "#ef4444" // Error — light red.
+	case severity <= 4:
+		return "#f59e0b" // Warning — amber.
+	default:
+		return "#6b7280" // Info/debug — gray.
+	}
 }
 
 // buildEmailDigest formats a digest summary notification parts.

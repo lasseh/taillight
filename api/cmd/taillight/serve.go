@@ -166,7 +166,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 		logger.Info("LDAP authentication enabled", "url", cfg.LDAP.URL)
 	}
 
-	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysisHandler, notifEngine)
+	// Summary scheduler (optional — requires notification engine).
+	var summaryScheduler *scheduler.SummaryScheduler
+	if notifEngine != nil {
+		summaryScheduler = scheduler.NewSummaryScheduler(store, notifEngine, logger)
+		go summaryScheduler.Start(ctx)
+	}
+
+	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysisHandler, notifEngine, summaryScheduler)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -414,6 +421,7 @@ func setupRouter(
 	applogBroker *broker.AppLogBroker,
 	analysisHandler *handler.AnalysisHandler,
 	notifEngine *notification.Engine,
+	summaryScheduler *scheduler.SummaryScheduler,
 ) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -492,6 +500,7 @@ func setupRouter(
 	applogDeviceHandler := handler.NewAppLogDeviceHandler(store)
 	authHandler := handler.NewAuthHandler(authStore, ldapAuth, cfg.CookieSecure)
 	notifHandler := handler.NewNotificationHandler(store, notifEngine)
+	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.AuthEnabled {
@@ -661,6 +670,8 @@ func setupRouter(
 				r.Get("/notifications/rules", notifHandler.ListRules)
 				r.Get("/notifications/rules/{id}", notifHandler.GetRule)
 				r.Get("/notifications/log", notifHandler.ListLog)
+				r.Get("/notifications/summaries", summaryHandler.ListSchedules)
+				r.Get("/notifications/summaries/{id}", summaryHandler.GetSchedule)
 			})
 		})
 
@@ -703,6 +714,10 @@ func setupRouter(
 				r.Post("/notifications/rules", notifHandler.CreateRule)
 				r.Put("/notifications/rules/{id}", notifHandler.UpdateRule)
 				r.Delete("/notifications/rules/{id}", notifHandler.DeleteRule)
+				r.Post("/notifications/summaries", summaryHandler.CreateSchedule)
+				r.Put("/notifications/summaries/{id}", summaryHandler.UpdateSchedule)
+				r.Delete("/notifications/summaries/{id}", summaryHandler.DeleteSchedule)
+				r.Post("/notifications/summaries/{id}/trigger", summaryHandler.TriggerSchedule)
 			})
 		})
 	})

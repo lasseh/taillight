@@ -132,10 +132,53 @@ func (n *Ntfy) Send(ctx context.Context, ch notification.Channel, payload notifi
 
 // buildNtfyMessage returns a title and plain-text body for the notification.
 func buildNtfyMessage(p notification.Payload) (title, body string) {
+	if p.SummaryReport != nil {
+		return buildNtfySummary(p.SummaryReport)
+	}
 	if p.IsDigest {
 		return buildNtfyDigest(p)
 	}
 	return buildNtfyInitial(p)
+}
+
+// buildNtfySummary formats a summary report for ntfy.
+func buildNtfySummary(r *notification.SummaryReport) (title, body string) {
+	freq := r.Schedule.Frequency
+	if freq != "" {
+		freq = strings.ToUpper(freq[:1]) + freq[1:]
+	}
+	title = fmt.Sprintf("Taillight %s Summary", freq)
+
+	var lines []string
+	lines = append(lines, fmt.Sprintf("Period: %s — %s (%s)",
+		r.From.Format("Jan 2 15:04"),
+		r.To.Format("Jan 2 15:04 UTC"),
+		r.PeriodLabel,
+	))
+
+	if r.Srvlog != nil {
+		lines = append(lines, fmt.Sprintf("Srvlog: %d total, %d errors, %d warnings", r.Srvlog.Total, r.Srvlog.Errors, r.Srvlog.Warnings))
+	}
+	if r.Netlog != nil {
+		lines = append(lines, fmt.Sprintf("Netlog: %d total, %d errors, %d warnings", r.Netlog.Total, r.Netlog.Errors, r.Netlog.Warnings))
+	}
+	if r.AppLog != nil {
+		lines = append(lines, fmt.Sprintf("AppLog: %d total, %d errors, %d warnings", r.AppLog.Total, r.AppLog.Errors, r.AppLog.Warnings))
+	}
+
+	if len(r.TopIssues) > 0 {
+		lines = append(lines, "\nTop Issues:")
+		limit := min(len(r.TopIssues), 5)
+		for _, issue := range r.TopIssues[:limit] {
+			lines = append(lines, fmt.Sprintf("  [%s] %s/%s — %s (×%d)",
+				strings.ToUpper(issue.Label), issue.Source, issue.Program,
+				truncate(issue.Message, 60), issue.Count,
+			))
+		}
+	}
+
+	body = strings.Join(lines, "\n")
+	return title, body
 }
 
 // buildNtfyInitial formats an initial (non-digest) notification.

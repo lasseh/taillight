@@ -106,6 +106,10 @@ func (s *Slack) Send(ctx context.Context, ch notification.Channel, payload notif
 
 // buildSlackMessage creates a compact Block Kit message from the payload.
 func buildSlackMessage(p notification.Payload) map[string]any {
+	if p.SummaryReport != nil {
+		return buildSlackSummaryMessage(p.SummaryReport)
+	}
+
 	color := severityColor(p)
 
 	var text string
@@ -193,6 +197,115 @@ func buildSlackDigest(p notification.Payload) string {
 
 	return fmt.Sprintf("%s\n*%d more events* in the last %s\nLast seen: `%s`",
 		summary, p.EventCount, windowLabel, truncate(lastMessage, 500))
+}
+
+// buildSlackSummaryMessage creates a Block Kit message for a summary report.
+func buildSlackSummaryMessage(r *notification.SummaryReport) map[string]any {
+	freq := r.Schedule.Frequency
+	if freq != "" {
+		freq = strings.ToUpper(freq[:1]) + freq[1:]
+	}
+
+	var sections []map[string]any
+
+	// Header.
+	sections = append(sections, map[string]any{
+		"type": "header",
+		"text": map[string]any{
+			"type": "plain_text",
+			"text": fmt.Sprintf("Taillight %s Summary", freq),
+		},
+	})
+
+	// Period context.
+	sections = append(sections, map[string]any{
+		"type": "context",
+		"elements": []map[string]any{
+			{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("%s — %s (%s)",
+					r.From.Format("Jan 2 15:04 UTC"),
+					r.To.Format("Jan 2 15:04 UTC"),
+					r.PeriodLabel,
+				),
+			},
+		},
+	})
+
+	// Per-kind summaries.
+	if r.Srvlog != nil {
+		sections = append(sections, buildSlackSyslogSection("Srvlog", r.Srvlog))
+	}
+	if r.Netlog != nil {
+		sections = append(sections, buildSlackSyslogSection("Netlog", r.Netlog))
+	}
+	if r.AppLog != nil {
+		sections = append(sections, buildSlackAppLogSection(r.AppLog))
+	}
+
+	// Top issues.
+	if len(r.TopIssues) > 0 {
+		limit := min(len(r.TopIssues), 10) // Limit to 10 in Slack to avoid message size limits.
+		issueLines := make([]string, 0, limit)
+		for _, issue := range r.TopIssues[:limit] {
+			issueLines = append(issueLines, fmt.Sprintf("`%s` %s/%s — %s (×%d)",
+				strings.ToUpper(issue.Label),
+				issue.Source,
+				issue.Program,
+				truncate(issue.Message, 60),
+				issue.Count,
+			))
+		}
+		sections = append(sections, map[string]any{
+			"type": "section",
+			"text": map[string]any{
+				"type": "mrkdwn",
+				"text": "*Top Issues*\n" + strings.Join(issueLines, "\n"),
+			},
+		})
+	}
+
+	return map[string]any{
+		"blocks": sections,
+	}
+}
+
+func buildSlackSyslogSection(kind string, s *model.SyslogSummary) map[string]any {
+	trendStr := "—"
+	if s.Trend > 0 {
+		trendStr = fmt.Sprintf("↑ %.0f%%", s.Trend)
+	} else if s.Trend < 0 {
+		trendStr = fmt.Sprintf("↓ %.0f%%", -s.Trend)
+	}
+
+	return map[string]any{
+		"type": "section",
+		"fields": []map[string]any{
+			{"type": "mrkdwn", "text": fmt.Sprintf("*%s*", kind)},
+			{"type": "mrkdwn", "text": fmt.Sprintf("Trend: %s", trendStr)},
+			{"type": "mrkdwn", "text": fmt.Sprintf("Total: *%d*", s.Total)},
+			{"type": "mrkdwn", "text": fmt.Sprintf("Errors: *%d* | Warnings: *%d*", s.Errors, s.Warnings)},
+		},
+	}
+}
+
+func buildSlackAppLogSection(s *model.AppLogSummary) map[string]any {
+	trendStr := "—"
+	if s.Trend > 0 {
+		trendStr = fmt.Sprintf("↑ %.0f%%", s.Trend)
+	} else if s.Trend < 0 {
+		trendStr = fmt.Sprintf("↓ %.0f%%", -s.Trend)
+	}
+
+	return map[string]any{
+		"type": "section",
+		"fields": []map[string]any{
+			{"type": "mrkdwn", "text": "*AppLog*"},
+			{"type": "mrkdwn", "text": fmt.Sprintf("Trend: %s", trendStr)},
+			{"type": "mrkdwn", "text": fmt.Sprintf("Total: *%d*", s.Total)},
+			{"type": "mrkdwn", "text": fmt.Sprintf("Errors: *%d* | Warnings: *%d*", s.Errors, s.Warnings)},
+		},
+	}
 }
 
 func severityColor(p notification.Payload) string {
