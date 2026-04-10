@@ -379,19 +379,25 @@ func (s *Store) GetNetlogDeviceSummary(ctx context.Context, hostname string) (mo
 	)
 
 	// Q3: top normalized messages (24h).
+	// CTE aggregates per pattern, then joins back to get severity from the
+	// actual latest event (max id) — avoids min(severity) / max(id) mismatch.
 	msgSince := time.Now().UTC().Add(-24 * time.Hour)
 	batch.Queue(
-		`SELECT msg_pattern AS pattern,
-		     min(message) AS sample,
-		     count(*) AS cnt,
-		     max(id) AS latest_id,
-		     max(received_at) AS latest_at,
-		     min(severity) AS severity
-		 FROM netlog_events
-		 WHERE hostname = $1 AND received_at >= $2 AND msg_pattern != ''
-		 GROUP BY msg_pattern
-		 ORDER BY cnt DESC, msg_pattern
-		 LIMIT 10`,
+		`WITH agg AS (
+		     SELECT msg_pattern AS pattern,
+		         min(message) AS sample,
+		         count(*) AS cnt,
+		         max(id) AS latest_id,
+		         max(received_at) AS latest_at
+		     FROM netlog_events
+		     WHERE hostname = $1 AND received_at >= $2 AND msg_pattern != ''
+		     GROUP BY msg_pattern
+		     ORDER BY cnt DESC, msg_pattern
+		     LIMIT 10
+		 )
+		 SELECT a.pattern, a.sample, a.cnt, a.latest_id, a.latest_at, e.severity
+		 FROM agg a
+		 JOIN netlog_events e ON e.id = a.latest_id`,
 		hostname, msgSince,
 	)
 

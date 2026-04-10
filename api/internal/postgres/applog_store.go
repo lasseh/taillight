@@ -325,25 +325,25 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 	// Uses the pre-computed msg_pattern column (populated by trigger on INSERT)
 	// so no regex runs at query time. Rows with empty msg_pattern (pre-migration
 	// data) are excluded — fully populated within 24h of deploying migration 000012.
+	// CTE aggregates per pattern, then joins back to get level from the
+	// actual latest event (max id) — avoids max-severity / max-id mismatch.
 	msgSince := time.Now().UTC().Add(-24 * time.Hour)
 	batch.Queue(
-		`SELECT msg_pattern AS pattern,
-		     min(msg) AS sample,
-		     count(*) AS cnt,
-		     max(id) AS latest_id,
-		     max(received_at) AS latest_at,
-		     CASE max(CASE level
-		         WHEN 'FATAL' THEN 4 WHEN 'ERROR' THEN 3
-		         WHEN 'WARN' THEN 2 WHEN 'INFO' THEN 1
-		         ELSE 0 END)
-		         WHEN 4 THEN 'FATAL' WHEN 3 THEN 'ERROR'
-		         WHEN 2 THEN 'WARN' WHEN 1 THEN 'INFO'
-		         ELSE 'DEBUG' END AS level
-		 FROM applog_events
-		 WHERE host = $1 AND received_at >= $2 AND msg_pattern != ''
-		 GROUP BY msg_pattern
-		 ORDER BY cnt DESC, msg_pattern
-		 LIMIT 10`,
+		`WITH agg AS (
+		     SELECT msg_pattern AS pattern,
+		         min(msg) AS sample,
+		         count(*) AS cnt,
+		         max(id) AS latest_id,
+		         max(received_at) AS latest_at
+		     FROM applog_events
+		     WHERE host = $1 AND received_at >= $2 AND msg_pattern != ''
+		     GROUP BY msg_pattern
+		     ORDER BY cnt DESC, msg_pattern
+		     LIMIT 10
+		 )
+		 SELECT a.pattern, a.sample, a.cnt, a.latest_id, a.latest_at, e.level
+		 FROM agg a
+		 JOIN applog_events e ON e.id = a.latest_id`,
 		host, msgSince,
 	)
 
