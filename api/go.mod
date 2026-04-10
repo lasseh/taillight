@@ -11,7 +11,6 @@ require (
 	github.com/go-ldap/ldap/v3 v3.4.13
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/jackc/pgx/v5 v5.9.1
-	github.com/nxadm/tail v1.4.11
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/sony/gobreaker/v2 v2.4.0
@@ -59,7 +58,6 @@ require (
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
-	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 )
 
 replace github.com/lasseh/taillight/pkg/logshipper => ../pkg/logshipper
