@@ -14,6 +14,7 @@ import { useNetlogStream } from '@/composables/useNetlogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
 import { useNotifications } from '@/composables/useNotifications'
 import { useFavicon } from '@/composables/useFavicon'
+import { useFullscreen } from '@/composables/useFullscreen'
 import { features } from '@/config'
 import AppHeader from '@/components/AppHeader.vue'
 import FilterBar from '@/components/FilterBar.vue'
@@ -63,6 +64,15 @@ const isHistoricalMode = computed(() => {
 })
 
 useFavicon(connected)
+
+const { active: fullscreenActive, exit: exitFullscreen, toggle: toggleFullscreen } = useFullscreen()
+
+// Auto-exit fullscreen when navigating away from log routes.
+watch(isLogRoute, (isLog) => {
+  if (!isLog && fullscreenActive.value) {
+    exitFullscreen()
+  }
+})
 
 let unsubSrvlog: (() => void) | null = null
 let unsubNetlog: (() => void) | null = null
@@ -136,10 +146,12 @@ onErrorCaptured((err) => {
   </div>
   <router-view v-else-if="isLoginRoute" />
   <div v-else-if="routerReady && auth.user" class="flex h-dvh flex-col">
-    <AppHeader />
-    <NetlogFilterBar v-if="route.name === 'netlog'" />
-    <FilterBar v-if="route.name === 'srvlog'" />
-    <AppLogFilterBar v-if="route.name === 'applog'" />
+    <template v-if="!fullscreenActive">
+      <AppHeader />
+      <NetlogFilterBar v-if="route.name === 'netlog'" />
+      <FilterBar v-if="route.name === 'srvlog'" />
+      <AppLogFilterBar v-if="route.name === 'applog'" />
+    </template>
     <ConnectionBanner :connected="connected" />
     <main class="flex min-h-0 flex-1 flex-col">
       <router-view v-slot="{ Component }">
@@ -166,6 +178,26 @@ onErrorCaptured((err) => {
       >
         <span class="hidden md:inline">auto-scroll off{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to latest (esc)</span>
         <span class="md:hidden">↓ latest{{ newEventCount > 0 ? ` (${newEventCount})` : '' }}</span>
+      </button>
+      <button
+        v-if="isLogRoute"
+        class="text-t-fg-dark hover:text-t-fg ml-auto p-1 transition-colors"
+        :aria-label="fullscreenActive ? 'Exit focus mode (f)' : 'Focus mode (f)'"
+        :title="fullscreenActive ? 'Exit focus mode (f)' : 'Focus mode (f)'"
+        @click="toggleFullscreen()"
+      >
+        <svg v-if="!fullscreenActive" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+          <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+          <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+          <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+        </svg>
+        <svg v-else class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 14h6v6" />
+          <path d="M20 10h-6V4" />
+          <path d="M14 10l7-7" />
+          <path d="M3 21l7-7" />
+        </svg>
       </button>
     </div>
   </div>
