@@ -220,13 +220,21 @@ function currentEvents(): NetlogEvent[] {
     <template v-else-if="summary">
       <!-- Summary area (compact, non-scrolling) -->
       <div class="shrink-0 space-y-4 p-4">
-        <!-- Back button -->
-        <button
-          class="text-t-fg-dark hover:text-t-fg text-sm transition-colors"
-          @click="router.back()"
-        >
-          &larr; back
-        </button>
+        <!-- Navigation -->
+        <div class="flex items-center justify-between">
+          <button
+            class="text-t-fg-dark hover:text-t-fg text-sm transition-colors"
+            @click="router.back()"
+          >
+            &larr; back
+          </button>
+          <RouterLink
+            :to="{ name: 'netlog', query: { hostname: summary.hostname } }"
+            class="text-t-teal text-xs hover:underline"
+          >
+            view all logs &rarr;
+          </RouterLink>
+        </div>
 
         <!-- Summary stat cards -->
         <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
