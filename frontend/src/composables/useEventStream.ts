@@ -13,8 +13,24 @@ export function createEventStream<T>(path: string, eventName: string) {
   let lastEventAt = 0
   let lastEventId = ''
   let backoff = INITIAL_BACKOFF
+  let started = false
   const connected = ref(false)
   const listeners = new Set<(event: T) => void>()
+
+  // When the page becomes visible after sleep/tab switch, immediately
+  // attempt reconnection with reset backoff so users don't see the
+  // disconnected banner while the network catches up.
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible' && started && !connected.value && !es) {
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+        retryTimer = null
+      }
+      backoff = INITIAL_BACKOFF
+      open()
+    }
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange)
 
   function open() {
     const baseUrl = `${config.apiUrl}${path}`
@@ -92,11 +108,13 @@ export function createEventStream<T>(path: string, eventName: string) {
 
   function start() {
     if (es || retryTimer) return
+    started = true
     backoff = INITIAL_BACKOFF
     open()
   }
 
   function stop() {
+    started = false
     if (retryTimer) {
       clearTimeout(retryTimer)
       retryTimer = null

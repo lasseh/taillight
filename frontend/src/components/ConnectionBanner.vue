@@ -21,14 +21,15 @@ watch(() => props.connected, (val) => {
     }
     showBanner.value = false
   } else if (hasConnected.value) {
-    // Only show after a 2s delay to avoid flicker during brief reconnects.
+    // Only show after a 5s delay to avoid flicker during brief reconnects
+    // and wake-from-sleep scenarios where the network needs time to recover.
     if (!graceTimer) {
       graceTimer = setTimeout(() => {
         graceTimer = null
         if (!props.connected) {
           showBanner.value = true
         }
-      }, 2000)
+      }, 5000)
     }
   }
 }, { immediate: true })
