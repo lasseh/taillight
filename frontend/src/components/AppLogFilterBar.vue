@@ -6,6 +6,7 @@ import { useAppLogMetaStore } from '@/stores/applog-meta'
 import { levelOptions } from '@/lib/applog-constants'
 import FilterSelect from '@/components/FilterSelect.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
+import { config } from '@/lib/config'
 
 const filterStore = useAppLogFilterStore()
 const meta = useAppLogMetaStore()
@@ -31,6 +32,13 @@ const searchInput = computed({
     filterStore.filters.search = val
   }, 300),
 })
+
+const canExport = computed(() => !!filterStore.filters.from && !!filterStore.filters.to)
+
+function exportCSV() {
+  const params = new URLSearchParams(filterStore.activeFilters)
+  window.open(`${config.apiUrl}/api/v1/applog/export?${params}`, '_blank')
+}
 </script>
 
 <template>
@@ -61,6 +69,14 @@ const searchInput = computed({
       >
         {{ filterStore.filters.host }} &rarr;
       </RouterLink>
+      <button
+        v-if="canExport"
+        class="text-t-blue text-xs hover:underline"
+        aria-label="Export filtered logs as CSV"
+        @click.stop="exportCSV"
+      >
+        export csv
+      </button>
     </div>
   </div>
 
@@ -136,6 +152,15 @@ const searchInput = computed({
     >
       {{ filterStore.filters.host }} details &rarr;
     </RouterLink>
+
+    <button
+      v-if="canExport"
+      class="text-t-blue ml-auto text-xs hover:underline"
+      aria-label="Export filtered logs as CSV"
+      @click="exportCSV"
+    >
+      export csv
+    </button>
   </div>
 </template>
 

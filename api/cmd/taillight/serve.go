@@ -501,6 +501,7 @@ func setupRouter(
 	authHandler := handler.NewAuthHandler(authStore, ldapAuth, cfg.CookieSecure)
 	notifHandler := handler.NewNotificationHandler(store, notifEngine)
 	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
+	exportHandler := handler.NewExportHandler(store, store, store)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.AuthEnabled {
@@ -580,6 +581,12 @@ func setupRouter(
 
 					r.Get("/device/{hostname}", srvlogDeviceHandler.Get)
 				})
+
+				// Export — longer timeout for streaming CSV.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(5 * time.Minute))
+					r.Get("/export", exportHandler.ExportSrvlogs)
+				})
 			})
 
 			// Netlog routes — feature-gated, all under /netlog/ prefix.
@@ -605,6 +612,12 @@ func setupRouter(
 						r.Get("/stats/summary", statsHandler.NetlogSummary)
 
 						r.Get("/device/{hostname}", netlogDeviceHandler.Get)
+					})
+
+					// Export — longer timeout for streaming CSV.
+					r.Group(func(r chi.Router) {
+						r.Use(middleware.Timeout(5 * time.Minute))
+						r.Get("/export", exportHandler.ExportNetlogs)
 					})
 				})
 			}
@@ -659,6 +672,12 @@ func setupRouter(
 					r.Get("/stats/summary", statsHandler.AppLogSummary)
 
 					r.Get("/device/{hostname}", applogDeviceHandler.Get)
+				})
+
+				// Export — longer timeout for streaming CSV.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(5 * time.Minute))
+					r.Get("/export", exportHandler.ExportAppLogs)
 				})
 			})
 

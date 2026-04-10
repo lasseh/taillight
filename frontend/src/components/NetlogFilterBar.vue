@@ -6,6 +6,7 @@ import { useNetlogMetaStore } from '@/stores/netlog-meta'
 import { facilityLabels, severityOptions } from '@/lib/constants'
 import FilterSelect from '@/components/FilterSelect.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
+import { config } from '@/lib/config'
 
 const filterStore = useNetlogFilterStore()
 const meta = useNetlogMetaStore()
@@ -34,6 +35,13 @@ const searchInput = computed({
     filterStore.filters.search = val
   }, 300),
 })
+
+const canExport = computed(() => !!filterStore.filters.from && !!filterStore.filters.to)
+
+function exportCSV() {
+  const params = new URLSearchParams(filterStore.activeFilters)
+  window.open(`${config.apiUrl}/api/v1/netlog/export?${params}`, '_blank')
+}
 </script>
 
 <template>
@@ -64,6 +72,14 @@ const searchInput = computed({
       >
         {{ filterStore.filters.hostname }} &rarr;
       </RouterLink>
+      <button
+        v-if="canExport"
+        class="text-t-blue text-xs hover:underline"
+        aria-label="Export filtered logs as CSV"
+        @click.stop="exportCSV"
+      >
+        export csv
+      </button>
     </div>
   </div>
 
@@ -139,6 +155,15 @@ const searchInput = computed({
     >
       {{ filterStore.filters.hostname }} details &rarr;
     </RouterLink>
+
+    <button
+      v-if="canExport"
+      class="text-t-blue ml-auto text-xs hover:underline"
+      aria-label="Export filtered logs as CSV"
+      @click="exportCSV"
+    >
+      export csv
+    </button>
   </div>
 </template>
 
