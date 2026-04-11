@@ -12,7 +12,7 @@ else
   TEST_CMD := $(GO) test
 endif
 
-.PHONY: build build-linux build-shipper build-tui build-tui-linux test lint fix tidy vulncheck generate coverage clean help migrate-up migrate-down migrate-version
+.PHONY: build build-linux build-shipper build-tui build-tui-linux build-wish build-wish-linux test lint fix tidy vulncheck generate coverage clean help migrate-up migrate-down migrate-version
 
 ##@ General
 help: ## Show this help
@@ -33,6 +33,12 @@ build-tui: ## Build taillight-tui
 
 build-tui-linux: ## Build taillight-tui for Linux amd64
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o taillight-tui-linux-amd64 ./cmd/taillight-tui
+
+build-wish: ## Build taillight-wish SSH server
+	$(GO) build $(GOFLAGS) $(LDFLAGS) -o taillight-wish ./cmd/taillight-wish
+
+build-wish-linux: ## Build taillight-wish for Linux amd64
+	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o taillight-wish-linux-amd64 ./cmd/taillight-wish
 
 ##@ Quality
 test: ## Run tests
@@ -61,7 +67,7 @@ generate: ## Verify generated code is up to date
 	@git diff --exit-code || (echo "generated code is out of date" && exit 1)
 
 clean: ## Clean build artifacts
-	rm -f $(BINARY_NAME) $(BINARY_NAME)-linux-amd64 taillight-shipper taillight-tui taillight-tui-linux-amd64 coverage.out coverage.html
+	rm -f $(BINARY_NAME) $(BINARY_NAME)-linux-amd64 taillight-shipper taillight-tui taillight-tui-linux-amd64 taillight-wish taillight-wish-linux-amd64 coverage.out coverage.html
 
 ##@ Database
 migrate-up: build ## Apply all pending migrations
