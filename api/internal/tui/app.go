@@ -437,7 +437,7 @@ func (a *App) drainAllStreams() {
 		events := drainSrvlogSSE(a.srvlogStream, 100)
 		if len(events) > 0 {
 			a.srvlog.PushEvents(events)
-			a.statusBar.AddEvents(len(events))
+
 		}
 	}
 
@@ -448,7 +448,7 @@ func (a *App) drainAllStreams() {
 		events := drainApplogSSE(a.applogStream, 100)
 		if len(events) > 0 {
 			a.applog.PushEvents(events)
-			a.statusBar.AddEvents(len(events))
+
 		}
 	}
 
@@ -459,7 +459,7 @@ func (a *App) drainAllStreams() {
 		events := drainNetlogSSE(a.netlogStream, 100)
 		if len(events) > 0 {
 			a.netlog.PushEvents(events)
-			a.statusBar.AddEvents(len(events))
+
 		}
 	}
 

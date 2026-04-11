@@ -9,29 +9,22 @@ import (
 	"github.com/lasseh/taillight/internal/tui/theme"
 )
 
-// StatusBar renders a multi-segment status bar inspired by soft-serve/gh-dash.
+// StatusBar renders a multi-segment status bar pinned to the terminal bottom.
 type StatusBar struct {
-	connected  bool
-	eventCount int
-	newEvents  int // events arrived while scrolled up
-	errMsg     string
-	filters    []string // active filter pills
-	feedLabel  string   // current feed name
+	connected bool
+	newEvents int // events arrived while scrolled up
+	errMsg    string
+	filters   []string // active filter pills
 }
 
 // NewStatusBar creates a new status bar.
 func NewStatusBar() StatusBar {
-	return StatusBar{feedLabel: "SRVLOG"}
+	return StatusBar{}
 }
 
 // SetConnected updates the connection state.
 func (s *StatusBar) SetConnected(v bool) {
 	s.connected = v
-}
-
-// AddEvents increments the event counter.
-func (s *StatusBar) AddEvents(n int) {
-	s.eventCount += n
 }
 
 // SetNewEvents sets the count of events arrived while user is scrolled up.
@@ -49,20 +42,9 @@ func (s *StatusBar) SetFilters(filters []string) {
 	s.filters = filters
 }
 
-// SetFeed sets the current feed label.
-func (s *StatusBar) SetFeed(label string) {
-	s.feedLabel = label
-}
-
-// Segment styles — each segment has its own background color for an
-// IDE-like multi-segment status bar.
+// Segment styles.
 var (
 	segConn = lipgloss.NewStyle().
-		Padding(0, 1)
-
-	segInfo = lipgloss.NewStyle().
-		Foreground(theme.ColorFG).
-		Background(lipgloss.Color("#1e2030")).
 		Padding(0, 1)
 
 	segFilter = lipgloss.NewStyle().
@@ -108,11 +90,7 @@ func (s *StatusBar) View(width int) string {
 			Render("● OFFLINE"))
 	}
 
-	// Event count segment.
-	segments = append(segments, segInfo.Render(
-		fmt.Sprintf(" %d events", s.eventCount)))
-
-	// Error segment (if any).
+	// Error segment.
 	if s.errMsg != "" {
 		segments = append(segments, segErr.Render(s.errMsg))
 	}
