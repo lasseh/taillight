@@ -223,5 +223,5 @@ func (m *Model) openDetail() {
 
 var (
 	enterKey = key.NewBinding(key.WithKeys("enter"))
-	escKey   = key.NewBinding(key.WithKeys("escape"))
+	escKey   = key.NewBinding(key.WithKeys("esc"))
 )

@@ -119,7 +119,7 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("shift+tab", "prev tab"),
 		),
 		Escape: key.NewBinding(
-			key.WithKeys("escape"),
+			key.WithKeys("esc"),
 			key.WithHelp("esc", "back"),
 		),
 		ToggleFocus: key.NewBinding(

@@ -226,7 +226,7 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Filter input takes priority when focused.
 	if a.focus == FocusFilter {
-		if key.Matches(msg, a.keys.Escape) {
+		if key.Matches(msg, a.keys.Escape) || msg.String() == "enter" {
 			a.focus = FocusTable
 			a.blurActiveFilter()
 			return a, nil
