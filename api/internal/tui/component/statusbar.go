@@ -38,27 +38,29 @@ func (s *StatusBar) SetError(msg string) {
 
 // View renders the status bar at the given width.
 func (s *StatusBar) View(width int) string {
-	// Connection indicator.
+	// Connection indicator with dot.
 	var connStr string
 	if s.connected {
-		connStr = theme.StatusConnected.Render("● Connected")
+		dot := theme.StatusConnected.Render("●")
+		connStr = dot + " " + theme.StatusConnected.Render("connected")
 	} else {
-		connStr = theme.StatusDisconnected.Render("● Disconnected")
+		dot := theme.StatusDisconnected.Render("●")
+		connStr = dot + " " + theme.StatusDisconnected.Render("disconnected")
 	}
 
 	// Event count.
-	countStr := fmt.Sprintf("%d events", s.eventCount)
+	countStr := theme.Comment.Render(fmt.Sprintf("%d events", s.eventCount))
 
 	// Error.
 	var errStr string
 	if s.errMsg != "" {
-		errStr = lipgloss.NewStyle().Foreground(theme.ColorRed).Render(" | " + s.errMsg)
+		errStr = " " + lipgloss.NewStyle().Foreground(theme.ColorRed).Render(s.errMsg)
 	}
 
 	// Help hint.
-	helpStr := theme.Help.Render("?help")
+	helpStr := theme.Comment.Render("? help  q quit")
 
-	left := connStr + " | " + countStr + errStr
+	left := connStr + "  " + countStr + errStr
 	right := helpStr
 
 	gap := max(0, width-lipgloss.Width(left)-lipgloss.Width(right)-2)

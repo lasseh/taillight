@@ -158,8 +158,8 @@ func (f *FilterModel) View(width int) string {
 		parts = append(parts, progLabel)
 	}
 
-	bar := lipgloss.JoinHorizontal(lipgloss.Center, joinWithSep(parts, " | ")...)
-	return theme.FilterInput.Width(width).Render(bar)
+	bar := lipgloss.JoinHorizontal(lipgloss.Center, joinWithSep(parts, "  ")...)
+	return theme.FilterBar.Width(width).Render(bar)
 }
 
 func joinWithSep(parts []string, sep string) []string {

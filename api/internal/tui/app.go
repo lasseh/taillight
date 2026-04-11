@@ -84,13 +84,13 @@ func NewApp(cfg Config, c *client.Client) *App {
 	}
 
 	tabs := []component.Tab{
-		{ID: int(TabSrvlog), Label: "SRVLOG"},
-		{ID: int(TabApplog), Label: "APPLOG"},
-		{ID: int(TabNetlog), Label: "NETLOG"},
-		{ID: int(TabDashboard), Label: "DASHBOARD"},
-		{ID: int(TabHosts), Label: "HOSTS"},
-		{ID: int(TabNotifications), Label: "ALERTS"},
-		{ID: int(TabSettings), Label: "SETTINGS"},
+		{ID: int(TabSrvlog), Label: "SRVLOG", Color: theme.ColorTeal},
+		{ID: int(TabApplog), Label: "APPLOG", Color: theme.ColorPink},
+		{ID: int(TabNetlog), Label: "NETLOG", Color: theme.ColorFuchsia},
+		{ID: int(TabDashboard), Label: "DASHBOARD", Color: theme.ColorBlue},
+		{ID: int(TabHosts), Label: "HOSTS", Color: theme.ColorGreen},
+		{ID: int(TabNotifications), Label: "ALERTS", Color: theme.ColorYellow},
+		{ID: int(TabSettings), Label: "SETTINGS", Color: theme.ColorComment},
 	}
 
 	return &App{

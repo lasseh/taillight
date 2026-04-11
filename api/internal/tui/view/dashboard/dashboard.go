@@ -4,6 +4,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
@@ -95,22 +96,21 @@ func (m *Model) View() string {
 	var sections []string
 
 	// Summary cards row.
-	cards := m.renderCards()
-	sections = append(sections, cards)
+	sections = append(sections, m.renderCards())
+	sections = append(sections, "")
 
 	// Severity distribution + top hosts.
 	if m.srvlog != nil {
-		bottom := lipgloss.JoinHorizontal(lipgloss.Top,
-			m.renderSeverityBars(m.srvlog, "Srvlog Severity"),
-			"  ",
-			m.renderTopHosts(m.srvlog),
-		)
+		left := m.renderSeverityBars(m.srvlog, "SEVERITY DISTRIBUTION")
+		right := m.renderTopHosts(m.srvlog)
+		bottom := lipgloss.JoinHorizontal(lipgloss.Top, left, "   ", right)
 		sections = append(sections, bottom)
 	}
 
 	// Last updated.
 	if !m.lastLoad.IsZero() {
-		ts := theme.Comment.Render(fmt.Sprintf("Last updated: %s  (r to refresh)", m.lastLoad.Format("15:04:05")))
+		sections = append(sections, "")
+		ts := theme.Comment.Render(fmt.Sprintf("  Updated %s  ·  r refresh", m.lastLoad.Format("15:04:05")))
 		sections = append(sections, ts)
 	}
 
@@ -118,62 +118,84 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderCards() string {
-	halfWidth := max(20, (m.width-4)/3)
+	cardWidth := max(18, (m.width-8)/3)
 
-	renderCard := func(title string, stats *client.StatsSummary) string {
+	renderCard := func(title string, titleColor color.Color, stats *client.StatsSummary) string {
 		if stats == nil {
-			return theme.Border.Width(halfWidth).Render(
+			return theme.Card.Width(cardWidth).Render(
 				theme.Comment.Render(title + "\n  No data"),
 			)
 		}
+
+		titleLine := lipgloss.NewStyle().Foreground(titleColor).Bold(true).Render(title)
+
+		totalLine := fmt.Sprintf("  %s  %s",
+			theme.Comment.Render("Total"),
+			lipgloss.NewStyle().Foreground(theme.ColorTeal).Bold(true).Render(formatCount(stats.Total)))
+
+		errLine := fmt.Sprintf("  %s  %s",
+			theme.Comment.Render("Errors"),
+			lipgloss.NewStyle().Foreground(theme.ColorOrange).Render(formatCount(stats.Errors)))
+
+		warnLine := fmt.Sprintf("  %s %s",
+			theme.Comment.Render("Warnings"),
+			lipgloss.NewStyle().Foreground(theme.ColorYellow).Render(formatCount(stats.Warnings)))
+
 		trendStr := fmt.Sprintf("%.1f%%", stats.Trend)
+		var trendLine string
 		switch {
 		case stats.Trend > 0:
-			trendStr = theme.SeverityStyle(4).Render("+" + trendStr) // yellow for up
+			trendLine = fmt.Sprintf("  %s  %s",
+				theme.Comment.Render("Trend"),
+				lipgloss.NewStyle().Foreground(theme.ColorRed).Render("▲ +"+trendStr))
 		case stats.Trend < 0:
-			trendStr = lipgloss.NewStyle().Foreground(theme.ColorGreen).Render(trendStr)
+			trendLine = fmt.Sprintf("  %s  %s",
+				theme.Comment.Render("Trend"),
+				lipgloss.NewStyle().Foreground(theme.ColorGreen).Render("▼ "+trendStr))
 		default:
-			trendStr = theme.Comment.Render(trendStr)
+			trendLine = fmt.Sprintf("  %s  %s",
+				theme.Comment.Render("Trend"),
+				theme.Comment.Render("─ "+trendStr))
 		}
 
-		content := strings.Join([]string{
-			theme.ActiveTab.Render(title),
-			fmt.Sprintf("Total:    %s", theme.DetailValue.Render(formatCount(stats.Total))),
-			fmt.Sprintf("Errors:   %s", lipgloss.NewStyle().Foreground(theme.ColorOrange).Render(formatCount(stats.Errors))),
-			fmt.Sprintf("Warnings: %s", lipgloss.NewStyle().Foreground(theme.ColorYellow).Render(formatCount(stats.Warnings))),
-			fmt.Sprintf("Trend:    %s", trendStr),
-		}, "\n")
-
-		return theme.Border.Width(halfWidth).Render(content)
+		content := strings.Join([]string{titleLine, "", totalLine, errLine, warnLine, trendLine}, "\n")
+		return theme.Card.Width(cardWidth).Render(content)
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top,
-		renderCard("SRVLOG", m.srvlog),
+		renderCard("SRVLOG", theme.ColorTeal, m.srvlog),
 		" ",
-		renderCard("APPLOG", m.applog),
+		renderCard("APPLOG", theme.ColorPink, m.applog),
 		" ",
-		renderCard("NETLOG", m.netlog),
+		renderCard("NETLOG", theme.ColorFuchsia, m.netlog),
 	)
 }
 
 func (m *Model) renderSeverityBars(stats *client.StatsSummary, title string) string {
 	barWidth := max(20, m.width/3)
 	var lines []string
-	lines = append(lines, theme.TableHeader.Render(title))
+	lines = append(lines, theme.CardLabel.Render("  "+title))
 	lines = append(lines, "")
+
+	maxCount := int64(1)
+	for _, sc := range stats.SeverityBreakdown {
+		if sc.Count > maxCount {
+			maxCount = sc.Count
+		}
+	}
 
 	for _, sc := range stats.SeverityBreakdown {
 		if sc.Count == 0 {
 			continue
 		}
-		label := padRight(sc.Label, 8)
-		barLen := int(sc.Pct / 100 * float64(barWidth-20))
+		label := padRight(strings.ToUpper(sc.Label), 8)
+		barLen := int(float64(sc.Count) / float64(maxCount) * float64(barWidth-22))
 		barLen = max(1, barLen)
 		bar := strings.Repeat("█", barLen)
 		count := formatCount(sc.Count)
 
 		sevStyle := theme.SeverityStyle(sc.Severity)
-		lines = append(lines, fmt.Sprintf("%s %s %s",
+		lines = append(lines, fmt.Sprintf("  %s %s %s",
 			sevStyle.Render(label),
 			sevStyle.Render(bar),
 			theme.Comment.Render(count),
@@ -185,16 +207,16 @@ func (m *Model) renderSeverityBars(stats *client.StatsSummary, title string) str
 
 func (m *Model) renderTopHosts(stats *client.StatsSummary) string {
 	var lines []string
-	lines = append(lines, theme.TableHeader.Render("Top Hosts"))
+	lines = append(lines, theme.CardLabel.Render("  TOP HOSTS"))
 	lines = append(lines, "")
 
 	for i, h := range stats.TopHosts {
 		if i >= 10 {
 			break
 		}
-		lines = append(lines, fmt.Sprintf("%s  %s  %s",
+		lines = append(lines, fmt.Sprintf("  %s  %s  %s",
 			theme.Hostname.Render(padRight(h.Name, 20)),
-			theme.DetailValue.Render(padRight(formatCount(h.Count), 8)),
+			theme.Base.Render(padRight(formatCount(h.Count), 8)),
 			theme.Comment.Render(fmt.Sprintf("%.1f%%", h.Pct)),
 		))
 	}

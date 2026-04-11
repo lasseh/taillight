@@ -102,12 +102,12 @@ func (m *Model) View() string {
 	var lines []string
 
 	// Header.
-	header := fmt.Sprintf("  %-20s  %-6s  %8s  %8s  %6s  %s",
-		"HOSTNAME", "FEED", "TOTAL", "ERRORS", "ERR%", "LAST SEEN")
+	header := fmt.Sprintf("  %-2s %-20s %-5s %8s %8s %6s  %-3s  %s",
+		"", "HOSTNAME", "FEED", "TOTAL", "ERRORS", "ERR%", "▲▼", "LAST SEEN")
 	lines = append(lines, theme.TableHeader.Width(m.width).Render(header))
 
 	// Rows.
-	visibleRows := max(1, m.height-3) // header + footer
+	visibleRows := max(1, m.height-3)
 	startIdx := 0
 	if m.cursor >= visibleRows {
 		startIdx = m.cursor - visibleRows + 1
@@ -116,33 +116,32 @@ func (m *Model) View() string {
 	for i := startIdx; i < len(m.hosts) && i < startIdx+visibleRows; i++ {
 		h := m.hosts[i]
 
-		// Status dot.
 		dot := statusDot(h.LastSeenAt)
+		badge := feedBadge(h.Feed)
+		trendStr := trendArrow(h.Trend)
 
-		// Trend arrow.
-		var trendStr string
-		switch {
-		case h.Trend > 0:
-			trendStr = lipgloss.NewStyle().Foreground(theme.ColorYellow).Render("▲")
-		case h.Trend < 0:
-			trendStr = lipgloss.NewStyle().Foreground(theme.ColorGreen).Render("▼")
-		default:
-			trendStr = theme.Comment.Render("─")
+		// Error count with color.
+		errStr := theme.Comment.Render(fmt.Sprintf("%8d", h.ErrorCount))
+		if h.ErrorCount > 0 {
+			errStr = lipgloss.NewStyle().Foreground(theme.ColorRed).Render(fmt.Sprintf("%8d", h.ErrorCount))
 		}
 
-		// Last seen.
-		lastSeen := "never"
-		if h.LastSeenAt != nil {
-			lastSeen = relativeTime(*h.LastSeenAt)
+		// Error ratio with color.
+		ratioStr := theme.Comment.Render(fmt.Sprintf("%5.1f%%", h.ErrorRatio*100))
+		if h.ErrorRatio > 0 {
+			ratioStr = lipgloss.NewStyle().Foreground(theme.ColorOrange).Render(fmt.Sprintf("%5.1f%%", h.ErrorRatio*100))
 		}
 
-		row := fmt.Sprintf("%s %-20s  %-6s  %8s  %8s  %5.1f%%  %s  %s",
+		// Last seen with color.
+		lastSeen := lastSeenStr(h.LastSeenAt)
+
+		row := fmt.Sprintf("  %s %-20s %s %8s %s %s  %s  %s",
 			dot,
 			truncate(h.Hostname, 20),
-			h.Feed,
+			badge,
 			formatCount(h.TotalCount),
-			formatCount(h.ErrorCount),
-			h.ErrorRatio*100,
+			errStr,
+			ratioStr,
 			trendStr,
 			lastSeen,
 		)
@@ -155,7 +154,7 @@ func (m *Model) View() string {
 	}
 
 	// Footer.
-	footer := theme.Comment.Render(fmt.Sprintf("  %d hosts  |  r to refresh", len(m.hosts)))
+	footer := theme.Comment.Render(fmt.Sprintf("  %d hosts  ·  r refresh  ·  j/k navigate", len(m.hosts)))
 	lines = append(lines, footer)
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
@@ -176,17 +175,52 @@ func statusDot(lastSeen *time.Time) string {
 	}
 }
 
-func relativeTime(t time.Time) string {
-	d := time.Since(t)
+func feedBadge(feed string) string {
+	switch feed {
+	case "srvlog":
+		return theme.BadgeSrvlog.Render(" S ")
+	case "netlog":
+		return theme.BadgeNetlog.Render(" N ")
+	default:
+		return theme.Comment.Render(" ? ")
+	}
+}
+
+func trendArrow(trend float64) string {
+	switch {
+	case trend > 0:
+		return lipgloss.NewStyle().Foreground(theme.ColorRed).Render("▲")
+	case trend < 0:
+		return lipgloss.NewStyle().Foreground(theme.ColorGreen).Render("▼")
+	default:
+		return theme.Comment.Render("─")
+	}
+}
+
+func lastSeenStr(t *time.Time) string {
+	if t == nil {
+		return theme.Comment.Render("never")
+	}
+	d := time.Since(*t)
+	var text string
 	switch {
 	case d < time.Minute:
-		return "just now"
+		text = "just now"
 	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+		text = fmt.Sprintf("%dm ago", int(d.Minutes()))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
+		text = fmt.Sprintf("%dh ago", int(d.Hours()))
 	default:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+		text = fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+
+	switch {
+	case d < 15*time.Minute:
+		return lipgloss.NewStyle().Foreground(theme.ColorGreen).Render(text)
+	case d < 2*time.Hour:
+		return lipgloss.NewStyle().Foreground(theme.ColorYellow).Render(text)
+	default:
+		return lipgloss.NewStyle().Foreground(theme.ColorRed).Render(text)
 	}
 }
 
@@ -194,11 +228,11 @@ func (m *Model) loadHosts() tea.Cmd {
 	c := m.client
 	return func() tea.Msg {
 		ctx := context.Background()
-		hosts, err := c.Hosts(ctx, "24h")
+		hostList, err := c.Hosts(ctx, "24h")
 		if err != nil {
 			return HostsLoadedMsg{Err: err}
 		}
-		return HostsLoadedMsg{Hosts: hosts}
+		return HostsLoadedMsg{Hosts: hostList}
 	}
 }
 

@@ -11,19 +11,21 @@ import (
 )
 
 const (
+	fixedBarWidth      = 1
 	fixedTimeWidth     = 8
 	fixedSeverityWidth = 8
 )
 
 // columns returns the table column definitions for the given terminal width.
 func columns(width int) []table.Column {
-	remaining := max(width-fixedTimeWidth-fixedSeverityWidth-6, 20)
+	remaining := max(width-fixedBarWidth-fixedTimeWidth-fixedSeverityWidth-8, 20)
 
 	hostnameWidth := max(8, remaining*20/100)
 	programWidth := max(6, remaining*15/100)
 	messageWidth := max(10, remaining-hostnameWidth-programWidth)
 
 	return []table.Column{
+		{Title: "▎", Width: fixedBarWidth},
 		{Title: "TIME", Width: fixedTimeWidth},
 		{Title: "SEVERITY", Width: fixedSeverityWidth},
 		{Title: "HOSTNAME", Width: hostnameWidth},
@@ -32,15 +34,16 @@ func columns(width int) []table.Column {
 	}
 }
 
-// eventToRow converts a NetlogEvent to a table row.
+// eventToRow converts a NetlogEvent to a table row with colored cells.
 func eventToRow(e client.NetlogEvent, timeFormat string) table.Row {
-	return table.Row{
-		e.ReceivedAt.Local().Format(timeFormat),
-		padRight(e.SeverityLabel, fixedSeverityWidth),
-		truncate(e.Hostname, 20),
-		truncate(e.Programname, 16),
-		strings.ReplaceAll(e.Message, "\n", " "),
-	}
+	bar := theme.SeverityBar(e.Severity)
+	ts := theme.Timestamp.Render(e.ReceivedAt.Local().Format(timeFormat))
+	sev := theme.SeverityStyle(e.Severity).Render(padRight(strings.ToUpper(e.SeverityLabel), fixedSeverityWidth))
+	host := theme.Hostname.Render(truncate(e.Hostname, 20))
+	prog := theme.Program.Render(truncate(e.Programname, 16))
+	msg := theme.Message.Render(strings.ReplaceAll(e.Message, "\n", " "))
+
+	return table.Row{bar, ts, sev, host, prog, msg}
 }
 
 // renderDetailPanel renders the expanded detail view for a netlog event.
@@ -54,7 +57,7 @@ func renderDetailPanel(e client.NetlogEvent, width int) string {
 	}
 
 	sevStyle := theme.SeverityStyle(e.Severity)
-	sevStr := sevStyle.Render(fmt.Sprintf("%d (%s)", e.Severity, e.SeverityLabel))
+	sevStr := sevStyle.Render(fmt.Sprintf("%d (%s)", e.Severity, strings.ToUpper(e.SeverityLabel)))
 
 	kv("ID", fmt.Sprintf("%d", e.ID))
 	kv("Received", e.ReceivedAt.Local().Format("2006-01-02 15:04:05.000"))
@@ -71,7 +74,7 @@ func renderDetailPanel(e client.NetlogEvent, width int) string {
 
 	b.WriteString("\n")
 	kv("Message", "")
-	b.WriteString(theme.Message.Width(max(20, width-4)).Render(e.Message))
+	b.WriteString(theme.DetailValue.Width(max(20, width-4)).Render(e.Message))
 	b.WriteString("\n")
 
 	if e.StructuredData != nil && *e.StructuredData != "" {
