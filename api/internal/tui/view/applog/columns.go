@@ -12,14 +12,15 @@ import (
 )
 
 const (
-	fixedBarWidth   = 1 // level bar ▎
-	fixedTimeWidth  = 8 // HH:MM:SS
-	fixedLevelWidth = 6 // "FATAL " (longest label)
+	fixedBarWidth   = 1  // level bar ▎
+	fixedTimeWidth  = 10 // " HH:MM:SS " with padding
+	fixedLevelWidth = 7  // "FATAL  " with trailing space
 )
 
 // columns returns the table column definitions for the given terminal width.
 func columns(width int) []table.Column {
-	remaining := max(width-fixedBarWidth-fixedTimeWidth-fixedLevelWidth-8, 20)
+	fixed := fixedBarWidth + fixedTimeWidth + fixedLevelWidth
+	remaining := max(width-fixed-6, 20)
 
 	serviceWidth := max(8, remaining*20/100)
 	hostWidth := max(8, remaining*15/100)
@@ -27,8 +28,8 @@ func columns(width int) []table.Column {
 
 	return []table.Column{
 		{Title: "▎", Width: fixedBarWidth},
-		{Title: "TIME", Width: fixedTimeWidth},
-		{Title: "LEVEL", Width: fixedLevelWidth},
+		{Title: "  TIME    ", Width: fixedTimeWidth},
+		{Title: "LEVEL  ", Width: fixedLevelWidth},
 		{Title: "SERVICE", Width: serviceWidth},
 		{Title: "HOST", Width: hostWidth},
 		{Title: "MESSAGE", Width: messageWidth},
@@ -38,8 +39,8 @@ func columns(width int) []table.Column {
 // eventToRow converts an AppLogEvent to a table row with colored cells.
 func eventToRow(e client.AppLogEvent, timeFormat string) table.Row {
 	bar := lipglossBar(e.Level)
-	ts := theme.Timestamp.Render(e.Timestamp.Local().Format(timeFormat))
-	lvl := theme.AppLogLevelStyle(e.Level).Render(padRight(e.Level, fixedLevelWidth))
+	ts := theme.Timestamp.Render(" " + e.Timestamp.Local().Format(timeFormat) + " ")
+	lvl := theme.AppLogLevelStyle(e.Level).Render(padRight(e.Level, fixedLevelWidth-1) + " ")
 	svc := theme.Program.Render(truncate(e.Service, 20))
 	host := theme.Hostname.Render(truncate(e.Host, 16))
 	msg := theme.Message.Render(strings.ReplaceAll(e.Msg, "\n", " "))

@@ -12,13 +12,14 @@ import (
 
 const (
 	fixedBarWidth      = 1
-	fixedTimeWidth     = 8
-	fixedSeverityWidth = 8
+	fixedTimeWidth     = 10
+	fixedSeverityWidth = 9
 )
 
 // columns returns the table column definitions for the given terminal width.
 func columns(width int) []table.Column {
-	remaining := max(width-fixedBarWidth-fixedTimeWidth-fixedSeverityWidth-8, 20)
+	fixed := fixedBarWidth + fixedTimeWidth + fixedSeverityWidth
+	remaining := max(width-fixed-6, 20)
 
 	hostnameWidth := max(8, remaining*20/100)
 	programWidth := max(6, remaining*15/100)
@@ -26,8 +27,8 @@ func columns(width int) []table.Column {
 
 	return []table.Column{
 		{Title: "▎", Width: fixedBarWidth},
-		{Title: "TIME", Width: fixedTimeWidth},
-		{Title: "SEVERITY", Width: fixedSeverityWidth},
+		{Title: "  TIME    ", Width: fixedTimeWidth},
+		{Title: "SEVERITY ", Width: fixedSeverityWidth},
 		{Title: "HOSTNAME", Width: hostnameWidth},
 		{Title: "PROGRAM", Width: programWidth},
 		{Title: "MESSAGE", Width: messageWidth},
@@ -37,8 +38,8 @@ func columns(width int) []table.Column {
 // eventToRow converts a NetlogEvent to a table row with colored cells.
 func eventToRow(e client.NetlogEvent, timeFormat string) table.Row {
 	bar := theme.SeverityBar(e.Severity)
-	ts := theme.Timestamp.Render(e.ReceivedAt.Local().Format(timeFormat))
-	sev := theme.SeverityStyle(e.Severity).Render(padRight(strings.ToUpper(e.SeverityLabel), fixedSeverityWidth))
+	ts := theme.Timestamp.Render(" " + e.ReceivedAt.Local().Format(timeFormat) + " ")
+	sev := theme.SeverityStyle(e.Severity).Render(padRight(strings.ToUpper(e.SeverityLabel), fixedSeverityWidth-1) + " ")
 	host := theme.Hostname.Render(truncate(e.Hostname, 20))
 	prog := theme.Program.Render(truncate(e.Programname, 16))
 	msg := theme.Message.Render(strings.ReplaceAll(e.Message, "\n", " "))
