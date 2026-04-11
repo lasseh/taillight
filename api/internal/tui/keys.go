@@ -13,6 +13,8 @@ const (
 	TabNetlog
 	TabDashboard
 	TabHosts
+	TabNotifications
+	TabSettings
 )
 
 // TabName returns the display name for a tab.
@@ -28,6 +30,10 @@ func TabName(id TabID) string {
 		return "DASHBOARD"
 	case TabHosts:
 		return "HOSTS"
+	case TabNotifications:
+		return "ALERTS"
+	case TabSettings:
+		return "SETTINGS"
 	default:
 		return ""
 	}
@@ -53,6 +59,8 @@ type KeyMap struct {
 	Tab3        key.Binding
 	Tab4        key.Binding
 	Tab5        key.Binding
+	Tab6        key.Binding
+	Tab7        key.Binding
 	TabNext     key.Binding
 	TabPrev     key.Binding
 	Escape      key.Binding
@@ -94,6 +102,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("5"),
 			key.WithHelp("5", "hosts"),
 		),
+		Tab6: key.NewBinding(
+			key.WithKeys("6"),
+			key.WithHelp("6", "alerts"),
+		),
+		Tab7: key.NewBinding(
+			key.WithKeys("7"),
+			key.WithHelp("7", "settings"),
+		),
 		TabNext: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "next tab"),
@@ -122,7 +138,7 @@ func (k KeyMap) ShortHelp() []key.Binding {
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Quit, k.Help, k.Search, k.Escape},
-		{k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5},
+		{k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5, k.Tab6, k.Tab7},
 		{k.TabNext, k.TabPrev, k.ToggleFocus},
 	}
 }

@@ -17,6 +17,8 @@ import (
 	"github.com/lasseh/taillight/internal/tui/view/dashboard"
 	"github.com/lasseh/taillight/internal/tui/view/hosts"
 	"github.com/lasseh/taillight/internal/tui/view/netlog"
+	"github.com/lasseh/taillight/internal/tui/view/notification"
+	"github.com/lasseh/taillight/internal/tui/view/settings"
 	"github.com/lasseh/taillight/internal/tui/view/srvlog"
 )
 
@@ -41,19 +43,22 @@ type App struct {
 	focus     FocusTarget
 
 	// Sub-models.
-	srvlog    srvlog.Model
-	applog    applog.Model
-	netlog    netlog.Model
-	dashboard dashboard.Model
-	hosts     hosts.Model
-	tabBar    component.TabBar
-	statusBar component.StatusBar
-	helpModel help.Model
-	showHelp  bool
+	srvlog       srvlog.Model
+	applog       applog.Model
+	netlog       netlog.Model
+	dashboard    dashboard.Model
+	hosts        hosts.Model
+	notification notification.Model
+	settings     settings.Model
+	tabBar       component.TabBar
+	statusBar    component.StatusBar
+	helpModel    help.Model
+	showHelp     bool
 
 	// Track which views have been initialized.
-	dashboardInit bool
-	hostsInit     bool
+	dashboardInit    bool
+	hostsInit        bool
+	notificationInit bool
 
 	// Per-tab SSE streams. nil when not active.
 	srvlogStream *client.SSEStream
@@ -84,22 +89,26 @@ func NewApp(cfg Config, c *client.Client) *App {
 		{ID: int(TabNetlog), Label: "NETLOG"},
 		{ID: int(TabDashboard), Label: "DASHBOARD"},
 		{ID: int(TabHosts), Label: "HOSTS"},
+		{ID: int(TabNotifications), Label: "ALERTS"},
+		{ID: int(TabSettings), Label: "SETTINGS"},
 	}
 
 	return &App{
-		cfg:       cfg,
-		client:    c,
-		keys:      DefaultKeyMap(),
-		activeTab: TabSrvlog,
-		focus:     FocusTable,
-		srvlog:    srvlog.New(cfg.BufferSize, cfg.TimeFormat),
-		applog:    applog.New(cfg.BufferSize, cfg.TimeFormat),
-		netlog:    netlog.New(cfg.BufferSize, cfg.TimeFormat),
-		dashboard: dashboard.New(c),
-		hosts:     hosts.New(c),
-		tabBar:    component.NewTabBar(tabs),
-		statusBar: component.NewStatusBar(),
-		helpModel: help.New(),
+		cfg:          cfg,
+		client:       c,
+		keys:         DefaultKeyMap(),
+		activeTab:    TabSrvlog,
+		focus:        FocusTable,
+		srvlog:       srvlog.New(cfg.BufferSize, cfg.TimeFormat),
+		applog:       applog.New(cfg.BufferSize, cfg.TimeFormat),
+		netlog:       netlog.New(cfg.BufferSize, cfg.TimeFormat),
+		dashboard:    dashboard.New(c),
+		hosts:        hosts.New(c),
+		notification: notification.New(c),
+		settings:     settings.New(c.BaseURL(), ""),
+		tabBar:       component.NewTabBar(tabs),
+		statusBar:    component.NewStatusBar(),
+		helpModel:    help.New(),
 	}
 }
 
@@ -127,6 +136,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.netlog.SetSize(msg.Width, ch)
 		a.dashboard.SetSize(msg.Width, ch)
 		a.hosts.SetSize(msg.Width, ch)
+		a.notification.SetSize(msg.Width, ch)
+		a.settings.SetSize(msg.Width, ch)
 		return a, nil
 
 	case tea.KeyPressMsg:
@@ -170,6 +181,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.hosts, cmd = a.hosts.Update(msg)
 			return a, cmd
 		}
+		return a, nil
+
+	case notification.DataLoadedMsg:
+		a.notification, _ = a.notification.Update(msg)
 		return a, nil
 
 	case ErrorMsg:
@@ -235,6 +250,12 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.Tab5):
 		cmd := a.switchTab(TabHosts)
 		return a, cmd
+	case key.Matches(msg, a.keys.Tab6):
+		cmd := a.switchTab(TabNotifications)
+		return a, cmd
+	case key.Matches(msg, a.keys.Tab7):
+		cmd := a.switchTab(TabSettings)
+		return a, cmd
 	case key.Matches(msg, a.keys.Escape):
 		if a.focus == FocusDetail {
 			a.focus = FocusTable
@@ -272,6 +293,10 @@ func (a *App) View() tea.View {
 		sections = append(sections, a.dashboard.View())
 	case TabHosts:
 		sections = append(sections, a.hosts.View())
+	case TabNotifications:
+		sections = append(sections, a.notification.View())
+	case TabSettings:
+		sections = append(sections, a.settings.View())
 	}
 
 	// Help overlay.
@@ -333,6 +358,13 @@ func (a *App) switchTab(tab TabID) tea.Cmd {
 			a.hostsInit = true
 			cmds = append(cmds, a.hosts.Init())
 		}
+	case TabNotifications:
+		if !a.notificationInit {
+			a.notificationInit = true
+			cmds = append(cmds, a.notification.Init())
+		}
+	case TabSettings:
+		// Settings is static, no init needed.
 	}
 
 	return tea.Batch(cmds...)
@@ -416,7 +448,7 @@ func (a *App) focusActiveFilter() {
 		a.applog.FocusFilter()
 	case TabNetlog:
 		a.netlog.FocusFilter()
-	case TabDashboard, TabHosts:
+	case TabDashboard, TabHosts, TabNotifications, TabSettings:
 	}
 }
 
@@ -428,7 +460,7 @@ func (a *App) blurActiveFilter() {
 		a.applog.BlurFilter()
 	case TabNetlog:
 		a.netlog.BlurFilter()
-	case TabDashboard, TabHosts:
+	case TabDashboard, TabHosts, TabNotifications, TabSettings:
 	}
 }
 
@@ -482,6 +514,14 @@ func (a *App) updateActiveTable(msg tea.Msg) tea.Cmd {
 		var cmd tea.Cmd
 		a.hosts, cmd = a.hosts.Update(msg)
 		return cmd
+	case TabNotifications:
+		var cmd tea.Cmd
+		a.notification, cmd = a.notification.Update(msg)
+		return cmd
+	case TabSettings:
+		var cmd tea.Cmd
+		a.settings, cmd = a.settings.Update(msg)
+		return cmd
 	default:
 		return nil
 	}
@@ -495,7 +535,7 @@ func (a *App) closeActiveDetail() {
 		a.applog.CloseDetail()
 	case TabNetlog:
 		a.netlog.CloseDetail()
-	case TabDashboard, TabHosts:
+	case TabDashboard, TabHosts, TabNotifications, TabSettings:
 	}
 }
 
