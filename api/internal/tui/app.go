@@ -66,7 +66,6 @@ type App struct {
 	netlogStream *client.SSEStream
 
 	// State.
-	connected bool
 	lastError string
 }
 
@@ -438,43 +437,46 @@ func (a *App) sseTick() tea.Cmd {
 // drainAllStreams reads events from all active SSE streams and pushes them to
 // the corresponding views.
 func (a *App) drainAllStreams() {
-	anyConnected := false
-
 	if a.srvlogStream != nil {
-		if a.srvlogStream.Connected() {
-			anyConnected = true
-		}
 		events := drainSrvlogSSE(a.srvlogStream, 100)
 		if len(events) > 0 {
 			a.srvlog.PushEvents(events)
-
 		}
 	}
 
 	if a.applogStream != nil {
-		if a.applogStream.Connected() {
-			anyConnected = true
-		}
 		events := drainApplogSSE(a.applogStream, 100)
 		if len(events) > 0 {
 			a.applog.PushEvents(events)
-
 		}
 	}
 
 	if a.netlogStream != nil {
-		if a.netlogStream.Connected() {
-			anyConnected = true
-		}
 		events := drainNetlogSSE(a.netlogStream, 100)
 		if len(events) > 0 {
 			a.netlog.PushEvents(events)
-
 		}
 	}
 
-	a.connected = anyConnected
-	a.statusBar.SetConnected(a.connected)
+	a.statusBar.SetConnected(a.isConnected())
+}
+
+// isConnected returns true if ANY SSE stream is currently connected.
+// Checks all log-view streams AND the dashboard's own streams.
+func (a *App) isConnected() bool {
+	if a.srvlogStream != nil && a.srvlogStream.Connected() {
+		return true
+	}
+	if a.applogStream != nil && a.applogStream.Connected() {
+		return true
+	}
+	if a.netlogStream != nil && a.netlogStream.Connected() {
+		return true
+	}
+	if a.dashboard.Connected() {
+		return true
+	}
+	return false
 }
 
 // Active view delegation helpers.

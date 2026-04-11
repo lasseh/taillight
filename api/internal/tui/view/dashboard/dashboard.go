@@ -56,6 +56,17 @@ func New(c *client.Client) Model {
 	return Model{client: c, loading: true}
 }
 
+// Connected reports whether any of the dashboard's SSE streams are connected.
+func (m *Model) Connected() bool {
+	if m.srvlogStream != nil && m.srvlogStream.Connected() {
+		return true
+	}
+	if m.applogStream != nil && m.applogStream.Connected() {
+		return true
+	}
+	return false
+}
+
 // SetSize updates dimensions.
 func (m *Model) SetSize(width, height int) {
 	m.width = width
