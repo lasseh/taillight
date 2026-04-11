@@ -106,14 +106,6 @@ func (m *Model) View() string {
 	if m.srvlog != nil {
 		sections = append(sections, m.renderSummaryCards())
 		sections = append(sections, "")
-
-		// Severity distribution (left) + Top hosts (right).
-		leftW := max(30, m.width*55/100)
-		rightW := max(20, m.width-leftW-3)
-		left := m.renderSeverityBars(leftW)
-		right := m.renderTopHosts(rightW)
-		sections = append(sections, lipgloss.JoinHorizontal(lipgloss.Top, left, "   ", right))
-		sections = append(sections, "")
 	}
 
 	// Recent high-severity events.
@@ -192,67 +184,6 @@ func miniCard(width int, label, value string, valueColor color.Color, subtitle s
 		lines = append(lines, theme.Comment.Render("  "+subtitle))
 	}
 	return theme.Card.Width(width).Render(strings.Join(lines, "\n"))
-}
-
-// --- Severity distribution bars ---
-
-func (m *Model) renderSeverityBars(width int) string {
-	var lines []string
-	lines = append(lines, theme.CardLabel.Render("  SEVERITY DISTRIBUTION"))
-	lines = append(lines, "")
-
-	s := m.srvlog
-	maxCount := int64(1)
-	for _, sc := range s.SeverityBreakdown {
-		if sc.Count > maxCount {
-			maxCount = sc.Count
-		}
-	}
-
-	barMaxW := width - 25
-	for _, sc := range s.SeverityBreakdown {
-		if sc.Count == 0 {
-			continue
-		}
-		label := padRight(strings.ToUpper(sc.Label), 8)
-		barLen := max(1, int(float64(sc.Count)/float64(maxCount)*float64(barMaxW)))
-		bar := strings.Repeat("█", barLen)
-		pct := fmt.Sprintf("%5.1f%%", sc.Pct)
-		cnt := formatCount(sc.Count)
-
-		sevStyle := theme.SeverityStyle(sc.Severity)
-		lines = append(lines, fmt.Sprintf("  %s %s %s %s",
-			sevStyle.Render(label),
-			sevStyle.Render(bar),
-			theme.Comment.Render(pct),
-			theme.Comment.Render(cnt),
-		))
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
-}
-
-// --- Top hosts ---
-
-func (m *Model) renderTopHosts(width int) string {
-	var lines []string
-	lines = append(lines, theme.CardLabel.Render("  TOP HOSTS"))
-	lines = append(lines, "")
-
-	s := m.srvlog
-	hostW := max(12, width-20)
-	for i, h := range s.TopHosts {
-		if i >= 10 {
-			break
-		}
-		rank := theme.Comment.Render(fmt.Sprintf("  %2d.", i+1))
-		name := theme.Hostname.Render(padRight(truncate(h.Name, hostW), hostW))
-		count := theme.Base.Render(padRight(formatCount(h.Count), 7))
-		pct := theme.Comment.Render(fmt.Sprintf("%5.1f%%", h.Pct))
-		lines = append(lines, fmt.Sprintf("%s %s %s %s", rank, name, count, pct))
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
 // --- Recent critical events ---
