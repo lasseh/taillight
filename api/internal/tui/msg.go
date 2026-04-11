@@ -35,9 +35,11 @@ type SSEDisconnectedMsg struct {
 
 // MetaLoadedMsg carries metadata (hosts, programs, etc.) loaded from the API.
 type MetaLoadedMsg struct {
-	Feed     string
-	Hosts    []string
-	Programs []string
+	Feed       string
+	Hosts      []string
+	Programs   []string
+	Services   []string // applog only
+	Components []string // applog only
 }
 
 // ErrorMsg carries an error to display in the status bar.
