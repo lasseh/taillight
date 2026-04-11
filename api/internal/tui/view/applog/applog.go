@@ -12,6 +12,8 @@ import (
 	"github.com/lasseh/taillight/internal/tui/theme"
 )
 
+const detailWidthPct = 40
+
 // applogEventAdapter wraps AppLogEvent to satisfy the applogLike interface.
 type applogEventAdapter struct {
 	e client.AppLogEvent
@@ -27,8 +29,8 @@ type Model struct {
 	events     []client.AppLogEvent // filtered view
 	table      table.Model
 	filter     FilterModel
-	detail     *viewport.Model     // nil when closed
-	detailEvt  *client.AppLogEvent // event shown in detail
+	detail     *viewport.Model
+	detailEvt  *client.AppLogEvent
 	timeFormat string
 	width      int
 	height     int
@@ -62,20 +64,20 @@ func New(bufferSize int, timeFormat string) Model {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
-	m.table.SetWidth(width)
-	m.table.SetColumns(columns(width))
 
+	tableWidth := width
 	tableHeight := height - 1
-	if m.detail != nil {
-		tableHeight = height * 60 / 100
-	}
-	m.table.SetHeight(max(3, tableHeight))
 
 	if m.detail != nil {
-		detailHeight := height - tableHeight - 1
-		m.detail.SetWidth(width)
-		m.detail.SetHeight(max(3, detailHeight))
+		detailW := max(30, width*detailWidthPct/100)
+		tableWidth = width - detailW - 1
+		m.detail.SetWidth(detailW - 2)
+		m.detail.SetHeight(max(3, tableHeight))
 	}
+
+	m.table.SetWidth(tableWidth)
+	m.table.SetColumns(columns(tableWidth))
+	m.table.SetHeight(max(3, tableHeight))
 }
 
 // Filter returns the current filter.
@@ -106,12 +108,12 @@ func (m *Model) BlurFilter() {
 	m.filter.Blur()
 }
 
-// DetailOpen reports whether the detail panel is showing.
+// DetailOpen reports whether the detail sidebar is showing.
 func (m *Model) DetailOpen() bool {
 	return m.detail != nil
 }
 
-// CloseDetail closes the detail panel.
+// CloseDetail closes the detail sidebar.
 func (m *Model) CloseDetail() {
 	m.detail = nil
 	m.detailEvt = nil
@@ -142,33 +144,51 @@ func (m Model) UpdateTable(msg tea.Msg) (Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-
-		if m.detail != nil {
-			d := *m.detail
-			d, _ = d.Update(msg)
-			m.detail = &d
-			return m, nil
-		}
 	}
 
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
+
+	// Update detail content when cursor moves.
+	if m.detail != nil {
+		cursor := m.table.Cursor()
+		if cursor >= 0 && cursor < len(m.events) {
+			evt := m.events[cursor]
+			if m.detailEvt == nil || m.detailEvt.ID != evt.ID {
+				m.detailEvt = &evt
+				detailW := max(30, m.width*detailWidthPct/100) - 2
+				m.detail.SetContent(renderDetailPanel(evt, detailW))
+			}
+		}
+	}
+
 	return m, cmd
 }
 
-// View renders the applog view.
+// View renders the applog view with optional detail sidebar.
 func (m *Model) View() string {
-	var sections []string
-
-	sections = append(sections, m.filter.View(m.width))
-	sections = append(sections, m.table.View())
+	filterBar := m.filter.View(m.width)
+	tableView := m.table.View()
 
 	if m.detail != nil && m.detailEvt != nil {
-		border := theme.Border.Width(m.width - 2)
-		sections = append(sections, border.Render(m.detail.View()))
+		borderStyle := lipgloss.NewStyle().
+			Foreground(theme.ColorBorder).
+			Height(m.height - 1)
+		borderChars := make([]string, 0, m.height-1)
+		for range m.height - 1 {
+			borderChars = append(borderChars, "│")
+		}
+		border := borderStyle.Render(lipgloss.JoinVertical(lipgloss.Left, borderChars...))
+
+		sidebarStyle := lipgloss.NewStyle().Padding(0, 1).
+			Width(max(30, m.width*detailWidthPct/100) - 2)
+		sidebar := sidebarStyle.Render(m.detail.View())
+
+		mainContent := lipgloss.JoinHorizontal(lipgloss.Top, tableView, border, sidebar)
+		return lipgloss.JoinVertical(lipgloss.Left, filterBar, mainContent)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	return lipgloss.JoinVertical(lipgloss.Left, filterBar, tableView)
 }
 
 func (m *Model) rebuildTable() {
@@ -197,8 +217,9 @@ func (m *Model) openDetail() {
 	evt := m.events[cursor]
 	m.detailEvt = &evt
 
-	content := renderDetailPanel(evt, m.width)
-	vp := viewport.New(viewport.WithWidth(m.width-4), viewport.WithHeight(max(3, m.height*40/100)))
+	detailW := max(30, m.width*detailWidthPct/100) - 2
+	content := renderDetailPanel(evt, detailW)
+	vp := viewport.New(viewport.WithWidth(detailW), viewport.WithHeight(max(3, m.height-1)))
 	vp.SetContent(content)
 	m.detail = &vp
 	m.SetSize(m.width, m.height)

@@ -9,16 +9,19 @@ import (
 	"github.com/lasseh/taillight/internal/tui/theme"
 )
 
-// StatusBar renders the bottom status bar.
+// StatusBar renders a multi-segment status bar inspired by soft-serve/gh-dash.
 type StatusBar struct {
 	connected  bool
 	eventCount int
+	newEvents  int // events arrived while scrolled up
 	errMsg     string
+	filters    []string // active filter pills
+	feedLabel  string   // current feed name
 }
 
 // NewStatusBar creates a new status bar.
 func NewStatusBar() StatusBar {
-	return StatusBar{}
+	return StatusBar{feedLabel: "SRVLOG"}
 }
 
 // SetConnected updates the connection state.
@@ -31,42 +34,113 @@ func (s *StatusBar) AddEvents(n int) {
 	s.eventCount += n
 }
 
+// SetNewEvents sets the count of events arrived while user is scrolled up.
+func (s *StatusBar) SetNewEvents(n int) {
+	s.newEvents = n
+}
+
 // SetError sets or clears the error message.
 func (s *StatusBar) SetError(msg string) {
 	s.errMsg = msg
 }
 
-// View renders the status bar at the given width.
+// SetFilters sets the active filter pill labels.
+func (s *StatusBar) SetFilters(filters []string) {
+	s.filters = filters
+}
+
+// SetFeed sets the current feed label.
+func (s *StatusBar) SetFeed(label string) {
+	s.feedLabel = label
+}
+
+// Segment styles — each segment has its own background color for an
+// IDE-like multi-segment status bar.
+var (
+	segConn = lipgloss.NewStyle().
+		Padding(0, 1)
+
+	segInfo = lipgloss.NewStyle().
+		Foreground(theme.ColorFG).
+		Background(lipgloss.Color("#1e2030")).
+		Padding(0, 1)
+
+	segFilter = lipgloss.NewStyle().
+			Foreground(theme.ColorTeal).
+			Background(lipgloss.Color("#1e2030")).
+			Padding(0, 1)
+
+	segNew = lipgloss.NewStyle().
+		Foreground(theme.ColorBGDark).
+		Background(theme.ColorYellow).
+		Bold(true).
+		Padding(0, 1)
+
+	segErr = lipgloss.NewStyle().
+		Foreground(theme.ColorBGDark).
+		Background(theme.ColorRed).
+		Bold(true).
+		Padding(0, 1)
+
+	segHelp = lipgloss.NewStyle().
+		Foreground(theme.ColorComment).
+		Background(lipgloss.Color("#16161e")).
+		Padding(0, 1)
+
+	segFill = lipgloss.NewStyle().
+		Background(lipgloss.Color("#16161e"))
+)
+
+// View renders the multi-segment status bar at the given width.
 func (s *StatusBar) View(width int) string {
-	// Connection indicator with dot.
-	var connStr string
+	var segments []string
+
+	// Connection segment.
 	if s.connected {
-		dot := theme.StatusConnected.Render("●")
-		connStr = dot + " " + theme.StatusConnected.Render("connected")
+		segments = append(segments, segConn.
+			Foreground(theme.ColorBGDark).
+			Background(theme.ColorGreen).
+			Render("● LIVE"))
 	} else {
-		dot := theme.StatusDisconnected.Render("●")
-		connStr = dot + " " + theme.StatusDisconnected.Render("disconnected")
+		segments = append(segments, segConn.
+			Foreground(theme.ColorBGDark).
+			Background(theme.ColorRed).
+			Render("● OFFLINE"))
 	}
 
-	// Event count.
-	countStr := theme.Comment.Render(fmt.Sprintf("%d events", s.eventCount))
+	// Event count segment.
+	segments = append(segments, segInfo.Render(
+		fmt.Sprintf(" %d events", s.eventCount)))
 
-	// Error.
-	var errStr string
+	// Error segment (if any).
 	if s.errMsg != "" {
-		errStr = " " + lipgloss.NewStyle().Foreground(theme.ColorRed).Render(s.errMsg)
+		segments = append(segments, segErr.Render(s.errMsg))
 	}
 
-	// Help hint.
-	helpStr := theme.Comment.Render("? help  q quit")
+	// New events indicator (when scrolled up).
+	if s.newEvents > 0 {
+		segments = append(segments, segNew.Render(
+			fmt.Sprintf("▼ %d new", s.newEvents)))
+	}
 
-	left := connStr + "  " + countStr + errStr
-	right := helpStr
+	// Active filter pills.
+	for _, f := range s.filters {
+		segments = append(segments, segFilter.Render(f))
+	}
 
-	gap := max(0, width-lipgloss.Width(left)-lipgloss.Width(right)-2)
-	fill := lipgloss.NewStyle().Width(gap).Render("")
+	// Right side: help.
+	helpSeg := segHelp.Render("/ search  ? help  q quit")
 
-	return theme.StatusBar.Width(width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Bottom, left, fill, right),
-	)
+	// Calculate fill.
+	leftWidth := 0
+	for _, seg := range segments {
+		leftWidth += lipgloss.Width(seg)
+	}
+	rightWidth := lipgloss.Width(helpSeg)
+	fillWidth := max(0, width-leftWidth-rightWidth)
+
+	fill := segFill.Width(fillWidth).Render("")
+
+	segments = append(segments, fill, helpSeg)
+	return lipgloss.JoinHorizontal(lipgloss.Bottom, segments...)
 }
