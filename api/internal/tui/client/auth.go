@@ -6,7 +6,7 @@ import (
 
 // Health checks connectivity to the API server.
 func (c *Client) Health(ctx context.Context) error {
-	return c.get(ctx, "/api/v1/health", nil)
+	return c.get(ctx, "/health", nil)
 }
 
 // Me returns the authenticated user's info.

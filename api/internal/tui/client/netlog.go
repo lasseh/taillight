@@ -13,7 +13,7 @@ type NetlogFilter = SrvlogFilter
 
 // ListNetlogs fetches a paginated list of netlog events.
 func (c *Client) ListNetlogs(ctx context.Context, filter NetlogFilter, cursor string, limit int) (*ListResponse[NetlogEvent], error) {
-	params := filter.params()
+	params := filter.Params()
 	if cursor != "" {
 		params.Set("cursor", cursor)
 	}

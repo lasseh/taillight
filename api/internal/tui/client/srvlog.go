@@ -16,8 +16,8 @@ type SrvlogFilter struct {
 	Search      string
 }
 
-// params encodes the filter as URL query parameters.
-func (f SrvlogFilter) params() url.Values {
+// Params encodes the filter as URL query parameters.
+func (f SrvlogFilter) Params() url.Values {
 	v := url.Values{}
 	if f.Hostname != "" {
 		v.Set("hostname", f.Hostname)
@@ -39,7 +39,7 @@ func (f SrvlogFilter) params() url.Values {
 
 // ListSrvlogs fetches a paginated list of srvlog events.
 func (c *Client) ListSrvlogs(ctx context.Context, filter SrvlogFilter, cursor string, limit int) (*ListResponse[SrvlogEvent], error) {
-	params := filter.params()
+	params := filter.Params()
 	if cursor != "" {
 		params.Set("cursor", cursor)
 	}
