@@ -84,10 +84,10 @@ func NewApp(cfg Config, c *client.Client) *App {
 	}
 
 	tabs := []component.Tab{
+		{ID: int(TabDashboard), Label: "DASHBOARD", Color: theme.ColorBlue},
+		{ID: int(TabNetlog), Label: "NETLOG", Color: theme.ColorFuchsia},
 		{ID: int(TabSrvlog), Label: "SRVLOG", Color: theme.ColorTeal},
 		{ID: int(TabApplog), Label: "APPLOG", Color: theme.ColorPink},
-		{ID: int(TabNetlog), Label: "NETLOG", Color: theme.ColorFuchsia},
-		{ID: int(TabDashboard), Label: "DASHBOARD", Color: theme.ColorBlue},
 		{ID: int(TabHosts), Label: "HOSTS", Color: theme.ColorGreen},
 		{ID: int(TabNotifications), Label: "ALERTS", Color: theme.ColorYellow},
 		{ID: int(TabSettings), Label: "SETTINGS", Color: theme.ColorComment},
@@ -97,7 +97,7 @@ func NewApp(cfg Config, c *client.Client) *App {
 		cfg:          cfg,
 		client:       c,
 		keys:         DefaultKeyMap(),
-		activeTab:    TabSrvlog,
+		activeTab:    TabDashboard,
 		focus:        FocusTable,
 		srvlog:       srvlog.New(cfg.BufferSize, cfg.TimeFormat),
 		applog:       applog.New(cfg.BufferSize, cfg.TimeFormat),
@@ -112,11 +112,11 @@ func NewApp(cfg Config, c *client.Client) *App {
 	}
 }
 
-// Init starts background tasks: SSE stream for the initial tab, metadata loading.
+// Init starts background tasks.
 func (a *App) Init() tea.Cmd {
+	a.dashboardInit = true
 	return tea.Batch(
-		a.startStream(TabSrvlog),
-		a.loadSrvlogMeta(),
+		a.dashboard.Init(),
 		a.sseTick(),
 	)
 }
@@ -247,16 +247,16 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.focusActiveFilter()
 		return a, nil
 	case key.Matches(msg, a.keys.Tab1):
-		cmd := a.switchTab(TabSrvlog)
+		cmd := a.switchTab(TabDashboard)
 		return a, cmd
 	case key.Matches(msg, a.keys.Tab2):
-		cmd := a.switchTab(TabApplog)
-		return a, cmd
-	case key.Matches(msg, a.keys.Tab3):
 		cmd := a.switchTab(TabNetlog)
 		return a, cmd
+	case key.Matches(msg, a.keys.Tab3):
+		cmd := a.switchTab(TabSrvlog)
+		return a, cmd
 	case key.Matches(msg, a.keys.Tab4):
-		cmd := a.switchTab(TabDashboard)
+		cmd := a.switchTab(TabApplog)
 		return a, cmd
 	case key.Matches(msg, a.keys.Tab5):
 		cmd := a.switchTab(TabHosts)
@@ -327,7 +327,8 @@ func (a *App) View() tea.View {
 }
 
 func (a *App) contentHeight() int {
-	return max(a.height-2, 1)
+	// Tab bar (1) + separator (1) + status bar (1) = 3 lines of chrome.
+	return max(a.height-3, 1)
 }
 
 // switchTab changes the active tab, starts the stream lazily if needed, and

@@ -4,30 +4,36 @@ import (
 	"charm.land/bubbles/v2/key"
 )
 
-// TabID identifies a view tab.
+// TabID identifies a view tab. Order matches the web GUI navigation.
 type TabID int
 
 const (
-	TabSrvlog TabID = iota
-	TabApplog
+	TabDashboard TabID = iota
 	TabNetlog
-	TabDashboard
+	TabSrvlog
+	TabApplog
 	TabHosts
 	TabNotifications
 	TabSettings
 )
 
+// AllTabs lists tabs in display order.
+var AllTabs = []TabID{
+	TabDashboard, TabNetlog, TabSrvlog, TabApplog,
+	TabHosts, TabNotifications, TabSettings,
+}
+
 // TabName returns the display name for a tab.
 func TabName(id TabID) string {
 	switch id {
+	case TabDashboard:
+		return "DASHBOARD"
+	case TabNetlog:
+		return "NETLOG"
 	case TabSrvlog:
 		return "SRVLOG"
 	case TabApplog:
 		return "APPLOG"
-	case TabNetlog:
-		return "NETLOG"
-	case TabDashboard:
-		return "DASHBOARD"
 	case TabHosts:
 		return "HOSTS"
 	case TabNotifications:
@@ -68,6 +74,7 @@ type KeyMap struct {
 }
 
 // DefaultKeyMap returns the default global key bindings.
+// Numbers match the tab display order: 1=dashboard, 2=netlog, 3=srvlog, 4=applog.
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		Quit: key.NewBinding(
@@ -84,19 +91,19 @@ func DefaultKeyMap() KeyMap {
 		),
 		Tab1: key.NewBinding(
 			key.WithKeys("1"),
-			key.WithHelp("1", "srvlog"),
+			key.WithHelp("1", "dashboard"),
 		),
 		Tab2: key.NewBinding(
 			key.WithKeys("2"),
-			key.WithHelp("2", "applog"),
+			key.WithHelp("2", "netlog"),
 		),
 		Tab3: key.NewBinding(
 			key.WithKeys("3"),
-			key.WithHelp("3", "netlog"),
+			key.WithHelp("3", "srvlog"),
 		),
 		Tab4: key.NewBinding(
 			key.WithKeys("4"),
-			key.WithHelp("4", "dashboard"),
+			key.WithHelp("4", "applog"),
 		),
 		Tab5: key.NewBinding(
 			key.WithKeys("5"),

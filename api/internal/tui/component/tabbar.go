@@ -2,6 +2,7 @@ package component
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -15,7 +16,8 @@ type Tab struct {
 	Color color.Color // accent color for this tab
 }
 
-// TabBar renders a horizontal tab bar with the Taillight logo and tabs.
+// TabBar renders a horizontal tab bar with the Taillight logo, tabs, and a
+// thin separator line below — matching the web GUI header style.
 type TabBar struct {
 	tabs   []Tab
 	active int
@@ -31,36 +33,54 @@ func (t *TabBar) SetActive(id int) {
 	t.active = id
 }
 
-// View renders the tab bar at the given width.
+// View renders the tab bar + separator line at the given width.
 func (t *TabBar) View(width int) string {
 	// Logo.
 	logo := theme.Logo.Render("[Taillight]")
 
-	// Separator.
+	// Separator between logo and tabs.
 	sep := lipgloss.NewStyle().
 		Foreground(theme.ColorGutter).
 		Background(theme.ColorBGDark).
 		Render("  ")
 
-	// Tabs.
+	// Render tabs.
 	var tabParts []string
 	tabParts = append(tabParts, logo, sep)
 
 	for _, tab := range t.tabs {
 		if tab.ID == t.active {
-			style := theme.ActiveTab.Foreground(tab.Color)
+			// Active: highlighted bg + accent color text.
+			style := lipgloss.NewStyle().
+				Foreground(tab.Color).
+				Background(theme.ColorBGHighlight).
+				Bold(true).
+				Padding(0, 1)
 			tabParts = append(tabParts, style.Render(tab.Label))
 		} else {
-			// Inactive tabs: dimmed version of their accent color.
-			style := theme.InactiveTab
+			// Inactive: dimmed accent color.
+			style := lipgloss.NewStyle().
+				Foreground(theme.ColorComment).
+				Background(theme.ColorBGDark).
+				Padding(0, 1)
 			tabParts = append(tabParts, style.Render(tab.Label))
 		}
 	}
 
 	bar := lipgloss.JoinHorizontal(lipgloss.Bottom, tabParts...)
 
-	// Fill remaining width with dark background.
+	// Fill remaining width.
 	barWidth := lipgloss.Width(bar)
-	fill := theme.TabBarBG.Width(max(0, width-barWidth)).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Bottom, bar, fill)
+	fill := lipgloss.NewStyle().
+		Background(theme.ColorBGDark).
+		Width(max(0, width-barWidth)).
+		Render("")
+	tabLine := lipgloss.JoinHorizontal(lipgloss.Bottom, bar, fill)
+
+	// Thin separator line below the tab bar (like the web GUI's border-bottom).
+	separator := lipgloss.NewStyle().
+		Foreground(theme.ColorBorder).
+		Render(strings.Repeat("─", width))
+
+	return lipgloss.JoinVertical(lipgloss.Left, tabLine, separator)
 }
