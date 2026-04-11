@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/table"
 
 	"github.com/lasseh/taillight/internal/tui/client"
+	"github.com/lasseh/taillight/internal/tui/highlight"
 	"github.com/lasseh/taillight/internal/tui/theme"
 )
 
@@ -43,7 +44,7 @@ func eventToRow(e client.AppLogEvent, timeFormat string) table.Row {
 	lvl := theme.AppLogLevelStyle(e.Level).Render(padRight(e.Level, fixedLevelWidth-1) + " ")
 	svc := theme.Program.Render(truncate(e.Service, 20))
 	host := theme.Hostname.Render(truncate(e.Host, 16))
-	msg := theme.Message.Render(strings.ReplaceAll(e.Msg, "\n", " "))
+	msg := highlight.Message(e.Msg)
 
 	return table.Row{bar, ts, lvl, svc, host, msg}
 }

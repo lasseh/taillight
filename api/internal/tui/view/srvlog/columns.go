@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/table"
 
 	"github.com/lasseh/taillight/internal/tui/client"
+	"github.com/lasseh/taillight/internal/tui/highlight"
 	"github.com/lasseh/taillight/internal/tui/theme"
 )
 
@@ -44,7 +45,7 @@ func eventToRow(e client.SrvlogEvent, timeFormat string) table.Row {
 	sev := theme.SeverityStyle(e.Severity).Render(padRight(strings.ToUpper(e.SeverityLabel), fixedSeverityWidth-1) + " ")
 	host := theme.Hostname.Render(truncate(e.Hostname, 20))
 	prog := theme.Program.Render(truncate(e.Programname, 16))
-	msg := theme.Message.Render(strings.ReplaceAll(e.Message, "\n", " "))
+	msg := highlight.Message(e.Message)
 
 	return table.Row{bar, ts, sev, host, prog, msg}
 }
