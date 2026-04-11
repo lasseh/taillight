@@ -5,8 +5,10 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"image/color"
+	"net/url"
 	"strings"
 	"time"
 
@@ -30,6 +32,8 @@ type StatsLoadedMsg struct {
 	Err          error
 }
 
+const maxRecentEvents = 10
+
 // Model is the dashboard view.
 type Model struct {
 	client       *client.Client
@@ -41,6 +45,10 @@ type Model struct {
 	lastLoad     time.Time
 	width        int
 	height       int
+
+	// Live SSE streams for critical/error events.
+	srvlogStream *client.SSEStream
+	applogStream *client.SSEStream
 }
 
 // New creates a new dashboard model.
@@ -54,9 +62,38 @@ func (m *Model) SetSize(width, height int) {
 	m.height = height
 }
 
-// Init returns the initial load command.
+// Init returns the initial load command and starts live SSE streams.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.loadStats(), m.refreshTick())
+	return tea.Batch(m.loadStats(), m.refreshTick(), m.startStreams())
+}
+
+// StreamTickMsg triggers draining the dashboard SSE streams.
+type StreamTickMsg struct{}
+
+func (m Model) streamTick() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		return StreamTickMsg{}
+	})
+}
+
+func (m *Model) startStreams() tea.Cmd {
+	c := m.client
+	return func() tea.Msg {
+		// Srvlog stream filtered to severity ≤ 2 (emerg, alert, crit).
+		srvParams := url.Values{"severity_max": {"2"}}
+		srvStream := client.NewSSEStream(c, "/api/v1/srvlog/stream", srvParams, 0)
+
+		// Applog stream filtered to WARN and above.
+		appParams := url.Values{"level": {"WARN"}}
+		appStream := client.NewSSEStream(c, "/api/v1/applog/stream", appParams, 0)
+
+		return StreamsStartedMsg{srvlog: srvStream, applog: appStream}
+	}
+}
+
+type StreamsStartedMsg struct {
+	srvlog *client.SSEStream
+	applog *client.SSEStream
 }
 
 // Update handles messages.
@@ -73,6 +110,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.criticalLogs = msg.CriticalLogs
 		m.recentErrors = msg.RecentErrors
 		return m, nil
+
+	case StreamsStartedMsg:
+		m.srvlogStream = msg.srvlog
+		m.applogStream = msg.applog
+		return m, m.streamTick()
+
+	case StreamTickMsg:
+		m = m.drainStreams()
+		return m, m.streamTick()
 
 	case RefreshTickMsg:
 		return m, tea.Batch(m.loadStats(), m.refreshTick())
@@ -259,6 +305,53 @@ func (m *Model) renderApplogCards() string {
 	infos := miniCard(cardW, "Info", formatCount(infoCnt), theme.ColorTeal, "")
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, total, " ", fatalErr, " ", warns, " ", infos)
+}
+
+// --- Live stream draining ---
+
+func (m Model) drainStreams() Model {
+	// Drain srvlog critical events.
+	if m.srvlogStream != nil {
+		for range 50 {
+			select {
+			case evt, ok := <-m.srvlogStream.Events():
+				if !ok {
+					return m
+				}
+				var e client.SrvlogEvent
+				if err := json.Unmarshal(evt.Data, &e); err == nil {
+					m.criticalLogs = append([]client.SrvlogEvent{e}, m.criticalLogs...)
+					if len(m.criticalLogs) > maxRecentEvents {
+						m.criticalLogs = m.criticalLogs[:maxRecentEvents]
+					}
+				}
+			default:
+				goto drainApplog
+			}
+		}
+	}
+drainApplog:
+	// Drain applog error events.
+	if m.applogStream != nil {
+		for range 50 {
+			select {
+			case evt, ok := <-m.applogStream.Events():
+				if !ok {
+					return m
+				}
+				var e client.AppLogEvent
+				if err := json.Unmarshal(evt.Data, &e); err == nil {
+					m.recentErrors = append([]client.AppLogEvent{e}, m.recentErrors...)
+					if len(m.recentErrors) > maxRecentEvents {
+						m.recentErrors = m.recentErrors[:maxRecentEvents]
+					}
+				}
+			default:
+				return m
+			}
+		}
+	}
+	return m
 }
 
 // --- Data loading ---

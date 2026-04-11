@@ -174,6 +174,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.dashboard, _ = a.dashboard.Update(msg)
 		return a, nil
 
+	case dashboard.StreamsStartedMsg:
+		var cmd tea.Cmd
+		a.dashboard, cmd = a.dashboard.Update(msg)
+		return a, cmd
+
+	case dashboard.StreamTickMsg:
+		var cmd tea.Cmd
+		a.dashboard, cmd = a.dashboard.Update(msg)
+		return a, cmd
+
 	case hosts.HostsLoadedMsg:
 		a.hosts, _ = a.hosts.Update(msg)
 		return a, nil
