@@ -74,12 +74,14 @@ func run(_ *cobra.Command, _ []string) error {
 	}
 	logger.Info("taillight API reachable", "url", serverURL)
 
-	// Create the SSH server.
+	// Create the SSH server. Use MiddlewareWithProgramHandler for full
+	// control over tea.ProgramOption ordering — the default Middleware
+	// appends MakeOptions which overrides our WithEnvironment.
 	srv, err := wish.NewServer(
 		wish.WithAddress(listenAddr),
 		wish.WithHostKeyPath(hostKeyPath),
 		wish.WithMiddleware(
-			bubbletea.Middleware(newTeaHandler(serverURL, apiKey)),
+			bubbletea.MiddlewareWithProgramHandler(newProgramHandler(serverURL, apiKey)),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),
@@ -107,14 +109,16 @@ func run(_ *cobra.Command, _ []string) error {
 	return srv.Shutdown(shutCtx)
 }
 
-// newTeaHandler returns a wish bubbletea handler that creates a fresh App
-// instance for each SSH session.
-func newTeaHandler(srvURL, key string) func(ssh.Session) (tea.Model, []tea.ProgramOption) {
-	return func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
-		_, _, active := s.Pty()
+// newProgramHandler returns a wish ProgramHandler that creates a fresh
+// tea.Program for each SSH session with full control over option ordering.
+// This bypasses the default handler's MakeOptions which would override
+// our environment and color profile settings.
+func newProgramHandler(srvURL, key string) bubbletea.ProgramHandler {
+	return func(s ssh.Session) *tea.Program {
+		pty, _, active := s.Pty()
 		if !active {
 			fmt.Fprintln(s, "Error: no PTY requested. Use: ssh -t ...") //nolint:errcheck // best-effort message to SSH client
-			return nil, nil
+			return nil
 		}
 
 		// Each session gets its own API client and App instance.
@@ -132,13 +136,25 @@ func newTeaHandler(srvURL, key string) func(ssh.Session) (tea.Model, []tea.Progr
 
 		app := tui.NewApp(cfg, c)
 
-		return app, []tea.ProgramOption{
-			tea.WithFPS(30),
-			// Force TrueColor — SSH doesn't forward $COLORTERM so
-			// lipgloss would downgrade our hex colors to 256-color.
-			// All modern terminals support TrueColor even when they
-			// report xterm-256color.
+		// Build environment with COLORTERM=truecolor so both bubbletea
+		// and lipgloss detect TrueColor support. SSH doesn't forward
+		// $COLORTERM, causing 256-color downgrading without this.
+		envs := append(s.Environ(), "TERM="+pty.Term, "COLORTERM=truecolor")
+
+		return tea.NewProgram(app,
+			tea.WithInput(pty.Slave),
+			tea.WithOutput(pty.Slave),
+			tea.WithEnvironment(envs),
 			tea.WithColorProfile(colorprofile.TrueColor),
-		}
+			tea.WithFPS(30),
+			tea.WithWindowSize(pty.Window.Width, pty.Window.Height),
+			// Suppress suspend (ctrl+z) — not meaningful over SSH.
+			tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
+				if _, ok := msg.(tea.SuspendMsg); ok {
+					return tea.ResumeMsg{}
+				}
+				return msg
+			}),
+		)
 	}
 }
