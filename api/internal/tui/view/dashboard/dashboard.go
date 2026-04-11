@@ -178,12 +178,12 @@ func (m *Model) renderSummaryCards() string {
 func miniCard(width int, label, value string, valueColor color.Color, subtitle string) string {
 	labelLine := theme.Comment.Render("  " + label)
 	valueLine := lipgloss.NewStyle().Foreground(valueColor).Bold(true).Render("  " + value)
-	var lines []string
-	lines = append(lines, labelLine, valueLine)
+	subtitleLine := " " // always render a third line for consistent height
 	if subtitle != "" {
-		lines = append(lines, theme.Comment.Render("  "+subtitle))
+		subtitleLine = theme.Comment.Render("  " + subtitle)
 	}
-	return theme.Card.Width(width).Render(strings.Join(lines, "\n"))
+	content := strings.Join([]string{labelLine, valueLine, subtitleLine}, "\n")
+	return theme.Card.Width(width).Render(content)
 }
 
 // --- Recent critical events ---
