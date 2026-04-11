@@ -504,6 +504,7 @@ func (a *App) pushSrvlogToast(e client.SrvlogEvent, feed string) {
 		Message: e.Message,
 		Feed:    feed,
 		Level:   e.Severity,
+		Time:    e.ReceivedAt,
 	})
 }
 
@@ -520,6 +521,7 @@ func (a *App) pushApplogToast(e client.AppLogEvent) {
 		Message: e.Msg,
 		Feed:    "applog",
 		Level:   level,
+		Time:    e.ReceivedAt,
 	})
 }
 

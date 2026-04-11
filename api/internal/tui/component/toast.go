@@ -14,8 +14,9 @@ import (
 type Toast struct {
 	Title   string
 	Message string
-	Feed    string // "srvlog", "netlog", "applog"
-	Level   int    // severity (0-7) for srvlog/netlog, or mapped level for applog
+	Feed    string    // "srvlog", "netlog", "applog"
+	Level   int       // severity (0-7) for srvlog/netlog, or mapped level for applog
+	Time    time.Time // when the event occurred (captured once at push)
 	Expires time.Time
 }
 
@@ -36,6 +37,9 @@ func NewToastQueue() ToastQueue {
 
 // Push adds a new toast notification.
 func (q *ToastQueue) Push(t Toast) {
+	if t.Time.IsZero() {
+		t.Time = time.Now()
+	}
 	t.Expires = time.Now().Add(q.maxAge)
 	q.toasts = append([]Toast{t}, q.toasts...)
 	if len(q.toasts) > 10 {
@@ -104,7 +108,7 @@ func renderToast(t Toast, width int) string {
 	title := fmt.Sprintf("%s %s %s",
 		badge,
 		sevStyle.Bold(true).Render(t.Title),
-		theme.Timestamp.Render(time.Now().Format("15:04:05")))
+		theme.Timestamp.Render(t.Time.Local().Format("15:04:05")))
 
 	// Message — allow up to 3 lines of wrapping for visibility.
 	msgW := max(20, width-4)
