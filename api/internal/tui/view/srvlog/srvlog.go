@@ -62,6 +62,7 @@ func New(bufferSize int, timeFormat string) Model {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.table.SetWidth(width)
 	m.table.SetColumns(columns(width))
 
 	tableHeight := height - 1 // minus filter bar
@@ -93,6 +94,11 @@ func (m *Model) PushEvents(events []client.SrvlogEvent) {
 		m.buf.Push(events[i])
 	}
 	m.rebuildTable()
+}
+
+// EventCount returns the number of filtered events visible in the table.
+func (m *Model) EventCount() int {
+	return len(m.events)
 }
 
 // FocusFilter activates the filter input.

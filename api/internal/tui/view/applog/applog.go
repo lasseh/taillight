@@ -62,6 +62,7 @@ func New(bufferSize int, timeFormat string) Model {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.table.SetWidth(width)
 	m.table.SetColumns(columns(width))
 
 	tableHeight := height - 1
