@@ -14,6 +14,8 @@ import (
 	"github.com/lasseh/taillight/internal/tui/component"
 	"github.com/lasseh/taillight/internal/tui/theme"
 	"github.com/lasseh/taillight/internal/tui/view/applog"
+	"github.com/lasseh/taillight/internal/tui/view/dashboard"
+	"github.com/lasseh/taillight/internal/tui/view/hosts"
 	"github.com/lasseh/taillight/internal/tui/view/netlog"
 	"github.com/lasseh/taillight/internal/tui/view/srvlog"
 )
@@ -42,10 +44,16 @@ type App struct {
 	srvlog    srvlog.Model
 	applog    applog.Model
 	netlog    netlog.Model
+	dashboard dashboard.Model
+	hosts     hosts.Model
 	tabBar    component.TabBar
 	statusBar component.StatusBar
 	helpModel help.Model
 	showHelp  bool
+
+	// Track which views have been initialized.
+	dashboardInit bool
+	hostsInit     bool
 
 	// Per-tab SSE streams. nil when not active.
 	srvlogStream *client.SSEStream
@@ -87,6 +95,8 @@ func NewApp(cfg Config, c *client.Client) *App {
 		srvlog:    srvlog.New(cfg.BufferSize, cfg.TimeFormat),
 		applog:    applog.New(cfg.BufferSize, cfg.TimeFormat),
 		netlog:    netlog.New(cfg.BufferSize, cfg.TimeFormat),
+		dashboard: dashboard.New(c),
+		hosts:     hosts.New(c),
 		tabBar:    component.NewTabBar(tabs),
 		statusBar: component.NewStatusBar(),
 		helpModel: help.New(),
@@ -115,6 +125,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.srvlog.SetSize(msg.Width, ch)
 		a.applog.SetSize(msg.Width, ch)
 		a.netlog.SetSize(msg.Width, ch)
+		a.dashboard.SetSize(msg.Width, ch)
+		a.hosts.SetSize(msg.Width, ch)
 		return a, nil
 
 	case tea.KeyPressMsg:
@@ -133,6 +145,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.applog.SetMeta(msg.Services, msg.Components, msg.Hosts)
 		case "netlog":
 			a.netlog.SetMeta(msg.Hosts, msg.Programs)
+		}
+		return a, nil
+
+	case dashboard.StatsLoadedMsg:
+		a.dashboard, _ = a.dashboard.Update(msg)
+		return a, nil
+
+	case hosts.HostsLoadedMsg:
+		a.hosts, _ = a.hosts.Update(msg)
+		return a, nil
+
+	case dashboard.RefreshTickMsg:
+		if a.activeTab == TabDashboard {
+			var cmd tea.Cmd
+			a.dashboard, cmd = a.dashboard.Update(msg)
+			return a, cmd
+		}
+		return a, nil
+
+	case hosts.RefreshTickMsg:
+		if a.activeTab == TabHosts {
+			var cmd tea.Cmd
+			a.hosts, cmd = a.hosts.Update(msg)
+			return a, cmd
 		}
 		return a, nil
 
@@ -193,6 +229,12 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.Tab3):
 		cmd := a.switchTab(TabNetlog)
 		return a, cmd
+	case key.Matches(msg, a.keys.Tab4):
+		cmd := a.switchTab(TabDashboard)
+		return a, cmd
+	case key.Matches(msg, a.keys.Tab5):
+		cmd := a.switchTab(TabHosts)
+		return a, cmd
 	case key.Matches(msg, a.keys.Escape):
 		if a.focus == FocusDetail {
 			a.focus = FocusTable
@@ -226,11 +268,10 @@ func (a *App) View() tea.View {
 		sections = append(sections, a.applog.View())
 	case TabNetlog:
 		sections = append(sections, a.netlog.View())
-	case TabDashboard, TabHosts:
-		sections = append(sections, theme.Base.
-			Width(a.width).
-			Height(a.contentHeight()).
-			Render("Coming soon..."))
+	case TabDashboard:
+		sections = append(sections, a.dashboard.View())
+	case TabHosts:
+		sections = append(sections, a.hosts.View())
 	}
 
 	// Help overlay.
@@ -282,8 +323,16 @@ func (a *App) switchTab(tab TabID) tea.Cmd {
 			cmds = append(cmds, a.startStream(TabNetlog))
 			cmds = append(cmds, a.loadNetlogMeta())
 		}
-	case TabDashboard, TabHosts:
-		// No stream needed for these views yet.
+	case TabDashboard:
+		if !a.dashboardInit {
+			a.dashboardInit = true
+			cmds = append(cmds, a.dashboard.Init())
+		}
+	case TabHosts:
+		if !a.hostsInit {
+			a.hostsInit = true
+			cmds = append(cmds, a.hosts.Init())
+		}
 	}
 
 	return tea.Batch(cmds...)
@@ -425,6 +474,14 @@ func (a *App) updateActiveTable(msg tea.Msg) tea.Cmd {
 			a.focus = FocusDetail
 		}
 		return cmd
+	case TabDashboard:
+		var cmd tea.Cmd
+		a.dashboard, cmd = a.dashboard.Update(msg)
+		return cmd
+	case TabHosts:
+		var cmd tea.Cmd
+		a.hosts, cmd = a.hosts.Update(msg)
+		return cmd
 	default:
 		return nil
 	}
@@ -448,15 +505,15 @@ func (a *App) loadSrvlogMeta() tea.Cmd {
 	c := a.client
 	return func() tea.Msg {
 		ctx := context.Background()
-		hosts, err := c.SrvlogHosts(ctx)
+		hostList, err := c.SrvlogHosts(ctx)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
-		programs, err := c.SrvlogPrograms(ctx)
+		progList, err := c.SrvlogPrograms(ctx)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
-		return MetaLoadedMsg{Feed: "srvlog", Hosts: hosts, Programs: programs}
+		return MetaLoadedMsg{Feed: "srvlog", Hosts: hostList, Programs: progList}
 	}
 }
 
@@ -464,19 +521,19 @@ func (a *App) loadApplogMeta() tea.Cmd {
 	c := a.client
 	return func() tea.Msg {
 		ctx := context.Background()
-		services, err := c.AppLogServices(ctx)
+		svcList, err := c.AppLogServices(ctx)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
-		components, err := c.AppLogComponents(ctx)
+		compList, err := c.AppLogComponents(ctx)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
-		hosts, err := c.AppLogHosts(ctx)
+		hostList, err := c.AppLogHosts(ctx)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
-		return MetaLoadedMsg{Feed: "applog", Services: services, Components: components, Hosts: hosts}
+		return MetaLoadedMsg{Feed: "applog", Services: svcList, Components: compList, Hosts: hostList}
 	}
 }
 
@@ -484,15 +541,15 @@ func (a *App) loadNetlogMeta() tea.Cmd {
 	c := a.client
 	return func() tea.Msg {
 		ctx := context.Background()
-		hosts, err := c.NetlogHosts(ctx)
+		hostList, err := c.NetlogHosts(ctx)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
-		programs, err := c.NetlogPrograms(ctx)
+		progList, err := c.NetlogPrograms(ctx)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
-		return MetaLoadedMsg{Feed: "netlog", Hosts: hosts, Programs: programs}
+		return MetaLoadedMsg{Feed: "netlog", Hosts: hostList, Programs: progList}
 	}
 }
 
