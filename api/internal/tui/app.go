@@ -281,47 +281,54 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
-// View renders the full TUI.
+// View renders the full TUI. The layout is pinned: tab bar at top, status bar
+// at bottom, content fills the exact space in between.
 func (a *App) View() tea.View {
 	if a.width == 0 || a.height == 0 {
 		return tea.NewView("Initializing...")
 	}
 
-	var sections []string
+	// Tab bar (2 lines: tabs + separator).
+	tabBar := a.tabBar.View(a.width)
 
-	// Tab bar.
-	sections = append(sections, a.tabBar.View(a.width))
-
-	// Main content.
+	// Main content — rendered into a fixed-height box.
+	var content string
 	switch a.activeTab {
 	case TabSrvlog:
-		sections = append(sections, a.srvlog.View())
+		content = a.srvlog.View()
 	case TabApplog:
-		sections = append(sections, a.applog.View())
+		content = a.applog.View()
 	case TabNetlog:
-		sections = append(sections, a.netlog.View())
+		content = a.netlog.View()
 	case TabDashboard:
-		sections = append(sections, a.dashboard.View())
+		content = a.dashboard.View()
 	case TabHosts:
-		sections = append(sections, a.hosts.View())
+		content = a.hosts.View()
 	case TabNotifications:
-		sections = append(sections, a.notification.View())
+		content = a.notification.View()
 	case TabSettings:
-		sections = append(sections, a.settings.View())
+		content = a.settings.View()
 	}
 
-	// Help overlay.
+	// Help overlay replaces content.
 	if a.showHelp {
-		helpView := a.helpModel.FullHelpView(a.keys.FullHelp())
-		sections = append(sections, theme.Help.Render(helpView))
+		content = theme.Help.Render(a.helpModel.FullHelpView(a.keys.FullHelp()))
 	}
 
-	// Status bar.
-	sections = append(sections, a.statusBar.View(a.width))
+	// Force content to exact height so status bar is always at the bottom.
+	ch := a.contentHeight()
+	contentBox := lipgloss.NewStyle().
+		Width(a.width).
+		Height(ch).
+		MaxHeight(ch).
+		Render(content)
 
-	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	// Status bar (1 line, always at bottom).
+	statusBar := a.statusBar.View(a.width)
 
-	v := tea.NewView(content)
+	screen := lipgloss.JoinVertical(lipgloss.Left, tabBar, contentBox, statusBar)
+
+	v := tea.NewView(screen)
 	v.AltScreen = true
 	return v
 }
