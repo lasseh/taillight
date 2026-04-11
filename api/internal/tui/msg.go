@@ -21,14 +21,11 @@ type NetlogEventMsg struct {
 	Events []client.SrvlogEvent
 }
 
-// SSEConnectedMsg indicates the SSE stream connected/reconnected.
-type SSEConnectedMsg struct {
-	Feed string // "srvlog", "applog", "netlog"
-}
-
-// SSEDisconnectedMsg indicates the SSE stream lost connection.
-type SSEDisconnectedMsg struct {
-	Feed string
+// StreamStartedMsg carries a newly created SSE stream back to the Update
+// handler for safe assignment. Cmds must not mutate the model directly.
+type StreamStartedMsg struct {
+	Feed   string // "srvlog", "applog", "netlog"
+	Stream *client.SSEStream
 }
 
 // API response messages.

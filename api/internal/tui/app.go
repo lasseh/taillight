@@ -140,6 +140,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.settings.SetSize(msg.Width, ch)
 		return a, nil
 
+	case StreamStartedMsg:
+		switch msg.Feed {
+		case "srvlog":
+			a.srvlogStream = msg.Stream
+		case "applog":
+			a.applogStream = msg.Stream
+		case "netlog":
+			a.netlogStream = msg.Stream
+		}
+		return a, nil
+
 	case tea.KeyPressMsg:
 		return a.handleKey(msg)
 
@@ -370,22 +381,32 @@ func (a *App) switchTab(tab TabID) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// startStream begins an SSE connection for the given feed.
+// startStream begins an SSE connection for the given feed. The stream is
+// returned via StreamStartedMsg so it can be safely assigned in Update (Cmds
+// must not mutate the model).
 func (a *App) startStream(tab TabID) tea.Cmd {
-	return func() tea.Msg {
-		switch tab {
-		case TabSrvlog:
-			a.srvlogStream = client.NewSSEStream(a.client, "/api/v1/srvlog/stream", a.srvlog.Filter().Params(), 0)
-			return SSEConnectedMsg{Feed: "srvlog"}
-		case TabApplog:
-			a.applogStream = client.NewSSEStream(a.client, "/api/v1/applog/stream", a.applog.Filter().Params(), 0)
-			return SSEConnectedMsg{Feed: "applog"}
-		case TabNetlog:
-			a.netlogStream = client.NewSSEStream(a.client, "/api/v1/netlog/stream", a.netlog.Filter().Params(), 0)
-			return SSEConnectedMsg{Feed: "netlog"}
-		default:
-			return nil
+	c := a.client
+	switch tab {
+	case TabSrvlog:
+		params := a.srvlog.Filter().Params()
+		return func() tea.Msg {
+			stream := client.NewSSEStream(c, "/api/v1/srvlog/stream", params, 0)
+			return StreamStartedMsg{Feed: "srvlog", Stream: stream}
 		}
+	case TabApplog:
+		params := a.applog.Filter().Params()
+		return func() tea.Msg {
+			stream := client.NewSSEStream(c, "/api/v1/applog/stream", params, 0)
+			return StreamStartedMsg{Feed: "applog", Stream: stream}
+		}
+	case TabNetlog:
+		params := a.netlog.Filter().Params()
+		return func() tea.Msg {
+			stream := client.NewSSEStream(c, "/api/v1/netlog/stream", params, 0)
+			return StreamStartedMsg{Feed: "netlog", Stream: stream}
+		}
+	default:
+		return nil
 	}
 }
 
