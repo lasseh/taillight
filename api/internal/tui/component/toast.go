@@ -37,9 +37,7 @@ func NewToastQueue() ToastQueue {
 // Push adds a new toast notification.
 func (q *ToastQueue) Push(t Toast) {
 	t.Expires = time.Now().Add(q.maxAge)
-	// Prepend (newest first).
 	q.toasts = append([]Toast{t}, q.toasts...)
-	// Cap the queue.
 	if len(q.toasts) > 10 {
 		q.toasts = q.toasts[:10]
 	}
@@ -64,41 +62,30 @@ func (q *ToastQueue) HasToasts() bool {
 	return len(q.toasts) > 0
 }
 
-// Render renders the toast overlay box for the top-right corner.
-// Returns the rendered string and its width/height, or empty if no toasts.
+// Render renders the toast stack as a single string block.
 func (q *ToastQueue) Render(maxWidth int) string {
 	if len(q.toasts) == 0 {
 		return ""
 	}
 
 	toastW := min(50, maxWidth-4)
-	var lines []string
+	var parts []string
 
 	shown := min(q.maxShow, len(q.toasts))
 	for i := range shown {
-		t := q.toasts[i]
-		lines = append(lines, renderToast(t, toastW))
-		if i < shown-1 {
-			lines = append(lines, "")
-		}
+		parts = append(parts, renderToast(q.toasts[i], toastW))
 	}
 
-	// Show count of hidden toasts.
 	if len(q.toasts) > q.maxShow {
 		extra := len(q.toasts) - q.maxShow
-		lines = append(lines, theme.Comment.Render(
+		parts = append(parts, theme.Comment.Render(
 			fmt.Sprintf("  +%d more", extra)))
 	}
 
-	content := strings.Join(lines, "\n")
-
-	return lipgloss.NewStyle().
-		Padding(0, 1).
-		Render(content)
+	return strings.Join(parts, "\n")
 }
 
 func renderToast(t Toast, width int) string {
-	// Border color based on severity.
 	borderColor := theme.SeverityColor(t.Level)
 
 	// Feed badge.
@@ -138,56 +125,17 @@ func renderToast(t Toast, width int) string {
 		Render(content)
 }
 
-// OverlayToasts places the toast overlay on top of the screen content
-// in the top-right corner.
+// OverlayToasts composites the toast block on top of the screen content
+// in the top-right corner using lipgloss's cell-based Canvas/Layer system.
 func OverlayToasts(screen, toasts string, screenW, screenH int) string {
-	if toasts == "" {
-		return screen
-	}
-
 	toastW := lipgloss.Width(toasts)
-	toastH := lipgloss.Height(toasts)
 
-	// Position in top-right with 1-char margin.
-	x := max(0, screenW-toastW-2)
-	y := 3 // below tab bar + separator
+	// Position: top-right, below tab bar (y=3), 1 char right margin.
+	x := max(0, screenW-toastW-1)
+	y := 3
 
-	return placeOverlay(x, y, toasts, screen, screenW, screenH, toastH)
-}
-
-// placeOverlay places fg on top of bg at position (x, y).
-func placeOverlay(x, y int, fg, bg string, bgW, bgH, fgH int) string {
-	bgLines := strings.Split(bg, "\n")
-	fgLines := strings.Split(fg, "\n")
-
-	// Pad bg if needed.
-	for len(bgLines) < bgH {
-		bgLines = append(bgLines, strings.Repeat(" ", bgW))
-	}
-
-	// Overlay fg onto bg.
-	for i, fgLine := range fgLines {
-		bgIdx := y + i
-		if bgIdx < 0 || bgIdx >= len(bgLines) {
-			continue
-		}
-		bgLine := bgLines[bgIdx]
-		bgRunes := []rune(bgLine)
-
-		// Pad bg line if shorter than x.
-		for len(bgRunes) < x {
-			bgRunes = append(bgRunes, ' ')
-		}
-
-		// Replace portion of bg line with fg line.
-		fgW := lipgloss.Width(fgLine)
-		_ = fgW // We just splice the string at the rune level
-		_ = fgH
-
-		// Simple approach: take bg up to x, then fg, then remaining bg.
-		prefix := string(bgRunes[:min(x, len(bgRunes))])
-		bgLines[bgIdx] = prefix + fgLine
-	}
-
-	return strings.Join(bgLines, "\n")
+	base := lipgloss.NewLayer(screen)
+	overlay := lipgloss.NewLayer(toasts).X(x).Y(y).Z(1)
+	c := lipgloss.NewCompositor(base, overlay)
+	return c.Render()
 }
