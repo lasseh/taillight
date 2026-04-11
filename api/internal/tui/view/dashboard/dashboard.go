@@ -26,6 +26,7 @@ type StatsLoadedMsg struct {
 	Srvlog       *client.StatsSummary
 	Applog       *client.AppLogStatsSummary
 	CriticalLogs []client.SrvlogEvent
+	RecentErrors []client.AppLogEvent
 	Err          error
 }
 
@@ -35,6 +36,7 @@ type Model struct {
 	srvlog       *client.StatsSummary
 	applog       *client.AppLogStatsSummary
 	criticalLogs []client.SrvlogEvent
+	recentErrors []client.AppLogEvent
 	loading      bool
 	lastLoad     time.Time
 	width        int
@@ -69,6 +71,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.srvlog = msg.Srvlog
 		m.applog = msg.Applog
 		m.criticalLogs = msg.CriticalLogs
+		m.recentErrors = msg.RecentErrors
 		return m, nil
 
 	case RefreshTickMsg:
@@ -123,6 +126,12 @@ func (m *Model) View() string {
 	if m.applog != nil {
 		sections = append(sections, sectionHeader("APPLOG", theme.ColorPink))
 		sections = append(sections, m.renderApplogCards())
+	}
+
+	// Recent applog errors.
+	if len(m.recentErrors) > 0 {
+		sections = append(sections, "")
+		sections = append(sections, m.renderRecentErrors())
 	}
 
 	// Footer.
@@ -268,6 +277,28 @@ func (m *Model) renderRecentCritical() string {
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
+// --- Recent applog errors ---
+
+func (m *Model) renderRecentErrors() string {
+	lines := make([]string, 0, 2+len(m.recentErrors))
+	lines = append(lines, theme.CardLabel.Render("  RECENT ERRORS"))
+	lines = append(lines, "")
+
+	for _, e := range m.recentErrors {
+		ts := theme.Timestamp.Render(e.Timestamp.Local().Format("15:04"))
+		lvl := theme.AppLogLevelStyle(e.Level).Render(padRight(e.Level, 6))
+		svc := theme.Program.Render(padRight(truncate(e.Service, 20), 20))
+		host := theme.Hostname.Render(padRight(truncate(e.Host, 14), 14))
+
+		msgW := max(20, m.width-52)
+		msg := highlight.Message(truncate(e.Msg, msgW))
+
+		lines = append(lines, fmt.Sprintf("  %s  %s %s %s %s", ts, lvl, svc, host, msg))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
 // --- Applog summary cards ---
 
 func (m *Model) renderApplogCards() string {
@@ -313,10 +344,17 @@ func (m *Model) loadStats() tea.Cmd {
 		if err != nil {
 			return StatsLoadedMsg{Err: err}
 		}
-		// Fetch recent critical events (severity ≤ 2).
+		// Fetch recent critical srvlog events (severity ≤ 2).
 		critResp, err := c.ListSrvlogs(ctx, client.SrvlogFilter{
 			SeverityMax: 2,
 			Facility:    -1,
+		}, "", 10)
+		if err != nil {
+			return StatsLoadedMsg{Err: err}
+		}
+		// Fetch recent applog errors (WARN and above).
+		errResp, err := c.ListAppLogs(ctx, client.AppLogFilter{
+			Level: "WARN",
 		}, "", 10)
 		if err != nil {
 			return StatsLoadedMsg{Err: err}
@@ -325,6 +363,7 @@ func (m *Model) loadStats() tea.Cmd {
 			Srvlog:       srvlog,
 			Applog:       applog,
 			CriticalLogs: critResp.Data,
+			RecentErrors: errResp.Data,
 		}
 	}
 }
