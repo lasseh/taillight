@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -141,9 +142,18 @@ func newProgramHandler(srvURL, key string) bubbletea.ProgramHandler {
 		// $COLORTERM, causing 256-color downgrading without this.
 		envs := append(s.Environ(), "TERM="+pty.Term, "COLORTERM=truecolor")
 
+		// Determine I/O: use pty.Slave when available (real PTY),
+		// fall back to the session itself (emulated PTY or no slave FD).
+		var input io.Reader = s
+		var output io.Writer = s
+		if !s.EmulatedPty() && pty.Slave != nil {
+			input = pty.Slave
+			output = pty.Slave
+		}
+
 		return tea.NewProgram(app,
-			tea.WithInput(pty.Slave),
-			tea.WithOutput(pty.Slave),
+			tea.WithInput(input),
+			tea.WithOutput(output),
 			tea.WithEnvironment(envs),
 			tea.WithColorProfile(colorprofile.TrueColor),
 			tea.WithFPS(30),
