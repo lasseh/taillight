@@ -88,13 +88,15 @@ func NewApp(cfg Config, c *client.Client) *App {
 	}
 
 	tabs := []component.Tab{
+		// Primary tabs (left side, matching web GUI nav order).
 		{ID: int(TabDashboard), Label: "DASHBOARD", Color: theme.ColorBlue},
 		{ID: int(TabNetlog), Label: "NETLOG", Color: theme.ColorFuchsia},
 		{ID: int(TabSrvlog), Label: "SRVLOG", Color: theme.ColorTeal},
 		{ID: int(TabApplog), Label: "APPLOG", Color: theme.ColorPink},
-		{ID: int(TabHosts), Label: "HOSTS", Color: theme.ColorGreen},
-		{ID: int(TabNotifications), Label: "ALERTS", Color: theme.ColorYellow},
-		{ID: int(TabSettings), Label: "SETTINGS", Color: theme.ColorComment},
+		// Secondary tabs (right side, like the web GUI's dropdown menu).
+		{ID: int(TabHosts), Label: "HOSTS", Color: theme.ColorGreen, Right: true},
+		{ID: int(TabNotifications), Label: "ALERTS", Color: theme.ColorYellow, Right: true},
+		{ID: int(TabSettings), Label: "SETTINGS", Color: theme.ColorComment, Right: true},
 	}
 
 	return &App{
