@@ -68,7 +68,7 @@ func (q *ToastQueue) Render(maxWidth int) string {
 		return ""
 	}
 
-	toastW := min(50, maxWidth-4)
+	toastW := min(80, maxWidth*45/100)
 	var parts []string
 
 	shown := min(q.maxShow, len(q.toasts))
@@ -106,13 +106,17 @@ func renderToast(t Toast, width int) string {
 		sevStyle.Bold(true).Render(t.Title),
 		theme.Timestamp.Render(time.Now().Format("15:04:05")))
 
-	// Message (truncated).
-	msgW := max(10, width-4)
+	// Message — allow up to 3 lines of wrapping for visibility.
+	msgW := max(20, width-4)
 	msg := t.Message
-	if len(msg) > msgW {
-		msg = msg[:msgW-3] + "..."
+	maxLen := msgW * 3
+	if len(msg) > maxLen {
+		msg = msg[:maxLen-3] + "..."
 	}
-	msgLine := theme.Message.Render(msg)
+	msgLine := lipgloss.NewStyle().
+		Foreground(theme.ColorFGDark).
+		Width(msgW).
+		Render(msg)
 
 	content := title + "\n" + msgLine
 
