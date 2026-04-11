@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
@@ -65,6 +67,9 @@ type App struct {
 	applogStream *client.SSEStream
 	netlogStream *client.SSEStream
 
+	// Notification toasts.
+	toasts component.ToastQueue
+
 	// State.
 	lastError string
 }
@@ -105,6 +110,7 @@ func NewApp(cfg Config, c *client.Client) *App {
 		hosts:        hosts.New(c),
 		notification: notification.New(c),
 		settings:     settings.New(c.BaseURL(), ""),
+		toasts:       component.NewToastQueue(),
 		tabBar:       component.NewTabBar(tabs),
 		statusBar:    component.NewStatusBar(),
 		helpModel:    help.New(),
@@ -337,6 +343,12 @@ func (a *App) View() tea.View {
 
 	screen := lipgloss.JoinVertical(lipgloss.Left, tabBar, contentBox, statusBar)
 
+	// Overlay toast notifications in the top-right corner.
+	if a.toasts.HasToasts() {
+		toastOverlay := a.toasts.Render(a.width)
+		screen = component.OverlayToasts(screen, toastOverlay, a.width, a.height)
+	}
+
 	v := tea.NewView(screen)
 	v.AltScreen = true
 	return v
@@ -434,13 +446,22 @@ func (a *App) sseTick() tea.Cmd {
 	})
 }
 
+// notifySeverityMax is the max severity that triggers a toast notification.
+// Events with severity <= this value will show a toast (0=emerg, 3=err).
+const notifySeverityMax = 3
+
 // drainAllStreams reads events from all active SSE streams and pushes them to
-// the corresponding views.
+// the corresponding views. Critical events also trigger toast notifications.
 func (a *App) drainAllStreams() {
 	if a.srvlogStream != nil {
 		events := drainSrvlogSSE(a.srvlogStream, 100)
 		if len(events) > 0 {
 			a.srvlog.PushEvents(events)
+			for i := range events {
+				if events[i].Severity <= notifySeverityMax {
+					a.pushSrvlogToast(events[i], "srvlog")
+				}
+			}
 		}
 	}
 
@@ -448,6 +469,11 @@ func (a *App) drainAllStreams() {
 		events := drainApplogSSE(a.applogStream, 100)
 		if len(events) > 0 {
 			a.applog.PushEvents(events)
+			for i := range events {
+				if events[i].Level == "FATAL" || events[i].Level == "ERROR" {
+					a.pushApplogToast(events[i])
+				}
+			}
 		}
 	}
 
@@ -455,10 +481,46 @@ func (a *App) drainAllStreams() {
 		events := drainNetlogSSE(a.netlogStream, 100)
 		if len(events) > 0 {
 			a.netlog.PushEvents(events)
+			for i := range events {
+				if events[i].Severity <= notifySeverityMax {
+					a.pushSrvlogToast(events[i], "netlog")
+				}
+			}
 		}
 	}
 
+	// Prune expired toasts.
+	a.toasts.Prune()
 	a.statusBar.SetConnected(a.isConnected())
+}
+
+func (a *App) pushSrvlogToast(e client.SrvlogEvent, feed string) {
+	// Skip old events (backfill) — only notify for events from the last 30s.
+	if time.Since(e.ReceivedAt) > 30*time.Second {
+		return
+	}
+	a.toasts.Push(component.Toast{
+		Title:   fmt.Sprintf("[%s] %s", strings.ToUpper(e.SeverityLabel), e.Hostname),
+		Message: e.Message,
+		Feed:    feed,
+		Level:   e.Severity,
+	})
+}
+
+func (a *App) pushApplogToast(e client.AppLogEvent) {
+	if time.Since(e.ReceivedAt) > 30*time.Second {
+		return
+	}
+	level := 3 // default to "err" level for toast color
+	if e.Level == "FATAL" {
+		level = 0
+	}
+	a.toasts.Push(component.Toast{
+		Title:   fmt.Sprintf("[%s] %s", e.Level, e.Service),
+		Message: e.Msg,
+		Feed:    "applog",
+		Level:   level,
+	})
 }
 
 // isConnected returns true if ANY SSE stream is currently connected.
