@@ -99,7 +99,7 @@ type VolumeBucket struct {
 	ByHost map[string]int64 `json:"by_host"`
 }
 
-// StatsSummary is the aggregated summary response.
+// StatsSummary is the aggregated summary response for srvlog/netlog.
 type StatsSummary struct {
 	Total             int64           `json:"total"`
 	Trend             float64         `json:"trend"`
@@ -107,6 +107,16 @@ type StatsSummary struct {
 	Warnings          int64           `json:"warnings"`
 	SeverityBreakdown []SeverityCount `json:"severity_breakdown"`
 	TopHosts          []HostCount     `json:"top_hosts"`
+}
+
+// AppLogStatsSummary is the aggregated summary response for applog.
+type AppLogStatsSummary struct {
+	Total          int64        `json:"total"`
+	Trend          float64      `json:"trend"`
+	Errors         int64        `json:"errors"`
+	Warnings       int64        `json:"warnings"`
+	LevelBreakdown []LevelCount `json:"level_breakdown"`
+	TopServices    []HostCount  `json:"top_services"` // reuse HostCount (same shape)
 }
 
 // HostCount is a host with its event count.

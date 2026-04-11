@@ -91,12 +91,12 @@ func (c *Client) AppLogHosts(ctx context.Context) ([]string, error) {
 }
 
 // AppLogSummary fetches aggregated applog statistics.
-func (c *Client) AppLogSummary(ctx context.Context, rangeDur string) (*StatsSummary, error) {
+func (c *Client) AppLogSummary(ctx context.Context, rangeDur string) (*AppLogStatsSummary, error) {
 	params := url.Values{}
 	if rangeDur != "" {
 		params.Set("range", rangeDur)
 	}
-	var resp ItemResponse[StatsSummary]
+	var resp ItemResponse[AppLogStatsSummary]
 	if err := c.getWithParams(ctx, "/api/v1/applog/stats/summary", params, &resp); err != nil {
 		return nil, fmt.Errorf("applog summary: %w", err)
 	}
