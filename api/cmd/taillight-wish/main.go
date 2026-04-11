@@ -23,6 +23,7 @@ import (
 	"charm.land/wish/v2/bubbletea"
 	"charm.land/wish/v2/logging"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/ssh"
 	"github.com/spf13/cobra"
 
@@ -133,6 +134,11 @@ func newTeaHandler(srvURL, key string) func(ssh.Session) (tea.Model, []tea.Progr
 
 		return app, []tea.ProgramOption{
 			tea.WithFPS(30),
+			// Force TrueColor — SSH doesn't forward $COLORTERM so
+			// lipgloss would downgrade our hex colors to 256-color.
+			// All modern terminals support TrueColor even when they
+			// report xterm-256color.
+			tea.WithColorProfile(colorprofile.TrueColor),
 		}
 	}
 }
