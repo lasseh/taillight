@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### Terminal UI (taillight-tui)
+- Add standalone TUI binary using Charmbracelet bubbletea v2, bubbles v2, lipgloss v2
+- Real-time SSE streaming for srvlog, applog, and netlog with per-tab lazy connections
+- Dashboard view with summary cards, recent high-severity events, and recent applog errors
+- Hosts inventory view with status dots, feed badges, trend arrows, and vim navigation
+- Notification rules and channels read-only view with sub-tabs
+- Settings view with connection info and keyboard reference
+- Detail sidebar with thin border, auto-updates on cursor navigation
+- Filter bar with search input, hostname/program/service pickers
+- Ring buffer (10k events) with virtual-scrolling table for high-throughput streams
+- Tokyo Night theme matching web GUI colors exactly (severity, applog levels, accents)
+- Syntax highlighting for log messages using jink lexer (IPs, numbers, states, protocols)
+- Applog rows show component column and inline attrs as key=value pairs
+- Multi-segment status bar pinned to bottom (LIVE/OFFLINE, filter pills, help)
+- Toast notification overlays for critical events on any SSE stream using lipgloss Canvas/Layer compositor
+- Tab bar with logo, primary tabs left, secondary tabs right, thin separator line
+- Vim-style navigation (j/k, g/G, ctrl+d/u) with Enter for detail, Esc to close
+- Config file support (~/.config/taillight/tui.yml) with CLI flag overrides
+
+#### SSH server (taillight-wish)
+- Add wish-based SSH server for hosting TUI over SSH
+- Each SSH session gets independent app instance with own SSE streams and state
+- TrueColor forced via WithColorProfile and COLORTERM=truecolor environment injection
+- PTY slave fallback to session I/O for compatibility across SSH configurations
+- activeterm middleware rejects non-PTY sessions (blocks SSH scanners)
+- Graceful shutdown with 10s timeout on SIGINT/SIGTERM
+- Health check on startup validates API connectivity before accepting connections
+
 #### Netlog feed
 - Add netlog feed backend: model, store, broker, handlers, LISTEN/NOTIFY
 - Add netlog frontend feed with rsyslog dual-port config
