@@ -103,12 +103,14 @@ func renderToast(t Toast, width int) string {
 		badge = theme.BadgeApplog.Render(" A ")
 	}
 
+	bg := theme.ColorBGDark
+
 	// Title line.
-	sevStyle := theme.SeverityStyle(t.Level)
+	sevStyle := theme.SeverityStyle(t.Level).Background(bg)
 	title := fmt.Sprintf("%s %s %s",
 		badge,
 		sevStyle.Bold(true).Render(t.Title),
-		theme.Timestamp.Render(t.Time.Local().Format("15:04:05")))
+		lipgloss.NewStyle().Foreground(theme.ColorComment).Background(bg).Render(t.Time.Local().Format("15:04:05")))
 
 	// Message — allow up to 3 lines of wrapping for visibility.
 	msgW := max(20, width-4)
@@ -119,15 +121,19 @@ func renderToast(t Toast, width int) string {
 	}
 	msgLine := lipgloss.NewStyle().
 		Foreground(theme.ColorFGDark).
+		Background(bg).
 		Width(msgW).
 		Render(msg)
 
-	content := title + "\n" + msgLine
+	content := lipgloss.NewStyle().
+		Background(bg).
+		Width(width - 2).
+		Render(title + "\n" + msgLine)
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
-		Background(theme.ColorBGDark).
+		Background(bg).
 		Width(width).
 		Padding(0, 1).
 		Render(content)
