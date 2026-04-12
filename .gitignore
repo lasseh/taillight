@@ -6,6 +6,10 @@ api/taillight
 api/taillight-linux-amd64
 api/taillight-shipper
 api/taillight-shipper-linux-amd64
+api/taillight-tui
+api/taillight-tui-linux-amd64
+api/taillight-wish
+api/taillight-wish-linux-amd64
 api/coverage.*
 
 # API config (real credentials)
