@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/table"
+	"charm.land/lipgloss/v2"
 
 	"github.com/lasseh/taillight/internal/tui/client"
 	"github.com/lasseh/taillight/internal/tui/highlight"
@@ -19,34 +20,64 @@ const (
 )
 
 // columns returns the table column definitions for the given terminal width.
+// Matches web GUI: Time, Level, Service, Component, Message.
 func columns(width int) []table.Column {
 	fixed := fixedBarWidth + fixedTimeWidth + fixedLevelWidth
-	remaining := max(width-fixed-6, 20)
+	remaining := max(width-fixed-8, 20)
 
-	serviceWidth := max(8, remaining*20/100)
-	hostWidth := max(8, remaining*15/100)
-	messageWidth := max(10, remaining-serviceWidth-hostWidth)
+	serviceWidth := max(8, remaining*18/100)
+	compWidth := max(8, remaining*14/100)
+	messageWidth := max(10, remaining-serviceWidth-compWidth)
 
 	return []table.Column{
 		{Title: "▎", Width: fixedBarWidth},
 		{Title: "  TIME    ", Width: fixedTimeWidth},
 		{Title: "LEVEL  ", Width: fixedLevelWidth},
 		{Title: "SERVICE", Width: serviceWidth},
-		{Title: "HOST", Width: hostWidth},
+		{Title: "COMPONENT", Width: compWidth},
 		{Title: "MESSAGE", Width: messageWidth},
 	}
 }
 
 // eventToRow converts an AppLogEvent to a table row with colored cells.
+// Matches web GUI: bar, time, level, service, component, message + attrs.
 func eventToRow(e client.AppLogEvent, timeFormat string) table.Row {
 	bar := lipglossBar(e.Level)
 	ts := theme.Timestamp.Render(" " + e.Timestamp.Local().Format(timeFormat) + " ")
 	lvl := theme.AppLogLevelStyle(e.Level).Render(padRight(e.Level, fixedLevelWidth-1) + " ")
 	svc := theme.Program.Render(truncate(e.Service, 20))
-	host := theme.Hostname.Render(truncate(e.Host, 16))
-	msg := highlight.Message(e.Msg)
+	comp := lipgloss.NewStyle().Foreground(theme.ColorYellow).Render(truncate(e.Component, 16))
 
-	return table.Row{bar, ts, lvl, svc, host, msg}
+	// Message + inline attrs (like the web GUI: "msg - key=val key=val").
+	msg := highlight.Message(e.Msg)
+	if attrs := formatAttrsInline(e.Attrs); attrs != "" {
+		msg += " " + lipgloss.NewStyle().Foreground(theme.ColorOrange).Render("-") +
+			" " + theme.Comment.Render(attrs)
+	}
+
+	return table.Row{bar, ts, lvl, svc, comp, msg}
+}
+
+// formatAttrsInline renders attrs as "key=val key=val" like the web GUI.
+func formatAttrsInline(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "{}" || string(raw) == "null" {
+		return ""
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(raw, &attrs); err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(attrs))
+	for k, v := range attrs {
+		switch val := v.(type) {
+		case string:
+			parts = append(parts, k+"="+val)
+		default:
+			b, _ := json.Marshal(val)
+			parts = append(parts, k+"="+string(b))
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func lipglossBar(level string) string {
@@ -71,7 +102,7 @@ func renderDetailPanel(e client.AppLogEvent, width int) string {
 	fmt.Fprintf(&b, "%s %s\n", theme.DetailKey.Render("Level"), lvlStyle.Render(e.Level))
 	kv("Service", theme.Program.Render(e.Service))
 	if e.Component != "" {
-		kv("Component", e.Component)
+		kv("Component", lipgloss.NewStyle().Foreground(theme.ColorYellow).Render(e.Component))
 	}
 	kv("Host", theme.Hostname.Render(e.Host))
 	if e.Source != "" {
