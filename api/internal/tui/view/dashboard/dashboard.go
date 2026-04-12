@@ -275,13 +275,19 @@ func (m *Model) renderRecentErrors() string {
 	for _, e := range m.recentErrors {
 		ts := theme.Timestamp.Render(e.Timestamp.Local().Format("15:04"))
 		lvl := theme.AppLogLevelStyle(e.Level).Render(padRight(e.Level, 6))
-		svc := theme.Program.Render(padRight(truncate(e.Service, 20), 20))
-		host := theme.Hostname.Render(padRight(truncate(e.Host, 14), 14))
+		svc := theme.Program.Render(padRight(truncate(e.Service, 18), 18))
+		comp := lipgloss.NewStyle().Foreground(theme.ColorYellow).Render(padRight(truncate(e.Component, 14), 14))
 
-		msgW := max(20, m.width-52)
+		msgW := max(20, m.width-56)
 		msg := highlight.Message(truncate(e.Msg, msgW))
 
-		lines = append(lines, fmt.Sprintf("  %s  %s %s %s %s", ts, lvl, svc, host, msg))
+		// Inline attrs like the web GUI.
+		if attrs := formatAttrsInline(e.Attrs); attrs != "" {
+			msg += " " + lipgloss.NewStyle().Foreground(theme.ColorOrange).Render("-") +
+				" " + theme.Comment.Render(truncate(attrs, max(10, msgW/2)))
+		}
+
+		lines = append(lines, fmt.Sprintf("  %s  %s %s %s %s", ts, lvl, svc, comp, msg))
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
@@ -413,6 +419,28 @@ func (m *Model) refreshTick() tea.Cmd {
 }
 
 var refreshKey = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh"))
+
+// formatAttrsInline renders attrs as "key=val key=val" like the web GUI.
+func formatAttrsInline(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "{}" || string(raw) == "null" {
+		return ""
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(raw, &attrs); err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(attrs))
+	for k, v := range attrs {
+		switch val := v.(type) {
+		case string:
+			parts = append(parts, k+"="+val)
+		default:
+			b, _ := json.Marshal(val)
+			parts = append(parts, k+"="+string(b))
+		}
+	}
+	return strings.Join(parts, " ")
+}
 
 // --- Helpers ---
 
