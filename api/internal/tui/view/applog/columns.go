@@ -3,6 +3,7 @@ package applog
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/table"
@@ -67,9 +68,15 @@ func formatAttrsInline(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &attrs); err != nil {
 		return ""
 	}
-	parts := make([]string, 0, len(attrs))
-	for k, v := range attrs {
-		switch val := v.(type) {
+	// Sort keys for stable output — map iteration order is random.
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		switch val := attrs[k].(type) {
 		case string:
 			parts = append(parts, k+"="+val)
 		default:

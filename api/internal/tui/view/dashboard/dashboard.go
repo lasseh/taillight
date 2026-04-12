@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image/color"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -429,9 +430,14 @@ func formatAttrsInline(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &attrs); err != nil {
 		return ""
 	}
-	parts := make([]string, 0, len(attrs))
-	for k, v := range attrs {
-		switch val := v.(type) {
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		switch val := attrs[k].(type) {
 		case string:
 			parts = append(parts, k+"="+val)
 		default:
