@@ -103,17 +103,12 @@ func renderToast(t Toast, width int) string {
 		badge = theme.BadgeApplog.Render(" A ")
 	}
 
-	// Title line — highlighted background to separate from message.
+	// Title line.
 	sevStyle := theme.SeverityStyle(t.Level)
-	titleContent := fmt.Sprintf("%s %s %s",
+	title := fmt.Sprintf("%s %s %s",
 		badge,
 		sevStyle.Bold(true).Render(t.Title),
 		theme.Timestamp.Render(t.Time.Local().Format("15:04:05")))
-	titleLine := lipgloss.NewStyle().
-		Background(theme.ColorBGHighlight).
-		Width(width-2). // account for box padding
-		Padding(0, 1).
-		Render(titleContent)
 
 	// Message — allow up to 3 lines of wrapping for visibility.
 	msgW := max(20, width-4)
@@ -125,16 +120,16 @@ func renderToast(t Toast, width int) string {
 	msgLine := lipgloss.NewStyle().
 		Foreground(theme.ColorFGDark).
 		Width(msgW).
-		Padding(0, 1).
 		Render(msg)
 
-	content := titleLine + "\n" + msgLine
+	content := title + "\n" + msgLine
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Background(theme.ColorBGDark).
 		Width(width).
+		Padding(0, 1).
 		Render(content)
 }
 
