@@ -96,12 +96,27 @@ ORDER BY hostname, hr`
 SELECT hostname, pattern, cnt FROM ranked WHERE rn <= $2
 ORDER BY hostname, cnt DESC`
 
-	// Send all 4 queries in a single round-trip.
+	// Build Q5: precise last_seen_at per host from raw events.
+	// The continuous aggregate's MAX(bucket) is hour-aligned, so this query
+	// provides the actual most recent received_at timestamp.
+	q5 := `SELECT hostname, MAX(received_at) AS last_seen
+FROM srvlog_events WHERE received_at >= $1
+GROUP BY hostname`
+	if includeNetlog {
+		q5 += `
+UNION ALL
+SELECT hostname, MAX(received_at) AS last_seen
+FROM netlog_events WHERE received_at >= $1
+GROUP BY hostname`
+	}
+
+	// Send all 5 queries in a single round-trip.
 	batch := &pgx.Batch{}
 	batch.Queue(q1, since)
 	batch.Queue(q2, prevStart, since)
 	batch.Queue(q3, sparkSince)
 	batch.Queue(q4, msgSince, topErrorsPerHost)
+	batch.Queue(q5, since)
 
 	results := s.pool.SendBatch(ctx, batch)
 	defer results.Close() //nolint:errcheck // best-effort close
@@ -230,6 +245,29 @@ ORDER BY hostname, cnt DESC`
 	r4.Close()
 	if err := r4.Err(); err != nil {
 		return nil, fmt.Errorf("hosts q4 rows: %w", err)
+	}
+
+	// R5: precise last_seen_at from raw events (overrides Q1's bucket-aligned value).
+	r5, err := results.Query()
+	if err != nil {
+		return nil, fmt.Errorf("hosts q5: %w", err)
+	}
+	for r5.Next() {
+		var hostname string
+		var lastSeen time.Time
+		if err := r5.Scan(&hostname, &lastSeen); err != nil {
+			return nil, fmt.Errorf("hosts q5 scan: %w", err)
+		}
+		if h, ok := hosts[hostname]; ok {
+			if h.lastSeen == nil || lastSeen.After(*h.lastSeen) {
+				ls := lastSeen
+				h.lastSeen = &ls
+			}
+		}
+	}
+	r5.Close()
+	if err := r5.Err(); err != nil {
+		return nil, fmt.Errorf("hosts q5 rows: %w", err)
 	}
 
 	// Assemble final result.
