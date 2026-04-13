@@ -71,6 +71,7 @@ func run(_ *cobra.Command, _ []string) error {
 	})
 
 	app := tui.NewApp(cfg.ToAppConfig(), c)
+	defer app.Cleanup()
 
 	p := tea.NewProgram(app, tea.WithFPS(cfg.Display.FPS))
 	_, err = p.Run()

@@ -263,6 +263,10 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Global keys.
 	switch {
 	case key.Matches(msg, a.keys.Quit):
+		// Release SSE goroutines and TCP connections before quitting.
+		// Critical for the wish SSH server where each session would
+		// otherwise leak streams until the parent process exits.
+		a.Cleanup()
 		return a, tea.Quit
 	case key.Matches(msg, a.keys.Help):
 		a.showHelp = true
@@ -387,6 +391,25 @@ func (a *App) View() tea.View {
 func (a *App) contentHeight() int {
 	// Tab bar (1) + separator (1) + status bar (1) = 3 lines of chrome.
 	return max(a.height-3, 1)
+}
+
+// Cleanup releases resources held by the App. Must be called after the
+// bubbletea program returns from Run() so SSE goroutines and TCP
+// connections don't leak. Safe to call multiple times.
+func (a *App) Cleanup() {
+	if a.srvlogStream != nil {
+		a.srvlogStream.Close()
+		a.srvlogStream = nil
+	}
+	if a.applogStream != nil {
+		a.applogStream.Close()
+		a.applogStream = nil
+	}
+	if a.netlogStream != nil {
+		a.netlogStream.Close()
+		a.netlogStream = nil
+	}
+	a.dashboard.Close()
 }
 
 // switchTab changes the active tab, starts the stream lazily if needed, and

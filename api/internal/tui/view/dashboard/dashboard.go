@@ -68,6 +68,19 @@ func (m *Model) Connected() bool {
 	return false
 }
 
+// Close releases the SSE streams held by the dashboard. Called from the
+// app's Cleanup() to prevent goroutine and connection leaks.
+func (m *Model) Close() {
+	if m.srvlogStream != nil {
+		m.srvlogStream.Close()
+		m.srvlogStream = nil
+	}
+	if m.applogStream != nil {
+		m.applogStream.Close()
+		m.applogStream = nil
+	}
+}
+
 // SetSize updates dimensions.
 func (m *Model) SetSize(width, height int) {
 	m.width = width
