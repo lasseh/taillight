@@ -1,15 +1,28 @@
+// Package tui implements the terminal user interface for Taillight.
+//
+// Files in this package:
+//
+//   - app.go         — root model: NewApp, Init, Update, View, switchTab,
+//     Cleanup, contentHeight
+//   - app_keys.go    — key routing: handleKey and per-tab focus/update helpers
+//   - app_streams.go — SSE stream lifecycle, drain loop, metadata loaders,
+//     isConnected
+//   - app_toast.go   — toast notification helpers for critical events
+//   - keys.go        — global key bindings and tab IDs
+//   - msg.go         — message types
+//   - theme/         — Tokyo Night colors and lipgloss styles
+//   - client/        — HTTP/SSE client for the Taillight API
+//   - view/          — per-tab views (srvlog, applog, netlog, dashboard, ...)
+//   - component/     — shared components (statusbar, tabbar, toast)
+//   - buffer/        — generic ring buffer for event storage
 package tui
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -240,76 +253,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	// Help overlay takes priority.
-	if a.showHelp {
-		if key.Matches(msg, a.keys.Help) || key.Matches(msg, a.keys.Escape) {
-			a.showHelp = false
-		}
-		return a, nil
-	}
-
-	// Filter input takes priority when focused.
-	if a.focus == FocusFilter {
-		if key.Matches(msg, a.keys.Escape) || msg.String() == "enter" {
-			a.focus = FocusTable
-			a.blurActiveFilter()
-			return a, nil
-		}
-		cmd := a.updateActiveFilter(msg)
-		return a, cmd
-	}
-
-	// Global keys.
-	switch {
-	case key.Matches(msg, a.keys.Quit):
-		// Release SSE goroutines and TCP connections before quitting.
-		// Critical for the wish SSH server where each session would
-		// otherwise leak streams until the parent process exits.
-		a.Cleanup()
-		return a, tea.Quit
-	case key.Matches(msg, a.keys.Help):
-		a.showHelp = true
-		return a, nil
-	case key.Matches(msg, a.keys.Search), key.Matches(msg, a.keys.ToggleFocus):
-		a.focus = FocusFilter
-		a.focusActiveFilter()
-		return a, nil
-	case key.Matches(msg, a.keys.Tab1):
-		cmd := a.switchTab(TabDashboard)
-		return a, cmd
-	case key.Matches(msg, a.keys.Tab2):
-		cmd := a.switchTab(TabNetlog)
-		return a, cmd
-	case key.Matches(msg, a.keys.Tab3):
-		cmd := a.switchTab(TabSrvlog)
-		return a, cmd
-	case key.Matches(msg, a.keys.Tab4):
-		cmd := a.switchTab(TabApplog)
-		return a, cmd
-	case key.Matches(msg, a.keys.Tab5):
-		cmd := a.switchTab(TabHosts)
-		return a, cmd
-	case key.Matches(msg, a.keys.Tab6):
-		cmd := a.switchTab(TabNotifications)
-		return a, cmd
-	case key.Matches(msg, a.keys.Tab7):
-		cmd := a.switchTab(TabSettings)
-		return a, cmd
-	case key.Matches(msg, a.keys.Escape):
-		if a.focus == FocusDetail {
-			a.focus = FocusTable
-			a.closeActiveDetail()
-			return a, nil
-		}
-		return a, nil
-	}
-
-	// Delegate to active view.
-	cmd := a.updateActiveTable(msg)
-	return a, cmd
-}
-
 // Minimum terminal dimensions for the TUI to render properly.
 const (
 	minTerminalWidth  = 60
@@ -388,6 +331,8 @@ func (a *App) View() tea.View {
 	return v
 }
 
+// contentHeight returns the height available for the main content area
+// (terminal height minus tab bar, separator, and status bar).
 func (a *App) contentHeight() int {
 	// Tab bar (1) + separator (1) + status bar (1) = 3 lines of chrome.
 	return max(a.height-3, 1)
@@ -424,7 +369,9 @@ func (a *App) switchTab(tab TabID) tea.Cmd {
 
 	var cmds []tea.Cmd
 
-	// Start stream for the new tab if not already running.
+	// Start stream for the new tab if not already running. Streams stay
+	// alive across tab switches so toast notifications fire for events
+	// from non-visible tabs too.
 	switch tab {
 	case TabSrvlog:
 		if a.srvlogStream == nil {
@@ -461,369 +408,4 @@ func (a *App) switchTab(tab TabID) tea.Cmd {
 	}
 
 	return tea.Batch(cmds...)
-}
-
-// startStream begins an SSE connection for the given feed. The stream is
-// returned via StreamStartedMsg so it can be safely assigned in Update (Cmds
-// must not mutate the model).
-func (a *App) startStream(tab TabID) tea.Cmd {
-	c := a.client
-	switch tab {
-	case TabSrvlog:
-		params := a.srvlog.Filter().Params()
-		return func() tea.Msg {
-			stream := client.NewSSEStream(c, "/api/v1/srvlog/stream", params, 0)
-			return StreamStartedMsg{Feed: "srvlog", Stream: stream}
-		}
-	case TabApplog:
-		params := a.applog.Filter().Params()
-		return func() tea.Msg {
-			stream := client.NewSSEStream(c, "/api/v1/applog/stream", params, 0)
-			return StreamStartedMsg{Feed: "applog", Stream: stream}
-		}
-	case TabNetlog:
-		params := a.netlog.Filter().Params()
-		return func() tea.Msg {
-			stream := client.NewSSEStream(c, "/api/v1/netlog/stream", params, 0)
-			return StreamStartedMsg{Feed: "netlog", Stream: stream}
-		}
-	default:
-		return nil
-	}
-}
-
-// sseTick returns a command that fires an SSETickMsg after the batch interval.
-func (a *App) sseTick() tea.Cmd {
-	return tea.Tick(a.cfg.BatchInterval, func(time.Time) tea.Msg {
-		return SSETickMsg{}
-	})
-}
-
-// notifySeverityMax is the max severity that triggers a toast notification.
-// Events with severity <= this value will show a toast (0=emerg, 3=err).
-const notifySeverityMax = 3
-
-// drainAllStreams reads events from all active SSE streams and pushes them to
-// the corresponding views. Critical events also trigger toast notifications.
-// Tracks JSON parse failures so the user is alerted via the status bar.
-func (a *App) drainAllStreams() {
-	if a.srvlogStream != nil {
-		events, parseErrs := drainSrvlogSSE(a.srvlogStream, 100)
-		a.parseErrors += parseErrs
-		if len(events) > 0 {
-			a.srvlog.PushEvents(events)
-			for i := range events {
-				if events[i].Severity <= notifySeverityMax {
-					a.pushSrvlogToast(events[i], "srvlog")
-				}
-			}
-		}
-	}
-
-	if a.applogStream != nil {
-		events, parseErrs := drainApplogSSE(a.applogStream, 100)
-		a.parseErrors += parseErrs
-		if len(events) > 0 {
-			a.applog.PushEvents(events)
-			for i := range events {
-				if events[i].Level == "FATAL" || events[i].Level == "ERROR" {
-					a.pushApplogToast(events[i])
-				}
-			}
-		}
-	}
-
-	if a.netlogStream != nil {
-		events, parseErrs := drainNetlogSSE(a.netlogStream, 100)
-		a.parseErrors += parseErrs
-		if len(events) > 0 {
-			a.netlog.PushEvents(events)
-			for i := range events {
-				if events[i].Severity <= notifySeverityMax {
-					a.pushSrvlogToast(events[i], "netlog")
-				}
-			}
-		}
-	}
-
-	a.statusBar.SetParseErrors(a.parseErrors)
-
-	// Prune expired toasts.
-	a.toasts.Prune()
-	a.statusBar.SetConnected(a.isConnected())
-}
-
-func (a *App) pushSrvlogToast(e client.SrvlogEvent, feed string) {
-	// Skip old events (backfill) — only notify for events from the last 30s.
-	if time.Since(e.ReceivedAt) > 30*time.Second {
-		return
-	}
-	a.toasts.Push(component.Toast{
-		Title:   fmt.Sprintf("[%s] %s", strings.ToUpper(e.SeverityLabel), e.Hostname),
-		Message: e.Message,
-		Feed:    feed,
-		Level:   e.Severity,
-		Time:    e.ReceivedAt,
-	})
-}
-
-func (a *App) pushApplogToast(e client.AppLogEvent) {
-	if time.Since(e.ReceivedAt) > 30*time.Second {
-		return
-	}
-	level := 3 // default to "err" level for toast color
-	if e.Level == "FATAL" {
-		level = 0
-	}
-	a.toasts.Push(component.Toast{
-		Title:   fmt.Sprintf("[%s] %s", e.Level, e.Service),
-		Message: e.Msg,
-		Feed:    "applog",
-		Level:   level,
-		Time:    e.ReceivedAt,
-	})
-}
-
-// isConnected returns true if ANY SSE stream is currently connected.
-// Checks all log-view streams AND the dashboard's own streams.
-func (a *App) isConnected() bool {
-	if a.srvlogStream != nil && a.srvlogStream.Connected() {
-		return true
-	}
-	if a.applogStream != nil && a.applogStream.Connected() {
-		return true
-	}
-	if a.netlogStream != nil && a.netlogStream.Connected() {
-		return true
-	}
-	if a.dashboard.Connected() {
-		return true
-	}
-	return false
-}
-
-// Active view delegation helpers.
-
-func (a *App) focusActiveFilter() {
-	switch a.activeTab {
-	case TabSrvlog:
-		a.srvlog.FocusFilter()
-	case TabApplog:
-		a.applog.FocusFilter()
-	case TabNetlog:
-		a.netlog.FocusFilter()
-	case TabDashboard, TabHosts, TabNotifications, TabSettings:
-	}
-}
-
-func (a *App) blurActiveFilter() {
-	switch a.activeTab {
-	case TabSrvlog:
-		a.srvlog.BlurFilter()
-	case TabApplog:
-		a.applog.BlurFilter()
-	case TabNetlog:
-		a.netlog.BlurFilter()
-	case TabDashboard, TabHosts, TabNotifications, TabSettings:
-	}
-}
-
-func (a *App) updateActiveFilter(msg tea.Msg) tea.Cmd {
-	switch a.activeTab {
-	case TabSrvlog:
-		var cmd tea.Cmd
-		a.srvlog, cmd = a.srvlog.UpdateFilter(msg)
-		return cmd
-	case TabApplog:
-		var cmd tea.Cmd
-		a.applog, cmd = a.applog.UpdateFilter(msg)
-		return cmd
-	case TabNetlog:
-		var cmd tea.Cmd
-		a.netlog, cmd = a.netlog.UpdateFilter(msg)
-		return cmd
-	default:
-		return nil
-	}
-}
-
-func (a *App) updateActiveTable(msg tea.Msg) tea.Cmd {
-	switch a.activeTab {
-	case TabSrvlog:
-		var cmd tea.Cmd
-		a.srvlog, cmd = a.srvlog.UpdateTable(msg)
-		if a.srvlog.DetailOpen() {
-			a.focus = FocusDetail
-		}
-		return cmd
-	case TabApplog:
-		var cmd tea.Cmd
-		a.applog, cmd = a.applog.UpdateTable(msg)
-		if a.applog.DetailOpen() {
-			a.focus = FocusDetail
-		}
-		return cmd
-	case TabNetlog:
-		var cmd tea.Cmd
-		a.netlog, cmd = a.netlog.UpdateTable(msg)
-		if a.netlog.DetailOpen() {
-			a.focus = FocusDetail
-		}
-		return cmd
-	case TabDashboard:
-		var cmd tea.Cmd
-		a.dashboard, cmd = a.dashboard.Update(msg)
-		return cmd
-	case TabHosts:
-		var cmd tea.Cmd
-		a.hosts, cmd = a.hosts.Update(msg)
-		return cmd
-	case TabNotifications:
-		var cmd tea.Cmd
-		a.notification, cmd = a.notification.Update(msg)
-		return cmd
-	case TabSettings:
-		var cmd tea.Cmd
-		a.settings, cmd = a.settings.Update(msg)
-		return cmd
-	default:
-		return nil
-	}
-}
-
-func (a *App) closeActiveDetail() {
-	switch a.activeTab {
-	case TabSrvlog:
-		a.srvlog.CloseDetail()
-	case TabApplog:
-		a.applog.CloseDetail()
-	case TabNetlog:
-		a.netlog.CloseDetail()
-	case TabDashboard, TabHosts, TabNotifications, TabSettings:
-	}
-}
-
-// metaLoadTimeout is the budget for fetching meta (hosts/programs/services).
-// Bounded so hung API calls don't leak goroutines forever.
-const metaLoadTimeout = 10 * time.Second
-
-// Metadata loaders.
-
-func (a *App) loadSrvlogMeta() tea.Cmd {
-	c := a.client
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), metaLoadTimeout)
-		defer cancel()
-		hostList, err := c.SrvlogHosts(ctx)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("srvlog hosts: %w", err)}
-		}
-		progList, err := c.SrvlogPrograms(ctx)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("srvlog programs: %w", err)}
-		}
-		return MetaLoadedMsg{Feed: "srvlog", Hosts: hostList, Programs: progList}
-	}
-}
-
-func (a *App) loadApplogMeta() tea.Cmd {
-	c := a.client
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), metaLoadTimeout)
-		defer cancel()
-		svcList, err := c.AppLogServices(ctx)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("applog services: %w", err)}
-		}
-		compList, err := c.AppLogComponents(ctx)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("applog components: %w", err)}
-		}
-		hostList, err := c.AppLogHosts(ctx)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("applog hosts: %w", err)}
-		}
-		return MetaLoadedMsg{Feed: "applog", Services: svcList, Components: compList, Hosts: hostList}
-	}
-}
-
-func (a *App) loadNetlogMeta() tea.Cmd {
-	c := a.client
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), metaLoadTimeout)
-		defer cancel()
-		hostList, err := c.NetlogHosts(ctx)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("netlog hosts: %w", err)}
-		}
-		progList, err := c.NetlogPrograms(ctx)
-		if err != nil {
-			return ErrorMsg{Err: fmt.Errorf("netlog programs: %w", err)}
-		}
-		return MetaLoadedMsg{Feed: "netlog", Hosts: hostList, Programs: progList}
-	}
-}
-
-// SSE drain helpers per event type. Returns the parsed events and the count
-// of unmarshal failures encountered (so callers can surface parse errors
-// instead of silently dropping them).
-
-func drainSrvlogSSE(stream *client.SSEStream, maxEvents int) (events []client.SrvlogEvent, parseErrors int) {
-	for range maxEvents {
-		select {
-		case evt, ok := <-stream.Events():
-			if !ok {
-				return events, parseErrors
-			}
-			var e client.SrvlogEvent
-			if err := json.Unmarshal(evt.Data, &e); err != nil {
-				parseErrors++
-				continue
-			}
-			events = append(events, e)
-		default:
-			return events, parseErrors
-		}
-	}
-	return events, parseErrors
-}
-
-func drainApplogSSE(stream *client.SSEStream, maxEvents int) (events []client.AppLogEvent, parseErrors int) {
-	for range maxEvents {
-		select {
-		case evt, ok := <-stream.Events():
-			if !ok {
-				return events, parseErrors
-			}
-			var e client.AppLogEvent
-			if err := json.Unmarshal(evt.Data, &e); err != nil {
-				parseErrors++
-				continue
-			}
-			events = append(events, e)
-		default:
-			return events, parseErrors
-		}
-	}
-	return events, parseErrors
-}
-
-func drainNetlogSSE(stream *client.SSEStream, maxEvents int) (events []client.SrvlogEvent, parseErrors int) {
-	for range maxEvents {
-		select {
-		case evt, ok := <-stream.Events():
-			if !ok {
-				return events, parseErrors
-			}
-			var e client.SrvlogEvent
-			if err := json.Unmarshal(evt.Data, &e); err != nil {
-				parseErrors++
-				continue
-			}
-			events = append(events, e)
-		default:
-			return events, parseErrors
-		}
-	}
-	return events, parseErrors
 }
