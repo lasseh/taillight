@@ -158,9 +158,12 @@ func (m *Model[T]) EventCount() int {
 	return len(m.events)
 }
 
-// FocusFilter activates the filter input.
-func (m *Model[T]) FocusFilter() {
-	m.filter.Focus()
+// FocusFilter activates the filter input. Returns the textinput's focus
+// command (cursor blink) which the caller MUST forward to bubbletea via
+// the Update return value — otherwise the cursor won't blink and the
+// input may not respond properly.
+func (m *Model[T]) FocusFilter() tea.Cmd {
+	return m.filter.Focus()
 }
 
 // BlurFilter deactivates the filter input.

@@ -41,8 +41,10 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case key.Matches(msg, a.keys.Search), key.Matches(msg, a.keys.ToggleFocus):
 		a.focus = FocusFilter
-		a.focusActiveFilter()
-		return a, nil
+		// IMPORTANT: forward the textinput's focus cmd (cursor blink)
+		// to bubbletea — without it the input won't respond properly.
+		cmd := a.focusActiveFilter()
+		return a, cmd
 	case key.Matches(msg, a.keys.Tab1):
 		cmd := a.switchTab(TabDashboard)
 		return a, cmd
@@ -80,16 +82,20 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // Active view delegation helpers.
 
-func (a *App) focusActiveFilter() {
+// focusActiveFilter activates the active view's filter input and returns
+// any tea.Cmd from the underlying textinput (e.g., cursor blink) which the
+// caller must forward to bubbletea.
+func (a *App) focusActiveFilter() tea.Cmd {
 	switch a.activeTab {
 	case TabSrvlog:
-		a.srvlog.FocusFilter()
+		return a.srvlog.FocusFilter()
 	case TabApplog:
-		a.applog.FocusFilter()
+		return a.applog.FocusFilter()
 	case TabNetlog:
-		a.netlog.FocusFilter()
+		return a.netlog.FocusFilter()
 	case TabDashboard, TabHosts, TabNotifications, TabSettings:
 	}
+	return nil
 }
 
 func (a *App) blurActiveFilter() {

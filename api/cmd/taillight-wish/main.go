@@ -30,7 +30,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/wish/v2"
 	"charm.land/wish/v2/activeterm"
-	"charm.land/wish/v2/bubbletea"
 	"charm.land/wish/v2/logging"
 
 	"github.com/charmbracelet/colorprofile"
@@ -112,13 +111,22 @@ func run(_ *cobra.Command, _ []string) error {
 	// Validate authorized_keys exists before starting the server. Fail
 	// fast — never silently accept all connections.
 	if _, err := os.Stat(authorizedKeys); err != nil {
-		return fmt.Errorf("authorized_keys file %q: %w (create one with 'ssh-keygen -y -f ~/.ssh/id_ed25519 > %s')", authorizedKeys, err, authorizedKeys)
+		return fmt.Errorf("authorized_keys not found at %q: %w\n\n"+
+			"Public-key auth is required. To set it up:\n"+
+			"  1. On the client machine, copy your public key:\n"+
+			"     cat ~/.ssh/id_ed25519.pub\n"+
+			"  2. On this server, paste it into %s (one key per line)\n"+
+			"  3. Restart taillight-wish",
+			authorizedKeys, err, authorizedKeys)
 	}
 	logger.Info("loaded authorized_keys", "path", authorizedKeys)
 
-	// Create the SSH server. Use MiddlewareWithProgramHandler for full
-	// control over tea.ProgramOption ordering — the default Middleware
-	// appends MakeOptions which overrides our WithEnvironment.
+	// Create the SSH server. We use a custom session middleware (instead
+	// of bubbletea.MiddlewareWithProgramHandler) so we can defer
+	// app.Cleanup() per session. Wish's built-in handler doesn't expose
+	// a hook for after-program teardown, which would leak SSE goroutines
+	// every time a client disconnects.
+	//
 	// Public-key auth via WithAuthorizedKeys; password auth is intentionally
 	// not enabled.
 	srv, err := wish.NewServer(
@@ -126,7 +134,7 @@ func run(_ *cobra.Command, _ []string) error {
 		wish.WithHostKeyPath(hostKeyPath),
 		wish.WithAuthorizedKeys(authorizedKeys),
 		wish.WithMiddleware(
-			bubbletea.MiddlewareWithProgramHandler(newProgramHandler(serverURL, apiKey, fps, logger)),
+			sessionMiddleware(serverURL, apiKey, fps, logger),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),
@@ -177,70 +185,105 @@ func setupLogger() (*slog.Logger, *logshipper.Handler) {
 	return slog.New(logshipper.MultiHandler(consoleHandler, shipper)), shipper
 }
 
-// newProgramHandler returns a wish ProgramHandler that creates a fresh
-// tea.Program for each SSH session with full control over option ordering.
-// This bypasses the default handler's MakeOptions which would override
-// our environment and color profile settings.
-func newProgramHandler(srvURL, key string, fpsRate int, logger *slog.Logger) bubbletea.ProgramHandler {
-	return func(s ssh.Session) *tea.Program {
-		pty, _, active := s.Pty()
-		if !active {
-			fmt.Fprintln(s, "Error: no PTY requested. Use: ssh -t ...") //nolint:errcheck // best-effort message to SSH client
-			logger.Warn("session rejected: no PTY",
+// sessionMiddleware is a wish.Middleware that creates and runs a tea.Program
+// per SSH session with full control over the lifecycle. We own the entire
+// session here (instead of using bubbletea.MiddlewareWithProgramHandler)
+// so we can defer app.Cleanup() — wish's built-in handler doesn't expose
+// any after-program hook, which would leak SSE goroutines per session.
+func sessionMiddleware(srvURL, key string, fpsRate int, logger *slog.Logger) wish.Middleware {
+	return func(next ssh.Handler) ssh.Handler {
+		return func(s ssh.Session) {
+			pty, windowChanges, active := s.Pty()
+			if !active {
+				fmt.Fprintln(s, "Error: no PTY requested. Use: ssh -t ...") //nolint:errcheck // best-effort
+				logger.Warn("session rejected: no PTY",
+					"user", s.User(),
+					"remote_addr", s.RemoteAddr().String())
+				return
+			}
+
+			started := time.Now()
+			logger.Info("session started",
 				"user", s.User(),
-				"remote_addr", s.RemoteAddr().String())
-			return nil
-		}
+				"remote_addr", s.RemoteAddr().String(),
+				"term", pty.Term,
+				"window", fmt.Sprintf("%dx%d", pty.Window.Width, pty.Window.Height))
 
-		logger.Info("session started",
-			"user", s.User(),
-			"remote_addr", s.RemoteAddr().String(),
-			"term", pty.Term,
-			"window", fmt.Sprintf("%dx%d", pty.Window.Width, pty.Window.Height))
+			// Each session gets its own API client and App instance.
+			c := client.New(client.Config{
+				BaseURL: srvURL,
+				APIKey:  key,
+			})
 
-		// Each session gets its own API client and App instance.
-		c := client.New(client.Config{
-			BaseURL: srvURL,
-			APIKey:  key,
-		})
+			cfg := tui.Config{
+				BufferSize:    10000,
+				BatchInterval: 50 * time.Millisecond,
+				AutoScroll:    true,
+				TimeFormat:    "15:04:05",
+			}
 
-		cfg := tui.Config{
-			BufferSize:    10000,
-			BatchInterval: 50 * time.Millisecond,
-			AutoScroll:    true,
-			TimeFormat:    "15:04:05",
-		}
+			app := tui.NewApp(cfg, c)
+			// Critical: release SSE goroutines and TCP connections when
+			// the session ends. Without this, every SSH disconnect leaks
+			// the stream goroutines and connections to the API.
+			defer app.Cleanup()
 
-		app := tui.NewApp(cfg, c)
+			// Build environment with COLORTERM=truecolor so bubbletea and
+			// lipgloss detect TrueColor support over SSH.
+			envs := append(s.Environ(), "TERM="+pty.Term, "COLORTERM=truecolor")
 
-		// Build environment with COLORTERM=truecolor so both bubbletea
-		// and lipgloss detect TrueColor support. SSH doesn't forward
-		// $COLORTERM, causing 256-color downgrading without this.
-		envs := append(s.Environ(), "TERM="+pty.Term, "COLORTERM=truecolor")
+			// Determine I/O: use pty.Slave when available (real PTY),
+			// fall back to the session itself.
+			var input io.Reader = s
+			var output io.Writer = s
+			if !s.EmulatedPty() && pty.Slave != nil {
+				input = pty.Slave
+				output = pty.Slave
+			}
 
-		// Determine I/O: use pty.Slave when available (real PTY),
-		// fall back to the session itself (emulated PTY or no slave FD).
-		var input io.Reader = s
-		var output io.Writer = s
-		if !s.EmulatedPty() && pty.Slave != nil {
-			input = pty.Slave
-			output = pty.Slave
-		}
+			program := tea.NewProgram(app,
+				tea.WithInput(input),
+				tea.WithOutput(output),
+				tea.WithEnvironment(envs),
+				tea.WithColorProfile(colorprofile.TrueColor),
+				tea.WithFPS(fpsRate),
+				tea.WithWindowSize(pty.Window.Width, pty.Window.Height),
+				// Suppress suspend (ctrl+z) — not meaningful over SSH.
+				tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
+					if _, ok := msg.(tea.SuspendMsg); ok {
+						return tea.ResumeMsg{}
+					}
+					return msg
+				}),
+			)
 
-		return tea.NewProgram(app,
-			tea.WithInput(input),
-			tea.WithOutput(output),
-			tea.WithEnvironment(envs),
-			tea.WithColorProfile(colorprofile.TrueColor),
-			tea.WithFPS(fpsRate),
-			tea.WithWindowSize(pty.Window.Width, pty.Window.Height),
-			// Suppress suspend (ctrl+z) — not meaningful over SSH.
-			tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
-				if _, ok := msg.(tea.SuspendMsg); ok {
-					return tea.ResumeMsg{}
+			// Forward window resize events to the program.
+			ctx, cancel := context.WithCancel(s.Context())
+			defer cancel()
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case w := <-windowChanges:
+						program.Send(tea.WindowSizeMsg{Width: w.Width, Height: w.Height})
+					}
 				}
-				return msg
-			}),
-		)
+			}()
+
+			if _, err := program.Run(); err != nil {
+				logger.Error("program exit error",
+					"err", err,
+					"user", s.User(),
+					"remote_addr", s.RemoteAddr().String())
+			}
+
+			logger.Info("session ended",
+				"user", s.User(),
+				"remote_addr", s.RemoteAddr().String(),
+				"duration", time.Since(started).Round(time.Second).String())
+
+			next(s)
+		}
 	}
 }
