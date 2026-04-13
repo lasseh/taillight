@@ -18,7 +18,7 @@
     "@vueuse/core": "^14.2.1",
     "dompurify": "^3.3.3",
     "focus-trap": "^8.0.1",
-    "marked": "^17.0.6",
+    "marked": "^18.0.0",
     "pinia": "^3.0.4",
     "prismjs": "^1.30.0",
     "vue": "^3.5.32",
