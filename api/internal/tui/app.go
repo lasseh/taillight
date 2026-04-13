@@ -184,11 +184,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MetaLoadedMsg:
 		switch msg.Feed {
 		case "srvlog":
-			a.srvlog.SetMeta(msg.Hosts, msg.Programs)
+			srvlog.SetMeta(&a.srvlog, msg.Hosts, msg.Programs)
 		case "applog":
-			a.applog.SetMeta(msg.Services, msg.Components, msg.Hosts)
+			applog.SetMeta(&a.applog, msg.Services, msg.Components, msg.Hosts)
 		case "netlog":
-			a.netlog.SetMeta(msg.Hosts, msg.Programs)
+			netlog.SetMeta(&a.netlog, msg.Hosts, msg.Programs)
 		}
 		return a, nil
 
