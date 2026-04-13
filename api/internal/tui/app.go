@@ -31,10 +31,7 @@ import (
 	"github.com/lasseh/taillight/internal/tui/theme"
 	"github.com/lasseh/taillight/internal/tui/view/applog"
 	"github.com/lasseh/taillight/internal/tui/view/dashboard"
-	"github.com/lasseh/taillight/internal/tui/view/hosts"
 	"github.com/lasseh/taillight/internal/tui/view/netlog"
-	"github.com/lasseh/taillight/internal/tui/view/notification"
-	"github.com/lasseh/taillight/internal/tui/view/settings"
 	"github.com/lasseh/taillight/internal/tui/view/srvlog"
 )
 
@@ -59,22 +56,17 @@ type App struct {
 	focus     FocusTarget
 
 	// Sub-models.
-	srvlog       srvlog.Model
-	applog       applog.Model
-	netlog       netlog.Model
-	dashboard    dashboard.Model
-	hosts        hosts.Model
-	notification notification.Model
-	settings     settings.Model
-	tabBar       component.TabBar
-	statusBar    component.StatusBar
-	helpModel    help.Model
-	showHelp     bool
+	srvlog    srvlog.Model
+	applog    applog.Model
+	netlog    netlog.Model
+	dashboard dashboard.Model
+	tabBar    component.TabBar
+	statusBar component.StatusBar
+	helpModel help.Model
+	showHelp  bool
 
 	// Track which views have been initialized.
-	dashboardInit    bool
-	hostsInit        bool
-	notificationInit bool
+	dashboardInit bool
 
 	// Per-tab SSE streams. nil when not active.
 	srvlogStream *client.SSEStream
@@ -103,34 +95,27 @@ func NewApp(cfg Config, c *client.Client) *App {
 	}
 
 	tabs := []component.Tab{
-		// Primary tabs (left side, matching web GUI nav order).
-		{ID: int(TabDashboard), Label: "DASHBOARD", Color: theme.ColorBlue},
-		{ID: int(TabNetlog), Label: "NETLOG", Color: theme.ColorFuchsia},
-		{ID: int(TabSrvlog), Label: "SRVLOG", Color: theme.ColorTeal},
-		{ID: int(TabApplog), Label: "APPLOG", Color: theme.ColorPink},
-		// Secondary tabs (right side, like the web GUI's dropdown menu).
-		{ID: int(TabHosts), Label: "HOSTS", Color: theme.ColorGreen, Right: true},
-		{ID: int(TabNotifications), Label: "ALERTS", Color: theme.ColorYellow, Right: true},
-		{ID: int(TabSettings), Label: "SETTINGS", Color: theme.ColorComment, Right: true},
+		// Primary tabs render on the right side of the bar, logo stays left.
+		{ID: int(TabDashboard), Label: "DASHBOARD", Color: theme.ColorBlue, Right: true},
+		{ID: int(TabNetlog), Label: "NETLOG", Color: theme.ColorFuchsia, Right: true},
+		{ID: int(TabSrvlog), Label: "SRVLOG", Color: theme.ColorTeal, Right: true},
+		{ID: int(TabApplog), Label: "APPLOG", Color: theme.ColorPink, Right: true},
 	}
 
 	return &App{
-		cfg:          cfg,
-		client:       c,
-		keys:         DefaultKeyMap(),
-		activeTab:    TabDashboard,
-		focus:        FocusTable,
-		srvlog:       srvlog.New(cfg.BufferSize, cfg.TimeFormat),
-		applog:       applog.New(cfg.BufferSize, cfg.TimeFormat),
-		netlog:       netlog.New(cfg.BufferSize, cfg.TimeFormat),
-		dashboard:    dashboard.New(c),
-		hosts:        hosts.New(c),
-		notification: notification.New(c),
-		settings:     settings.New(c.BaseURL(), ""),
-		toasts:       component.NewToastQueue(),
-		tabBar:       component.NewTabBar(tabs),
-		statusBar:    component.NewStatusBar(),
-		helpModel:    help.New(),
+		cfg:       cfg,
+		client:    c,
+		keys:      DefaultKeyMap(),
+		activeTab: TabDashboard,
+		focus:     FocusTable,
+		srvlog:    srvlog.New(cfg.BufferSize, cfg.TimeFormat),
+		applog:    applog.New(cfg.BufferSize, cfg.TimeFormat),
+		netlog:    netlog.New(cfg.BufferSize, cfg.TimeFormat),
+		dashboard: dashboard.New(c),
+		toasts:    component.NewToastQueue(),
+		tabBar:    component.NewTabBar(tabs),
+		statusBar: component.NewStatusBar(),
+		helpModel: help.New(),
 	}
 }
 
@@ -157,9 +142,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.applog.SetSize(msg.Width, ch)
 		a.netlog.SetSize(msg.Width, ch)
 		a.dashboard.SetSize(msg.Width, ch)
-		a.hosts.SetSize(msg.Width, ch)
-		a.notification.SetSize(msg.Width, ch)
-		a.settings.SetSize(msg.Width, ch)
 		return a, nil
 
 	case StreamStartedMsg:
@@ -206,28 +188,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.dashboard, cmd = a.dashboard.Update(msg)
 		return a, cmd
 
-	case hosts.HostsLoadedMsg:
-		a.hosts, _ = a.hosts.Update(msg)
-		return a, nil
-
 	case dashboard.RefreshTickMsg:
 		if a.activeTab == TabDashboard {
 			var cmd tea.Cmd
 			a.dashboard, cmd = a.dashboard.Update(msg)
 			return a, cmd
 		}
-		return a, nil
-
-	case hosts.RefreshTickMsg:
-		if a.activeTab == TabHosts {
-			var cmd tea.Cmd
-			a.hosts, cmd = a.hosts.Update(msg)
-			return a, cmd
-		}
-		return a, nil
-
-	case notification.DataLoadedMsg:
-		a.notification, _ = a.notification.Update(msg)
 		return a, nil
 
 	case ErrorMsg:
@@ -294,12 +260,6 @@ func (a *App) View() tea.View {
 		content = a.netlog.View()
 	case TabDashboard:
 		content = a.dashboard.View()
-	case TabHosts:
-		content = a.hosts.View()
-	case TabNotifications:
-		content = a.notification.View()
-	case TabSettings:
-		content = a.settings.View()
 	}
 
 	// Help overlay replaces content.
@@ -393,18 +353,6 @@ func (a *App) switchTab(tab TabID) tea.Cmd {
 			a.dashboardInit = true
 			cmds = append(cmds, a.dashboard.Init())
 		}
-	case TabHosts:
-		if !a.hostsInit {
-			a.hostsInit = true
-			cmds = append(cmds, a.hosts.Init())
-		}
-	case TabNotifications:
-		if !a.notificationInit {
-			a.notificationInit = true
-			cmds = append(cmds, a.notification.Init())
-		}
-	case TabSettings:
-		// Settings is static, no init needed.
 	}
 
 	return tea.Batch(cmds...)

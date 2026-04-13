@@ -57,15 +57,6 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.Tab4):
 		cmd := a.switchTab(TabApplog)
 		return a, cmd
-	case key.Matches(msg, a.keys.Tab5):
-		cmd := a.switchTab(TabHosts)
-		return a, cmd
-	case key.Matches(msg, a.keys.Tab6):
-		cmd := a.switchTab(TabNotifications)
-		return a, cmd
-	case key.Matches(msg, a.keys.Tab7):
-		cmd := a.switchTab(TabSettings)
-		return a, cmd
 	case key.Matches(msg, a.keys.Escape):
 		if a.focus == FocusDetail {
 			a.focus = FocusTable
@@ -93,7 +84,7 @@ func (a *App) focusActiveFilter() tea.Cmd {
 		return a.applog.FocusFilter()
 	case TabNetlog:
 		return a.netlog.FocusFilter()
-	case TabDashboard, TabHosts, TabNotifications, TabSettings:
+	case TabDashboard:
 	}
 	return nil
 }
@@ -106,7 +97,7 @@ func (a *App) blurActiveFilter() {
 		a.applog.BlurFilter()
 	case TabNetlog:
 		a.netlog.BlurFilter()
-	case TabDashboard, TabHosts, TabNotifications, TabSettings:
+	case TabDashboard:
 	}
 }
 
@@ -156,18 +147,6 @@ func (a *App) updateActiveTable(msg tea.Msg) tea.Cmd {
 		var cmd tea.Cmd
 		a.dashboard, cmd = a.dashboard.Update(msg)
 		return cmd
-	case TabHosts:
-		var cmd tea.Cmd
-		a.hosts, cmd = a.hosts.Update(msg)
-		return cmd
-	case TabNotifications:
-		var cmd tea.Cmd
-		a.notification, cmd = a.notification.Update(msg)
-		return cmd
-	case TabSettings:
-		var cmd tea.Cmd
-		a.settings, cmd = a.settings.Update(msg)
-		return cmd
 	default:
 		return nil
 	}
@@ -181,6 +160,6 @@ func (a *App) closeActiveDetail() {
 		a.applog.CloseDetail()
 	case TabNetlog:
 		a.netlog.CloseDetail()
-	case TabDashboard, TabHosts, TabNotifications, TabSettings:
+	case TabDashboard:
 	}
 }
