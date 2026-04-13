@@ -31,20 +31,21 @@ import (
 	"charm.land/wish/v2"
 	"charm.land/wish/v2/activeterm"
 	"charm.land/wish/v2/logging"
+	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/ssh"
-	"github.com/spf13/cobra"
-
 	"github.com/lasseh/taillight/internal/tui"
 	"github.com/lasseh/taillight/internal/tui/client"
 	"github.com/lasseh/taillight/pkg/logshipper"
+	"github.com/spf13/cobra"
 )
 
 var (
 	listenAddr      string
 	hostKeyPath     string
 	authorizedKeys  string
+	allowAnyKey     bool
 	serverURL       string
 	apiKey          string
 	fps             int
@@ -62,6 +63,7 @@ func init() {
 	rootCmd.Flags().StringVar(&listenAddr, "listen", ":2222", "SSH listen address")
 	rootCmd.Flags().StringVar(&hostKeyPath, "host-key", ".ssh/id_ed25519", "path to SSH host key")
 	rootCmd.Flags().StringVar(&authorizedKeys, "authorized-keys", defaultAuthorizedKeysPath(), "path to authorized_keys file (public-key auth)")
+	rootCmd.Flags().BoolVar(&allowAnyKey, "allow-any-key", false, "DEMO ONLY: accept any SSH public key without an authorized_keys file")
 	rootCmd.Flags().StringVarP(&serverURL, "server", "s", "", "Taillight API server URL (required)")
 	rootCmd.Flags().StringVarP(&apiKey, "key", "k", "", "API key for the Taillight API")
 	rootCmd.Flags().IntVar(&fps, "fps", 30, "render frame rate per session (1-60)")
@@ -108,18 +110,12 @@ func run(_ *cobra.Command, _ []string) error {
 	}
 	logger.Info("taillight API reachable", "url", serverURL)
 
-	// Validate authorized_keys exists before starting the server. Fail
-	// fast — never silently accept all connections.
-	if _, err := os.Stat(authorizedKeys); err != nil {
-		return fmt.Errorf("authorized_keys not found at %q: %w\n\n"+
-			"Public-key auth is required. To set it up:\n"+
-			"  1. On the client machine, copy your public key:\n"+
-			"     cat ~/.ssh/id_ed25519.pub\n"+
-			"  2. On this server, paste it into %s (one key per line)\n"+
-			"  3. Restart taillight-wish",
-			authorizedKeys, err, authorizedKeys)
+	// Configure the auth option: either an authorized_keys file (the
+	// production default) or allow-any-key for public demo servers.
+	authOption, err := buildAuthOption(logger)
+	if err != nil {
+		return err
 	}
-	logger.Info("loaded authorized_keys", "path", authorizedKeys)
 
 	// Create the SSH server. We use a custom session middleware (instead
 	// of bubbletea.MiddlewareWithProgramHandler) so we can defer
@@ -127,12 +123,11 @@ func run(_ *cobra.Command, _ []string) error {
 	// a hook for after-program teardown, which would leak SSE goroutines
 	// every time a client disconnects.
 	//
-	// Public-key auth via WithAuthorizedKeys; password auth is intentionally
-	// not enabled.
+	// Password auth is intentionally not enabled in either mode.
 	srv, err := wish.NewServer(
 		wish.WithAddress(listenAddr),
 		wish.WithHostKeyPath(hostKeyPath),
-		wish.WithAuthorizedKeys(authorizedKeys),
+		authOption,
 		wish.WithMiddleware(
 			sessionMiddleware(serverURL, apiKey, fps, logger),
 			activeterm.Middleware(),
@@ -160,6 +155,39 @@ func run(_ *cobra.Command, _ []string) error {
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutCancel()
 	return srv.Shutdown(shutCtx)
+}
+
+// buildAuthOption returns the wish ssh.Option for public-key auth, either
+// from an authorized_keys file (production) or an accept-any-key handler
+// (public demo servers). Password auth is intentionally never enabled.
+func buildAuthOption(logger *slog.Logger) (ssh.Option, error) {
+	if allowAnyKey {
+		// Loud warning — this must never go unnoticed in production logs.
+		logger.Warn("DEMO MODE: accepting any SSH public key — do not use in production")
+		fmt.Fprintln(os.Stderr, "┌─────────────────────────────────────────────────────────────┐")
+		fmt.Fprintln(os.Stderr, "│  WARNING: --allow-any-key is set — this server accepts      │")
+		fmt.Fprintln(os.Stderr, "│  ANY SSH public key. Do NOT use this mode in production.    │")
+		fmt.Fprintln(os.Stderr, "└─────────────────────────────────────────────────────────────┘")
+		return wish.WithPublicKeyAuth(func(_ ssh.Context, _ ssh.PublicKey) bool {
+			return true
+		}), nil
+	}
+
+	// Production mode: require an authorized_keys file. Fail fast if it's
+	// missing — never silently accept all connections.
+	if _, err := os.Stat(authorizedKeys); err != nil {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Public-key auth is required. To set it up:")
+		fmt.Fprintln(os.Stderr, "  1. On the client machine, copy your public key:")
+		fmt.Fprintln(os.Stderr, "     cat ~/.ssh/id_ed25519.pub")
+		fmt.Fprintf(os.Stderr, "  2. On this server, paste it into %s (one key per line)\n", authorizedKeys)
+		fmt.Fprintln(os.Stderr, "  3. Restart taillight-wish")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "For a public demo server, use --allow-any-key instead (INSECURE).")
+		return nil, fmt.Errorf("authorized_keys not found at %q: %w", authorizedKeys, err)
+	}
+	logger.Info("loaded authorized_keys", "path", authorizedKeys)
+	return wish.WithAuthorizedKeys(authorizedKeys), nil
 }
 
 // setupLogger creates the wish logger, optionally shipping logs to the
@@ -203,9 +231,14 @@ func sessionMiddleware(srvURL, key string, fpsRate int, logger *slog.Logger) wis
 			}
 
 			started := time.Now()
+			fingerprint := ""
+			if pk := s.PublicKey(); pk != nil {
+				fingerprint = gossh.FingerprintSHA256(pk)
+			}
 			logger.Info("session started",
 				"user", s.User(),
 				"remote_addr", s.RemoteAddr().String(),
+				"key_fingerprint", fingerprint,
 				"term", pty.Term,
 				"window", fmt.Sprintf("%dx%d", pty.Window.Width, pty.Window.Height))
 
