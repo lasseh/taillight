@@ -5,12 +5,18 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
 )
+
+// ErrUnauthorized is returned when the API responds with 401 or 403.
+// Callers can check with errors.Is to show persistent auth errors and stop
+// automatic retries.
+var ErrUnauthorized = errors.New("unauthorized: check API key")
 
 // Config holds connection settings for the API client.
 type Config struct {
@@ -66,13 +72,17 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 func (c *Client) do(req *http.Request, dst any) error {
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("request %s %s: %w", req.Method, req.URL.Path, err)
+		return fmt.Errorf("request %s %s: %w", req.Method, req.URL.String(), err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // response body close rarely fails
 
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("%s %s: %w", req.Method, req.URL.String(), ErrUnauthorized)
+	}
+
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API %s %s: %d %s", req.Method, req.URL.Path, resp.StatusCode, string(body))
+		return fmt.Errorf("API %s %s: %d %s", req.Method, req.URL.String(), resp.StatusCode, string(body))
 	}
 
 	if dst != nil {

@@ -189,6 +189,25 @@ func (m *Model) View() string {
 
 	tableView := m.table.View()
 
+	// Show an empty-state message when there are no events to display so
+	// users can tell the difference between "still loading" and "filter
+	// excluded everything".
+	if len(m.events) == 0 {
+		var msg string
+		if m.filter.HasActiveFilter() {
+			msg = "No events match the current filter"
+		} else {
+			msg = "Waiting for events..."
+		}
+		empty := lipgloss.NewStyle().
+			Foreground(theme.ColorComment).
+			Width(m.width).
+			Height(max(3, m.height-1)).
+			Align(lipgloss.Center, lipgloss.Center).
+			Render(msg)
+		return lipgloss.JoinVertical(lipgloss.Left, filterBar, empty)
+	}
+
 	if m.detail != nil && m.detailEvt != nil {
 		// Thin │ border between table and sidebar.
 		borderStyle := lipgloss.NewStyle().

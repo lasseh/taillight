@@ -170,6 +170,23 @@ func (m *Model) View() string {
 	filterBar := m.filter.View(m.width)
 	tableView := m.table.View()
 
+	// Empty-state message — see srvlog.View for rationale.
+	if len(m.events) == 0 {
+		var msg string
+		if m.filter.HasActiveFilter() {
+			msg = "No events match the current filter"
+		} else {
+			msg = "Waiting for events..."
+		}
+		empty := lipgloss.NewStyle().
+			Foreground(theme.ColorComment).
+			Width(m.width).
+			Height(max(3, m.height-1)).
+			Align(lipgloss.Center, lipgloss.Center).
+			Render(msg)
+		return lipgloss.JoinVertical(lipgloss.Left, filterBar, empty)
+	}
+
 	if m.detail != nil && m.detailEvt != nil {
 		borderStyle := lipgloss.NewStyle().
 			Foreground(theme.ColorBorder).

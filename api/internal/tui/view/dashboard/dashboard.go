@@ -328,48 +328,63 @@ func (m *Model) renderApplogCards() string {
 // --- Live stream draining ---
 
 func (m Model) drainStreams() Model {
-	// Drain srvlog critical events.
-	if m.srvlogStream != nil {
-		for range 50 {
-			select {
-			case evt, ok := <-m.srvlogStream.Events():
-				if !ok {
-					return m
-				}
-				var e client.SrvlogEvent
-				if err := json.Unmarshal(evt.Data, &e); err == nil {
-					m.criticalLogs = append([]client.SrvlogEvent{e}, m.criticalLogs...)
-					if len(m.criticalLogs) > maxRecentEvents {
-						m.criticalLogs = m.criticalLogs[:maxRecentEvents]
-					}
-				}
-			default:
-				goto drainApplog
-			}
-		}
-	}
-drainApplog:
-	// Drain applog error events.
-	if m.applogStream != nil {
-		for range 50 {
-			select {
-			case evt, ok := <-m.applogStream.Events():
-				if !ok {
-					return m
-				}
-				var e client.AppLogEvent
-				if err := json.Unmarshal(evt.Data, &e); err == nil {
-					m.recentErrors = append([]client.AppLogEvent{e}, m.recentErrors...)
-					if len(m.recentErrors) > maxRecentEvents {
-						m.recentErrors = m.recentErrors[:maxRecentEvents]
-					}
-				}
-			default:
-				return m
-			}
-		}
-	}
+	m.criticalLogs = drainSrvlogCritical(m.srvlogStream, m.criticalLogs)
+	m.recentErrors = drainApplogErrors(m.applogStream, m.recentErrors)
 	return m
+}
+
+// drainSrvlogCritical reads up to 50 events from the srvlog stream and
+// prepends them to the critical logs list (newest first, capped).
+func drainSrvlogCritical(stream *client.SSEStream, current []client.SrvlogEvent) []client.SrvlogEvent {
+	if stream == nil {
+		return current
+	}
+	for range 50 {
+		select {
+		case evt, ok := <-stream.Events():
+			if !ok {
+				return current
+			}
+			var e client.SrvlogEvent
+			if err := json.Unmarshal(evt.Data, &e); err != nil {
+				continue
+			}
+			current = append([]client.SrvlogEvent{e}, current...)
+			if len(current) > maxRecentEvents {
+				current = current[:maxRecentEvents]
+			}
+		default:
+			return current
+		}
+	}
+	return current
+}
+
+// drainApplogErrors reads up to 50 events from the applog stream and
+// prepends them to the recent errors list (newest first, capped).
+func drainApplogErrors(stream *client.SSEStream, current []client.AppLogEvent) []client.AppLogEvent {
+	if stream == nil {
+		return current
+	}
+	for range 50 {
+		select {
+		case evt, ok := <-stream.Events():
+			if !ok {
+				return current
+			}
+			var e client.AppLogEvent
+			if err := json.Unmarshal(evt.Data, &e); err != nil {
+				continue
+			}
+			current = append([]client.AppLogEvent{e}, current...)
+			if len(current) > maxRecentEvents {
+				current = current[:maxRecentEvents]
+			}
+		default:
+			return current
+		}
+	}
+	return current
 }
 
 // --- Data loading ---

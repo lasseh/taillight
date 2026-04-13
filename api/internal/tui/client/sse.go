@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -28,6 +29,9 @@ type SSEStream struct {
 	cancel    context.CancelFunc
 	connected atomic.Bool
 	lastID    atomic.Int64
+	// authFailed is set when the server responds 401/403. The stream stops
+	// retrying — retrying auth failures indefinitely is wrong.
+	authFailed atomic.Bool
 }
 
 // NewSSEStream starts an SSE stream to the given path with filter parameters.
@@ -53,6 +57,11 @@ func (s *SSEStream) Events() <-chan SSEEvent {
 // Connected reports whether the stream is currently connected.
 func (s *SSEStream) Connected() bool {
 	return s.connected.Load()
+}
+
+// AuthFailed reports whether the stream gave up due to a 401/403 response.
+func (s *SSEStream) AuthFailed() bool {
+	return s.authFailed.Load()
 }
 
 // LastID returns the ID of the most recently received event.
@@ -92,8 +101,12 @@ func (s *SSEStream) run(ctx context.Context, c *Client, path string, params url.
 			return // cancelled
 		}
 		s.connected.Store(false)
+		if errors.Is(err, ErrUnauthorized) {
+			// Server rejected our credentials — stop retrying.
+			s.authFailed.Store(true)
+			return
+		}
 		attempt++
-		_ = err // reconnect silently
 	}
 }
 
@@ -123,6 +136,9 @@ func (s *SSEStream) connect(ctx context.Context, httpClient *http.Client, c *Cli
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return ErrUnauthorized
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("SSE status %d", resp.StatusCode)
 	}

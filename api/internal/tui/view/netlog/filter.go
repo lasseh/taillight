@@ -48,11 +48,16 @@ func (f *FilterModel) Blur() {
 	f.searchInput.Blur()
 }
 
-// Update handles input when the filter bar is focused.
+// Update handles input when the filter bar is focused. Only sets dirty
+// when the search value actually changed — avoids rebuilding the table
+// on arrow keys, Home/End, Ctrl+A, etc.
 func (f *FilterModel) Update(msg tea.Msg) (FilterModel, tea.Cmd) {
+	before := f.searchInput.Value()
 	var cmd tea.Cmd
 	f.searchInput, cmd = f.searchInput.Update(msg)
-	f.dirty = true
+	if f.searchInput.Value() != before {
+		f.dirty = true
+	}
 	return *f, cmd
 }
 
@@ -64,6 +69,12 @@ func (f *FilterModel) Dirty() bool {
 // AckDirty clears the dirty flag.
 func (f *FilterModel) AckDirty() {
 	f.dirty = false
+}
+
+// HasActiveFilter reports whether any filter narrows the result set.
+func (f *FilterModel) HasActiveFilter() bool {
+	return f.searchInput.Value() != "" ||
+		f.Hostname() != "" || f.Programname() != "" || f.sevMax >= 0
 }
 
 // Hostname returns the selected hostname filter, or "" for all.

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -71,7 +72,8 @@ type App struct {
 	toasts component.ToastQueue
 
 	// State.
-	lastError string
+	lastError   string
+	parseErrors int // cumulative JSON unmarshal failures from SSE streams
 }
 
 // NewApp creates the root App model. This constructor is wish-compatible: it
@@ -217,6 +219,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ErrorMsg:
 		a.lastError = msg.Err.Error()
+		// Auth errors are persistent — don't auto-clear. The user needs
+		// to see them and fix their API key.
+		if errors.Is(msg.Err, client.ErrUnauthorized) {
+			a.statusBar.SetError("authentication failed — check API key in config")
+			return a, nil
+		}
 		a.statusBar.SetError(a.lastError)
 		cmds = append(cmds, tea.Tick(5*time.Second, func(time.Time) tea.Msg {
 			return ClearErrorMsg{}
@@ -298,11 +306,31 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
+// Minimum terminal dimensions for the TUI to render properly.
+const (
+	minTerminalWidth  = 60
+	minTerminalHeight = 10
+)
+
 // View renders the full TUI. The layout is pinned: tab bar at top, status bar
 // at bottom, content fills the exact space in between.
 func (a *App) View() tea.View {
 	if a.width == 0 || a.height == 0 {
 		return tea.NewView("Initializing...")
+	}
+
+	// Refuse to render on terminals too small to be usable.
+	if a.width < minTerminalWidth || a.height < minTerminalHeight {
+		msg := lipgloss.NewStyle().
+			Foreground(theme.ColorYellow).
+			Bold(true).
+			Render(fmt.Sprintf("Terminal too small\nminimum %dx%d, current %dx%d",
+				minTerminalWidth, minTerminalHeight, a.width, a.height))
+		centered := lipgloss.Place(a.width, a.height,
+			lipgloss.Center, lipgloss.Center, msg)
+		v := tea.NewView(centered)
+		v.AltScreen = true
+		return v
 	}
 
 	// Tab bar (2 lines: tabs + separator).
@@ -454,9 +482,11 @@ const notifySeverityMax = 3
 
 // drainAllStreams reads events from all active SSE streams and pushes them to
 // the corresponding views. Critical events also trigger toast notifications.
+// Tracks JSON parse failures so the user is alerted via the status bar.
 func (a *App) drainAllStreams() {
 	if a.srvlogStream != nil {
-		events := drainSrvlogSSE(a.srvlogStream, 100)
+		events, parseErrs := drainSrvlogSSE(a.srvlogStream, 100)
+		a.parseErrors += parseErrs
 		if len(events) > 0 {
 			a.srvlog.PushEvents(events)
 			for i := range events {
@@ -468,7 +498,8 @@ func (a *App) drainAllStreams() {
 	}
 
 	if a.applogStream != nil {
-		events := drainApplogSSE(a.applogStream, 100)
+		events, parseErrs := drainApplogSSE(a.applogStream, 100)
+		a.parseErrors += parseErrs
 		if len(events) > 0 {
 			a.applog.PushEvents(events)
 			for i := range events {
@@ -480,7 +511,8 @@ func (a *App) drainAllStreams() {
 	}
 
 	if a.netlogStream != nil {
-		events := drainNetlogSSE(a.netlogStream, 100)
+		events, parseErrs := drainNetlogSSE(a.netlogStream, 100)
+		a.parseErrors += parseErrs
 		if len(events) > 0 {
 			a.netlog.PushEvents(events)
 			for i := range events {
@@ -490,6 +522,8 @@ func (a *App) drainAllStreams() {
 			}
 		}
 	}
+
+	a.statusBar.SetParseErrors(a.parseErrors)
 
 	// Prune expired toasts.
 	a.toasts.Prune()
@@ -646,19 +680,24 @@ func (a *App) closeActiveDetail() {
 	}
 }
 
+// metaLoadTimeout is the budget for fetching meta (hosts/programs/services).
+// Bounded so hung API calls don't leak goroutines forever.
+const metaLoadTimeout = 10 * time.Second
+
 // Metadata loaders.
 
 func (a *App) loadSrvlogMeta() tea.Cmd {
 	c := a.client
 	return func() tea.Msg {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), metaLoadTimeout)
+		defer cancel()
 		hostList, err := c.SrvlogHosts(ctx)
 		if err != nil {
-			return ErrorMsg{Err: err}
+			return ErrorMsg{Err: fmt.Errorf("srvlog hosts: %w", err)}
 		}
 		progList, err := c.SrvlogPrograms(ctx)
 		if err != nil {
-			return ErrorMsg{Err: err}
+			return ErrorMsg{Err: fmt.Errorf("srvlog programs: %w", err)}
 		}
 		return MetaLoadedMsg{Feed: "srvlog", Hosts: hostList, Programs: progList}
 	}
@@ -667,18 +706,19 @@ func (a *App) loadSrvlogMeta() tea.Cmd {
 func (a *App) loadApplogMeta() tea.Cmd {
 	c := a.client
 	return func() tea.Msg {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), metaLoadTimeout)
+		defer cancel()
 		svcList, err := c.AppLogServices(ctx)
 		if err != nil {
-			return ErrorMsg{Err: err}
+			return ErrorMsg{Err: fmt.Errorf("applog services: %w", err)}
 		}
 		compList, err := c.AppLogComponents(ctx)
 		if err != nil {
-			return ErrorMsg{Err: err}
+			return ErrorMsg{Err: fmt.Errorf("applog components: %w", err)}
 		}
 		hostList, err := c.AppLogHosts(ctx)
 		if err != nil {
-			return ErrorMsg{Err: err}
+			return ErrorMsg{Err: fmt.Errorf("applog hosts: %w", err)}
 		}
 		return MetaLoadedMsg{Feed: "applog", Services: svcList, Components: compList, Hosts: hostList}
 	}
@@ -687,74 +727,80 @@ func (a *App) loadApplogMeta() tea.Cmd {
 func (a *App) loadNetlogMeta() tea.Cmd {
 	c := a.client
 	return func() tea.Msg {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), metaLoadTimeout)
+		defer cancel()
 		hostList, err := c.NetlogHosts(ctx)
 		if err != nil {
-			return ErrorMsg{Err: err}
+			return ErrorMsg{Err: fmt.Errorf("netlog hosts: %w", err)}
 		}
 		progList, err := c.NetlogPrograms(ctx)
 		if err != nil {
-			return ErrorMsg{Err: err}
+			return ErrorMsg{Err: fmt.Errorf("netlog programs: %w", err)}
 		}
 		return MetaLoadedMsg{Feed: "netlog", Hosts: hostList, Programs: progList}
 	}
 }
 
-// SSE drain helpers per event type.
+// SSE drain helpers per event type. Returns the parsed events and the count
+// of unmarshal failures encountered (so callers can surface parse errors
+// instead of silently dropping them).
 
-func drainSrvlogSSE(stream *client.SSEStream, maxEvents int) []client.SrvlogEvent {
-	var events []client.SrvlogEvent
+func drainSrvlogSSE(stream *client.SSEStream, maxEvents int) (events []client.SrvlogEvent, parseErrors int) {
 	for range maxEvents {
 		select {
 		case evt, ok := <-stream.Events():
 			if !ok {
-				return events
+				return events, parseErrors
 			}
 			var e client.SrvlogEvent
-			if err := json.Unmarshal(evt.Data, &e); err == nil {
-				events = append(events, e)
+			if err := json.Unmarshal(evt.Data, &e); err != nil {
+				parseErrors++
+				continue
 			}
+			events = append(events, e)
 		default:
-			return events
+			return events, parseErrors
 		}
 	}
-	return events
+	return events, parseErrors
 }
 
-func drainApplogSSE(stream *client.SSEStream, maxEvents int) []client.AppLogEvent {
-	var events []client.AppLogEvent
+func drainApplogSSE(stream *client.SSEStream, maxEvents int) (events []client.AppLogEvent, parseErrors int) {
 	for range maxEvents {
 		select {
 		case evt, ok := <-stream.Events():
 			if !ok {
-				return events
+				return events, parseErrors
 			}
 			var e client.AppLogEvent
-			if err := json.Unmarshal(evt.Data, &e); err == nil {
-				events = append(events, e)
+			if err := json.Unmarshal(evt.Data, &e); err != nil {
+				parseErrors++
+				continue
 			}
+			events = append(events, e)
 		default:
-			return events
+			return events, parseErrors
 		}
 	}
-	return events
+	return events, parseErrors
 }
 
-func drainNetlogSSE(stream *client.SSEStream, maxEvents int) []client.SrvlogEvent {
-	var events []client.SrvlogEvent
+func drainNetlogSSE(stream *client.SSEStream, maxEvents int) (events []client.SrvlogEvent, parseErrors int) {
 	for range maxEvents {
 		select {
 		case evt, ok := <-stream.Events():
 			if !ok {
-				return events
+				return events, parseErrors
 			}
 			var e client.SrvlogEvent
-			if err := json.Unmarshal(evt.Data, &e); err == nil {
-				events = append(events, e)
+			if err := json.Unmarshal(evt.Data, &e); err != nil {
+				parseErrors++
+				continue
 			}
+			events = append(events, e)
 		default:
-			return events
+			return events, parseErrors
 		}
 	}
-	return events
+	return events, parseErrors
 }
