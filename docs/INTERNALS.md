@@ -667,6 +667,138 @@ The shipper correctly implements `WithAttrs` and `WithGroup` by creating new `Ha
 
 ---
 
+## Terminal UI (`internal/tui`)
+
+The `internal/tui` package implements the shared terminal UI used by two commands: the standalone `taillight-tui` binary and the `taillight-wish` SSH server. Both produce the exact same UI — they differ only in how I/O is wired up.
+
+### Package layout
+
+```
+internal/tui/
+├── app.go              # root bubbletea Model (tab routing, lifecycle)
+├── app_keys.go         # key dispatch and focus management
+├── app_streams.go      # SSE stream init, reconnect, drain loops
+├── app_toast.go        # critical-event notification toasts
+├── keys.go             # global key bindings and tab IDs
+├── msg.go              # custom tea.Msg types
+├── client/             # HTTP + SSE client
+│   ├── client.go       # base HTTP client with auth headers
+│   ├── sse.go          # SSEStream with reconnect + exponential backoff
+│   ├── srvlog.go       # srvlog list / stream endpoints
+│   ├── applog.go       # applog list / stream endpoints
+│   ├── netlog.go       # netlog list / stream endpoints
+│   ├── device.go       # per-device summaries
+│   ├── stats.go        # dashboard statistics
+│   └── notification.go # notification rules / channels
+├── view/
+│   ├── dashboard/      # summary stats, severity distribution, recent critical
+│   ├── netlog/         # network log table
+│   ├── srvlog/         # server log table
+│   ├── applog/         # application log table with service/component columns
+│   └── logview/        # generic Model[T] / Adapter[T] shared by log feeds
+├── component/
+│   ├── tabbar.go       # tab navigation with logo
+│   ├── statusbar.go    # LIVE/OFFLINE, filter pills, help hint
+│   ├── toast.go        # notification overlays
+│   └── severity.go     # severity label rendering
+├── theme/              # Tokyo Night palette and styles
+├── buffer/ring.go      # fixed-size ring buffer for high-volume streams
+└── highlight/          # syntax highlighting for log messages
+```
+
+### Root model
+
+`tui.App` is the single root `tea.Model`. It owns:
+
+- The active tab ID and one view instance per tab
+- The API client (`*client.Client`)
+- The list of active SSE streams (lazy-initialized on first tab activation)
+- A toast queue for critical notifications
+- The filter dirty-flag that prevents unnecessary rebuilds
+
+Messages flow through `Update` and are dispatched by `app_keys.go` to the currently focused view. Each view's `Update` returns new `tea.Cmd`s which are threaded back to the root program.
+
+### SSE stream lifecycle
+
+Streams are owned by `app_streams.go`. When the user switches to a tab for the first time, the app constructs an `SSEStream`, which is a goroutine reading `text/event-stream` frames from the API and delivering them as `tea.Msg` values via `tea.Program.Send`.
+
+- **Backoff on disconnect** — `client/sse.go` uses exponential backoff capped at 30s plus jitter on reconnect
+- **Drain loops** — `app_streams.go` drains queued events in batches (`batch_interval_ms`, default 50) to avoid per-event re-render churn
+- **Ring buffer** — each log view holds a fixed-size ring buffer (`buffer/ring.go`, default 10000) so memory is bounded even under sustained load
+- **Status tracking** — the status bar reads LIVE/OFFLINE from each stream's state and surfaces parse error counts
+
+### Lifecycle and cleanup
+
+The critical method is `App.Cleanup()`. It stops every active stream goroutine and closes the client's idle HTTP connections. Both frontends must call it on program exit:
+
+- `taillight-tui/main.go:74` — `defer app.Cleanup()` in `run()`
+- `taillight-wish/main.go` — `defer app.Cleanup()` inside `sessionMiddleware` (every SSH session)
+
+Without `Cleanup()`, each TUI run or SSH session would leak the stream goroutines and their underlying TCP connections. On `taillight-wish`, this is particularly important because new sessions arrive over time and leaks are unbounded.
+
+## SSH Server (`cmd/taillight-wish`)
+
+The wish command wraps the TUI in an SSH server using charm's `wish/v2` framework. The binary is its own cobra command with flags for listen address, host key path, `authorized_keys` path, demo mode, and API credentials.
+
+### Startup
+
+1. **Logger** — `setupLogger` creates a text handler for stderr plus (if `--logshipper-enabled`) a `pkg/logshipper` handler that ships to the API's applog ingest endpoint. Both handlers are combined via `logshipper.MultiHandler`.
+2. **API health check** — before binding the listener, the server calls `client.Health` with a 5s timeout. If the API is unreachable the server refuses to start. This avoids the footgun of accepting SSH sessions that would immediately fail.
+3. **Auth option** — `buildAuthOption` either loads the `authorized_keys` file (production) or returns an accept-any handler with a loud warning banner (`--allow-any-key` demo mode). The file's existence is checked up front — if missing and demo mode is off, the server prints setup instructions to stderr and exits. Password auth is never enabled.
+4. **Server** — `wish.NewServer` is configured with the session middleware, `activeterm.Middleware` (rejects non-PTY sessions), and `logging.Middleware` (per-connection logging). A signal handler triggers `srv.Shutdown(ctx)` on SIGINT/SIGTERM with a 10s grace period.
+
+### Session middleware
+
+`sessionMiddleware` replaces wish's built-in `bubbletea.MiddlewareWithProgramHandler` because the built-in helper has no after-program hook — it returns as soon as the program exits, and there's no place to run `app.Cleanup()`. The custom middleware owns the entire session:
+
+```go
+func(s ssh.Session) {
+    pty, windowChanges, active := s.Pty()
+    if !active { /* reject non-PTY */ return }
+
+    fingerprint := gossh.FingerprintSHA256(s.PublicKey())
+    logger.Info("session started", ...)
+
+    c := client.New(...)
+    app := tui.NewApp(cfg, c)
+    defer app.Cleanup()                     // critical: release SSE goroutines
+
+    program := tea.NewProgram(app,
+        tea.WithInput(input),
+        tea.WithOutput(output),
+        tea.WithEnvironment(append(s.Environ(), "TERM=...", "COLORTERM=truecolor")),
+        tea.WithColorProfile(colorprofile.TrueColor),
+        tea.WithFPS(fpsRate),
+        tea.WithWindowSize(pty.Window.Width, pty.Window.Height),
+        tea.WithFilter(suppressSuspend),    // ctrl+z is meaningless over SSH
+    )
+
+    go forwardWindowResize(ctx, windowChanges, program)
+
+    _, _ = program.Run()
+    logger.Info("session ended", "duration", time.Since(started))
+    next(s)
+}
+```
+
+Key details:
+
+- **I/O selection** — when wish provides a real PTY (`pty.Slave != nil` and `!s.EmulatedPty()`), the program reads/writes the slave device directly. Otherwise it uses `s` as both reader and writer.
+- **COLORTERM=truecolor** — injected into the environment so bubbletea and lipgloss detect TrueColor support inside the SSH session.
+- **Window resize forwarding** — a goroutine reads from `windowChanges` and sends `tea.WindowSizeMsg` to the program until the session context cancels.
+- **Suspend suppression** — `tea.WithFilter` rewrites `tea.SuspendMsg` to `tea.ResumeMsg` so ctrl+z is a no-op.
+
+### Session logging
+
+Every session logs two events via `pkg/logshipper`:
+
+- `session started` — user, remote address, SHA256 key fingerprint, terminal type, window size
+- `session ended` — user, remote address, session duration (rounded to seconds)
+
+These are shipped under service `taillight-wish` / component `ssh-server`, and because logshipper uses the applog ingest endpoint, session events appear in the same log stream as any other application log — queryable, filterable, notification-eligible.
+
+---
+
 ## Key Design Decisions
 
 ### Why SSE over WebSockets

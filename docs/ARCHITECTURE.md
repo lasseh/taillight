@@ -4,7 +4,7 @@ This document describes the system design, data flow, component interactions, da
 
 ## System Overview
 
-Taillight is a real-time srvlog and application log viewer built on TimescaleDB, Server-Sent Events (SSE), and a Vue 3 frontend. Network devices send syslog to rsyslog, which inserts into PostgreSQL as srvlog events. Applications send structured logs via an HTTP ingest API. Both streams are broadcast to browser clients in real time through SSE fan-out brokers.
+Taillight is a real-time srvlog and application log viewer built on TimescaleDB, Server-Sent Events (SSE), and three different clients. Network devices send syslog to rsyslog, which inserts into PostgreSQL as srvlog events. Applications send structured logs via an HTTP ingest API. Both streams are broadcast in real time through SSE fan-out brokers to three client types: a Vue 3 browser SPA, a `taillight-tui` terminal binary, and a `taillight-wish` SSH server that hosts the same TUI per SSH session. All three consume the same HTTP API and SSE endpoints.
 
 ```
   Srvlog path:
@@ -30,10 +30,12 @@ Taillight is a real-time srvlog and application log viewer built on TimescaleDB,
                                                                |
                                                         SSE (text/event-stream)
                                                                |
-                                                       +-------v--------+
-                                                       | Browser Client |
-                                                       | (Vue 3 SPA)   |
-                                                       +----------------+
+                                    +--------------------------+--------------------------+
+                                    |                          |                          |
+                            +-------v--------+        +--------v---------+       +--------v---------+
+                            | Browser Client |        |  taillight-tui   |       |  taillight-wish  |
+                            | (Vue 3 SPA)    |        |  (terminal)      |       |  (SSH -> TUI)    |
+                            +----------------+        +------------------+       +------------------+
 
   Application log path:
 
@@ -51,10 +53,12 @@ Taillight is a real-time srvlog and application log viewer built on TimescaleDB,
                                  |
                           SSE (text/event-stream)
                                  |
-                         +-------v--------+
-                         | Browser Client |
-                         | (Vue 3 SPA)   |
-                         +----------------+
+                  +--------------+--------------+----------------+
+                  |                             |                |
+          +-------v--------+           +--------v--------+ +-----v----------+
+          | Browser Client |           | taillight-tui   | | taillight-wish |
+          | (Vue 3 SPA)    |           | (terminal)      | | (SSH -> TUI)   |
+          +----------------+           +-----------------+ +----------------+
 ```
 
 ## Data Flow
@@ -203,6 +207,50 @@ Key design decisions:
 | Slack | `internal/notification/backend` | Webhook POST |
 | Webhook | `internal/notification/backend` | HTTP POST with JSON payload |
 | Email | `internal/notification/backend` | SMTP with STARTTLS |
+
+### Clients
+
+Three clients consume the same HTTP/SSE API. The backend has no per-client code paths — a client is anything that can authenticate and hold an `EventSource` (or equivalent SSE reader).
+
+**Browser SPA** (`frontend/`): Vue 3 app served by nginx. Uses native `EventSource` for SSE, Pinia stores for state, and Unovis for charts. Cookie or (less commonly) Bearer auth.
+
+**`taillight-tui`** (`api/cmd/taillight-tui/`): Standalone terminal binary built on Charmbracelet `bubbletea/v2`. Entry point resolves config (`~/.config/taillight/tui.yml` or `$XDG_CONFIG_HOME`) then CLI flags, constructs a `tui.App`, and runs the bubbletea program. The shared TUI package (`internal/tui/`) contains:
+
+- `app.go` — root `tea.Model` with tab routing, message dispatch, SSE stream lifecycle
+- `client/` — HTTP + SSE client with automatic reconnection and exponential backoff
+- `view/{dashboard,netlog,srvlog,applog,logview}/` — per-tab models and renderers; `logview/` is a generic `Model[T]`/`Adapter[T]` shared by all log feeds
+- `component/` — tab bar, status bar, toast overlay, severity rendering
+- `theme/` — Tokyo Night palette with TrueColor detection
+- `buffer/ring.go` — ring buffer (10k events default) for high-throughput streams
+- `highlight/` — log message syntax highlighting
+
+Each tab lazy-initializes its SSE stream on first activation. Cleanup (`app.Cleanup()`) must be called on program exit to release the streams' goroutines and TCP connections.
+
+**`taillight-wish`** (`api/cmd/taillight-wish/`): SSH server built on charm's `wish/v2` framework. On startup it performs a health check against the API, then listens on `:2222` (default) with public-key auth from an `authorized_keys` file (production) or `--allow-any-key` (loud-warning demo mode). Password auth is intentionally disabled.
+
+Each SSH session runs through a custom `sessionMiddleware` that:
+
+1. Requires a PTY (rejects non-PTY sessions)
+2. Logs session start with user, remote address, SHA256 key fingerprint, terminal type, window size
+3. Constructs a fresh `client.Client` + `tui.App` and a bubbletea `Program` wired to the session's I/O
+4. Forwards window-resize events to the program
+5. Suppresses `ctrl+z` (suspend is meaningless over SSH)
+6. **Defers `app.Cleanup()`** — this is why a custom middleware is used instead of `bubbletea.MiddlewareWithProgramHandler`, which has no after-program hook. Without cleanup, every disconnect would leak the session's SSE goroutines and connections.
+7. Logs session end with duration
+
+Wish server logs are themselves shipped to the Taillight applog ingest endpoint via `pkg/logshipper` (service `taillight-wish`, component `ssh-server`) so session events are queryable alongside other system logs.
+
+```
+  taillight-wish client path:
+
+  ssh user@host:2222 ──► wish sessionMiddleware ──► per-session tui.App
+                                                              │
+                                                              │ HTTP + SSE
+                                                              ▼
+                                                         Taillight API
+                                                         (same endpoints
+                                                          used by browser)
+```
 
 ### Auth Layer
 
