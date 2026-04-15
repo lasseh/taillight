@@ -257,9 +257,10 @@ func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler) {
 		if host == "" {
 			host, _ = os.Hostname()
 		}
-		shipper = logshipper.New(logshipper.Config{
+		var err error
+		shipper, err = logshipper.New(logshipper.Config{
 			Endpoint:    "http://" + addr + "/api/v1/applog/ingest",
-			APIKey:      cfg.LogShipper.APIKey,
+			APIKey:      logshipper.Secret(cfg.LogShipper.APIKey),
 			Service:     cfg.LogShipper.Service,
 			Component:   cfg.LogShipper.Component,
 			Host:        host,
@@ -269,6 +270,10 @@ func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler) {
 			FlushPeriod: cfg.LogShipper.FlushPeriod,
 			BufferSize:  cfg.LogShipper.BufferSize,
 		})
+		if err != nil {
+			slog.New(consoleHandler).Error("logshipper init failed", "error", err)
+			return slog.New(consoleHandler), nil
+		}
 		logHandler = logshipper.MultiHandler(consoleHandler, shipper)
 	}
 

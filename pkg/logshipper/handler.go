@@ -5,11 +5,13 @@ package logshipper
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"sync"
@@ -31,9 +33,27 @@ const (
 	// defaultBufferSize is the default capacity of the buffered channel.
 	defaultBufferSize = 1024
 
+	// defaultSendTimeout is the default per-request HTTP timeout.
+	defaultSendTimeout = 30 * time.Second
+
 	// httpErrorStatusCode is the minimum status code considered an error.
 	httpErrorStatusCode = 400
 )
+
+// Secret is a redacting string type for sensitive values like API keys.
+// Its String, GoString, and MarshalJSON methods all return "[REDACTED]",
+// so accidental logging via %v/%+v/%#v or JSON encoding cannot leak the value.
+// Cast to string explicitly at the point of use (e.g. the Authorization header).
+type Secret string
+
+// String returns a redacted placeholder so %v/%s never leak the value.
+func (Secret) String() string { return "[REDACTED]" }
+
+// GoString returns a redacted placeholder so %#v never leaks the value.
+func (Secret) GoString() string { return "[REDACTED]" }
+
+// MarshalJSON returns a redacted placeholder so JSON encoding never leaks the value.
+func (Secret) MarshalJSON() ([]byte, error) { return []byte(`"[REDACTED]"`), nil }
 
 // levelString maps any slog.Level to one of the five canonical taillight
 // severity strings: DEBUG, INFO, WARN, ERROR, FATAL.
@@ -54,8 +74,8 @@ func levelString(l slog.Level) string {
 
 // Config configures the logshipper Handler.
 type Config struct {
-	Endpoint    string        // POST URL, e.g. http://localhost:8080/api/v1/applog/ingest
-	APIKey      string        // Bearer token.
+	Endpoint    string        // POST URL, http:// or https:// only.
+	APIKey      Secret        // Bearer token. Redacted in all string/JSON formatting.
 	Service     string        // Populates the service field for all entries.
 	Component   string        // Optional component field.
 	Host        string        // Optional host/instance identifier.
@@ -64,10 +84,30 @@ type Config struct {
 	BatchSize   int           // Flush when batch reaches this size.
 	FlushPeriod time.Duration // Flush at least this often.
 	BufferSize  int           // Buffered channel capacity.
-	Client      *http.Client  // Optional HTTP client (defaults to http.DefaultClient).
+
+	// SendTimeout bounds each HTTP POST (including TLS handshake). Default 30s.
+	// Applied as Client.Timeout when Client is nil, and as a per-send context
+	// deadline in all cases so a hung endpoint cannot stall the drain loop.
+	SendTimeout time.Duration
+
+	// Client is an optional HTTP client. If set, InsecureSkipVerify is ignored
+	// and the caller is responsible for TLS config, redirect policy, and the
+	// client-level timeout. SendTimeout is still enforced via context.
+	Client *http.Client
+
+	// InsecureSkipVerify disables TLS certificate verification for the ingest
+	// endpoint. Only honored when Client is nil. Do not enable in production
+	// unless you understand the risk (MITM exposure).
+	InsecureSkipVerify bool
+
+	// Redact, if non-nil, is called for every attr value before it is written
+	// into the outgoing JSON payload. It receives the attr key and the resolved
+	// value, and must return the value to ship. Return nil to drop the attr
+	// entirely. Use this to scrub PII, tokens, session IDs, etc.
+	Redact func(key string, value any) any
 }
 
-func (c *Config) setDefaults() {
+func (c *Config) setDefaults() error {
 	if c.Host == "" {
 		c.Host, _ = os.Hostname()
 	}
@@ -80,26 +120,76 @@ func (c *Config) setDefaults() {
 	if c.BufferSize <= 0 {
 		c.BufferSize = defaultBufferSize
 	}
-	if c.Client == nil {
-		c.Client = http.DefaultClient
+	if c.SendTimeout <= 0 {
+		c.SendTimeout = defaultSendTimeout
 	}
+
+	u, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return fmt.Errorf("parse endpoint %q: %w", c.Endpoint, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("endpoint %q: scheme must be http or https", c.Endpoint)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("endpoint %q: missing host", c.Endpoint)
+	}
+
+	if c.Client == nil {
+		c.Client = buildClient(c.InsecureSkipVerify, c.SendTimeout)
+	}
+	return nil
+}
+
+// buildClient returns an http.Client with sensible defaults for a log shipper:
+// TLS 1.2+, optional skip-verify, bounded timeouts, and CheckRedirect set to
+// ErrUseLastResponse so the Bearer token is never replayed to a redirect target.
+func buildClient(insecureSkipVerify bool, timeout time.Duration) *http.Client {
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: insecureSkipVerify, //nolint:gosec // Opt-in per Config.InsecureSkipVerify.
+		},
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          10,
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+// state holds fields shared by all Handler instances derived from a single
+// New call (via WithAttrs/WithGroup). Counters live here so that metrics
+// aggregate across child loggers rather than each With() call starting fresh.
+type state struct {
+	dropped    atomic.Int64
+	sendFailed atomic.Int64
+	closing    atomic.Bool
+
+	// shutdownCtx is written by Shutdown before close(done) and read by the
+	// drain branch in loop after receiving from done. The close/receive pair
+	// provides the happens-before, so no atomic is required for the field.
+	shutdownCtx context.Context
 }
 
 // Handler implements slog.Handler. It buffers log entries and ships them in
 // batches via HTTP POST to the configured ingest endpoint.
 type Handler struct {
-	cfg        Config
-	ch         chan logEntry
-	done       chan struct{}
-	wg         sync.WaitGroup
-	closeOnce  sync.Once
-	dropped    atomic.Int64
-	sendFailed atomic.Int64
-	preAttrs   []slog.Attr
-	groups     []string
-	ctx        context.Context
-	cancel     context.CancelFunc
-	logger     *slog.Logger
+	cfg       Config
+	state     *state
+	ch        chan logEntry
+	done      chan struct{}
+	wg        *sync.WaitGroup
+	closeOnce *sync.Once
+	preAttrs  []slog.Attr
+	groups    []string
+	logger    *slog.Logger
 }
 
 type logEntry struct {
@@ -118,21 +208,24 @@ type ingestRequest struct {
 }
 
 // New creates and starts a Handler that batches and sends logs in the background.
-func New(cfg Config) *Handler {
-	cfg.setDefaults()
+// It returns an error if Config.Endpoint is missing or has an unsupported scheme.
+func New(cfg Config) (*Handler, error) {
+	if err := cfg.setDefaults(); err != nil {
+		return nil, err
+	}
 
-	ctx, cancel := context.WithCancel(context.Background())
 	h := &Handler{
-		cfg:    cfg,
-		ch:     make(chan logEntry, cfg.BufferSize),
-		done:   make(chan struct{}),
-		ctx:    ctx,
-		cancel: cancel,
-		logger: slog.Default(),
+		cfg:       cfg,
+		state:     &state{},
+		ch:        make(chan logEntry, cfg.BufferSize),
+		done:      make(chan struct{}),
+		wg:        &sync.WaitGroup{},
+		closeOnce: &sync.Once{},
+		logger:    slog.Default(),
 	}
 	h.wg.Add(1)
 	go h.loop()
-	return h
+	return h, nil
 }
 
 // Enabled returns true if the level is at or above the configured minimum.
@@ -141,7 +234,13 @@ func (h *Handler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 // Handle converts the slog.Record to a logEntry and pushes it to the channel.
+// Entries submitted after Shutdown begins are dropped and counted.
 func (h *Handler) Handle(_ context.Context, r slog.Record) error {
+	if h.state.closing.Load() {
+		h.state.dropped.Add(1)
+		return nil
+	}
+
 	entry := logEntry{
 		Timestamp: r.Time,
 		Level:     levelString(r.Level),
@@ -156,12 +255,12 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 
 	// Pre-resolved attrs from WithAttrs.
 	for _, a := range h.preAttrs {
-		setAttr(attrs, h.groups, a)
+		h.setAttr(attrs, h.groups, a)
 	}
 
 	// Record attrs.
 	r.Attrs(func(a slog.Attr) bool {
-		setAttr(attrs, h.groups, a)
+		h.setAttr(attrs, h.groups, a)
 		return true
 	})
 
@@ -193,58 +292,73 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	select {
 	case h.ch <- entry:
 	default:
-		h.dropped.Add(1)
+		h.state.dropped.Add(1)
 	}
 
 	return nil
 }
 
 // WithAttrs returns a new Handler with the given pre-resolved attributes.
+// The returned handler shares the parent's state (counters, channel, goroutine)
+// so Dropped/SendFailed aggregate across all derived loggers.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &Handler{
-		cfg:      h.cfg,
-		ch:       h.ch,
-		done:     h.done,
-		preAttrs: append(cloneAttrs(h.preAttrs), attrs...),
-		groups:   cloneStrings(h.groups),
-		ctx:      h.ctx,
-		cancel:   h.cancel,
-		logger:   h.logger,
+		cfg:       h.cfg,
+		state:     h.state,
+		ch:        h.ch,
+		done:      h.done,
+		wg:        h.wg,
+		closeOnce: h.closeOnce,
+		preAttrs:  append(cloneAttrs(h.preAttrs), attrs...),
+		groups:    cloneStrings(h.groups),
+		logger:    h.logger,
 	}
 }
 
 // WithGroup returns a new Handler with the given group prefix.
+// The returned handler shares the parent's state (see WithAttrs).
 func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
 	return &Handler{
-		cfg:      h.cfg,
-		ch:       h.ch,
-		done:     h.done,
-		preAttrs: cloneAttrs(h.preAttrs),
-		groups:   append(cloneStrings(h.groups), name),
-		ctx:      h.ctx,
-		cancel:   h.cancel,
-		logger:   h.logger,
+		cfg:       h.cfg,
+		state:     h.state,
+		ch:        h.ch,
+		done:      h.done,
+		wg:        h.wg,
+		closeOnce: h.closeOnce,
+		preAttrs:  cloneAttrs(h.preAttrs),
+		groups:    append(cloneStrings(h.groups), name),
+		logger:    h.logger,
 	}
 }
 
-// Dropped returns the number of log entries dropped due to a full buffer.
+// Dropped returns the number of log entries dropped due to a full buffer or
+// submission after shutdown began.
 func (h *Handler) Dropped() int64 {
-	return h.dropped.Load()
+	return h.state.dropped.Load()
 }
 
 // SendFailed returns the number of log entries that failed to send due to HTTP errors.
 func (h *Handler) SendFailed() int64 {
-	return h.sendFailed.Load()
+	return h.state.sendFailed.Load()
 }
 
 // Shutdown flushes remaining buffered logs and stops the background goroutine.
-// It closes the done channel first to trigger drain, then cancels the context
-// after the loop exits so in-flight sends are not aborted.
+// It marks the handler as closing (so concurrent Handle calls drop fast),
+// records the caller's context for the final drain flush, and waits for the
+// drain goroutine to finish or the context to expire.
+//
+// If ctx expires while a send is in flight, Shutdown returns ctx.Err() and the
+// shipper goroutine will exit once the in-flight send finishes (bounded by
+// Config.SendTimeout).
 func (h *Handler) Shutdown(ctx context.Context) error {
-	h.closeOnce.Do(func() { close(h.done) })
+	h.closeOnce.Do(func() {
+		h.state.closing.Store(true)
+		h.state.shutdownCtx = ctx
+		close(h.done)
+	})
 
 	finished := make(chan struct{})
 	go func() {
@@ -254,10 +368,8 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-finished:
-		h.cancel()
 		return nil
 	case <-ctx.Done():
-		h.cancel()
 		return ctx.Err()
 	}
 }
@@ -275,13 +387,11 @@ func (h *Handler) loop() {
 		}
 		if err := h.send(ctx, batch); err != nil {
 			h.logger.Warn("logshipper send failed", "error", err, "batch_size", len(batch))
-			h.sendFailed.Add(int64(len(batch)))
-			// Cap retained batch to prevent OOM on persistent failures.
-			if len(batch) >= h.cfg.BatchSize*10 {
-				batch = batch[:0]
-			}
-			return
+			h.state.sendFailed.Add(int64(len(batch)))
 		}
+		// Always reset. Failed batches are dropped rather than retained, to
+		// keep memory bounded and behavior predictable. Callers that need
+		// durability should front the ingest endpoint with a sidecar agent.
 		batch = batch[:0]
 	}
 
@@ -290,18 +400,21 @@ func (h *Handler) loop() {
 		case entry := <-h.ch:
 			batch = append(batch, entry)
 			if len(batch) >= h.cfg.BatchSize {
-				flush(h.ctx)
+				flush(context.Background())
 			}
 		case <-ticker.C:
-			flush(h.ctx)
+			flush(context.Background())
 		case <-h.done:
-			// Drain remaining entries using a fresh context for final flush.
+			drainCtx := h.state.shutdownCtx
+			if drainCtx == nil {
+				drainCtx = context.Background()
+			}
 			for {
 				select {
 				case entry := <-h.ch:
 					batch = append(batch, entry)
 				default:
-					flush(context.Background())
+					flush(drainCtx)
 					return
 				}
 			}
@@ -310,6 +423,9 @@ func (h *Handler) loop() {
 }
 
 func (h *Handler) send(ctx context.Context, batch []logEntry) error {
+	ctx, cancel := context.WithTimeout(ctx, h.cfg.SendTimeout)
+	defer cancel()
+
 	body, err := json.Marshal(ingestRequest{Logs: batch})
 	if err != nil {
 		return fmt.Errorf("marshal batch: %w", err)
@@ -320,7 +436,7 @@ func (h *Handler) send(ctx context.Context, batch []logEntry) error {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+h.cfg.APIKey)
+	req.Header.Set("Authorization", "Bearer "+string(h.cfg.APIKey))
 
 	resp, err := h.cfg.Client.Do(req)
 	if err != nil {
@@ -336,7 +452,7 @@ func (h *Handler) send(ctx context.Context, batch []logEntry) error {
 	return nil
 }
 
-func setAttr(m map[string]any, groups []string, a slog.Attr) {
+func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 	a.Value = a.Value.Resolve()
 	if a.Equal(slog.Attr{}) {
 		return
@@ -360,26 +476,30 @@ func setAttr(m map[string]any, groups []string, a slog.Attr) {
 			target = sub
 		}
 		for _, ga := range groupAttrs {
-			setAttr(target, nil, ga)
+			h.setAttr(target, nil, ga)
 		}
 		return
 	}
 
+	var v any
 	if a.Value.Kind() == slog.KindDuration {
-		target[a.Key] = a.Value.Duration().String()
-		return
+		v = a.Value.Duration().String()
+	} else {
+		v = a.Value.Any()
+		if e, ok := v.(error); ok {
+			v = e.Error()
+		} else if _, ok := v.(json.Marshaler); !ok {
+			// Use String() for fmt.Stringer types that don't implement
+			// json.Marshaler, so *url.URL, *regexp.Regexp etc. serialize readably.
+			if s, ok := v.(fmt.Stringer); ok {
+				v = s.String()
+			}
+		}
 	}
 
-	v := a.Value.Any()
-	if e, ok := v.(error); ok {
-		target[a.Key] = e.Error()
-		return
-	}
-	// Use String() for fmt.Stringer types that don't implement json.Marshaler,
-	// so types like *url.URL and *regexp.Regexp serialize readably.
-	if _, ok := v.(json.Marshaler); !ok {
-		if s, ok := v.(fmt.Stringer); ok {
-			target[a.Key] = s.String()
+	if h.cfg.Redact != nil {
+		v = h.cfg.Redact(a.Key, v)
+		if v == nil {
 			return
 		}
 	}

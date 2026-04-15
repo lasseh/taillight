@@ -95,9 +95,9 @@ func run(_ *cobra.Command, _ []string) error {
 	minLevel := parseMinLevel(cfg.MinLevel)
 
 	newHandler := func(service, component, hostOverride string) *logshipper.Handler {
-		h := logshipper.New(logshipper.Config{
+		h, err := logshipper.New(logshipper.Config{
 			Endpoint:    cfg.Endpoint,
-			APIKey:      cfg.APIKey,
+			APIKey:      logshipper.Secret(cfg.APIKey),
 			Service:     service,
 			Component:   component,
 			Host:        hostOverride,
@@ -107,6 +107,10 @@ func run(_ *cobra.Command, _ []string) error {
 			BufferSize:  cfg.BufferSize,
 			Client:      httpClient,
 		})
+		if err != nil {
+			logger.Error("logshipper init failed", "error", err)
+			os.Exit(1)
+		}
 		handlers = append(handlers, h)
 		return h
 	}

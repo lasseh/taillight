@@ -15,6 +15,15 @@ import (
 	"time"
 )
 
+func mustNew(t *testing.T, cfg Config) *Handler {
+	t.Helper()
+	h, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return h
+}
+
 func TestHandler_BatchSend(t *testing.T) {
 	var mu sync.Mutex
 	var received []ingestRequest
@@ -34,7 +43,7 @@ func TestHandler_BatchSend(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -96,7 +105,7 @@ func TestHandler_FlushOnPeriod(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -137,7 +146,7 @@ func TestHandler_Shutdown(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -182,7 +191,7 @@ func TestHandler_WithAttrs(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -231,7 +240,7 @@ func TestHandler_ErrorSerialization(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -271,7 +280,7 @@ func TestHandler_ErrorSerialization(t *testing.T) {
 }
 
 func TestHandler_Dropped(t *testing.T) {
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    "http://localhost:0/unreachable",
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -308,7 +317,7 @@ func TestMultiHandler(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	shipper := New(Config{
+	shipper := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "multi-test",
@@ -352,7 +361,7 @@ func TestHandler_LevelMapping(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -431,7 +440,7 @@ func TestHandler_DurationSerialization(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -482,7 +491,7 @@ func TestHandler_StringerSerialization(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -534,7 +543,7 @@ func TestHandler_JSONMarshalerPreserved(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -580,7 +589,7 @@ func TestHandler_SendFailedCounter(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -617,7 +626,7 @@ func TestHandler_AddSource(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",
@@ -664,7 +673,7 @@ func TestHandler_AddSourceDisabled(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := New(Config{
+	h := mustNew(t, Config{
 		Endpoint:    srv.URL,
 		APIKey:      "test-key",
 		Service:     "test-svc",

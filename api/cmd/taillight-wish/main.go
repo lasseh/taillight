@@ -201,15 +201,19 @@ func setupLogger() (*slog.Logger, *logshipper.Handler) {
 	}
 
 	host, _ := os.Hostname()
-	shipper := logshipper.New(logshipper.Config{
+	shipper, err := logshipper.New(logshipper.Config{
 		Endpoint:  serverURL + "/api/v1/applog/ingest",
-		APIKey:    apiKey,
+		APIKey:    logshipper.Secret(apiKey),
 		Service:   "taillight-wish",
 		Component: "ssh-server",
 		Host:      host,
 		AddSource: true,
 		MinLevel:  slog.LevelInfo,
 	})
+	if err != nil {
+		slog.New(consoleHandler).Error("logshipper init failed", "error", err)
+		return slog.New(consoleHandler), nil
+	}
 	return slog.New(logshipper.MultiHandler(consoleHandler, shipper)), shipper
 }
 
