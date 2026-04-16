@@ -7,7 +7,8 @@ import type {
 } from '@/types/taillight-metrics'
 import type { SimplePoint } from '@/types/chart'
 
-const REFRESH_INTERVAL = 60_000 // 60 seconds
+const REFRESH_INTERVAL_IDLE = 60_000 // 60 seconds when tab inactive
+const REFRESH_INTERVAL_ACTIVE = 5_000 // 5 seconds when tab active
 
 export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
   const summary = ref<TaillightMetricsSummary | null>(null)
@@ -26,6 +27,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
   const interval_ = ref('1m')
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
+  let refreshInterval = REFRESH_INTERVAL_IDLE
 
   function toSimpleLine(series: TaillightMetricsTimeSeries[]): SimplePoint[] {
     return series
@@ -42,9 +44,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
   const dbPoolTotalLine = computed(() => toSimpleLine(dbPoolTotalSeries.value))
 
   async function fetchAll() {
-    if (!summary.value) {
-      loading.value = true
-    }
+    loading.value = true
     error.value = null
 
     try {
@@ -97,7 +97,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
   function startRefresh() {
     stopRefresh()
     fetchAll()
-    refreshTimer = setInterval(fetchAll, REFRESH_INTERVAL)
+    refreshTimer = setInterval(fetchAll, refreshInterval)
   }
 
   function stopRefresh() {
@@ -105,6 +105,20 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
       clearInterval(refreshTimer)
       refreshTimer = null
     }
+  }
+
+  /** Switch to the faster poll rate used while the taillight tab is visible. */
+  function activate() {
+    if (refreshInterval === REFRESH_INTERVAL_ACTIVE) return
+    refreshInterval = REFRESH_INTERVAL_ACTIVE
+    if (refreshTimer) startRefresh()
+  }
+
+  /** Switch back to the idle poll rate when the taillight tab is not visible. */
+  function deactivate() {
+    if (refreshInterval === REFRESH_INTERVAL_IDLE) return
+    refreshInterval = REFRESH_INTERVAL_IDLE
+    if (refreshTimer) startRefresh()
   }
 
   return {
@@ -124,5 +138,7 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
     setPreset,
     startRefresh,
     stopRefresh,
+    activate,
+    deactivate,
   }
 })

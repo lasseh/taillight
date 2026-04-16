@@ -39,9 +39,7 @@ export const useRsyslogStatsStore = defineStore('rsyslog-stats', () => {
   const queueLine = computed(() => toSimpleLine(queueSeries.value))
 
   async function fetchAll() {
-    if (!summary.value) {
-      loading.value = true
-    }
+    loading.value = true
     error.value = null
 
     try {

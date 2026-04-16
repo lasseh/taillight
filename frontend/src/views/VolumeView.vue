@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { VisXYContainer, VisStackedBar, VisLine, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { useSrvlogVolumeStore } from '@/stores/srvlog-volume'
 import { useNetlogVolumeStore } from '@/stores/netlog-volume'
 import { useAppLogVolumeStore } from '@/stores/applog-volume'
@@ -381,6 +382,22 @@ const xTickFormat = (v: number) => {
   return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
+// Shown as an overlay on rsyslog tiles while a refetch is in flight.
+const rsyslogTileLoading = computed(
+  () => activeTab.value === 'rsyslog' && rsyslogStats.loading,
+)
+
+// Flip the taillight poll rate based on tab visibility so SSE client counts
+// refresh quickly when the tab is active and relax back to 60s otherwise.
+watch(
+  activeTab,
+  (tab) => {
+    if (tab === 'taillight') taillightMetrics.activate()
+    else taillightMetrics.deactivate()
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   // Sync the active tab's store to the shared range and fetch
   if (activeTab.value === 'rsyslog') {
@@ -392,6 +409,12 @@ onMounted(() => {
   } else {
     syncStore(activeTab.value)
   }
+})
+
+onBeforeUnmount(() => {
+  // Always drop back to the idle interval so leaving the dashboard doesn't
+  // leave a 5s poll running for the taillight store.
+  taillightMetrics.deactivate()
 })
 
 onUnmounted(() => {
@@ -749,46 +772,60 @@ onUnmounted(() => {
     <!-- ═══════════════ RSRVLOG TAB ═══════════════ -->
     <template v-if="activeTab === 'rsyslog'">
       <!-- KPI Cards -->
-      <div v-if="rsyslogStats.summary" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Ingest Rate</div>
-          <div class="text-t-fg mt-1 text-xl font-bold">{{ formatRate(rsyslogStats.summary.ingest_rate) }}</div>
-          <div class="text-t-fg-dark text-xs">msgs/min</div>
-        </div>
-        <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Filter Rate</div>
-          <div class="text-t-fg mt-1 text-xl font-bold">{{ formatRate(rsyslogStats.summary.filter_rate) }}%</div>
-          <div class="text-t-fg-dark text-xs">submitted not processed</div>
-        </div>
-        <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <template v-if="rsyslogStats.summary.total_failed > 0 || rsyslogStats.summary.total_suspended > 0">
-            <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Failures</div>
-            <div class="text-t-red mt-1 text-xl font-bold">
-              {{ formatCount(rsyslogStats.summary.total_failed) }}
-            </div>
-            <div class="text-t-fg-dark text-xs">
-              {{ formatCount(rsyslogStats.summary.total_suspended) }} suspended
-            </div>
-          </template>
-          <template v-else>
-            <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Output Health</div>
-            <div class="text-t-green mt-1 text-xl font-bold">all ok</div>
-          </template>
-        </div>
-        <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Queue Health</div>
-          <div class="text-t-fg mt-1 text-xl font-bold">{{ formatCount(rsyslogStats.summary.main_queue_size) }}</div>
-          <div class="text-t-fg-dark text-xs">
-            max {{ formatCount(rsyslogStats.summary.main_queue_max_size) }}
-            <template v-if="rsyslogStats.summary.total_discarded > 0">
-              &middot; <span class="text-t-red">{{ formatCount(rsyslogStats.summary.total_discarded) }} discarded</span>
+      <div class="relative">
+        <div v-if="rsyslogStats.summary" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div class="bg-t-bg-dark border-t-border rounded border p-3">
+            <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Ingest Rate</div>
+            <div class="text-t-fg mt-1 text-xl font-bold">{{ formatRate(rsyslogStats.summary.ingest_rate) }}</div>
+            <div class="text-t-fg-dark text-xs">msgs/min</div>
+          </div>
+          <div class="bg-t-bg-dark border-t-border rounded border p-3">
+            <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Filter Rate</div>
+            <div class="text-t-fg mt-1 text-xl font-bold">{{ formatRate(rsyslogStats.summary.filter_rate) }}%</div>
+            <div class="text-t-fg-dark text-xs">submitted not processed</div>
+          </div>
+          <div class="bg-t-bg-dark border-t-border rounded border p-3">
+            <template v-if="rsyslogStats.summary.total_failed > 0 || rsyslogStats.summary.total_suspended > 0">
+              <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Failures</div>
+              <div class="text-t-red mt-1 text-xl font-bold">
+                {{ formatCount(rsyslogStats.summary.total_failed) }}
+              </div>
+              <div class="text-t-fg-dark text-xs">
+                {{ formatCount(rsyslogStats.summary.total_suspended) }} suspended
+              </div>
+            </template>
+            <template v-else>
+              <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Output Health</div>
+              <div class="text-t-green mt-1 text-xl font-bold">all ok</div>
             </template>
           </div>
+          <div class="bg-t-bg-dark border-t-border rounded border p-3">
+            <div class="text-t-fg-dark text-[10px] font-semibold uppercase tracking-wider">Queue Health</div>
+            <div class="text-t-fg mt-1 text-xl font-bold">{{ formatCount(rsyslogStats.summary.main_queue_size) }}</div>
+            <div class="text-t-fg-dark text-xs">
+              max {{ formatCount(rsyslogStats.summary.main_queue_max_size) }}
+              <template v-if="rsyslogStats.summary.total_discarded > 0">
+                &middot; <span class="text-t-red">{{ formatCount(rsyslogStats.summary.total_discarded) }} discarded</span>
+              </template>
+            </div>
+          </div>
+        </div>
+        <div
+          v-else-if="!rsyslogTileLoading"
+          class="bg-t-bg-dark border-t-border text-t-fg-dark flex items-center justify-center rounded border py-10 text-sm"
+        >
+          No stats available.
+        </div>
+        <div
+          v-if="rsyslogTileLoading"
+          class="bg-t-bg/60 pointer-events-none absolute inset-0 flex items-center justify-center rounded"
+        >
+          <LoadingIndicator />
         </div>
       </div>
 
       <!-- Received vs Written -->
-      <div>
+      <div class="relative">
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Messages Over Time</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="rsMessagesData" :height="220" :duration="0" :padding="{ top: 8, right: 8 }">
@@ -810,10 +847,16 @@ onUnmounted(() => {
             <span class="text-t-fg-dark">Written to DB</span>
           </span>
         </div>
+        <div
+          v-if="rsyslogTileLoading"
+          class="bg-t-bg/60 pointer-events-none absolute inset-0 flex items-center justify-center rounded"
+        >
+          <LoadingIndicator />
+        </div>
       </div>
 
       <!-- Queue Depth -->
-      <div>
+      <div class="relative">
         <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">Queue Depth</h3>
         <div class="bg-t-bg-dark border-t-border rounded border p-3">
           <VisXYContainer :data="rsyslogStats.queueLine" :height="160" :duration="0" :padding="{ top: 8, right: 8 }">
@@ -824,38 +867,52 @@ onUnmounted(() => {
             <VisTooltip />
           </VisXYContainer>
         </div>
+        <div
+          v-if="rsyslogTileLoading"
+          class="bg-t-bg/60 pointer-events-none absolute inset-0 flex items-center justify-center rounded"
+        >
+          <LoadingIndicator />
+        </div>
       </div>
 
       <!-- Pipeline Overview -->
-      <div v-if="rsyslogStats.summary" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <!-- Inputs -->
-        <div class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">Inputs</h3>
-          <div v-for="inp in rsyslogInputs" :key="inp.name" class="border-t-border flex items-center justify-between border-b px-3 py-1.5 text-xs last:border-b-0 transition-colors hover:bg-white/[0.03]">
-            <span class="text-t-fg">{{ inp.name }}</span>
-            <span class="text-t-fg-dark font-mono">{{ formatCount(inp.received) }} <span class="opacity-50">received</span></span>
+      <div class="relative">
+        <div v-if="rsyslogStats.summary" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <!-- Inputs -->
+          <div class="bg-t-bg-dark border-t-border rounded border">
+            <h3 class="text-t-fg-dark border-t-border border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">Inputs</h3>
+            <div v-for="inp in rsyslogInputs" :key="inp.name" class="border-t-border flex items-center justify-between border-b px-3 py-1.5 text-xs last:border-b-0 transition-colors hover:bg-white/[0.03]">
+              <span class="text-t-fg">{{ inp.name }}</span>
+              <span class="text-t-fg-dark font-mono">{{ formatCount(inp.received) }} <span class="opacity-50">received</span></span>
+            </div>
+            <div class="border-t-border flex items-center justify-between border-t px-3 py-1.5 text-xs transition-colors hover:bg-white/[0.03]">
+              <span class="text-t-fg-dark font-semibold">Filtered</span>
+              <span class="font-mono" :class="rsyslogFiltered > 0 ? 'text-t-yellow' : 'text-t-fg-dark'">{{ formatCount(rsyslogFiltered) }}</span>
+            </div>
           </div>
-          <div class="border-t-border flex items-center justify-between border-t px-3 py-1.5 text-xs transition-colors hover:bg-white/[0.03]">
-            <span class="text-t-fg-dark font-semibold">Filtered</span>
-            <span class="font-mono" :class="rsyslogFiltered > 0 ? 'text-t-yellow' : 'text-t-fg-dark'">{{ formatCount(rsyslogFiltered) }}</span>
+
+          <!-- Outputs -->
+          <div class="bg-t-bg-dark border-t-border rounded border">
+            <h3 class="text-t-fg-dark border-t-border border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">Outputs</h3>
+            <div v-for="out in rsyslogOutputs" :key="out.name" class="border-t-border flex items-center justify-between border-b px-3 py-1.5 text-xs last:border-b-0 transition-colors hover:bg-white/[0.03]">
+              <span class="text-t-fg">{{ out.name }}</span>
+              <span class="text-t-fg-dark font-mono">
+                {{ formatCount(out.processed) }} <span class="opacity-50">ok</span>
+                <template v-if="out.failed > 0">
+                  &middot; <span class="text-t-red">{{ formatCount(out.failed) }} failed</span>
+                </template>
+                <template v-if="out.suspended > 0">
+                  &middot; <span class="text-t-yellow">{{ formatCount(out.suspended) }} suspended</span>
+                </template>
+              </span>
+            </div>
           </div>
         </div>
-
-        <!-- Outputs -->
-        <div class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">Outputs</h3>
-          <div v-for="out in rsyslogOutputs" :key="out.name" class="border-t-border flex items-center justify-between border-b px-3 py-1.5 text-xs last:border-b-0 transition-colors hover:bg-white/[0.03]">
-            <span class="text-t-fg">{{ out.name }}</span>
-            <span class="text-t-fg-dark font-mono">
-              {{ formatCount(out.processed) }} <span class="opacity-50">ok</span>
-              <template v-if="out.failed > 0">
-                &middot; <span class="text-t-red">{{ formatCount(out.failed) }} failed</span>
-              </template>
-              <template v-if="out.suspended > 0">
-                &middot; <span class="text-t-yellow">{{ formatCount(out.suspended) }} suspended</span>
-              </template>
-            </span>
-          </div>
+        <div
+          v-if="rsyslogTileLoading"
+          class="bg-t-bg/60 pointer-events-none absolute inset-0 flex items-center justify-center rounded"
+        >
+          <LoadingIndicator />
         </div>
       </div>
     </template>
