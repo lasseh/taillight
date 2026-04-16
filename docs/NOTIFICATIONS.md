@@ -1,49 +1,274 @@
-# Notification System
+# Notifications
 
-Taillight includes a pluggable notification engine that evaluates incoming srvlog and applog events against user-defined rules and dispatches alerts to Slack, webhooks, or email. This document covers configuration, rule management, anti-spam mechanisms, and the full API reference.
+_A guide for operators — what alerts do, how to tune them, and what to expect._
 
-## Overview
+Taillight watches every log event flowing through it (`srvlog`, `netlog`, `applog`) against a set of **rules** you define. When an event matches, Taillight fires an **alert** to one or more **channels** — Slack, a webhook, email, or ntfy.
 
-The notification pipeline has four stages:
+Alerts are designed for one thing: **tell a human about an important event, fast, without hammering them when the same thing keeps happening.**
+
+That's the whole product. It is not an incident manager, it does not track "resolved" states, and it does not try to be PagerDuty.
+
+---
+
+## How an alert behaves
+
+One sentence: **the first matching event fires immediately; repeats of the same pattern are folded into a single digest at the end of a quiet window.**
+
+Each rule has a _fingerprint_ — the combination of the rule's ID and the `group_by` fields (default: `hostname` for srvlog/netlog, `host` for applog). Each fingerprint goes through this cycle independently:
 
 ```
-Event arrives (srvlog or applog)
-  |
-  v
-Rule evaluation — each enabled rule's filter is tested against the event
-  |
-  v
-GroupTracker — burst accumulation, cooldown, and escalation
-  |
-  v
-Dispatch workers — send to backends (Slack, webhook, email)
-  with per-channel rate limiting and circuit breakers
+        event matches a rule
+                 │
+       ┌─────────┴──────────┐
+       │ fingerprint state? │
+       └─────────┬──────────┘
+                 │
+        ┌────────┴────────┐
+        │                 │
+      clean            silenced
+        │                 │
+        ▼                 ▼
+   send alert         count it,
+   now                do not send
+   start silence
+   timer (default
+   5 min)
+
+          silence timer expires
+                 │
+        ┌────────┴────────┐
+        │                 │
+    nothing            N > 0 events
+    happened           were counted
+        │                 │
+        ▼                 ▼
+   close             send digest
+   fingerprint       "N more in last Xm"
+   (next match       start next silence
+    fires imm.)      (length grows, capped)
 ```
 
-1. **Rule evaluation.** When a srvlog or applog event arrives, the engine iterates over all enabled rules of the matching event kind and tests the event against each rule's filter fields. If the event satisfies a rule, it enters the group tracker.
+Three things to internalise:
 
-2. **Group tracking.** Events are grouped by rule ID and a configurable group key (default: hostname for srvlog, host for applog). The group tracker implements burst accumulation and cooldown to prevent alert storms.
+1. **No ramp-up.** The first event on a clean fingerprint hits your Slack in the same time it takes to render in the Taillight UI. No burst window, no debounce.
+2. **No resolved alerts.** Syslog has no concept of recovery — the absence of events isn't a signal. If events stop, the fingerprint simply closes quietly. The next match fires an immediate alert again.
+3. **Silence grows, but has a ceiling.** If a rule is genuinely spammy, the silence window lengthens a little each time it triggers (linear bump: 5m → 10m → 15m → 15m, capped). One fully quiet window resets it.
 
-3. **Dispatch.** When a group flushes (burst window expires or cooldown fires a digest), the engine resolves the rule's associated channels and places a dispatch job on a buffered queue. A pool of dispatch workers processes jobs concurrently.
+---
 
-4. **Backend delivery.** Each dispatch worker sends the notification to each channel's backend. Per-channel rate limiting and circuit breakers protect against downstream failures.
+## Rules
 
-Every send attempt (success or failure) is logged to the `notification_log` table for auditing.
+A rule defines _when_ to fire and _how loud_ to be. Rules live in the `notification_rules` table and are edited in the UI (Notifications → Rules) or via `POST /api/v1/notifications/rules`.
+
+### Matching — "when does this rule care about an event?"
+
+All filters are **AND**-ed. Leave a field blank to mean _any_.
+
+| Field | Event kinds | What it matches |
+| --- | --- | --- |
+| `event_kind` | — | `srvlog`, `netlog`, or `applog`. Required. |
+| `hostname` | srvlog, netlog | Exact or wildcard (`router*`). |
+| `programname` | srvlog, netlog | Exact or wildcard. |
+| `severity` | srvlog, netlog | Exact syslog severity (0–7). |
+| `severity_max` | srvlog, netlog | Maximum severity — `severity_max: 4` matches `warning` and above. |
+| `facility` | srvlog, netlog | Exact syslog facility (0–23). |
+| `syslogtag` / `msgid` | srvlog, netlog | Exact. |
+| `service` / `component` | applog | Exact. |
+| `host` | applog | Exact or wildcard. |
+| `level` | applog | Minimum level: `WARN` matches `WARN`, `ERROR`, `FATAL`. |
+| `search` | all | Case-insensitive substring of the message (or JSON attrs for applog). |
+
+Syslog severity reference: `0 emerg · 1 alert · 2 crit · 3 err · 4 warning · 5 notice · 6 info · 7 debug`.
+
+### Grouping — "what counts as 'the same alarm'?"
+
+`group_by` decides when two matching events are the _same_ fingerprint (and so should be deduplicated) versus two _different_ fingerprints (each fires its own immediate alert).
+
+- Default: `hostname` for srvlog/netlog, `host` for applog. One alarm per host.
+- Comma-separated for composite keys: `hostname,programname` means "same host + same program = same alarm".
+- Valid fields for srvlog/netlog: `hostname`, `programname`, `syslogtag`, `severity`.
+- Valid fields for applog: `host`, `service`, `component`, `level`.
+
+Narrow grouping → more immediate alerts. Wide grouping → more suppression.
+
+### Delivery — "how loud can this rule be?"
+
+| Field | Default | What it controls |
+| --- | --- | --- |
+| `silence` | `5m` | How long to wait before the _next_ digest after an immediate alert fires. During this window, matching events are counted, not sent. |
+| `silence_max` | `15m` | Upper bound on the silence window. If a rule keeps firing digests, each new silence is `previous + rule.silence`, capped here. One quiet window resets the growth. |
+| `coalesce` | `0s` | Off by default. Small window (milliseconds) to **batch the very first alert**, so a flood arriving inside the same millisecond becomes one alert with `count=N` instead of one alert plus a digest. |
+| `channel_ids` | — | List of channel IDs to deliver to. A rule can fan out to Slack and an internal webhook at once. |
+| `enabled` | `true` | On/off switch. |
+
+---
+
+## What arrives in your channel
+
+Two payload shapes.
+
+**Alert** (the immediate send — always the first notification for a fingerprint):
+
+```json
+{
+  "rule": "Production nginx errors",
+  "kind": "alert",
+  "count": 1,
+  "hostname": "web-03",
+  "severity": 3,
+  "severity_label": "err",
+  "message": "upstream timed out (110: Connection timed out)",
+  "timestamp": "2026-04-16T09:12:04Z"
+}
+```
+
+**Digest** (the end-of-silence summary — only if events kept arriving):
+
+```json
+{
+  "rule": "Production nginx errors",
+  "kind": "digest",
+  "count": 142,
+  "window_seconds": 300,
+  "first": "upstream timed out (110: Connection timed out)",
+  "last":  "upstream prematurely closed connection",
+  "timestamp": "2026-04-16T09:17:04Z"
+}
+```
+
+Slack renders these as color-coded Block Kit attachments, email as HTML, ntfy as push notifications, and webhook as the raw JSON above (or a custom Go-template if you supply one). The full JSON is always recorded in **Notifications → Log** for auditing.
+
+---
+
+## Picking good values
+
+Starting points for common rules:
+
+- **Page on anything critical.** `severity_max: 2`, `silence: 5m`, `silence_max: 15m`, `coalesce: 0`. One host going critical → ping immediately. Flood → one alert + capped digest.
+
+- **Error-level routine noise.** `severity_max: 3`, `silence: 15m`, `silence_max: 1h`, `coalesce: 500ms`. Still fires fast, but reasonable spam control for chatty services. The small `coalesce` folds simultaneous bursts into the first alert.
+
+- **Targeted regex / string match.** `search: "panic"`, `group_by: "hostname,programname"`. One alert per host+program combination. Default silence is fine.
+
+- **Network device warnings.** `event_kind: netlog`, `severity_max: 4`, `hostname: "switch-*"`, `silence: 10m`. A flaky switch that reboots twice sends two immediate alerts (different times) plus digests in between.
+
+### Things the system deliberately does not do
+
+- **"Clear" / "resolved" notifications.** Syslog has no concept of recovery. If you want one, derive it out of band (a cronned reachability check that emits its own event will work).
+- **Per-severity policies within one rule.** If INFO and ERROR for the same host need different behavior, make two rules.
+- **Retention of suppressed events.** A digest shows `count`, `first`, and `last`. The middle events are not replayed — they're in the main Taillight log view already.
+
+---
+
+## Channels
+
+A **channel** is one configured destination. Four backend types. Multiple rules can point to the same channel.
+
+### Slack
+
+Sends to a Slack Incoming Webhook. Color-coded by severity.
+
+```json
+{
+  "name": "ops-slack",
+  "type": "slack",
+  "config": { "webhook_url": "https://hooks.slack.com/services/T00/B00/xxx" },
+  "enabled": true
+}
+```
+
+- `webhook_url` must be HTTPS.
+- Severity colors: `crit` and above → red · `err` → orange · `warning` → yellow · `notice/info` → green · `debug` → gray. Applog: `FATAL` red · `ERROR` orange · `WARN` yellow · others green.
+
+### Webhook
+
+Generic HTTP POST. Optional headers, optional Go `text/template` payload.
+
+```json
+{
+  "name": "pagerduty-hook",
+  "type": "webhook",
+  "config": {
+    "url": "https://events.pagerduty.com/v2/enqueue",
+    "method": "POST",
+    "headers": { "Authorization": "Bearer pdkey123" },
+    "template": ""
+  },
+  "enabled": true
+}
+```
+
+- `url` must be HTTP or HTTPS. Private-range IPs are blocked (SSRF protection).
+- `template` has access to the full payload and a `marshal` function for JSON-safe escaping. Empty = default JSON body.
+
+### Email
+
+HTML email via SMTP. Requires global SMTP settings (see Configuration).
+
+```json
+{
+  "name": "oncall-email",
+  "type": "email",
+  "config": {
+    "to": ["oncall@example.com"],
+    "subject_template": "[ALERT] {{.Rule}} on {{.Hostname}}"
+  },
+  "enabled": true
+}
+```
+
+- `to` is a list of RFC 5322 addresses.
+- `subject_template` is optional. When empty, the subject is auto-generated as `[Taillight] <host> - <SEVERITY>`.
+
+### ntfy
+
+Push notifications via ntfy.sh or a self-hosted server.
+
+```json
+{
+  "name": "phone-push",
+  "type": "ntfy",
+  "config": {
+    "server_url": "https://ntfy.sh",
+    "topic": "taillight-alerts",
+    "priority": "high"
+  },
+  "enabled": true
+}
+```
+
+### Per-channel protections (automatic)
+
+- **Rate limit** — token bucket per channel (Slack 1/s burst 3, Webhook and Email 5/s burst 10, ntfy similar). Stops one noisy rule from saturating a channel. Rate-limited alerts are logged with `status=suppressed reason=rate_limit`.
+- **Circuit breaker** — after 5 consecutive failures the channel is short-circuited for 60s. Half-opens for a couple of probes, then either closes on success or stays open.
+- **Bounded delivery retry** — on failure the worker retries on a `5s → 30s → 2m → 10m` schedule before giving up. Covers brief Slack / webhook hiccups. Retries are in-memory and lost on restart.
+
+### Testing a channel
+
+Every channel has a **Test** button in the UI, and the equivalent API call:
+
+```sh
+curl -s -X POST http://localhost:8080/api/v1/notifications/channels/1/test | jq
+```
+
+Test sends a synthetic payload, bypassing rules entirely. Use this to debug a Slack URL typo without waiting for a real event.
+
+---
 
 ## Configuration
 
-Notification settings live in `config.yml` under the `notification` key. SMTP settings for the email backend live under the `smtp` key.
+Global defaults live under `notification:` in `config.yml`. SMTP lives under `smtp:`.
 
 ```yaml
 notification:
   enabled: true
-  rule_refresh_interval: 30s
-  dispatch_workers: 4
-  dispatch_buffer: 1024
-  default_burst_window: 30s
-  default_cooldown: 5m
-  default_max_cooldown: 1h
-  send_timeout: 10s
+  rule_refresh_interval: 30s      # how often rule/channel changes are picked up
+  dispatch_workers: 4             # concurrent send goroutines
+  dispatch_buffer: 1024           # internal queue size before drops
+  send_timeout: 10s               # per delivery attempt
+  default_silence: 5m
+  default_silence_max: 15m
+  default_coalesce: 0s
 
 smtp:
   host: "smtp.example.com"
@@ -52,284 +277,21 @@ smtp:
   password: "secret"
   from: "taillight@example.com"
   tls: true
-  auth_type: "plain"
+  auth_type: "plain"              # plain | crammd5 | ""
 ```
 
-### Notification settings
+Rule-level fields override the `default_*` values. Environment variables follow viper conventions (`NOTIFICATION_DEFAULT_SILENCE=10m`). The email backend is only registered when `smtp.host` is set — leave it empty to disable email channels entirely.
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `notification.enabled` | `false` | Master switch. When false, no rules are evaluated and no alerts are sent. |
-| `notification.rule_refresh_interval` | `30s` | How often the engine reloads rules and channels from the database. Changes made via the API take effect within this interval. |
-| `notification.dispatch_workers` | `4` | Number of concurrent goroutines processing the dispatch queue. Increase if you have many channels or slow backends. |
-| `notification.dispatch_buffer` | `1024` | Size of the internal dispatch queue. If the queue fills up, new notifications are dropped with a warning log. |
-| `notification.default_burst_window` | `30s` | Default burst accumulation window applied when a rule does not specify its own `burst_window`. |
-| `notification.default_cooldown` | `1m` | Default minimum time between alerts for the same rule+group, applied when a rule does not specify `cooldown_seconds`. |
-| `notification.default_max_cooldown` | `1h` | Maximum cooldown duration after exponential backoff escalation. Applied when a rule does not specify `max_cooldown_seconds`. |
-| `notification.send_timeout` | `10s` | HTTP timeout for each individual backend send operation. |
+---
 
-### SMTP settings
+## API reference
 
-The email backend is only registered when `smtp.host` is set. If `smtp.host` is empty, email channels cannot be created.
+All notification endpoints live under `/api/v1/notifications/`. Read endpoints (GET) require the `read` scope; write endpoints (POST/PUT/DELETE) require `admin`. The full schema with try-it-out is at [`/api/docs`](http://localhost:8080/api/docs).
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `smtp.host` | `""` | SMTP server hostname. Empty disables the email backend. |
-| `smtp.port` | `587` | SMTP server port. |
-| `smtp.username` | `""` | SMTP authentication username. |
-| `smtp.password` | `""` | SMTP authentication password. |
-| `smtp.from` | `taillight@localhost` | Sender address for outgoing email. |
-| `smtp.tls` | `true` | Use STARTTLS when connecting to the SMTP server. |
-| `smtp.auth_type` | `plain` | Authentication mechanism: `plain`, `crammd5`, or `""` (no auth). |
-
-## Channels
-
-A channel defines a notification destination. Each channel has a type, a name, and a type-specific configuration object.
-
-### Slack
-
-Sends notifications via Slack Incoming Webhooks. Messages use Block Kit with color-coded attachments based on event severity.
-
-Channel config:
-
-```json
-{
-  "webhook_url": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
-}
-```
-
-Requirements:
-- `webhook_url` must use HTTPS.
-
-Severity color mapping for srvlog events:
-- Emergency, Alert, Critical (0-2): red
-- Error (3): orange
-- Warning (4): yellow
-- Notice, Info (5-6): green
-- Debug (7): gray
-
-Applog level colors: FATAL = red, ERROR = orange, WARN = yellow, others = green.
-
-Rate limit: 1 notification/second with burst of 3.
-
-### Webhook
-
-Sends an HTTP POST (configurable method) to a custom URL with a JSON payload. Supports custom headers and Go template-based payload customization.
-
-Channel config:
-
-```json
-{
-  "url": "https://alerting.example.com/hook",
-  "method": "POST",
-  "headers": {
-    "Authorization": "Bearer my-token",
-    "X-Source": "taillight"
-  },
-  "template": ""
-}
-```
-
-Fields:
-- `url` (required) — the endpoint to call. Must be HTTP or HTTPS. Internal/private IP ranges are blocked (SSRF protection).
-- `method` (optional) — HTTP method, defaults to `POST`.
-- `headers` (optional) — additional HTTP headers to include in the request.
-- `template` (optional) — a Go `text/template` string for custom payload formatting. When empty, the default template is used.
-
-Default payload format:
-
-```json
-{
-  "source": "taillight",
-  "rule": "critical-srvlog",
-  "kind": "srvlog",
-  "event_count": 5,
-  "is_digest": false,
-  "group_key": "router1",
-  "window_seconds": 30,
-  "timestamp": "2025-01-15T10:30:00Z",
-  "hostname": "router1",
-  "program": "rpd",
-  "severity": 2,
-  "severity_label": "critical",
-  "message": "BGP peer 10.0.0.2 state changed to DOWN"
-}
-```
-
-For applog events the srvlog fields are replaced with `service`, `level`, `host`, and `message`.
-
-The template has access to the full `Payload` struct and a `marshal` function for JSON-safe string escaping.
-
-Rate limit: 5 notifications/second with burst of 10.
-
-### Email
-
-Sends HTML email via SMTP. Requires global SMTP settings in `config.yml` (see Configuration above).
-
-Channel config:
-
-```json
-{
-  "to": ["oncall@example.com", "team-lead@example.com"],
-  "subject_template": "[ALERT] Server issue detected"
-}
-```
-
-Fields:
-- `to` (required) — list of recipient email addresses. Each must be a valid RFC 5322 address.
-- `subject_template` (optional) — static subject line override. When empty, the subject is auto-generated as `[Taillight] <hostname> - <SEVERITY>`.
-
-Emails are sent as `text/html` with a responsive layout including a severity-colored header bar, the log message in a monospace block, and a footer with the rule name and timestamp.
-
-## Rules
-
-A rule defines when to trigger a notification. Rules match events by type (srvlog or applog) and a set of filter fields.
-
-### Rule structure
-
-```json
-{
-  "name": "critical-srvlog",
-  "enabled": true,
-  "event_kind": "srvlog",
-  "hostname": "router*",
-  "severity": 2,
-  "channel_ids": [1, 3],
-  "burst_window": 30,
-  "cooldown_seconds": 300,
-  "max_cooldown_seconds": 3600,
-  "group_by": "hostname,programname"
-}
-```
-
-### Filter fields
-
-**Srvlog rules** (`event_kind: "srvlog"`):
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `hostname` | string | Exact match or wildcard (e.g. `router*`). |
-| `programname` | string | Exact match on the program name. |
-| `severity` | int | Exact severity (0=emergency through 7=debug). |
-| `severity_max` | int | Maximum severity level. Events with severity > this value are excluded. Useful for matching "warning and above" by setting `severity_max: 4`. |
-| `facility` | int | Exact syslog facility code. |
-| `syslogtag` | string | Exact match on the syslogtag. |
-| `msgid` | string | Exact match on the structured data message ID. |
-| `search` | string | Case-insensitive substring search within the message body. |
-
-**Applog rules** (`event_kind: "applog"`):
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `service` | string | Exact match on the service name. |
-| `component` | string | Exact match on the component name. |
-| `host` | string | Exact match or wildcard (e.g. `web-*`). |
-| `level` | string | Minimum log level. Matches events at this level or above (TRACE < DEBUG < INFO < WARN < ERROR < FATAL). |
-| `search` | string | Case-insensitive substring search within the message and attributes. |
-
-All filter fields are optional. An empty filter matches all events of that kind. Multiple fields are AND-combined: the event must satisfy every non-empty field.
-
-### Group-by
-
-The `group_by` field controls how events are grouped for burst/cooldown tracking. It is a comma-separated list of field names.
-
-For srvlog: `hostname`, `programname`, `syslogtag`, `severity`. Default: `hostname`.
-
-For applog: `host`, `service`, `component`, `level`. Default: `host`.
-
-Example: `group_by: "hostname,programname"` means events from the same host and program are grouped together, so a burst of `rpd` errors on `router1` does not suppress `sshd` errors on the same host.
-
-### Channel association
-
-Rules are linked to channels via the `channel_ids` array. When a rule fires, the notification is sent to all enabled channels in the list. Channel associations are stored in a separate join table (`notification_rule_channels`) and managed transactionally.
-
-## Anti-Spam Mechanisms
-
-The notification system has multiple layers to prevent alert fatigue.
-
-### Burst window
-
-When an event first matches a rule, the engine does not immediately send a notification. Instead, it starts accumulating matching events for the duration of the burst window (default 30 seconds, configurable per rule via `burst_window`).
-
-When the burst window expires, the engine sends a single notification containing the first matched event and the total event count.
-
-```
-Time  Event    Action
-0s    match    Start burst window (30s)
-5s    match    Accumulate (count=2)
-12s   match    Accumulate (count=3)
-30s   --       Burst window expires: send notification (3 events)
-```
-
-### Cooldown
-
-After the burst window fires, the engine enters a cooldown period (default 5 minutes, configurable per rule via `cooldown_seconds`). During cooldown, matching events continue to accumulate silently.
-
-When the cooldown expires:
-- **If events accumulated:** send a digest notification summarizing the count, then start a new cooldown with doubled duration.
-- **If no events accumulated:** the group resets to idle (clean slate for the next match).
-
-```
-Time    Event    Action
-0s      match    Start burst window (30s)
-30s     --       Send initial notification (burst flush)
-30s     --       Start cooldown (5m)
-1m      match    Accumulate silently
-3m      match    Accumulate silently
-5m30s   --       Cooldown expires: 2 events accumulated -> send digest
-5m30s   --       Start new cooldown (10m, doubled)
-15m30s  --       Cooldown expires: 0 events -> reset to idle
-```
-
-### Max cooldown (exponential backoff cap)
-
-Each time a cooldown fires with accumulated events, the cooldown duration doubles. This prevents a continuously triggering rule from sending a digest every few minutes for hours. The escalation is capped at `max_cooldown_seconds` (default 1 hour).
-
-Cooldown progression example (base cooldown 5m, max cooldown 1h):
-- 1st cooldown: 5 minutes
-- 2nd cooldown: 10 minutes
-- 3rd cooldown: 20 minutes
-- 4th cooldown: 40 minutes
-- 5th cooldown: 60 minutes (capped at max)
-- 6th+ cooldown: 60 minutes (stays at max)
-
-Once a cooldown expires with zero accumulated events, the group is deleted entirely. The next matching event starts fresh.
-
-### Per-channel rate limiting
-
-Each channel has a token bucket rate limiter that caps how fast notifications can be sent to a particular destination, regardless of how many rules target it.
-
-| Channel type | Rate | Burst |
-|-------------|------|-------|
-| Slack | 1/second | 3 |
-| Webhook | 5/second | 10 |
-| Email | 5/second | 10 |
-
-If a notification is rate-limited, it is silently dropped (logged as suppressed).
-
-### Circuit breakers
-
-Each channel has a circuit breaker (powered by `sony/gobreaker`) that protects against cascading failures when a backend is down.
-
-- **Closed** (normal): notifications flow through.
-- **Open** (tripped): after 5 consecutive failures, the breaker opens. All notifications to this channel are immediately rejected for 60 seconds.
-- **Half-open** (probing): after 60 seconds, the breaker allows up to 2 probe requests through. If they succeed, the breaker closes. If they fail, it re-opens.
-
-Circuit breaker events are logged and counted in Prometheus metrics (`notif_suppressed_total{reason="circuit_breaker"}`).
-
-## API Reference
-
-All notification endpoints live under `/api/v1/notifications/`. Read endpoints (GET) require the `read` scope. Write endpoints (POST, PUT, DELETE) require the `admin` scope.
-
-See the [Interactive API Docs](http://localhost:8080/api/docs) (Scalar/OpenAPI UI) for the full endpoint reference, request/response schemas, and try-it-out functionality.
-
-## Examples
-
-### Alert on all critical srvlog events via Slack
-
-Create a Slack channel:
+### End-to-end example: Slack alerts on any critical syslog
 
 ```sh
+# 1. Create a channel.
 curl -s -X POST http://localhost:8080/api/v1/notifications/channels \
   -H 'Content-Type: application/json' \
   -d '{
@@ -338,57 +300,34 @@ curl -s -X POST http://localhost:8080/api/v1/notifications/channels \
     "config": {"webhook_url": "https://hooks.slack.com/services/T00/B00/xxx"},
     "enabled": true
   }' | jq '.data.id'
-# Returns: 1
-```
+# → 1
 
-Test the channel:
-
-```sh
+# 2. Validate it.
 curl -s -X POST http://localhost:8080/api/v1/notifications/channels/1/test | jq
-```
 
-Create a rule matching severity 0-3 (emergency through error):
-
-```sh
+# 3. Create a rule. Any srvlog severity ≤ 3, grouped by hostname.
 curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
   -H 'Content-Type: application/json' \
   -d '{
-    "name": "critical-alerts",
+    "name": "critical-srvlog",
     "enabled": true,
     "event_kind": "srvlog",
     "severity_max": 3,
     "channel_ids": [1],
-    "burst_window": 30,
-    "cooldown_seconds": 300,
+    "silence": "5m",
+    "silence_max": "15m",
     "group_by": "hostname"
   }' | jq
 ```
 
-This will:
-1. Accumulate matching events for 30 seconds before sending the first alert.
-2. After the initial alert, suppress for 5 minutes.
-3. If events keep arriving, send digests with exponentially increasing intervals up to 1 hour.
+Behavior:
 
-### Webhook integration for a specific host
+1. First err/crit/alert/emerg event on a new host → Slack ping immediately.
+2. Additional matches on that host for the next 5 minutes → counted, not sent.
+3. At t = 5 min: if any matches accumulated, one digest with `count=N`, and the next silence lengthens to 10 min.
+4. After one fully quiet 5-minute (or 10, or 15) window, the host's fingerprint closes. The next match fires immediately.
 
-Create a webhook channel that posts to your incident management system:
-
-```sh
-curl -s -X POST http://localhost:8080/api/v1/notifications/channels \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "pagerduty-hook",
-    "type": "webhook",
-    "config": {
-      "url": "https://events.pagerduty.com/v2/enqueue",
-      "headers": {"Authorization": "Bearer pdkey123"}
-    },
-    "enabled": true
-  }' | jq '.data.id'
-# Returns: 2
-```
-
-Create a rule targeting a specific host:
+### Targeted webhook for a specific host group
 
 ```sh
 curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
@@ -401,87 +340,85 @@ curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
     "severity_max": 3,
     "search": "down",
     "channel_ids": [2],
-    "burst_window": 10,
-    "cooldown_seconds": 600
+    "silence": "10m",
+    "coalesce": "500ms"
   }' | jq
 ```
 
-### Email alerts on high applog error rate
+The `coalesce: 500ms` folds simultaneous link-flap events into one first alert with a real count, rather than one alert + immediate digest.
 
-Create an email channel:
-
-```sh
-curl -s -X POST http://localhost:8080/api/v1/notifications/channels \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "oncall-email",
-    "type": "email",
-    "config": {
-      "to": ["oncall@example.com", "team-lead@example.com"]
-    },
-    "enabled": true
-  }' | jq '.data.id'
-# Returns: 3
-```
-
-Create a rule matching ERROR-level applog events with a longer burst window to batch spikes:
+### Applog errors grouped by host + component
 
 ```sh
 curl -s -X POST http://localhost:8080/api/v1/notifications/rules \
   -H 'Content-Type: application/json' \
   -d '{
-    "name": "applog-errors",
+    "name": "payment-api-errors",
     "enabled": true,
     "event_kind": "applog",
-    "level": "ERROR",
     "service": "payment-api",
+    "level": "ERROR",
     "channel_ids": [3],
-    "burst_window": 60,
-    "cooldown_seconds": 900,
-    "max_cooldown_seconds": 3600,
+    "silence": "15m",
+    "silence_max": "1h",
     "group_by": "host,component"
   }' | jq
 ```
 
-This groups errors by host and component, accumulates for 60 seconds before the initial email, then sends digests at 15 minute/30 minute/1 hour intervals while errors continue.
+---
+
+## Observability
+
+If you run Prometheus / Grafana against Taillight, these are the counters that matter:
+
+- `taillight_notif_rules_evaluated_total` — every rule × event check. Proxy for load.
+- `taillight_notif_rules_matched_total` — how many of those checks matched.
+- `taillight_notif_sent_total{channel_type,status}` — success / failure per backend.
+- `taillight_notif_send_attempts_total{outcome}` — distinguishes first-try success from retry-success and retry-exhausted.
+- `taillight_notif_suppressed_total{reason}` — dropped by rate limit, circuit breaker, or a full in-memory dispatch queue.
+- `taillight_notif_fingerprints_dropped_total` — hit the 10 000-fingerprints-per-rule cap. Almost always means a too-wide `group_by` (e.g. grouping by a unique ID). Narrow the grouping.
+
+The **Notifications → Log** UI shows the same data per-send, with the rendered payload — useful when an alert "didn't arrive" and you need to confirm whether it was suppressed, sent, or failed.
+
+---
 
 ## Troubleshooting
 
 ### Notifications not sending
 
-1. **Check the master switch.** Ensure `notification.enabled: true` in `config.yml`. When disabled, the engine does not start and no rules are evaluated.
-
-2. **Check channel configuration.** Use the test endpoint to validate connectivity:
-   ```sh
-   curl -s -X POST http://localhost:8080/api/v1/notifications/channels/1/test | jq
-   ```
-
-3. **Check the rule is enabled.** Rules have an `enabled` field that must be `true`.
-
-4. **Check the notification log.** Look for failed entries:
-   ```sh
-   curl -s 'http://localhost:8080/api/v1/notifications/log?status=failed' | jq
-   ```
-
-5. **Check rule refresh timing.** After creating or updating a rule via the API, it takes up to `rule_refresh_interval` (default 30s) for the engine to pick up the change.
+1. **Check the master switch.** `notification.enabled: true` in `config.yml`. When disabled the engine does not start.
+2. **Test the channel.** `POST /api/v1/notifications/channels/{id}/test` — if this fails, the channel config is wrong (webhook URL, SMTP, etc.).
+3. **Check the rule is enabled.** Rules have their own `enabled` flag.
+4. **Check the log.** `GET /api/v1/notifications/log?status=failed` surfaces failed delivery rows with error text.
+5. **Mind the refresh interval.** After creating or updating a rule via the API, it takes up to `rule_refresh_interval` (default 30 s) for the engine to pick up the change.
 
 ### Too many alerts
 
-- **Increase `burst_window`.** A longer burst window accumulates more events into a single notification. Try 60-120 seconds instead of 30.
-- **Increase `cooldown_seconds`.** A longer cooldown reduces digest frequency. Try 900 (15 minutes) or 1800 (30 minutes).
-- **Set `max_cooldown_seconds`.** This caps the exponential backoff. A value of 3600 (1 hour) means at most one digest per hour during sustained events.
-- **Use `group_by` wisely.** Grouping by `hostname,programname` creates separate tracking per host-program pair. If you want fewer notifications, group by hostname only.
+- **Widen `silence`.** Longer silence = fewer digests. 15–30 min is often a good fit for chatty services.
+- **Widen `group_by`.** Grouping by `hostname` alone creates one fingerprint per host; `hostname,programname` creates more. Fewer groups = fewer parallel alert streams.
+- **Add `coalesce`.** A `500ms`–`2s` coalesce turns an immediate + immediate-digest pair into one alert with an accurate count.
+
+### Not enough alerts (digests silent when you expect them)
+
+- **A digest fires only if events accumulated during silence.** Zero events in the window → no digest, fingerprint closes, next event is immediate. This is working as designed.
+- **Fingerprint cap.** If `fingerprints_dropped_total` is climbing, the rule's `group_by` is too specific (e.g. includes a request ID). Unique groups pile up to 10 000 per rule, then new ones are dropped. Narrow the grouping.
+
+### Quick symptom table
+
+| Symptom | Most likely cause |
+| --- | --- |
+| First alert takes 30 s | You're on a pre-redesign build. The new engine has no burst window. |
+| Slack gets 1 alert, then nothing for an hour | Pre-redesign cooldown doubling. On the new engine, check `silence_max`. |
+| Same event spamming every 5 minutes forever | `silence_max` is too low; widen it or the rule really is firing every window (tighten the filter). |
+| Digest shows `count=1` | Exactly one event arrived during silence. Not a bug. |
+| `notification_log` shows `attempt=1 failed`, `attempt=2 sent` | Normal retry — the first delivery failed, the second succeeded within backoff. |
+| SMTP connection refused | `smtp.host` / `smtp.port` unreachable from the Taillight server. |
+| SMTP TLS errors | Server doesn't support STARTTLS — set `smtp.tls: false`. Self-signed certs are rejected; use a real CA. |
+| SMTP auth failures | Try switching `smtp.auth_type` to `plain`, `crammd5`, or `""` per your provider's requirements. |
 
 ### Slow dispatch / backed-up queue
 
-- **Increase `dispatch_workers`.** Default is 4. If you have many channels or slow backends, try 8-16.
-- **Check `dispatch_buffer`.** If you see "dispatch queue full" warnings in the logs, increase the buffer size.
-- **Check backend health.** A slow or failing backend can back up workers. Look for circuit breaker events in the logs.
-- **Reduce `send_timeout`.** If a backend is unresponsive, a lower timeout (e.g. 5s) frees up workers faster.
-
-### SMTP issues
-
-- **Connection refused.** Verify `smtp.host` and `smtp.port` are correct and reachable from the Taillight server.
-- **TLS errors.** If your SMTP server does not support STARTTLS, set `smtp.tls: false`. If using a self-signed certificate, the connection will fail (Go's TLS client verifies server certificates).
-- **Authentication failures.** Check `smtp.auth_type` matches your server's requirements. Use `plain` for most providers, `crammd5` for servers that require it, or `""` for relay servers that do not require auth.
-- **Sender rejected.** Some SMTP servers require the `smtp.from` address to match an authorized sender. Verify with your email provider.
+- **Increase `dispatch_workers`** from the default 4 (try 8–16 if you have many channels).
+- **Check for circuit breaker events** in the logs — a dead backend keeps workers bouncing off the retry schedule.
+- **Lower `send_timeout`** (e.g. 5s) if a backend is hanging; frees workers faster.
+- **Watch `dispatch_buffer`**. If you see "dispatch queue full" warnings, increase the buffer.
