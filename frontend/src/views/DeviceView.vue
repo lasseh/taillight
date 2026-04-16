@@ -8,6 +8,7 @@ import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/form
 import { severityLabels, severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
 import { useDeviceLogs } from '@/composables/useDeviceLogs'
+import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import SrvlogRow from '@/components/SrvlogRow.vue'
@@ -19,7 +20,7 @@ const props = defineProps<{
 const hostnameRef = computed(() => props.hostname)
 const { events: deviceLogs } = useDeviceLogs(hostnameRef)
 
-const summaryCollapsed = ref(false)
+const summaryCollapsed = useDeviceSummaryCollapsed()
 
 const router = useRouter()
 const route = useRoute()

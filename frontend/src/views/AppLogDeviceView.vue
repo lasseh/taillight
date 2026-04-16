@@ -7,6 +7,7 @@ import { api, ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
 import { LEVEL_RANK, levelColorClass, levelBgClass, levelBgColorClass } from '@/lib/applog-constants'
 import { useAppLogDeviceLogs } from '@/composables/useAppLogDeviceLogs'
+import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import LevelDistribution from '@/components/LevelDistribution.vue'
 import AppLogRow from '@/components/AppLogRow.vue'
@@ -18,7 +19,7 @@ const props = defineProps<{
 const hostnameRef = computed(() => props.hostname)
 const { events: deviceLogs } = useAppLogDeviceLogs(hostnameRef)
 
-const summaryCollapsed = ref(false)
+const summaryCollapsed = useDeviceSummaryCollapsed()
 
 const router = useRouter()
 const route = useRoute()
