@@ -42,6 +42,9 @@ provide('collapseSignal', collapseSignal)
 // Recent logs reversed to chronological order (oldest first, newest at bottom).
 const chronologicalLogs = computed(() => [...deviceLogs.value].reverse())
 
+// Error logs reversed to match chronological order (newest at bottom).
+const chronologicalErrorLogs = computed(() => [...(summary.value?.error_logs ?? [])].reverse())
+
 // Derive individual level counts from breakdown (matches dashboard pattern).
 function lvlCount(level: string): number {
   return summary.value?.level_breakdown.find(l => l.level === level)?.count ?? 0
@@ -55,7 +58,7 @@ const infoCount = computed(() => lvlCount('INFO'))
 // Compute dynamic column widths for AppLogRow.
 const colWidths = computed(() => {
   const events = activeTab.value === 'error'
-    ? (summary.value?.error_logs ?? [])
+    ? chronologicalErrorLogs.value
     : chronologicalLogs.value
   const hostLen = props.hostname.length
   let maxSvc = 0
@@ -190,7 +193,7 @@ onUnmounted(() => {
 })
 
 function currentEvents(): AppLogEvent[] {
-  if (activeTab.value === 'error') return summary.value?.error_logs ?? []
+  if (activeTab.value === 'error') return chronologicalErrorLogs.value
   return chronologicalLogs.value
 }
 </script>

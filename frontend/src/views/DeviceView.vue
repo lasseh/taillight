@@ -42,6 +42,9 @@ provide('collapseSignal', collapseSignal)
 // Recent logs reversed to chronological order (oldest first, newest at bottom).
 const chronologicalLogs = computed(() => [...deviceLogs.value].reverse())
 
+// Critical logs reversed to match chronological order (newest at bottom).
+const chronologicalCriticalLogs = computed(() => [...(summary.value?.critical_logs ?? [])].reverse())
+
 // Derive individual severity counts from breakdown (matches dashboard pattern).
 function sevCount(severity: number): number {
   return summary.value?.severity_breakdown.find(s => s.severity === severity)?.count ?? 0
@@ -55,7 +58,7 @@ const errCount = computed(() => sevCount(3))
 // Compute dynamic column widths for SrvlogRow.
 const colWidths = computed(() => {
   const events = activeTab.value === 'critical'
-    ? (summary.value?.critical_logs ?? [])
+    ? chronologicalCriticalLogs.value
     : chronologicalLogs.value
   const hostLen = props.hostname.length
   let maxProg = 0
@@ -187,7 +190,7 @@ onUnmounted(() => {
 })
 
 function currentEvents(): SrvlogEvent[] {
-  if (activeTab.value === 'critical') return summary.value?.critical_logs ?? []
+  if (activeTab.value === 'critical') return chronologicalCriticalLogs.value
   return chronologicalLogs.value
 }
 </script>
