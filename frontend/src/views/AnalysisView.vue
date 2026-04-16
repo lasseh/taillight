@@ -24,10 +24,24 @@ const selectedSummary = computed(() =>
   reports.value.find((r) => r.id === selectedId.value),
 )
 
+// Pin the allowed tag/attr set to what the report template actually emits, so a
+// future marked extension or model output can't widen the attack surface.
+const MARKDOWN_SANITIZE = {
+  ALLOWED_TAGS: [
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'p', 'br', 'hr',
+    'ul', 'ol', 'li',
+    'strong', 'em', 'del', 's', 'code', 'pre',
+    'blockquote', 'a',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  ],
+  ALLOWED_ATTR: ['href', 'title', 'align'],
+}
+
 const renderedMarkdown = computed(() => {
   if (!currentReport.value) return ''
   const html = marked.parse(currentReport.value.report) as string
-  return DOMPurify.sanitize(html)
+  return DOMPurify.sanitize(html, MARKDOWN_SANITIZE)
 })
 
 async function fetchReportList() {

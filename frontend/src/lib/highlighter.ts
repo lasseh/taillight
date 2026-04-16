@@ -90,14 +90,18 @@ Prism.languages.insertBefore('log', 'string', {
   'eos-event-tag': /\B%[A-Z][A-Z0-9_]*-[0-9]+-[A-Z][A-Z0-9_]+\b/,
 })
 
+// Prism.highlight only emits <span class="...">...</span>; constrain DOMPurify to
+// match so anything unexpected (e.g. a bad grammar extension) can't introduce attrs.
+const PRISM_SANITIZE = { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] }
+
 export function highlight(msg: string): string {
-  return DOMPurify.sanitize(Prism.highlight(msg, Prism.languages['log']!, 'log'))
+  return DOMPurify.sanitize(Prism.highlight(msg, Prism.languages['log']!, 'log'), PRISM_SANITIZE)
 }
 
 export function highlightJson(obj: Record<string, unknown> | null): string {
   if (!obj) return ''
   const json = JSON.stringify(obj, null, 2)
-  return DOMPurify.sanitize(Prism.highlight(json, Prism.languages['json']!, 'json'))
+  return DOMPurify.sanitize(Prism.highlight(json, Prism.languages['json']!, 'json'), PRISM_SANITIZE)
 }
 
 const cache = new Map<number, string>()
@@ -106,7 +110,7 @@ export function highlightMessage(id: number, msg: string): string {
   let result = cache.get(id)
   if (result !== undefined) return result
 
-  result = DOMPurify.sanitize(Prism.highlight(msg, Prism.languages['log']!, 'log'))
+  result = DOMPurify.sanitize(Prism.highlight(msg, Prism.languages['log']!, 'log'), PRISM_SANITIZE)
   cache.set(id, result)
 
   // Batch-evict oldest 500 entries when cache exceeds 3000 to avoid

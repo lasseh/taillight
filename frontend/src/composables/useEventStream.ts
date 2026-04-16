@@ -121,6 +121,7 @@ export function createEventStream<T>(path: string, eventName: string) {
     }
     teardown()
     connected.value = false
+    document.removeEventListener('visibilitychange', onVisibilityChange)
   }
 
   function subscribe(cb: (event: T) => void) {

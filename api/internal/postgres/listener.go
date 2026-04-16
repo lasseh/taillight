@@ -212,6 +212,7 @@ func (l *Listener) recv(ctx context.Context, conn *pgx.Conn, ch chan<- Notificat
 
 		id, err := strconv.ParseInt(notification.Payload, 10, 64)
 		if err != nil {
+			metrics.ListenerPayloadParseErrorsTotal.WithLabelValues(notification.Channel).Inc()
 			l.logger.Warn("invalid notification payload", "channel", notification.Channel, "payload", notification.Payload)
 			continue
 		}
@@ -269,6 +270,11 @@ func (l *Listener) fillGapForChannel(ctx context.Context, ch chan<- Notification
 		return
 	}
 
+	start := time.Now()
+	defer func() {
+		metrics.ListenerGapFillDuration.WithLabelValues(notifyCh).Observe(time.Since(start).Seconds())
+	}()
+
 	//nolint:gosec // table name comes from a hardcoded map, not user input
 	query := fmt.Sprintf("SELECT id FROM %s WHERE id > $1 ORDER BY id ASC LIMIT 10000", table)
 	rows, err := l.pool.Query(ctx, query, lastID)
@@ -307,6 +313,7 @@ func (l *Listener) fillGapForChannel(ctx context.Context, ch chan<- Notification
 		return
 	}
 	if count > 0 {
+		metrics.ListenerGapFillEventsTotal.WithLabelValues(notifyCh).Add(float64(count))
 		l.logger.Info("gap fill complete", "channel", notifyCh, "events", count, "from_id", lastID)
 	}
 }

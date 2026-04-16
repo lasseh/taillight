@@ -50,6 +50,28 @@ var (
 		Help:      "Total number of listener reconnection attempts.",
 	})
 
+	// ListenerGapFillEventsTotal counts events recovered by gap fill per channel.
+	ListenerGapFillEventsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "listener_gap_fill_events_total",
+		Help:      "Total number of events recovered via LISTEN/NOTIFY gap fill after reconnect.",
+	}, []string{"channel"})
+
+	// ListenerGapFillDuration tracks gap-fill pass duration per channel.
+	ListenerGapFillDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "taillight",
+		Name:      "listener_gap_fill_duration_seconds",
+		Help:      "Duration of a single gap-fill pass in seconds.",
+		Buckets:   []float64{0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60},
+	}, []string{"channel"})
+
+	// ListenerPayloadParseErrorsTotal counts malformed notification payloads.
+	ListenerPayloadParseErrorsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "listener_payload_parse_errors_total",
+		Help:      "Total number of notification payloads that failed to parse.",
+	}, []string{"channel"})
+
 	// Netlog metrics.
 
 	// NetlogSSEClientsActive tracks the current number of connected netlog SSE clients.
