@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="T extends { id: number }">
 import { ref, watch, nextTick, provide, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useScrollStore } from '@/stores/scroll'
+import { useFullscreen } from '@/composables/useFullscreen'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 
@@ -14,6 +15,7 @@ const props = defineProps<{
 }>()
 
 const scrollStore = useScrollStore()
+const fullscreen = useFullscreen()
 const scrollEl = ref<HTMLElement | null>(null)
 const isPinned = ref(true)
 
@@ -113,6 +115,18 @@ onDeactivated(() => {
 watch(
   () => scrollStore.getJumpSignal(props.routeName),
   () => scrollToBottom(),
+)
+
+// Snap to the newest entry and re-pin when entering fullscreen so the user
+// lands on live tail instead of wherever they last scrolled to.
+watch(
+  () => fullscreen.active.value,
+  (v) => {
+    if (!v) return
+    isPinned.value = true
+    scrollStore.setPinned(props.routeName, true)
+    nextTick(() => scrollToBottom('auto'))
+  },
 )
 
 // Handle scroll behavior when events change.

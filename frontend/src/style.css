@@ -43,6 +43,9 @@
   /* Font */
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono",
     Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Layout */
+  --header-h: 2.25rem;
 }
 
 /* Base styles */

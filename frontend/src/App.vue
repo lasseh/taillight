@@ -15,6 +15,7 @@ import { useAppLogStream } from '@/composables/useAppLogStream'
 import { useNotifications } from '@/composables/useNotifications'
 import { useFavicon } from '@/composables/useFavicon'
 import { useFullscreen } from '@/composables/useFullscreen'
+import { useColumnVisibility } from '@/composables/useColumnVisibility'
 import { features } from '@/config'
 import AppHeader from '@/components/AppHeader.vue'
 import FilterBar from '@/components/FilterBar.vue'
@@ -66,6 +67,20 @@ const isHistoricalMode = computed(() => {
 useFavicon(connected)
 
 const { active: fullscreenActive, exit: exitFullscreen, toggle: toggleFullscreen } = useFullscreen()
+
+// Program column toggle: only meaningful on routes that render a program column.
+const programColumnRoute = computed(() => {
+  if (route.name === 'srvlog') return 'srvlog'
+  if (route.name === 'netlog') return 'netlog'
+  return null
+})
+const srvlogProgramCol = useColumnVisibility('srvlog', 'program')
+const netlogProgramCol = useColumnVisibility('netlog', 'program')
+const programColumn = computed(() => {
+  if (programColumnRoute.value === 'srvlog') return srvlogProgramCol
+  if (programColumnRoute.value === 'netlog') return netlogProgramCol
+  return null
+})
 
 // Auto-exit fullscreen when navigating away from log routes.
 watch(isLogRoute, (isLog) => {
@@ -180,8 +195,27 @@ onErrorCaptured((err) => {
         <span class="md:hidden">↓ latest{{ newEventCount > 0 ? ` (${newEventCount})` : '' }}</span>
       </button>
       <button
-        v-if="isLogRoute"
+        v-if="programColumn"
         class="text-t-fg-dark hover:text-t-fg ml-auto p-1 transition-colors"
+        :aria-label="programColumn.visible.value ? 'Hide program column' : 'Show program column'"
+        :title="programColumn.visible.value ? 'Hide program column' : 'Show program column'"
+        @click="programColumn.toggle()"
+      >
+        <!-- Visible → inward chevrons ><  hint: click to collapse -->
+        <svg v-if="programColumn.visible.value" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="5 6 9 12 5 18" />
+          <polyline points="19 6 15 12 19 18" />
+        </svg>
+        <!-- Hidden → outward chevrons <>  hint: click to expand -->
+        <svg v-else class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 6 5 12 9 18" />
+          <polyline points="15 6 19 12 15 18" />
+        </svg>
+      </button>
+      <button
+        v-if="isLogRoute"
+        class="text-t-fg-dark hover:text-t-fg p-1 transition-colors"
+        :class="{ 'ml-auto': !programColumn }"
         :aria-label="fullscreenActive ? 'Exit focus mode (f)' : 'Focus mode (f)'"
         :title="fullscreenActive ? 'Exit focus mode (f)' : 'Focus mode (f)'"
         @click="toggleFullscreen()"

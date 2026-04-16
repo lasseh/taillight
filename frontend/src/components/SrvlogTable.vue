@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useSrvlogEventStore } from '@/stores/srvlog-events'
+import { useColumnVisibility } from '@/composables/useColumnVisibility'
 import EventTable from '@/components/EventTable.vue'
 import SrvlogRow from '@/components/SrvlogRow.vue'
 
 const events = useSrvlogEventStore()
+const { visible: showProgram } = useColumnVisibility('srvlog', 'program')
 
 const colWidths = computed(() => {
   let maxHost = 0
@@ -15,7 +17,7 @@ const colWidths = computed(() => {
   }
   return {
     '--col-host': `${Math.min(20, Math.max(8, maxHost + 1))}ch`,
-    '--col-prog': `${Math.min(16, Math.max(6, maxProg + 1))}ch`,
+    '--col-prog': showProgram.value ? `${Math.min(16, Math.max(6, maxProg + 1))}ch` : '0',
   }
 })
 </script>
@@ -31,7 +33,7 @@ const colWidths = computed(() => {
     :style="colWidths"
   >
     <template #default="{ item }">
-      <SrvlogRow :event="item" />
+      <SrvlogRow :event="item" :show-program="showProgram" />
     </template>
   </EventTable>
 </template>
