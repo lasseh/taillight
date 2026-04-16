@@ -149,6 +149,7 @@ them. Add them only if the project has a relevant need.
 | `InsecureSkipVerify` | `bool` | Disable TLS verification for the ingest endpoint. Only for self-signed certs in dev/internal. Ignored if `Client` is set. |
 | `SendTimeout` | `time.Duration` | Per-request HTTP timeout. Default 30s. Enforced whether or not `Client` is set. |
 | `Redact` | `func(key string, value any) any` | Called for every attr value before JSON marshalling. Return `nil` to drop the attr. Use to scrub PII, tokens, session IDs. |
+| `MaxAttrBytes` | `int` | If >0, truncate any string attr value longer than this many bytes (marker: `…[truncated]`). Safety backstop against accidentally huge log entries. Recommended: `8192`–`16384`. |
 
 ### Example: TLS skip for a self-signed internal endpoint
 ```go
@@ -221,12 +222,51 @@ shipped records).
 No code changes required for any of these — they're automatic:
 
 - **No more hung drain loop** on a stalled ingest endpoint (30s default timeout).
-- **No more lost entries** on shutdown race (new `closing` flag).
-- **Accurate `Dropped()` / `SendFailed()` counters** across `logger.With(...)` chains.
+- **No more lost entries on shutdown** — a write-lock barrier in `Shutdown`
+  waits for any in-flight `Handle` call to complete its channel push before
+  the drain begins. (Earlier fix relied on an atomic `closing` flag only,
+  which had a narrow race window. This release closes it.)
+- **Accurate `Dropped()` / `SendFailed()` / `EncodeFailed()` counters** across
+  `logger.With(...)` chains.
 - **No more Bearer token leak** on HTTP redirects (`CheckRedirect` disabled).
 - **URL scheme validation** rejects `file://`, `gopher://`, etc.
-- **Failed batches dropped immediately** instead of growing to 10×`BatchSize`
-  and then getting dumped all at once.
+- **Bounded retained memory on failure** — at most one previously-failed
+  batch is held for retry. See below.
+- **Records survive encode errors** — attrs that fail to JSON-marshal don't
+  silently drop the whole record; see `EncodeFailed()` below.
+- **Internal diagnostics go to stderr**, not `slog.Default()` — prevents a
+  feedback loop if you later set the default logger to one backed by this
+  shipper.
+
+### Behavior change: single retry on send failure
+
+Previous releases dropped failed batches immediately (intentional, to keep
+memory bounded). This release holds the failed batch for one retry on the
+next flush tick — the most common recovery case (a deploy blip, a 1-2s
+network glitch) now succeeds automatically instead of surfacing as
+`SendFailed()` counts.
+
+If the retry also fails, the combined set is counted in `SendFailed()` and
+dropped. Peak retained memory is `~2 × BatchSize`.
+
+No API change. If you were relying on `SendFailed()` firing after exactly
+one failed POST, note that it now fires after two consecutive failures.
+
+### New counter: `EncodeFailed()`
+
+```go
+handler.EncodeFailed()  // int64, cumulative
+```
+
+Previously, a `json.Marshal` error in `Handle` returned the error to slog —
+which silently discards handler errors. The record was lost without any
+counter increment. Now, the record ships with a stub `"_encode_error"`
+attr and `EncodeFailed()` is incremented. The message and level are
+preserved; only the attrs payload is replaced.
+
+Watch `EncodeFailed()` during rollout if your code logs complex struct
+attrs — any unsupported type (channels, functions, unexported fields with
+`json:"-"` missing, cycles) will surface here.
 
 ---
 

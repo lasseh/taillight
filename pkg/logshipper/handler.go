@@ -74,13 +74,18 @@ func levelString(l slog.Level) string {
 
 // Config configures the logshipper Handler.
 type Config struct {
-	Endpoint    string        // POST URL, http:// or https:// only.
-	APIKey      Secret        // Bearer token. Redacted in all string/JSON formatting.
-	Service     string        // Populates the service field for all entries.
-	Component   string        // Optional component field.
-	Host        string        // Optional host/instance identifier.
-	AddSource   bool          // Include source file:line from the calling function.
-	MinLevel    slog.Level    // Minimum level to ship (default: DEBUG, i.e. ship everything).
+	Endpoint  string // POST URL, http:// or https:// only.
+	APIKey    Secret // Bearer token. Redacted in all string/JSON formatting.
+	Service   string // Populates the service field for all entries.
+	Component string // Optional component field.
+	Host      string // Optional host/instance identifier.
+	AddSource bool   // Include source file:line from the calling function.
+
+	// MinLevel is the minimum level to ship. The zero value is slog.LevelInfo
+	// (0), so Debug-level records are filtered out by default. Set this
+	// explicitly to slog.LevelDebug to ship everything, or slog.LevelWarn /
+	// slog.LevelError to reduce volume.
+	MinLevel    slog.Level
 	BatchSize   int           // Flush when batch reaches this size.
 	FlushPeriod time.Duration // Flush at least this often.
 	BufferSize  int           // Buffered channel capacity.
@@ -105,6 +110,19 @@ type Config struct {
 	// value, and must return the value to ship. Return nil to drop the attr
 	// entirely. Use this to scrub PII, tokens, session IDs, etc.
 	Redact func(key string, value any) any
+
+	// MaxAttrBytes caps the length of any string attr value (in bytes).
+	// Values longer than this are truncated with a "…[truncated]" suffix to
+	// protect buffer memory and keep HTTP payloads bounded. The zero value
+	// disables truncation (compatible with earlier releases). A recommended
+	// production setting is 8192–16384.
+	//
+	// Only string values are truncated; other types (numbers, bools, nested
+	// groups, json.Marshaler) are unaffected. The truncation is measured in
+	// bytes on the UTF-8 representation and cuts at a byte boundary; it may
+	// therefore split a multi-byte character — acceptable for a safety
+	// backstop, not intended as a general-purpose string limiter.
+	MaxAttrBytes int
 }
 
 func (c *Config) setDefaults() error {
@@ -168,9 +186,18 @@ func buildClient(insecureSkipVerify bool, timeout time.Duration) *http.Client {
 // New call (via WithAttrs/WithGroup). Counters live here so that metrics
 // aggregate across child loggers rather than each With() call starting fresh.
 type state struct {
-	dropped    atomic.Int64
-	sendFailed atomic.Int64
-	closing    atomic.Bool
+	dropped      atomic.Int64
+	sendFailed   atomic.Int64
+	encodeFailed atomic.Int64
+	closing      atomic.Bool
+
+	// mu serializes Shutdown against in-flight Handle calls.
+	// Handle holds an RLock for the duration of its closing-check + channel
+	// push. Shutdown takes Lock as a barrier to wait for those calls to
+	// finish, so no entry can be added to h.ch after close(h.done). This
+	// fixes a lost-entry race where a concurrent Handle could push an entry
+	// after the drain loop had already emptied the channel.
+	mu sync.RWMutex
 
 	// shutdownCtx is written by Shutdown before close(done) and read by the
 	// drain branch in loop after receiving from done. The close/receive pair
@@ -189,7 +216,11 @@ type Handler struct {
 	closeOnce *sync.Once
 	preAttrs  []slog.Attr
 	groups    []string
-	logger    *slog.Logger
+
+	// intLogger emits internal diagnostics (send failures) to stderr. It is
+	// deliberately NOT slog.Default(), to avoid a feedback loop if callers
+	// later replace the default with a logger routed through this shipper.
+	intLogger *slog.Logger
 }
 
 type logEntry struct {
@@ -221,7 +252,7 @@ func New(cfg Config) (*Handler, error) {
 		done:      make(chan struct{}),
 		wg:        &sync.WaitGroup{},
 		closeOnce: &sync.Once{},
-		logger:    slog.Default(),
+		intLogger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 	}
 	h.wg.Add(1)
 	go h.loop()
@@ -236,6 +267,13 @@ func (h *Handler) Enabled(_ context.Context, level slog.Level) bool {
 // Handle converts the slog.Record to a logEntry and pushes it to the channel.
 // Entries submitted after Shutdown begins are dropped and counted.
 func (h *Handler) Handle(_ context.Context, r slog.Record) error {
+	// Hold the read side of the shutdown barrier for the entire call. This
+	// guarantees that either (a) we observe closing=true and drop, or
+	// (b) we complete our channel push before Shutdown's Lock can return.
+	// Either way, no entry is lost silently after shutdown.
+	h.state.mu.RLock()
+	defer h.state.mu.RUnlock()
+
 	if h.state.closing.Load() {
 		h.state.dropped.Add(1)
 		return nil
@@ -250,8 +288,8 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		Host:      h.cfg.Host,
 	}
 
-	// Collect attributes.
-	attrs := make(map[string]any)
+	// Pre-size to avoid map growth reallocs on the hot path.
+	attrs := make(map[string]any, len(h.preAttrs)+r.NumAttrs())
 
 	// Pre-resolved attrs from WithAttrs.
 	for _, a := range h.preAttrs {
@@ -264,29 +302,29 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		return true
 	})
 
-	// Resolve source from the record's program counter.
+	// Resolve source from the record's program counter when AddSource is set.
+	// (The historical fallback of scraping a *slog.Source from attrs never
+	// fires in practice — slog resolves Source via LogValuer into a Group —
+	// so it has been removed.)
 	if h.cfg.AddSource && r.PC != 0 {
 		fs := runtime.CallersFrames([]uintptr{r.PC})
 		f, _ := fs.Next()
 		entry.Source = fmt.Sprintf("%s:%d", f.File, f.Line)
-	}
-
-	// Extract source from attrs if not already set (e.g. from a wrapping handler).
-	if entry.Source == "" {
-		if src, ok := attrs[slog.SourceKey]; ok {
-			if s, ok := src.(*slog.Source); ok {
-				entry.Source = fmt.Sprintf("%s:%d", s.File, s.Line)
-			}
-		}
 	}
 	delete(attrs, slog.SourceKey)
 
 	if len(attrs) > 0 {
 		raw, err := json.Marshal(attrs)
 		if err != nil {
-			return fmt.Errorf("marshal attrs: %w", err)
+			// Don't lose the record — ship a stub payload and count the
+			// encode failure so it shows up in EncodeFailed(). slog
+			// discards Handle errors, so returning one here would be a
+			// silent drop.
+			h.state.encodeFailed.Add(1)
+			entry.Attrs = encodeErrorPayload(err)
+		} else {
+			entry.Attrs = raw
 		}
-		entry.Attrs = raw
 	}
 
 	select {
@@ -298,10 +336,25 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	return nil
 }
 
+// encodeErrorPayload builds a JSON object recording that the original attrs
+// failed to marshal. Kept as a helper so the format is consistent and the
+// error string is safely escaped.
+func encodeErrorPayload(err error) json.RawMessage {
+	b, mErr := json.Marshal(map[string]string{"_encode_error": err.Error()})
+	if mErr != nil {
+		// Last resort: a static payload that always encodes cleanly.
+		return json.RawMessage(`{"_encode_error":"unrepresentable"}`)
+	}
+	return b
+}
+
 // WithAttrs returns a new Handler with the given pre-resolved attributes.
 // The returned handler shares the parent's state (counters, channel, goroutine)
-// so Dropped/SendFailed aggregate across all derived loggers.
+// so Dropped/SendFailed/EncodeFailed aggregate across all derived loggers.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	if len(attrs) == 0 {
+		return h
+	}
 	return &Handler{
 		cfg:       h.cfg,
 		state:     h.state,
@@ -311,7 +364,7 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		closeOnce: h.closeOnce,
 		preAttrs:  append(cloneAttrs(h.preAttrs), attrs...),
 		groups:    cloneStrings(h.groups),
-		logger:    h.logger,
+		intLogger: h.intLogger,
 	}
 }
 
@@ -330,7 +383,7 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 		closeOnce: h.closeOnce,
 		preAttrs:  cloneAttrs(h.preAttrs),
 		groups:    append(cloneStrings(h.groups), name),
-		logger:    h.logger,
+		intLogger: h.intLogger,
 	}
 }
 
@@ -340,9 +393,19 @@ func (h *Handler) Dropped() int64 {
 	return h.state.dropped.Load()
 }
 
-// SendFailed returns the number of log entries that failed to send due to HTTP errors.
+// SendFailed returns the number of log entries that failed to send due to
+// HTTP errors or timeouts. After the library's bounded retry policy has been
+// exhausted (one retry on the following flush tick), entries are counted here
+// and dropped to keep memory bounded.
 func (h *Handler) SendFailed() int64 {
 	return h.state.sendFailed.Load()
+}
+
+// EncodeFailed returns the number of log entries whose attrs failed to
+// JSON-marshal. Those entries still ship with an "_encode_error" stub attr
+// so the record itself is not lost — only the attrs payload is replaced.
+func (h *Handler) EncodeFailed() int64 {
+	return h.state.encodeFailed.Load()
 }
 
 // Shutdown flushes remaining buffered logs and stops the background goroutine.
@@ -353,9 +416,22 @@ func (h *Handler) SendFailed() int64 {
 // If ctx expires while a send is in flight, Shutdown returns ctx.Err() and the
 // shipper goroutine will exit once the in-flight send finishes (bounded by
 // Config.SendTimeout).
+//
+// Shutdown is safe to call multiple times and from multiple goroutines — only
+// the first call performs the close; subsequent calls wait for the drain
+// (or their own context) to complete.
 func (h *Handler) Shutdown(ctx context.Context) error {
 	h.closeOnce.Do(func() {
+		// Flip the fast-path flag first so new Handle callers drop.
 		h.state.closing.Store(true)
+
+		// Write-lock the barrier: this blocks until every in-flight Handle
+		// call has released its RLock. After this returns, no Handle call
+		// can still be mid-channel-push, so close(h.done) below cannot race
+		// with an enqueue that the drain loop would never see.
+		h.state.mu.Lock()
+		h.state.mu.Unlock() //nolint:staticcheck // Intentional Lock+Unlock used as a barrier.
+
 		h.state.shutdownCtx = ctx
 		close(h.done)
 	})
@@ -378,20 +454,51 @@ func (h *Handler) loop() {
 	defer h.wg.Done()
 
 	batch := make([]logEntry, 0, h.cfg.BatchSize)
+	// pendingRetry holds a single previous batch that failed to send. It is
+	// retried (combined with the current batch) on the next flush tick. On a
+	// second consecutive failure the combined set is counted as SendFailed
+	// and dropped, keeping retained memory bounded to ~2 × BatchSize.
+	var pendingRetry []logEntry
 	ticker := time.NewTicker(h.cfg.FlushPeriod)
 	defer ticker.Stop()
 
 	flush := func(ctx context.Context) {
-		if len(batch) == 0 {
+		if len(batch) == 0 && len(pendingRetry) == 0 {
 			return
 		}
-		if err := h.send(ctx, batch); err != nil {
-			h.logger.Warn("logshipper send failed", "error", err, "batch_size", len(batch))
-			h.state.sendFailed.Add(int64(len(batch)))
+
+		wasRetry := len(pendingRetry) > 0
+		var toSend []logEntry
+		if wasRetry {
+			toSend = make([]logEntry, 0, len(pendingRetry)+len(batch))
+			toSend = append(toSend, pendingRetry...)
+			toSend = append(toSend, batch...)
+		} else {
+			toSend = batch
 		}
-		// Always reset. Failed batches are dropped rather than retained, to
-		// keep memory bounded and behavior predictable. Callers that need
-		// durability should front the ingest endpoint with a sidecar agent.
+
+		err := h.send(ctx, toSend)
+		if err == nil {
+			pendingRetry = nil
+			batch = batch[:0]
+			return
+		}
+
+		h.intLogger.Warn("logshipper send failed",
+			"error", err,
+			"batch_size", len(toSend),
+			"retry", wasRetry,
+		)
+		if wasRetry {
+			// Second consecutive failure — drop all, keep memory bounded.
+			h.state.sendFailed.Add(int64(len(toSend)))
+			pendingRetry = nil
+		} else {
+			// First failure — retain for one retry on the next flush tick.
+			// Copy so the backing array can be reused.
+			pendingRetry = make([]logEntry, len(toSend))
+			copy(pendingRetry, toSend)
+		}
 		batch = batch[:0]
 	}
 
@@ -415,6 +522,13 @@ func (h *Handler) loop() {
 					batch = append(batch, entry)
 				default:
 					flush(drainCtx)
+					// Any entries still in pendingRetry after the final
+					// drain flush are unreachable. Count them as failed so
+					// the caller's SendFailed() reflects reality.
+					if len(pendingRetry) > 0 {
+						h.state.sendFailed.Add(int64(len(pendingRetry)))
+						pendingRetry = nil
+					}
 					return
 				}
 			}
@@ -501,6 +615,12 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 		v = h.cfg.Redact(a.Key, v)
 		if v == nil {
 			return
+		}
+	}
+
+	if h.cfg.MaxAttrBytes > 0 {
+		if s, ok := v.(string); ok && len(s) > h.cfg.MaxAttrBytes {
+			v = s[:h.cfg.MaxAttrBytes] + "…[truncated]"
 		}
 	}
 	target[a.Key] = v

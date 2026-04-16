@@ -103,6 +103,15 @@ APIKey: logshipper.Secret(apiKeyVar),  // needed for string variables
 Cast to `string` only at the point of use (the library does this internally
 when building the `Authorization` header).
 
+**Caveats.** The redaction is defense against accidental logging, not a
+hard sandbox:
+
+- `reflect.ValueOf(sec).String()` returns the underlying string (Go's
+  reflect package reads the raw value for `Kind() == String` regardless of
+  `Stringer`). Don't pass a `Secret` through anything that reflects on it.
+- An explicit `string(sec)` conversion returns the raw value — that's how
+  the library itself reads it to build the `Authorization` header.
+
 ## TLS for self-signed / internal endpoints
 
 Set `InsecureSkipVerify: true` to skip TLS verification. Intended for
@@ -146,6 +155,24 @@ For sensitive types you control, implement `slog.LogValuer` — `logshipper`
 resolves `LogValuer` before calling `Redact`, so you can redact at the type
 level without a per-key switch.
 
+## Bounding payload size
+
+A stray `logger.Info("body", req.Body)` can push a multi-megabyte string
+into a single log entry. Set `MaxAttrBytes` to cap any string attr at a
+safe size:
+
+```go
+handler, err := logshipper.New(logshipper.Config{
+    // ...
+    MaxAttrBytes: 16384, // 16 KB per string attr
+})
+```
+
+Values that exceed the cap are truncated at a byte boundary and annotated
+with `…[truncated]`. Non-string values (numbers, bools, nested groups,
+`json.Marshaler` types like `time.Time`) are not affected. This is a safety
+net for accidental blowups — use `Redact` if you want per-key control.
+
 ## Config reference
 
 | Field                | Type                            | Default          | Description                                                                                 |
@@ -156,7 +183,7 @@ level without a per-key switch.
 | `Component`          | `string`                        | `""`             | Optional component label.                                                                   |
 | `Host`               | `string`                        | `os.Hostname()`  | Host/instance identifier.                                                                   |
 | `AddSource`          | `bool`                          | `false`          | Include source `file:line` from the calling function.                                       |
-| `MinLevel`           | `slog.Level`                    | `slog.LevelDebug`| Minimum level to ship.                                                                      |
+| `MinLevel`           | `slog.Level`                    | `slog.LevelInfo` | Minimum level to ship. Zero value is `LevelInfo`; set `LevelDebug` explicitly to ship everything. |
 | `BatchSize`          | `int`                           | `100`            | Flush when batch reaches this size.                                                         |
 | `FlushPeriod`        | `time.Duration`                 | `1s`             | Flush at least this often.                                                                  |
 | `BufferSize`         | `int`                           | `1024`           | Buffered channel capacity. Entries are dropped (and counted) when full.                     |
@@ -164,6 +191,19 @@ level without a per-key switch.
 | `Client`             | `*http.Client`                  | built-in         | Optional custom HTTP client. If set, `InsecureSkipVerify` is ignored; caller owns TLS.      |
 | `InsecureSkipVerify` | `bool`                          | `false`          | Disable TLS certificate verification. Only honored when `Client` is nil.                    |
 | `Redact`             | `func(key string, v any) any`   | `nil`            | Called for every attr value before marshalling. Return `nil` to drop the attr.              |
+| `MaxAttrBytes`       | `int`                           | `0` (off)        | If >0, truncate any string attr longer than this with a `…[truncated]` suffix. Recommended: `8192`–`16384` in production. |
+
+### Ship everything (including Debug)
+
+The zero-value default is `LevelInfo` — Debug records are filtered at the
+shipper. To ship all levels:
+
+```go
+handler, err := logshipper.New(logshipper.Config{
+    // ...
+    MinLevel: slog.LevelDebug,
+})
+```
 
 ## How it works
 
@@ -173,12 +213,14 @@ level without a per-key switch.
    if full, counted in `Dropped()`).
 3. Entries are flushed as a JSON batch `POST` when the batch is full or the
    flush timer fires.
-4. Failed batches are **dropped**, not retained — `SendFailed()` is
-   incremented by the batch size. Callers that need durability should front
-   the ingest with a sidecar agent (vector, fluent-bit, etc.).
-5. `Shutdown(ctx)` marks the handler as closing (concurrent `Handle` calls
-   drop fast instead of racing the channel), drains remaining entries, and
-   waits for the final flush to finish or `ctx` to expire.
+4. **Failed batches get one retry.** On the first send failure the batch is
+   retained; on the next flush tick it is combined with any new entries and
+   re-sent. If the retry also fails, the entire combined set is counted in
+   `SendFailed()` and dropped. Peak retained memory is `~2 × BatchSize`.
+5. `Shutdown(ctx)` marks the handler as closing, takes a write-lock barrier
+   so any in-flight `Handle` call completes its channel push before the
+   drain begins, then drains remaining entries and waits for the final
+   flush to finish or `ctx` to expire.
 
 ### Built-in guarantees
 
@@ -188,21 +230,35 @@ level without a per-key switch.
   `CheckRedirect` to `http.ErrUseLastResponse`.
 - **No SSRF via malformed endpoints** — `New` rejects any URL whose scheme
   is not `http` or `https`, or whose host is empty.
-- **Accurate counters across `With(...)` chains** — `Dropped()` and
-  `SendFailed()` aggregate over all handlers derived from a single `New`
-  call via `WithAttrs` / `WithGroup`.
-- **Predictable memory** — failed batches are dropped immediately rather
-  than retained and grown until a cap is hit.
+- **Accurate counters across `With(...)` chains** — `Dropped()`,
+  `SendFailed()`, and `EncodeFailed()` aggregate over all handlers derived
+  from a single `New` call via `WithAttrs` / `WithGroup`.
+- **No lost entries on shutdown** — the write-lock barrier in `Shutdown`
+  guarantees that any `Handle` call that passed the closing check has
+  completed its channel push before drain begins.
+- **Records survive encode errors** — if `json.Marshal` fails on an attr
+  value (unsupported type, cycle, etc.), the record still ships with a
+  stub `"_encode_error"` attr and `EncodeFailed()` is incremented. The
+  message and level are preserved; only the attrs payload is replaced.
+- **Bounded retained memory** — the retry policy holds at most one
+  previously-failed batch. There is no unbounded queue growth.
 
 ## Observability
 
 ```go
-handler.Dropped()     // entries dropped due to full buffer or post-shutdown submission
-handler.SendFailed()  // entries that belonged to a batch that failed to POST
+handler.Dropped()       // entries dropped due to full buffer or post-shutdown submission
+handler.SendFailed()    // entries in batches that failed twice in a row (first send + retry)
+handler.EncodeFailed()  // entries whose attrs failed to JSON-marshal (still shipped with stub)
 ```
 
-Both counters are cumulative and shared across every handler derived from
-the same `New` call.
+All three counters are cumulative and shared across every handler derived
+from the same `New` call. They are the primary signal for "is the shipper
+healthy?" — a non-zero value in any of them during normal operation is
+worth investigating (network, payload shape, or buffer sizing).
+
+Internal diagnostics (send-failure warnings) are emitted on **stderr**, not
+through `slog.Default()`. This prevents a feedback loop if you set the
+default logger to one backed by this shipper.
 
 ## Structured attributes
 
