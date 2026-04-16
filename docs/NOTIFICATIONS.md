@@ -16,36 +16,17 @@ One sentence: **the first matching event fires immediately; repeats of the same 
 
 Each rule has a _fingerprint_ — the combination of the rule's ID and the `group_by` fields (default: `hostname` for srvlog/netlog, `host` for applog). Each fingerprint goes through this cycle independently:
 
-```
-        event matches a rule
-                 │
-       ┌─────────┴──────────┐
-       │ fingerprint state? │
-       └─────────┬──────────┘
-                 │
-        ┌────────┴────────┐
-        │                 │
-      clean            silenced
-        │                 │
-        ▼                 ▼
-   send alert         count it,
-   now                do not send
-   start silence
-   timer (default
-   5 min)
-
-          silence timer expires
-                 │
-        ┌────────┴────────┐
-        │                 │
-    nothing            N > 0 events
-    happened           were counted
-        │                 │
-        ▼                 ▼
-   close             send digest
-   fingerprint       "N more in last Xm"
-   (next match       start next silence
-    fires imm.)      (length grows, capped)
+```mermaid
+flowchart TD
+    A([event matches a rule]) --> B{fingerprint<br/>state?}
+    B -->|clean| C[send alert immediately<br/>start silence timer<br/>default 5m]
+    B -->|silenced| D[count event<br/>do not send]
+    C -. silence timer expires .-> E{events<br/>accumulated?}
+    D -. silence timer expires .-> E
+    E -->|none| F([close fingerprint<br/>next match fires immediately])
+    E -->|N &gt; 0| G[send digest<br/>'N more in last Xm']
+    G --> H[start next silence<br/>length grows, capped at silence_max]
+    H -. silence timer expires .-> E
 ```
 
 Three things to internalise:
