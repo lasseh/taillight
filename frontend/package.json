@@ -16,7 +16,7 @@
     "@unovis/ts": "^1.6.4",
     "@unovis/vue": "^1.6.4",
     "@vueuse/core": "^14.2.1",
-    "dompurify": "^3.3.3",
+    "dompurify": "^3.4.0",
     "focus-trap": "^8.0.1",
     "marked": "^18.0.0",
     "pinia": "^3.0.4",
