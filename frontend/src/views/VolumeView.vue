@@ -9,7 +9,7 @@ import { useAppLogVolumeStore } from '@/stores/applog-volume'
 import { useRsyslogStatsStore } from '@/stores/rsyslog-stats'
 import { useTaillightMetricsStore } from '@/stores/taillight-metrics'
 import { useTheme } from '@/composables/useTheme'
-import { features } from '@/config'
+import { useFeaturesStore } from '@/stores/features'
 import type { VolumeDataRecord } from '@/types/stats'
 import type { SimplePoint } from '@/types/chart'
 
@@ -21,6 +21,7 @@ const applogVolume = useAppLogVolumeStore()
 const rsyslogStats = useRsyslogStatsStore()
 const taillightMetrics = useTaillightMetricsStore()
 const { current: theme } = useTheme()
+const { features } = useFeaturesStore()
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')

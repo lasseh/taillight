@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, ApiError } from '@/lib/api'
-import { features } from '@/config'
+import { useFeaturesStore } from '@/stores/features'
 import { useSrvlogStream } from '@/composables/useSrvlogStream'
 import { useNetlogStream } from '@/composables/useNetlogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
@@ -47,6 +47,7 @@ function pad2(n: number): string {
 }
 
 export const useHomeStore = defineStore('home', () => {
+  const { features } = useFeaturesStore()
   const srvlogSummary = ref<SrvlogSummary | null>(null)
   const netlogSummary = ref<SrvlogSummary | null>(null)
   const applogSummary = ref<AppLogSummary | null>(null)

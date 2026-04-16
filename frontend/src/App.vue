@@ -16,7 +16,7 @@ import { useNotifications } from '@/composables/useNotifications'
 import { useFavicon } from '@/composables/useFavicon'
 import { useFullscreen } from '@/composables/useFullscreen'
 import { useColumnVisibility } from '@/composables/useColumnVisibility'
-import { features } from '@/config'
+import { useFeaturesStore } from '@/stores/features'
 import AppHeader from '@/components/AppHeader.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import NetlogFilterBar from '@/components/NetlogFilterBar.vue'
@@ -34,6 +34,7 @@ const appLogFilters = useAppLogFilterStore()
 const appLogMeta = useAppLogMetaStore()
 const netlogMeta = useNetlogMetaStore()
 const scrollStore = useScrollStore()
+const { features } = useFeaturesStore()
 
 // Wait for initial navigation to complete before rendering the layout.
 // This prevents a race where auth resolves (triggering layout render)

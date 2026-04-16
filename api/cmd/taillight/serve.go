@@ -508,8 +508,16 @@ func setupRouter(
 	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
 	exportHandler := handler.NewExportHandler(store, store, store)
 	juniperRefHandler := handler.NewJuniperRefHandler(store)
+	configHandler := handler.NewConfigHandler(cfg.Features)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// Runtime config — unauthenticated so the frontend can fetch feature
+		// flags before the login UI renders.
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Timeout(30 * time.Second))
+			r.Get("/config/features", configHandler.Features)
+		})
+
 		if cfg.AuthEnabled {
 			// Auth endpoints — unauthenticated (login must work without auth).
 			r.Group(func(r chi.Router) {

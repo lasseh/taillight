@@ -1,6 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { features } from '@/config'
+import { useFeaturesStore } from '@/stores/features'
+
+// Read feature flags snapshot at router build time. main.ts loads the store
+// before importing this module, so the values match the backend config.
+const { features } = useFeaturesStore()
 
 const router = createRouter({
   history: createWebHistory(),
