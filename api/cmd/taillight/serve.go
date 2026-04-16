@@ -507,6 +507,7 @@ func setupRouter(
 	notifHandler := handler.NewNotificationHandler(store, notifEngine)
 	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
 	exportHandler := handler.NewExportHandler(store, store, store)
+	juniperRefHandler := handler.NewJuniperRefHandler(store)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.AuthEnabled {
@@ -742,6 +743,12 @@ func setupRouter(
 				r.Put("/notifications/summaries/{id}", summaryHandler.UpdateSchedule)
 				r.Delete("/notifications/summaries/{id}", summaryHandler.DeleteSchedule)
 				r.Post("/notifications/summaries/{id}/trigger", summaryHandler.TriggerSchedule)
+			})
+
+			// Juniper reference XLSX upload — longer timeout for multipart parse+upsert.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.Timeout(2 * time.Minute))
+				r.Post("/juniper/ref/upload", juniperRefHandler.Upload)
 			})
 		})
 	})
