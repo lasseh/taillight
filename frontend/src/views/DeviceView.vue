@@ -8,13 +8,9 @@ import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/form
 import { severityLabels, severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
 import { useDeviceLogs } from '@/composables/useDeviceLogs'
-import { useCollapsed } from '@/composables/useCollapsed'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import SrvlogRow from '@/components/SrvlogRow.vue'
-
-const topMessagesCollapsed = useCollapsed('srvlog-device:top-messages')
-const breakdownCollapsed = useCollapsed('srvlog-device:severity-breakdown')
 
 const props = defineProps<{
   hostname: string
@@ -22,6 +18,8 @@ const props = defineProps<{
 
 const hostnameRef = computed(() => props.hostname)
 const { events: deviceLogs } = useDeviceLogs(hostnameRef)
+
+const summaryCollapsed = ref(false)
 
 const router = useRouter()
 const route = useRoute()
@@ -289,21 +287,11 @@ function currentEvents(): SrvlogEvent[] {
         </div>
 
         <!-- Top Messages + Severity Distribution -->
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div v-if="!summaryCollapsed" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <!-- Top Messages -->
           <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border p-4">
-            <div class="mb-3 flex items-center justify-between">
-              <h3 class="text-t-fg-dark text-xs font-semibold uppercase tracking-wide">Top Messages <span class="text-t-fg-dark font-normal normal-case">(24h)</span></h3>
-              <button
-                class="text-t-fg-dark hover:text-t-fg transition-colors"
-                :aria-label="topMessagesCollapsed ? 'Expand top messages' : 'Collapse top messages'"
-                :aria-expanded="!topMessagesCollapsed"
-                @click="topMessagesCollapsed = !topMessagesCollapsed"
-              >
-                <svg class="h-4 w-4 transition-transform" :class="{ '-rotate-90': topMessagesCollapsed }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
-              </button>
-            </div>
-            <div v-if="!topMessagesCollapsed" class="-mx-4">
+            <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Messages <span class="text-t-fg-dark font-normal normal-case">(24h)</span></h3>
+            <div class="-mx-4">
               <!-- Mobile: color bar + count + message -->
               <RouterLink
                 v-for="(msg, i) in summary.top_messages.slice(0, 8)"
@@ -336,12 +324,21 @@ function currentEvents(): SrvlogEvent[] {
 
           <SeverityDistribution
             v-if="summary.severity_breakdown.length > 0"
-            v-model:collapsed="breakdownCollapsed"
             :items="summary.severity_breakdown"
             title="Severity Breakdown"
             collapsible
+            @collapse="summaryCollapsed = true"
           />
         </div>
+        <button
+          v-else
+          type="button"
+          class="bg-t-bg-dark border-t-border hover:bg-t-bg-hover text-t-fg-dark hover:text-t-fg flex w-full items-center justify-center rounded border py-1.5 transition-colors"
+          aria-label="Expand summary"
+          @click="summaryCollapsed = false"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+        </button>
       </div>
 
       <!-- Logs section (fills remaining space) -->

@@ -9,7 +9,7 @@ defineProps<{
   collapsible?: boolean
 }>()
 
-const collapsed = defineModel<boolean>('collapsed', { default: false })
+const emit = defineEmits<{ collapse: [] }>()
 </script>
 
 <template>
@@ -18,15 +18,15 @@ const collapsed = defineModel<boolean>('collapsed', { default: false })
       <h3 class="text-t-teal text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Severity Distribution' }}</h3>
       <button
         v-if="collapsible"
-        class="text-t-fg-dark hover:text-t-fg transition-colors"
-        :aria-label="collapsed ? 'Expand severity breakdown' : 'Collapse severity breakdown'"
-        :aria-expanded="!collapsed"
-        @click="collapsed = !collapsed"
+        type="button"
+        class="text-t-fg-dark hover:text-t-fg -m-1 p-1 transition-colors"
+        aria-label="Collapse summary"
+        @click="emit('collapse')"
       >
-        <svg class="h-4 w-4 transition-transform" :class="{ '-rotate-90': collapsed }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15" /></svg>
       </button>
     </div>
-    <div v-if="!collapsed" class="space-y-2">
+    <div class="space-y-2">
       <div
         v-for="item in items"
         :key="item.severity"
