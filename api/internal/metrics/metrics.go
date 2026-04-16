@@ -238,10 +238,19 @@ var (
 		Help:      "Current number of notifications in the dispatch queue.",
 	})
 
-	// NotifGroupsDroppedTotal counts events dropped because per-rule group cap was reached.
-	NotifGroupsDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	// NotifFingerprintsDroppedTotal counts events dropped because the per-rule
+	// fingerprint cap was reached (too-wide group_by letting unique keys pile up).
+	NotifFingerprintsDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "taillight",
-		Name:      "notification_groups_dropped_total",
-		Help:      "Events dropped because per-rule group cap was reached.",
+		Name:      "notification_fingerprints_dropped_total",
+		Help:      "Events dropped because the per-rule fingerprint cap was reached.",
 	})
+
+	// NotifSendAttemptsTotal counts individual send attempts by outcome,
+	// distinguishing first-try success from retry-success and retry-exhausted.
+	NotifSendAttemptsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "notification_send_attempts_total",
+		Help:      "Individual notification send attempts labelled by outcome.",
+	}, []string{"outcome"})
 )

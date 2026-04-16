@@ -87,10 +87,10 @@ type NotificationConfig struct {
 	RuleRefreshInterval time.Duration
 	DispatchWorkers     int
 	DispatchBuffer      int
-	DefaultBurstWindow  time.Duration
-	DefaultCooldown     time.Duration
-	DefaultMaxCooldown  time.Duration
 	SendTimeout         time.Duration
+	DefaultSilence      time.Duration
+	DefaultSilenceMax   time.Duration
+	DefaultCoalesce     time.Duration
 }
 
 // LogShipperConfig configures the built-in log shipper that sends taillight's
@@ -177,9 +177,9 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("notification.rule_refresh_interval", "30s")
 	v.SetDefault("notification.dispatch_workers", 4)
 	v.SetDefault("notification.dispatch_buffer", 1024)
-	v.SetDefault("notification.default_burst_window", "30s")
-	v.SetDefault("notification.default_cooldown", "1m")
-	v.SetDefault("notification.default_max_cooldown", "1h")
+	v.SetDefault("notification.default_silence", "5m")
+	v.SetDefault("notification.default_silence_max", "15m")
+	v.SetDefault("notification.default_coalesce", "0s")
 	v.SetDefault("notification.send_timeout", "10s")
 
 	// Config file.
@@ -247,10 +247,10 @@ func Load(configFile ...string) (Config, error) {
 			RuleRefreshInterval: v.GetDuration("notification.rule_refresh_interval"),
 			DispatchWorkers:     v.GetInt("notification.dispatch_workers"),
 			DispatchBuffer:      v.GetInt("notification.dispatch_buffer"),
-			DefaultBurstWindow:  v.GetDuration("notification.default_burst_window"),
-			DefaultCooldown:     v.GetDuration("notification.default_cooldown"),
-			DefaultMaxCooldown:  v.GetDuration("notification.default_max_cooldown"),
 			SendTimeout:         v.GetDuration("notification.send_timeout"),
+			DefaultSilence:      v.GetDuration("notification.default_silence"),
+			DefaultSilenceMax:   v.GetDuration("notification.default_silence_max"),
+			DefaultCoalesce:     v.GetDuration("notification.default_coalesce"),
 		},
 		LDAP: LDAPConfig{
 			Enabled:        v.GetBool("ldap.enabled"),

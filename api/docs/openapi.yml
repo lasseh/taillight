@@ -2346,18 +2346,18 @@ components:
           type: array
           items:
             type: integer
-        burst_window:
-          type: integer
-          description: Number of events before triggering a burst notification
-        cooldown_seconds:
-          type: integer
-          description: Minimum seconds between notifications for this rule
         group_by:
           type: string
           description: Field to group events by (e.g. hostname, service)
-        max_cooldown_seconds:
+        silence_ms:
           type: integer
-          description: Maximum cooldown after exponential backoff
+          description: Silence window in ms after the initial alert fires. Matching events during this window are counted and emitted as a single digest when the window closes.
+        silence_max_ms:
+          type: integer
+          description: Upper bound (ms) on the silence window. While a rule keeps firing digests, each new silence is previous + silence_ms, capped here.
+        coalesce_ms:
+          type: integer
+          description: Optional sub-second batching window for the first alert. 0 = fire first match immediately.
         created_at:
           type: string
           format: date-time
@@ -2407,13 +2407,13 @@ components:
           type: array
           items:
             type: integer
-        burst_window:
-          type: integer
-        cooldown_seconds:
-          type: integer
         group_by:
           type: string
-        max_cooldown_seconds:
+        silence_ms:
+          type: integer
+        silence_max_ms:
+          type: integer
+        coalesce_ms:
           type: integer
 
     NotificationLogEntry:

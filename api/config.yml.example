@@ -95,9 +95,10 @@ notification:
   # rule_refresh_interval: 30s    # How often rules/channels are reloaded from the database.
   # dispatch_workers: 4           # Concurrent notification sender goroutines.
   # dispatch_buffer: 1024         # Internal dispatch queue size.
-  # default_burst_window: 30s     # Collect matching events into one notification for this long.
-  # default_cooldown: 5m          # Suppress repeat notifications per rule after firing.
-  # send_timeout: 10s             # HTTP timeout for each backend send.
+  # default_silence: 5m           # After the first alert on a fingerprint, suppress duplicates for this long.
+  # default_silence_max: 15m      # Cap on silence growth — silence lengthens linearly while a rule keeps firing digests.
+  # default_coalesce: 0s          # Optional sub-second batching of the first alert for log floods. 0 = fire immediately.
+  # send_timeout: 10s             # HTTP timeout for each backend send attempt.
   # global_rate_limit: 100        # Reserved for future use.
 
 # AI-powered daily log analysis using a local Ollama instance.

@@ -143,8 +143,7 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 		       r.hostname, r.programname, r.severity, r.severity_max,
 		       r.facility, r.syslogtag, r.msgid,
 		       r.service, r.component, r.host, r.level, r.search,
-		       r.burst_window, r.cooldown_seconds,
-		       r.group_by, r.max_cooldown_seconds,
+		       r.group_by, r.silence_ms, r.silence_max_ms, r.coalesce_ms,
 		       r.created_at, r.updated_at,
 		       COALESCE(array_agg(rc.channel_id ORDER BY rc.channel_id) FILTER (WHERE rc.channel_id IS NOT NULL), '{}')
 		FROM notification_rules r
@@ -168,8 +167,7 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 			&hostname, &programname, &r.Severity, &r.SeverityMax,
 			&r.Facility, &syslogtag, &msgid,
 			&service, &component, &host, &level, &search,
-			&r.BurstWindow, &r.CooldownSeconds,
-			&r.GroupBy, &r.MaxCooldownSeconds,
+			&r.GroupBy, &r.SilenceMS, &r.SilenceMaxMS, &r.CoalesceMS,
 			&r.CreatedAt, &r.UpdatedAt,
 			&r.ChannelIDs,
 		); err != nil {
@@ -201,8 +199,7 @@ func (s *Store) GetNotificationRule(ctx context.Context, id int64) (notification
 			"hostname", "programname", "severity", "severity_max",
 			"facility", "syslogtag", "msgid",
 			"service", "component", "host", "level", "search",
-			"burst_window", "cooldown_seconds",
-			"group_by", "max_cooldown_seconds",
+			"group_by", "silence_ms", "silence_max_ms", "coalesce_ms",
 			"created_at", "updated_at",
 		).
 		From("notification_rules").
@@ -220,8 +217,7 @@ func (s *Store) GetNotificationRule(ctx context.Context, id int64) (notification
 		&hostname, &programname, &r.Severity, &r.SeverityMax,
 		&r.Facility, &syslogtag, &msgid,
 		&service, &component, &host, &level, &search,
-		&r.BurstWindow, &r.CooldownSeconds,
-		&r.GroupBy, &r.MaxCooldownSeconds,
+		&r.GroupBy, &r.SilenceMS, &r.SilenceMaxMS, &r.CoalesceMS,
 		&r.CreatedAt, &r.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -269,8 +265,7 @@ func (s *Store) CreateNotificationRule(ctx context.Context, r notification.Rule)
 			"hostname", "programname", "severity", "severity_max",
 			"facility", "syslogtag", "msgid",
 			"service", "component", "host", "level", "search",
-			"burst_window", "cooldown_seconds",
-			"group_by", "max_cooldown_seconds",
+			"group_by", "silence_ms", "silence_max_ms", "coalesce_ms",
 		).
 		Values(
 			r.Name, r.Enabled, r.EventKind,
@@ -278,8 +273,7 @@ func (s *Store) CreateNotificationRule(ctx context.Context, r notification.Rule)
 			r.Facility, nullIfEmpty(r.SyslogTag), nullIfEmpty(r.MsgID),
 			nullIfEmpty(r.Service), nullIfEmpty(r.Component), nullIfEmpty(r.Host),
 			nullIfEmpty(r.Level), nullIfEmpty(r.Search),
-			r.BurstWindow, r.CooldownSeconds,
-			r.GroupBy, r.MaxCooldownSeconds,
+			r.GroupBy, r.SilenceMS, r.SilenceMaxMS, r.CoalesceMS,
 		).
 		Suffix("RETURNING id, created_at, updated_at").
 		ToSql()
@@ -327,10 +321,10 @@ func (s *Store) UpdateNotificationRule(ctx context.Context, id int64, r notifica
 		Set("host", nullIfEmpty(r.Host)).
 		Set("level", nullIfEmpty(r.Level)).
 		Set("search", nullIfEmpty(r.Search)).
-		Set("burst_window", r.BurstWindow).
-		Set("cooldown_seconds", r.CooldownSeconds).
 		Set("group_by", r.GroupBy).
-		Set("max_cooldown_seconds", r.MaxCooldownSeconds).
+		Set("silence_ms", r.SilenceMS).
+		Set("silence_max_ms", r.SilenceMaxMS).
+		Set("coalesce_ms", r.CoalesceMS).
 		Set("updated_at", time.Now()).
 		Where(sq.Eq{"id": id}).
 		Suffix("RETURNING id, name, enabled, event_kind, created_at, updated_at").

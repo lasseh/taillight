@@ -43,6 +43,11 @@ type Channel struct {
 }
 
 // Rule defines an alert condition with filter criteria and notification behavior.
+//
+// Delivery model: the first matching event on a clean fingerprint fires
+// immediately. Additional matches during the silence window are counted and
+// emitted as a single digest when the window closes. A quiet window closes
+// the fingerprint; the next match again fires immediately.
 type Rule struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
@@ -67,15 +72,33 @@ type Rule struct {
 	// Shared filter field.
 	Search string `json:"search,omitempty"`
 
-	// Notification behavior.
-	ChannelIDs         []int64 `json:"channel_ids"`
-	BurstWindow        int     `json:"burst_window"`
-	CooldownSeconds    int     `json:"cooldown_seconds"`
-	GroupBy            string  `json:"group_by,omitempty"`
-	MaxCooldownSeconds int     `json:"max_cooldown_seconds"`
+	// Notification behavior (milliseconds on the wire, converted via the
+	// *Duration() helpers below).
+	ChannelIDs   []int64 `json:"channel_ids"`
+	GroupBy      string  `json:"group_by,omitempty"`
+	SilenceMS    int     `json:"silence_ms"`
+	SilenceMaxMS int     `json:"silence_max_ms"`
+	CoalesceMS   int     `json:"coalesce_ms"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Silence returns the initial silence window for the rule.
+// Zero means "use engine default".
+func (r Rule) Silence() time.Duration {
+	return time.Duration(r.SilenceMS) * time.Millisecond
+}
+
+// SilenceMax returns the ceiling that the silence window grows to.
+// Zero means "use engine default".
+func (r Rule) SilenceMax() time.Duration {
+	return time.Duration(r.SilenceMaxMS) * time.Millisecond
+}
+
+// Coalesce returns the first-alert coalesce window (0 = send immediately).
+func (r Rule) Coalesce() time.Duration {
+	return time.Duration(r.CoalesceMS) * time.Millisecond
 }
 
 // Payload carries the notification content to backends.
@@ -148,8 +171,15 @@ type Config struct {
 	RuleRefreshInterval time.Duration
 	DispatchWorkers     int
 	DispatchBuffer      int
-	DefaultBurstWindow  time.Duration
-	DefaultCooldown     time.Duration
-	DefaultMaxCooldown  time.Duration
 	SendTimeout         time.Duration
+
+	// DefaultSilence is the initial silence window applied when a rule
+	// doesn't set one.
+	DefaultSilence time.Duration
+	// DefaultSilenceMax is the cap on silence growth applied when a rule
+	// doesn't set one.
+	DefaultSilenceMax time.Duration
+	// DefaultCoalesce is the first-alert coalesce window applied when a
+	// rule doesn't set one. Zero means fire first match immediately.
+	DefaultCoalesce time.Duration
 }

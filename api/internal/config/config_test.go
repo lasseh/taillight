@@ -96,14 +96,14 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Notification.DispatchBuffer != 1024 {
 		t.Errorf("Notification.DispatchBuffer = %d, want %d", cfg.Notification.DispatchBuffer, 1024)
 	}
-	if cfg.Notification.DefaultBurstWindow != 30*time.Second {
-		t.Errorf("Notification.DefaultBurstWindow = %v, want %v", cfg.Notification.DefaultBurstWindow, 30*time.Second)
+	if cfg.Notification.DefaultSilence != 5*time.Minute {
+		t.Errorf("Notification.DefaultSilence = %v, want %v", cfg.Notification.DefaultSilence, 5*time.Minute)
 	}
-	if cfg.Notification.DefaultCooldown != 1*time.Minute {
-		t.Errorf("Notification.DefaultCooldown = %v, want %v", cfg.Notification.DefaultCooldown, 1*time.Minute)
+	if cfg.Notification.DefaultSilenceMax != 15*time.Minute {
+		t.Errorf("Notification.DefaultSilenceMax = %v, want %v", cfg.Notification.DefaultSilenceMax, 15*time.Minute)
 	}
-	if cfg.Notification.DefaultMaxCooldown != 1*time.Hour {
-		t.Errorf("Notification.DefaultMaxCooldown = %v, want %v", cfg.Notification.DefaultMaxCooldown, 1*time.Hour)
+	if cfg.Notification.DefaultCoalesce != 0 {
+		t.Errorf("Notification.DefaultCoalesce = %v, want 0", cfg.Notification.DefaultCoalesce)
 	}
 	if cfg.Notification.SendTimeout != 10*time.Second {
 		t.Errorf("Notification.SendTimeout = %v, want %v", cfg.Notification.SendTimeout, 10*time.Second)

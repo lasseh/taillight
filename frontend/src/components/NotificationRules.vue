@@ -32,8 +32,12 @@ const formHost = ref('')
 const formLevel = ref('')
 const formSearch = ref('')
 const formChannelIDs = ref<number[]>([])
-const formBurstWindow = ref(10)
-const formCooldownSeconds = ref(60)
+// Silence values are entered in seconds for operator friendliness; coalesce
+// stays in milliseconds because it's expected to be sub-second. The API uses
+// milliseconds throughout (silence_ms / silence_max_ms / coalesce_ms).
+const formSilenceSeconds = ref(300)
+const formSilenceMaxSeconds = ref(900)
+const formCoalesceMS = ref(0)
 
 const modalEl = ref<HTMLElement | null>(null)
 useFocusTrap(modalEl)
@@ -116,8 +120,9 @@ function resetForm() {
   formLevel.value = ''
   formSearch.value = ''
   formChannelIDs.value = []
-  formBurstWindow.value = 10
-  formCooldownSeconds.value = 60
+  formSilenceSeconds.value = 300
+  formSilenceMaxSeconds.value = 900
+  formCoalesceMS.value = 0
 }
 
 function openCreate() {
@@ -145,8 +150,9 @@ function openEdit(rule: NotificationRule) {
   formLevel.value = rule.level || ''
   formSearch.value = rule.search || ''
   formChannelIDs.value = [...(rule.channel_ids ?? [])]
-  formBurstWindow.value = rule.burst_window
-  formCooldownSeconds.value = rule.cooldown_seconds
+  formSilenceSeconds.value = Math.round((rule.silence_ms ?? 0) / 1000)
+  formSilenceMaxSeconds.value = Math.round((rule.silence_max_ms ?? 0) / 1000)
+  formCoalesceMS.value = rule.coalesce_ms ?? 0
   saveError.value = ''
   showModal.value = true
 }
@@ -172,8 +178,9 @@ function buildRule(): Partial<NotificationRule> {
     event_kind: formEventKind.value,
     search: formSearch.value || undefined,
     channel_ids: formChannelIDs.value,
-    burst_window: formBurstWindow.value,
-    cooldown_seconds: formCooldownSeconds.value,
+    silence_ms: Math.max(0, formSilenceSeconds.value) * 1000,
+    silence_max_ms: Math.max(0, formSilenceMaxSeconds.value) * 1000,
+    coalesce_ms: Math.max(0, formCoalesceMS.value),
   }
 
   if (formEventKind.value === 'srvlog' || formEventKind.value === 'netlog') {
@@ -273,7 +280,7 @@ onMounted(fetchData)
           <span class="w-48 shrink-0">Name</span>
           <span class="w-24 shrink-0">Kind</span>
           <span class="w-40 shrink-0">Channels</span>
-          <span class="w-28 shrink-0">Burst/Cool</span>
+          <span class="w-28 shrink-0">Silence</span>
           <span class="min-w-0 flex-1">Filters</span>
           <span class="w-32 shrink-0 text-right">Actions</span>
         </div>
@@ -314,7 +321,14 @@ onMounted(fetchData)
               </span>
             </div>
             <div class="w-28 shrink-0">
-              <span class="text-t-fg-dark text-xs">{{ formatDuration(rule.burst_window) }} / {{ formatDuration(rule.cooldown_seconds) }}</span>
+              <span class="text-t-fg-dark text-xs">
+                {{ formatDuration(Math.round((rule.silence_ms ?? 0) / 1000)) }}
+                <span class="text-t-fg-gutter">/</span>
+                {{ formatDuration(Math.round((rule.silence_max_ms ?? 0) / 1000)) }}
+                <span v-if="(rule.coalesce_ms ?? 0) > 0" class="text-t-fg-gutter ml-1">
+                  · {{ rule.coalesce_ms }}ms
+                </span>
+              </span>
             </div>
             <div class="min-w-0 flex-1 truncate">
               <span class="text-t-fg-gutter text-xs">
@@ -573,29 +587,46 @@ onMounted(fetchData)
                 </div>
               </div>
 
-              <!-- Burst / Cooldown -->
+              <!-- Silence / Coalesce -->
               <div class="border-t-border space-y-3 border-t pt-3">
-                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Anti-Spam</span>
+                <div>
+                  <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Suppression</span>
+                  <p class="text-t-fg-gutter mt-1 text-xs">
+                    First match fires immediately. Events during silence are counted and emitted as one digest when the window closes. Silence grows linearly (by the base value each flush) up to the cap.
+                  </p>
+                </div>
                 <div class="grid grid-cols-2 gap-3">
                   <label class="block">
-                    <span class="text-t-fg-dark text-xs">Burst Window (seconds)</span>
+                    <span class="text-t-fg-dark text-xs">Silence (seconds)</span>
                     <input
-                      v-model.number="formBurstWindow"
+                      v-model.number="formSilenceSeconds"
                       type="number"
                       min="0"
                       class="bg-t-bg border-t-border text-t-fg focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
                     />
+                    <span class="text-t-fg-gutter text-xs">default 300 (5m)</span>
                   </label>
                   <label class="block">
-                    <span class="text-t-fg-dark text-xs">Cooldown (seconds)</span>
+                    <span class="text-t-fg-dark text-xs">Silence cap (seconds)</span>
                     <input
-                      v-model.number="formCooldownSeconds"
+                      v-model.number="formSilenceMaxSeconds"
                       type="number"
                       min="0"
                       class="bg-t-bg border-t-border text-t-fg focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
                     />
+                    <span class="text-t-fg-gutter text-xs">default 900 (15m)</span>
                   </label>
                 </div>
+                <label class="block">
+                  <span class="text-t-fg-dark text-xs">Coalesce (milliseconds)</span>
+                  <input
+                    v-model.number="formCoalesceMS"
+                    type="number"
+                    min="0"
+                    class="bg-t-bg border-t-border text-t-fg focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
+                  />
+                  <span class="text-t-fg-gutter text-xs">advanced · 0 = fire first match immediately. Small values (100–1000ms) fold batched log floods into the first alert.</span>
+                </label>
               </div>
             </div>
 

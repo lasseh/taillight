@@ -20,22 +20,23 @@ type Channel struct {
 
 // Rule is a notification alert rule.
 type Rule struct {
-	ID              int64   `json:"id"`
-	Name            string  `json:"name"`
-	Enabled         bool    `json:"enabled"`
-	EventKind       string  `json:"event_kind"`
-	Hostname        string  `json:"hostname,omitempty"`
-	Programname     string  `json:"programname,omitempty"`
-	Severity        *int    `json:"severity,omitempty"`
-	SeverityMax     *int    `json:"severity_max,omitempty"`
-	Search          string  `json:"search,omitempty"`
-	Service         string  `json:"service,omitempty"`
-	Component       string  `json:"component,omitempty"`
-	Level           string  `json:"level,omitempty"`
-	ChannelIDs      []int64 `json:"channel_ids"`
-	BurstWindow     int     `json:"burst_window"`
-	CooldownSeconds int     `json:"cooldown_seconds"`
-	GroupBy         string  `json:"group_by,omitempty"`
+	ID           int64   `json:"id"`
+	Name         string  `json:"name"`
+	Enabled      bool    `json:"enabled"`
+	EventKind    string  `json:"event_kind"`
+	Hostname     string  `json:"hostname,omitempty"`
+	Programname  string  `json:"programname,omitempty"`
+	Severity     *int    `json:"severity,omitempty"`
+	SeverityMax  *int    `json:"severity_max,omitempty"`
+	Search       string  `json:"search,omitempty"`
+	Service      string  `json:"service,omitempty"`
+	Component    string  `json:"component,omitempty"`
+	Level        string  `json:"level,omitempty"`
+	ChannelIDs   []int64 `json:"channel_ids"`
+	GroupBy      string  `json:"group_by,omitempty"`
+	SilenceMS    int     `json:"silence_ms"`
+	SilenceMaxMS int     `json:"silence_max_ms"`
+	CoalesceMS   int     `json:"coalesce_ms"`
 }
 
 // ListNotificationChannels fetches all notification channels.

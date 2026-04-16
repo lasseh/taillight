@@ -33,9 +33,15 @@ export interface NotificationRule {
   search?: string
 
   // Notification behavior.
+  // First match on a clean fingerprint fires immediately (modulo
+  // coalesce_ms). Subsequent matches during silence_ms are counted and
+  // emitted as a single digest when the window closes. Silence grows
+  // linearly (by silence_ms each close) up to silence_max_ms.
   channel_ids: number[]
-  burst_window: number
-  cooldown_seconds: number
+  group_by?: string
+  silence_ms: number
+  silence_max_ms: number
+  coalesce_ms: number
 
   created_at: string
   updated_at: string

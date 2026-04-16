@@ -120,10 +120,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 			RuleRefreshInterval: cfg.Notification.RuleRefreshInterval,
 			DispatchWorkers:     cfg.Notification.DispatchWorkers,
 			DispatchBuffer:      cfg.Notification.DispatchBuffer,
-			DefaultBurstWindow:  cfg.Notification.DefaultBurstWindow,
-			DefaultCooldown:     cfg.Notification.DefaultCooldown,
-			DefaultMaxCooldown:  cfg.Notification.DefaultMaxCooldown,
 			SendTimeout:         cfg.Notification.SendTimeout,
+			DefaultSilence:      cfg.Notification.DefaultSilence,
+			DefaultSilenceMax:   cfg.Notification.DefaultSilenceMax,
+			DefaultCoalesce:     cfg.Notification.DefaultCoalesce,
 		}, logger)
 		notifEngine.RegisterBackend(notification.ChannelTypeSlack, backend.NewSlack(logger))
 		notifEngine.RegisterBackend(notification.ChannelTypeWebhook, backend.NewWebhook(logger))
