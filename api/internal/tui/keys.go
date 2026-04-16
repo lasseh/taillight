@@ -43,6 +43,7 @@ const (
 	FocusFilter
 	FocusDetail
 	FocusHelp
+	FocusPopup
 )
 
 // KeyMap defines global key bindings.
@@ -50,6 +51,7 @@ type KeyMap struct {
 	Quit        key.Binding
 	Help        key.Binding
 	Search      key.Binding
+	Filter      key.Binding
 	Tab1        key.Binding
 	Tab2        key.Binding
 	Tab3        key.Binding
@@ -75,6 +77,10 @@ func DefaultKeyMap() KeyMap {
 		Search: key.NewBinding(
 			key.WithKeys("/"),
 			key.WithHelp("/", "search"),
+		),
+		Filter: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f", "filters"),
 		),
 		Tab1: key.NewBinding(
 			key.WithKeys("1"),
@@ -113,13 +119,13 @@ func DefaultKeyMap() KeyMap {
 
 // ShortHelp returns the key bindings for the short help view.
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Quit, k.Help, k.Search, k.TabNext}
+	return []key.Binding{k.Quit, k.Help, k.Search, k.Filter, k.TabNext}
 }
 
 // FullHelp returns the key bindings for the full help view.
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Quit, k.Help, k.Search, k.Escape},
+		{k.Quit, k.Help, k.Search, k.Filter, k.Escape},
 		{k.Tab1, k.Tab2, k.Tab3, k.Tab4},
 		{k.TabNext, k.TabPrev, k.ToggleFocus},
 	}

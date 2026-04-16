@@ -25,6 +25,15 @@ func SetMeta(m *Model, hosts, programs []string) {
 	}
 }
 
+// Filter returns the srvlog FilterModel from a Model for popup access. The
+// cast is safe because we always construct models with *FilterModel.
+func Filter(m *Model) *FilterModel {
+	if f, ok := m.Filter().(*FilterModel); ok {
+		return f
+	}
+	return nil
+}
+
 // adapter is the srvlog-specific Adapter for logview.Model.
 var adapter = logview.Adapter[client.SrvlogEvent]{
 	Columns: columns,

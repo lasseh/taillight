@@ -23,6 +23,14 @@ func SetMeta(m *Model, services, components, hosts []string) {
 	}
 }
 
+// Filter returns the applog FilterModel from a Model for popup access.
+func Filter(m *Model) *FilterModel {
+	if f, ok := m.Filter().(*FilterModel); ok {
+		return f
+	}
+	return nil
+}
+
 // adapter is the applog-specific Adapter for logview.Model.
 var adapter = logview.Adapter[client.AppLogEvent]{
 	Columns: columns,

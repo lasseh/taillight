@@ -27,6 +27,14 @@ func SetMeta(m *Model, hosts, programs []string) {
 	}
 }
 
+// Filter returns the netlog FilterModel from a Model for popup access.
+func Filter(m *Model) *FilterModel {
+	if f, ok := m.Filter().(*FilterModel); ok {
+		return f
+	}
+	return nil
+}
+
 // adapter is the netlog-specific Adapter for logview.Model.
 var adapter = logview.Adapter[client.NetlogEvent]{
 	Columns: columns,

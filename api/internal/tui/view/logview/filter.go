@@ -54,6 +54,13 @@ func (f *SearchFilter) Dirty() bool {
 	return f.dirty
 }
 
+// MarkDirty flips the dirty flag so the host view re-renders on its next
+// tick. Used when the value is mutated through a setter (e.g. a filter popup
+// committing a search string) rather than via UpdateInput.
+func (f *SearchFilter) MarkDirty() {
+	f.dirty = true
+}
+
 // AckDirty clears the dirty flag.
 func (f *SearchFilter) AckDirty() {
 	f.dirty = false

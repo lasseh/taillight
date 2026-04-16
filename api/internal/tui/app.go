@@ -76,6 +76,10 @@ type App struct {
 	// Notification toasts.
 	toasts component.ToastQueue
 
+	// Filter popup — nil when closed. Owned at the App level so the same
+	// popup machinery serves srvlog/netlog/applog without generic gymnastics.
+	popup *component.FilterPopup
+
 	// State.
 	lastError   string
 	parseErrors int // cumulative JSON unmarshal failures from SSE streams
@@ -142,6 +146,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.applog.SetSize(msg.Width, ch)
 		a.netlog.SetSize(msg.Width, ch)
 		a.dashboard.SetSize(msg.Width, ch)
+		if a.popup != nil {
+			a.popup.SetSize(msg.Width, msg.Height)
+		}
 		return a, nil
 
 	case StreamStartedMsg:
@@ -195,6 +202,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 		return a, nil
+
+	case component.FilterPopupAppliedMsg:
+		cmd := a.applyPopupFilter(msg.Values)
+		return a, cmd
 
 	case ErrorMsg:
 		a.lastError = msg.Err.Error()
@@ -284,6 +295,11 @@ func (a *App) View() tea.View {
 	if a.toasts.HasToasts() {
 		toastOverlay := a.toasts.Render(a.width)
 		screen = component.OverlayToasts(screen, toastOverlay, a.width, a.height)
+	}
+
+	// Filter popup — rendered last so it sits above toasts and help content.
+	if a.popup != nil {
+		screen = component.OverlayFilterPopup(screen, a.popup.View(), a.width, a.height)
 	}
 
 	v := tea.NewView(screen)
