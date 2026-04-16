@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
-import { useFeaturesStore } from '@/stores/features'
+import { features as getFeatures } from '@/lib/features'
 
-const { features } = useFeaturesStore()
+const features = getFeatures()
 const defaultRoute = features.netlog ? 'netlog' : features.srvlog ? 'srvlog' : features.applog ? 'applog' : 'home'
 const defaultLabel = `go to ${defaultRoute}`
 </script>

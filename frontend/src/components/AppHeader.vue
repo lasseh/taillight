@@ -6,13 +6,13 @@ import { useNotifications } from '@/composables/useNotifications'
 import { useTheme } from '@/composables/useTheme'
 import { useScrollStore } from '@/stores/scroll'
 import { useDashboardLayout } from '@/composables/useDashboardLayout'
-import { useFeaturesStore } from '@/stores/features'
+import { features as getFeatures } from '@/lib/features'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const scrollStore = useScrollStore()
-const { features } = useFeaturesStore()
+const features = getFeatures()
 const { supported, permission, enabled, requestPermission, setEnabled } = useNotifications()
 const { themes, themeId, setTheme } = useTheme()
 const { startEditing } = useDashboardLayout()

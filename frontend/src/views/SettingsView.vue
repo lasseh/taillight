@@ -3,12 +3,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useNotifications } from '@/composables/useNotifications'
 import { api, ApiError } from '@/lib/api'
-import { useFeaturesStore } from '@/stores/features'
+import { features as getFeatures } from '@/lib/features'
 import { severityLabels } from '@/lib/constants'
 import type { UserPreferences } from '@/types/auth'
 
 const auth = useAuthStore()
-const { features } = useFeaturesStore()
+const features = getFeatures()
 const { supported: notifSupported, permission: notifPermission, enabled: notifEnabled, requestPermission, setEnabled } = useNotifications()
 
 const currentPassword = ref('')

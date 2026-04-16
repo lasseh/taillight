@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useElementSize } from '@vueuse/core'
-import { useFeaturesStore } from '@/stores/features'
+import { features as getFeatures } from '@/lib/features'
 import { useHomeStore } from '@/stores/home'
 import { useTheme } from '@/composables/useTheme'
 import { useDashboardLayout } from '@/composables/useDashboardLayout'
@@ -15,7 +15,7 @@ import ActivityHeatmap from '@/components/ActivityHeatmap.vue'
 
 defineOptions({ name: 'HomeView' })
 
-const { features } = useFeaturesStore()
+const features = getFeatures()
 const home = useHomeStore()
 const { current: theme } = useTheme()
 const { editing, isVisible, hideWidget, stopEditing, resetLayout, allHidden } = useDashboardLayout()

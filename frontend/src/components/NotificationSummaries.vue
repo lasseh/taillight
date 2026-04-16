@@ -4,9 +4,9 @@ import { api, ApiError } from '@/lib/api'
 import type { SummarySchedule } from '@/types/summary'
 import type { NotificationChannel } from '@/types/notification'
 import { useFocusTrap } from '@/composables/useFocusTrap'
-import { useFeaturesStore } from '@/stores/features'
+import { features as getFeatures } from '@/lib/features'
 
-const { features } = useFeaturesStore()
+const features = getFeatures()
 const schedules = ref<SummarySchedule[]>([])
 const channels = ref<NotificationChannel[]>([])
 const loading = ref(true)

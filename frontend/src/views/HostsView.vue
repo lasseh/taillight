@@ -2,14 +2,14 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useHostsStore } from '@/stores/hosts'
-import { useFeaturesStore } from '@/stores/features'
+import { features as getFeatures } from '@/lib/features'
 import { formatNumber, formatRelativeTime, lastSeenColorClass } from '@/lib/format'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import type { HostEntry, HourlyBucket } from '@/types/host'
 
 const router = useRouter()
 const store = useHostsStore()
-const { features } = useFeaturesStore()
+const features = getFeatures()
 
 const rangePresets = [
   { label: '1h', value: '1h' },
