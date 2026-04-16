@@ -6,13 +6,27 @@ import { formatNumber } from '@/lib/format'
 defineProps<{
   items: SeverityCount[]
   title?: string
+  collapsible?: boolean
 }>()
+
+const collapsed = defineModel<boolean>('collapsed', { default: false })
 </script>
 
 <template>
   <div class="bg-t-bg-dark border-t-border rounded border p-4">
-    <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Severity Distribution' }}</h3>
-    <div class="space-y-2">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-t-teal text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Severity Distribution' }}</h3>
+      <button
+        v-if="collapsible"
+        class="text-t-fg-dark hover:text-t-fg transition-colors"
+        :aria-label="collapsed ? 'Expand severity breakdown' : 'Collapse severity breakdown'"
+        :aria-expanded="!collapsed"
+        @click="collapsed = !collapsed"
+      >
+        <svg class="h-4 w-4 transition-transform" :class="{ '-rotate-90': collapsed }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+      </button>
+    </div>
+    <div v-if="!collapsed" class="space-y-2">
       <div
         v-for="item in items"
         :key="item.severity"

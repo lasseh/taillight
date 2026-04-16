@@ -7,7 +7,10 @@ import { formatNumber } from '@/lib/format'
 const props = defineProps<{
   items: LevelCount[]
   title?: string
+  collapsible?: boolean
 }>()
+
+const collapsed = defineModel<boolean>('collapsed', { default: false })
 
 const sorted = computed(() =>
   [...props.items].sort((a, b) => (LEVEL_RANK[a.level] ?? 99) - (LEVEL_RANK[b.level] ?? 99))
@@ -16,8 +19,19 @@ const sorted = computed(() =>
 
 <template>
   <div class="bg-t-bg-dark border-t-border rounded border p-4">
-    <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Level Distribution' }}</h3>
-    <div class="space-y-2">
+    <div class="mb-3 flex items-center justify-between">
+      <h3 class="text-t-teal text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Level Distribution' }}</h3>
+      <button
+        v-if="collapsible"
+        class="text-t-fg-dark hover:text-t-fg transition-colors"
+        :aria-label="collapsed ? 'Expand level breakdown' : 'Collapse level breakdown'"
+        :aria-expanded="!collapsed"
+        @click="collapsed = !collapsed"
+      >
+        <svg class="h-4 w-4 transition-transform" :class="{ '-rotate-90': collapsed }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+      </button>
+    </div>
+    <div v-if="!collapsed" class="space-y-2">
       <div
         v-for="item in sorted"
         :key="item.level"
