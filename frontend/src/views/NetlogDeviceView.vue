@@ -8,6 +8,7 @@ import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/form
 import { severityLabels, severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
 import { useNetlogDeviceLogs } from '@/composables/useNetlogDeviceLogs'
+import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import NetlogRow from '@/components/NetlogRow.vue'
@@ -18,6 +19,8 @@ const props = defineProps<{
 
 const hostnameRef = computed(() => props.hostname)
 const { events: deviceLogs } = useNetlogDeviceLogs(hostnameRef)
+
+const summaryCollapsed = useDeviceSummaryCollapsed()
 
 const router = useRouter()
 const route = useRoute()
@@ -288,7 +291,7 @@ function currentEvents(): NetlogEvent[] {
         </div>
 
         <!-- Top Messages + Severity Distribution -->
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div v-if="!summaryCollapsed" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <!-- Top Messages -->
           <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border p-4">
             <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Messages <span class="text-t-fg-dark font-normal normal-case">(24h)</span></h3>
@@ -327,8 +330,19 @@ function currentEvents(): NetlogEvent[] {
             v-if="summary.severity_breakdown.length > 0"
             :items="summary.severity_breakdown"
             title="Severity Breakdown"
+            collapsible
+            @collapse="summaryCollapsed = true"
           />
         </div>
+        <button
+          v-else
+          type="button"
+          class="bg-t-bg-dark border-t-border hover:bg-t-bg-hover text-t-fg-dark hover:text-t-fg flex w-full items-center justify-center rounded border py-1.5 transition-colors"
+          aria-label="Expand summary"
+          @click="summaryCollapsed = false"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+        </button>
       </div>
 
       <!-- Logs section (fills remaining space) -->
