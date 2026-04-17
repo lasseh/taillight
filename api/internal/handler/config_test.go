@@ -36,7 +36,7 @@ func TestConfigHandler_Features(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewConfigHandler(tt.cfg)
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/config/features", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/config/features", nil)
 			w := httptest.NewRecorder()
 			h.Features(w, req)
 
