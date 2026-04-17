@@ -57,7 +57,7 @@ function notifySrvlog(event: SrvlogEvent) {
   if (event.severity > maxSev) return
 
   const level = severityLabels[event.severity] ?? 'unknown'
-  const title = `${event.hostname} - ${level}`
+  const title = `${event.hostname} - ${level.toUpperCase()}`
   const body = event.message.slice(0, 120)
 
   const n = new Notification(title, {
@@ -84,7 +84,7 @@ function notifyNetlog(event: NetlogEvent) {
   if (event.severity > maxSev) return
 
   const level = severityLabels[event.severity] ?? 'unknown'
-  const title = `${event.hostname} - ${level}`
+  const title = `${event.hostname} - ${level.toUpperCase()}`
   const body = event.message.slice(0, 120)
 
   const n = new Notification(title, {
