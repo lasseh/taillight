@@ -7,7 +7,7 @@ require github.com/lasseh/taillight/pkg/logshipper v0.0.0-00010101000000-0000000
 require (
 	charm.land/bubbles/v2 v2.1.0
 	charm.land/bubbletea/v2 v2.0.6
-	charm.land/lipgloss/v2 v2.0.2
+	charm.land/lipgloss/v2 v2.0.3
 	charm.land/wish/v2 v2.0.1
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/charmbracelet/colorprofile v0.4.3
