@@ -52,7 +52,7 @@ func doEnrich(t *testing.T, h *NetboxHandler, id string) *httptest.ResponseRecor
 	r := chi.NewRouter()
 	r.Get("/api/v1/netlog/{id}/netbox", h.EnrichNetlog)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/netlog/"+id+"/netbox", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/netlog/"+id+"/netbox", nil)
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 	return rr
