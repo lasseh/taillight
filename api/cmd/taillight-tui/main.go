@@ -6,6 +6,7 @@
 // Usage:
 //
 //	taillight-tui -s https://taillight.example.com -k tl_xxxxx
+//	taillight-tui -s https://dev.local -k tl_xxxxx --insecure
 //	taillight-tui -c ~/.config/taillight/tui.yml
 package main
 
@@ -25,6 +26,7 @@ var (
 	configPath string
 	serverURL  string
 	apiKey     string
+	insecure   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -38,6 +40,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&configPath, "config", "c", "", "path to config file")
 	rootCmd.Flags().StringVarP(&serverURL, "server", "s", "", "server URL (overrides config)")
 	rootCmd.Flags().StringVarP(&apiKey, "key", "k", "", "API key (overrides config)")
+	rootCmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS certificate verification")
 }
 
 func main() {
@@ -46,7 +49,7 @@ func main() {
 	}
 }
 
-func run(_ *cobra.Command, _ []string) error {
+func run(cmd *cobra.Command, _ []string) error {
 	cfg, err := loadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -58,6 +61,9 @@ func run(_ *cobra.Command, _ []string) error {
 	}
 	if apiKey != "" {
 		cfg.Server.APIKey = apiKey
+	}
+	if cmd.Flags().Changed("insecure") {
+		cfg.Server.TLSSkipVerify = insecure
 	}
 
 	if cfg.Server.URL == "" {
