@@ -28,6 +28,13 @@ const netboxLookups = ref<NetboxLookup[]>([])
 const netboxLoading = ref(false)
 const netboxAvailable = ref(true)
 
+// Structured data + raw message are noisy and rarely needed at a glance —
+// keep them collapsed behind a single toggle at the bottom of the page.
+const showMore = ref(false)
+const hasMore = computed(() =>
+  Boolean(event.value?.structured_data || event.value?.raw_message),
+)
+
 const borderClass = computed(() =>
   event.value ? (severityBorderClass[event.value.severity] ?? 'border-t-border') : 'border-t-border',
 )
@@ -80,6 +87,7 @@ watch(() => props.id, async (id) => {
   netboxLookups.value = []
   netboxLoading.value = false
   netboxAvailable.value = true
+  showMore.value = false
   loading.value = true
   error.value = null
   errorStatus.value = null
@@ -237,13 +245,12 @@ async function fetchNetbox(id: number, version: number) {
           </div>
         </div>
 
-        <!-- Structured data -->
-        <div v-if="event.structured_data" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
-            Structured Data
-          </h3>
-          <pre class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed">{{ event.structured_data }}</pre>
-        </div>
+        <!-- Netbox enrichment -->
+        <NetboxEnrichmentPanel
+          v-if="netboxAvailable && (netboxLoading || netboxLookups.length > 0)"
+          :loading="netboxLoading"
+          :lookups="netboxLookups"
+        />
 
         <!-- Juniper reference -->
         <div v-if="juniperRefs.length > 0" class="bg-t-bg-dark border-t-border rounded border">
@@ -278,20 +285,32 @@ async function fetchNetbox(id: number, version: number) {
           </div>
         </div>
 
-        <!-- Netbox enrichment -->
-        <NetboxEnrichmentPanel
-          v-if="netboxAvailable && (netboxLoading || netboxLookups.length > 0)"
-          :loading="netboxLoading"
-          :lookups="netboxLookups"
-        />
+        <!-- Show more (raw message + structured data, collapsed by default) -->
+        <template v-if="hasMore">
+          <button
+            type="button"
+            class="text-t-fg-dark hover:text-t-fg flex items-center gap-1 text-xs transition-colors"
+            :aria-expanded="showMore"
+            @click="showMore = !showMore"
+          >
+            <span>{{ showMore ? '−' : '+' }}</span>
+            <span>{{ showMore ? 'hide raw' : 'show raw' }}</span>
+          </button>
 
-        <!-- Raw message -->
-        <div v-if="event.raw_message" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
-            Raw Message
-          </h3>
-          <pre class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed" v-html="highlightedRaw"></pre>
-        </div>
+          <div v-if="showMore && event.structured_data" class="bg-t-bg-dark border-t-border rounded border">
+            <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+              Structured Data
+            </h3>
+            <pre class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed">{{ event.structured_data }}</pre>
+          </div>
+
+          <div v-if="showMore && event.raw_message" class="bg-t-bg-dark border-t-border rounded border">
+            <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+              Raw Message
+            </h3>
+            <pre class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed" v-html="highlightedRaw"></pre>
+          </div>
+        </template>
       </div>
     </div>
   </div>
