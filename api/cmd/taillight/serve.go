@@ -29,6 +29,7 @@ import (
 	"github.com/lasseh/taillight/internal/handler"
 	ldapauth "github.com/lasseh/taillight/internal/ldap"
 	"github.com/lasseh/taillight/internal/metrics"
+	"github.com/lasseh/taillight/internal/netbox"
 	"github.com/lasseh/taillight/internal/notification"
 	"github.com/lasseh/taillight/internal/notification/backend"
 	"github.com/lasseh/taillight/internal/ollama"
@@ -497,6 +498,25 @@ func setupRouter(
 		netlogDeviceHandler = handler.NewNetlogDeviceHandler(store)
 	}
 
+	// Netbox enrichment handler (only enabled when configured and netlog is on).
+	var netboxHandler *handler.NetboxHandler
+	if cfg.Netbox.Enabled && cfg.Features.Netlog && netlogHandler != nil {
+		nbClient, err := netbox.NewClient(netbox.Config{
+			URL:           cfg.Netbox.URL,
+			Token:         cfg.Netbox.Token,
+			AuthScheme:    cfg.Netbox.AuthScheme,
+			Timeout:       cfg.Netbox.Timeout,
+			CacheTTL:      cfg.Netbox.CacheTTL,
+			TLSSkipVerify: cfg.Netbox.TLSSkipVerify,
+			Logger:        logger,
+		})
+		if err != nil {
+			logger.Warn("netbox enrichment disabled: client init failed", "err", err)
+		} else {
+			netboxHandler = handler.NewNetboxHandler(nbClient, store, logger)
+		}
+	}
+
 	// AppLog handlers.
 	applogIngestHandler := handler.NewAppLogIngestHandler(store, applogBroker, logger, notifEngine)
 	applogHandler := handler.NewAppLogHandler(store)
@@ -621,6 +641,10 @@ func setupRouter(
 
 						r.Get("/", netlogHandler.List)
 						r.Get("/{id}", netlogHandler.Get)
+
+						if netboxHandler != nil {
+							r.Get("/{id}/netbox", netboxHandler.EnrichNetlog)
+						}
 
 						r.Get("/meta/hosts", netlogMetaHandler.Hosts)
 						r.Get("/meta/programs", netlogMetaHandler.Programs)

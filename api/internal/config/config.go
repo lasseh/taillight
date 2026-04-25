@@ -41,6 +41,7 @@ type Config struct {
 	Retention              RetentionConfig
 	SMTP                   SMTPConfig
 	LDAP                   LDAPConfig
+	Netbox                 NetboxConfig
 }
 
 // LDAPConfig configures LDAP (FreeIPA) authentication.
@@ -105,6 +106,19 @@ type LogShipperConfig struct {
 	BatchSize   int           // Entries per HTTP request (0 = default 100).
 	FlushPeriod time.Duration // Flush interval (0 = default 1s).
 	BufferSize  int           // Buffered channel capacity (0 = default 1024).
+}
+
+// NetboxConfig configures the optional Netbox enrichment client used on the
+// netlog detail page. When disabled, the enrichment endpoint is not registered
+// and the frontend hides its panel.
+type NetboxConfig struct {
+	Enabled       bool          // Enable Netbox enrichment.
+	URL           string        // Base URL of the Netbox instance (e.g. "https://netbox.example.com").
+	Token         string        // API token (override via env NETBOX_TOKEN).
+	AuthScheme    string        // "token" (legacy "Authorization: Token <key>") or "bearer" (OAuth-style "Authorization: Bearer <key>").
+	Timeout       time.Duration // Per-call HTTP timeout (default 3s).
+	CacheTTL      time.Duration // In-memory cache TTL for lookups (default 10m).
+	TLSSkipVerify bool          // Skip TLS verification (self-signed test instances).
 }
 
 // AnalysisConfig configures the LLM-based log analysis feature.
@@ -181,6 +195,12 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("notification.default_silence_max", "15m")
 	v.SetDefault("notification.default_coalesce", "0s")
 	v.SetDefault("notification.send_timeout", "10s")
+	v.SetDefault("netbox.enabled", false)
+	v.SetDefault("netbox.url", "")
+	v.SetDefault("netbox.auth_scheme", "token")
+	v.SetDefault("netbox.timeout", "3s")
+	v.SetDefault("netbox.cache_ttl", "10m")
+	v.SetDefault("netbox.tls_skip_verify", false)
 
 	// Config file.
 	if len(configFile) > 0 && configFile[0] != "" {
@@ -271,6 +291,15 @@ func Load(configFile ...string) (Config, error) {
 			From:     v.GetString("smtp.from"),
 			TLS:      v.GetBool("smtp.tls"),
 			AuthType: v.GetString("smtp.auth_type"),
+		},
+		Netbox: NetboxConfig{
+			Enabled:       v.GetBool("netbox.enabled"),
+			URL:           v.GetString("netbox.url"),
+			Token:         v.GetString("netbox.token"),
+			AuthScheme:    v.GetString("netbox.auth_scheme"),
+			Timeout:       v.GetDuration("netbox.timeout"),
+			CacheTTL:      v.GetDuration("netbox.cache_ttl"),
+			TLSSkipVerify: v.GetBool("netbox.tls_skip_verify"),
 		},
 		Retention: RetentionConfig{
 			SrvlogDays:          max(v.GetInt("retention.srvlog_days"), 1),

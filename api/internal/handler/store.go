@@ -36,6 +36,12 @@ type NetlogStore interface {
 	LookupJuniperRef(ctx context.Context, name string) ([]model.JuniperNetlogRef, error)
 }
 
+// NetboxStore is a narrow interface for the Netbox enrichment handler — it
+// only needs to fetch a netlog event by id.
+type NetboxStore interface {
+	GetNetlog(ctx context.Context, id int64) (model.NetlogEvent, error)
+}
+
 // AppLogStore defines the application log data access interface.
 type AppLogStore interface {
 	GetAppLog(ctx context.Context, id int64) (model.AppLogEvent, error)

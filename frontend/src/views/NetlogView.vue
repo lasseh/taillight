@@ -2,11 +2,13 @@
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { NetlogEvent, JuniperNetlogRef } from '@/types/netlog'
+import type { NetboxLookup } from '@/types/netbox'
 import { api, ApiError } from '@/lib/api'
 import { severityColorClass, severityBorderClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
 import { formatDateTime } from '@/lib/format'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
+import NetboxEnrichmentPanel from '@/components/NetboxEnrichmentPanel.vue'
 
 const props = defineProps<{
   id: string
@@ -18,6 +20,13 @@ const juniperRefs = ref<JuniperNetlogRef[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const errorStatus = ref<number | null>(null)
+
+// Netbox enrichment is fetched lazily after the event loads. When the
+// endpoint is disabled (404) or Netbox is unconfigured (503), the panel is
+// hidden silently. Per-entity errors surface inside the panel.
+const netboxLookups = ref<NetboxLookup[]>([])
+const netboxLoading = ref(false)
+const netboxAvailable = ref(true)
 
 const borderClass = computed(() =>
   event.value ? (severityBorderClass[event.value.severity] ?? 'border-t-border') : 'border-t-border',
@@ -68,6 +77,9 @@ watch(() => props.id, async (id) => {
   const version = ++fetchVersion
   event.value = null
   juniperRefs.value = []
+  netboxLookups.value = []
+  netboxLoading.value = false
+  netboxAvailable.value = true
   loading.value = true
   error.value = null
   errorStatus.value = null
@@ -86,6 +98,7 @@ watch(() => props.id, async (id) => {
     if (res.data.juniper_ref) {
       juniperRefs.value = res.data.juniper_ref
     }
+    fetchNetbox(numId, version)
   } catch (e) {
     if (version !== fetchVersion) return
     if (e instanceof ApiError) {
@@ -100,6 +113,30 @@ watch(() => props.id, async (id) => {
     }
   }
 }, { immediate: true })
+
+async function fetchNetbox(id: number, version: number) {
+  netboxLoading.value = true
+  try {
+    const res = await api.getNetlogNetbox(id)
+    if (version !== fetchVersion) return
+    netboxLookups.value = res.data.lookups ?? []
+  } catch (e) {
+    if (version !== fetchVersion) return
+    // 404 (route not registered) and 503 (disabled at runtime) both mean
+    // "no netbox here" — hide the panel silently.
+    if (e instanceof ApiError && (e.status === 404 || e.status === 503)) {
+      netboxAvailable.value = false
+      return
+    }
+    // Other errors: hide the panel rather than surface a noisy banner — the
+    // detail page itself is still useful without enrichment.
+    netboxAvailable.value = false
+  } finally {
+    if (version === fetchVersion) {
+      netboxLoading.value = false
+    }
+  }
+}
 </script>
 
 <template>
@@ -240,6 +277,13 @@ watch(() => props.id, async (id) => {
             </dl>
           </div>
         </div>
+
+        <!-- Netbox enrichment -->
+        <NetboxEnrichmentPanel
+          v-if="netboxAvailable && (netboxLoading || netboxLookups.length > 0)"
+          :loading="netboxLoading"
+          :lookups="netboxLookups"
+        />
 
         <!-- Raw message -->
         <div v-if="event.raw_message" class="bg-t-bg-dark border-t-border rounded border">

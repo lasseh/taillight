@@ -101,6 +101,21 @@ notification:
   # send_timeout: 10s             # HTTP timeout for each backend send attempt.
   # global_rate_limit: 100        # Reserved for future use.
 
+# Netbox enrichment for the netlog detail page.
+# When enabled, the netlog detail view fetches device, IP, prefix, ASN, and
+# interface details from Netbox for entities found in the log message.
+# Lookups happen only on the detail page (never on list/SSE) and are cached
+# in memory. Disabled by default; ship token via NETBOX_TOKEN env var.
+netbox:
+  enabled: false
+  # url: "https://netbox.example.com"
+  # token: "changeme"             # or set via NETBOX_TOKEN env var.
+  # auth_scheme: "token"          # "token" → Authorization: Token <key> (Netbox legacy/native, default).
+                                  # "bearer" → Authorization: Bearer <key> (OAuth-style).
+  # timeout: 3s                   # Per-call HTTP timeout.
+  # cache_ttl: 10m                # In-memory cache TTL for lookup results.
+  # tls_skip_verify: false        # Skip TLS verification (self-signed test instances only).
+
 # AI-powered daily log analysis using a local Ollama instance.
 # Produces a morning ops briefing covering incidents, anomalies, and correlations.
 analysis:

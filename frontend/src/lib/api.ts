@@ -1,5 +1,6 @@
 import type { SrvlogListResponse, JuniperNetlogRef, MetaResponse, SingleSrvlogResponse } from '@/types/srvlog'
 import type { NetlogListResponse, SingleNetlogResponse } from '@/types/netlog'
+import type { NetboxEnrichmentResponse } from '@/types/netbox'
 import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
 import type { VolumeResponse, SeverityVolumeResponse, SrvlogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
 import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
@@ -196,6 +197,10 @@ export const api = {
 
   getNetlog(id: number): Promise<SingleNetlogResponse> {
     return fetchAPI(`/api/v1/netlog/${id}`)
+  },
+
+  getNetlogNetbox(id: number): Promise<NetboxEnrichmentResponse> {
+    return fetchAPI(`/api/v1/netlog/${id}/netbox`)
   },
 
   getNetlogHosts(): Promise<MetaResponse<string>> {
