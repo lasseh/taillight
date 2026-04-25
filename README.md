@@ -83,6 +83,15 @@ Lightweight, real-time log viewer for network operations teams. Stream netlog (n
 - Anomaly detection and trend summaries
 - On-demand analysis trigger via API
 
+### Netbox Enrichment
+
+- On the netlog detail page, IP addresses, prefixes, AS numbers, interfaces, and the source device are looked up against [Netbox](https://netbox.dev/) and shown as cards alongside the event
+- Lookups happen lazily after the page renders — list views and live SSE never call Netbox
+- In-memory TTL cache (default 10 min, including negative results) keeps repeat detail-page visits free
+- Per-entity errors surface inline; if Netbox is unreachable or disabled the panel hides itself, the detail page is unaffected
+- Configurable auth scheme — legacy `Token <key>` (default) or OAuth-style `Bearer <key>`
+- Disabled by default; configure under `netbox:` in `api/config.yml` and provide the token via `NETBOX_TOKEN`
+
 ### Themes
 
 - 19 built-in color themes — Tokyo Night, Dracula, Catppuccin, Nord, Solarized, Gruvbox, SynthWave 84, and more
@@ -133,7 +142,7 @@ Lightweight, real-time log viewer for network operations teams. Stream netlog (n
                                                    NotificationEngine
 ```
 
-**Netlog and Srvlog** share the same pipeline but use separate tables, brokers, and retention policies. rsyslog writes to `netlog_events` or `srvlog_events` via ompgsql. A trigger fires `pg_notify('<feed>_ingest', id)`. The Go backend holds a persistent `LISTEN` connection, fetches the full row, and the corresponding broker fans out to SSE clients with per-client filtering. Netlog events are enriched with Juniper reference data when available.
+**Netlog and Srvlog** share the same pipeline but use separate tables, brokers, and retention policies. rsyslog writes to `netlog_events` or `srvlog_events` via ompgsql. A trigger fires `pg_notify('<feed>_ingest', id)`. The Go backend holds a persistent `LISTEN` connection, fetches the full row, and the corresponding broker fans out to SSE clients with per-client filtering. Netlog events are enriched with Juniper reference data when available, and the netlog detail page additionally pulls device/IP/prefix/ASN/interface context from Netbox on demand.
 
 **Why two syslog feeds?** Network devices (Juniper, Cisco, Arista) and servers (Linux, Docker, PostgreSQL) produce fundamentally different log profiles. Splitting them lets you apply independent retention policies, notification rules, and analysis — and disable either feed entirely if you don't need it. Configure which feeds are active in `config.yml` under `features:`.
 
@@ -319,7 +328,7 @@ Connect with `ssh -t -p 2222 user@host`. A PTY is required — non-PTY sessions 
 
 ### `api/config.yml` — application tuning
 
-CORS origins, connection pool sizes, retention policies, notification engine, SMTP, and AI analysis. See [`config.yml.example`](api/config.yml.example) for all options.
+CORS origins, connection pool sizes, retention policies, notification engine, SMTP, AI analysis, and Netbox enrichment. See [`config.yml.example`](api/config.yml.example) for all options.
 
 Environment variables always override config file values (Viper priority: defaults → config.yml → env vars).
 
