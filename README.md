@@ -366,6 +366,17 @@ docker compose exec api /app import --file /tmp/System_Log_Messages_Junos_OS_25.
 docker compose exec api /app import --file /tmp/System_Log_Messages_Junos_OS_Evolved_25.4R1.xlsx --os junos-evolved
 ```
 
+Or upload directly to a running server via the admin API. Requires an API key with the `admin` scope (`apikey` command) and accepts `os=junos` or `os=junos-evolved`:
+
+```sh
+curl -X POST "https://<host>/api/v1/juniper/ref/upload" \
+  -H "Authorization: Bearer $TAILLIGHT_API_KEY" \
+  -F "os=junos" \
+  -F "file=@System_Log_Messages_Junos_OS_25.4R1.xlsx"
+```
+
+Response: `{"parsed": N, "upserted": M}`. Max request size is 10 MiB.
+
 ## Components
 
 | Directory | Description |
