@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
-    "@unovis/ts": "^1.6.4",
+    "@unovis/ts": "^1.6.5",
     "@unovis/vue": "^1.6.4",
     "@vueuse/core": "^14.2.1",
     "dompurify": "^3.4.0",
