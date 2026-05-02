@@ -67,12 +67,12 @@ func TestExtractTime(t *testing.T) {
 	}{
 		{
 			name:     "RFC3339",
-			m:        map[string]any{"time": "2024-01-15T10:30:00Z"},
+			m:        map[string]any{timeKey: "2024-01-15T10:30:00Z"},
 			wantTime: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		},
 		{
 			name:     "RFC3339Nano",
-			m:        map[string]any{"time": "2024-01-15T10:30:00.123456789Z"},
+			m:        map[string]any{timeKey: "2024-01-15T10:30:00.123456789Z"},
 			wantTime: time.Date(2024, 1, 15, 10, 30, 0, 123456789, time.UTC),
 		},
 		{
@@ -87,12 +87,12 @@ func TestExtractTime(t *testing.T) {
 		},
 		{
 			name:    "non-string value",
-			m:       map[string]any{"time": 12345},
+			m:       map[string]any{timeKey: 12345},
 			wantNow: true,
 		},
 		{
 			name:    "bad format",
-			m:       map[string]any{"time": "not-a-time"},
+			m:       map[string]any{timeKey: "not-a-time"},
 			wantNow: true,
 		},
 	}
@@ -115,9 +115,9 @@ func TestExtractTime(t *testing.T) {
 }
 
 func TestExtractTime_DeletesKey(t *testing.T) {
-	m := map[string]any{"time": "2024-01-15T10:30:00Z", "msg": "hello"}
+	m := map[string]any{timeKey: "2024-01-15T10:30:00Z", "msg": "hello"}
 	extractTime(m)
-	if _, ok := m["time"]; ok {
+	if _, ok := m[timeKey]; ok {
 		t.Error("expected time key to be deleted")
 	}
 	if _, ok := m["msg"]; !ok {

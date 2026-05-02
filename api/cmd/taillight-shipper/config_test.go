@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const tcFallbackUsed = "fallback used"
+
 func TestLoadConfig_Valid(t *testing.T) {
 	content := `
 endpoint: http://localhost:8080/api/v1/applog/ingest
@@ -141,14 +143,15 @@ func TestParseFlushPeriod(t *testing.T) {
 }
 
 func TestResolvedService(t *testing.T) {
+	const fb = "default"
 	tests := []struct {
 		name     string
 		fc       fileConfig
 		fallback string
 		want     string
 	}{
-		{name: "file-level set", fc: fileConfig{Service: "override"}, fallback: "default", want: "override"},
-		{name: "fallback used", fc: fileConfig{}, fallback: "default", want: "default"},
+		{name: "file-level set", fc: fileConfig{Service: "override"}, fallback: fb, want: "override"},
+		{name: tcFallbackUsed, fc: fileConfig{}, fallback: fb, want: fb},
 	}
 
 	for _, tt := range tests {
@@ -161,14 +164,15 @@ func TestResolvedService(t *testing.T) {
 }
 
 func TestResolvedComponent(t *testing.T) {
+	const fb = "api"
 	tests := []struct {
 		name     string
 		fc       fileConfig
 		fallback string
 		want     string
 	}{
-		{name: "file-level set", fc: fileConfig{Component: "web"}, fallback: "api", want: "web"},
-		{name: "fallback used", fc: fileConfig{}, fallback: "api", want: "api"},
+		{name: "file-level set", fc: fileConfig{Component: "web"}, fallback: fb, want: "web"},
+		{name: tcFallbackUsed, fc: fileConfig{}, fallback: fb, want: fb},
 	}
 
 	for _, tt := range tests {
@@ -181,14 +185,15 @@ func TestResolvedComponent(t *testing.T) {
 }
 
 func TestResolvedHost(t *testing.T) {
+	const fb = "default-host"
 	tests := []struct {
 		name     string
 		fc       fileConfig
 		fallback string
 		want     string
 	}{
-		{name: "file-level set", fc: fileConfig{Host: "node-1"}, fallback: "default-host", want: "node-1"},
-		{name: "fallback used", fc: fileConfig{}, fallback: "default-host", want: "default-host"},
+		{name: "file-level set", fc: fileConfig{Host: "node-1"}, fallback: fb, want: "node-1"},
+		{name: tcFallbackUsed, fc: fileConfig{}, fallback: fb, want: fb},
 	}
 
 	for _, tt := range tests {

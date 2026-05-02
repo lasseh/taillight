@@ -9,6 +9,8 @@ import (
 	"github.com/lasseh/taillight/pkg/logshipper"
 )
 
+const timeKey = "time"
+
 // parseLine attempts to parse a line as JSON. If that fails, it treats the line
 // as plain text with INFO level and the current time.
 func parseLine(line string) slog.Record {
@@ -39,7 +41,7 @@ func jsonRecord(m map[string]any) slog.Record {
 }
 
 func extractTime(m map[string]any) time.Time {
-	for _, key := range []string{"time", "timestamp"} {
+	for _, key := range []string{timeKey, "timestamp"} {
 		v, ok := m[key]
 		if !ok {
 			continue
