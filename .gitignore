@@ -50,6 +50,8 @@ research/
 
 # Agent skills (auto-generated, not project code)
 **/.agents/
+skills-lock.json
+
 
 # Python SDK
 sdk/python/dist/
