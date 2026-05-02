@@ -6,6 +6,7 @@ import { api, ApiError } from '@/lib/api'
 import { severityColorClass, severityBorderClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
 import { formatDateTime } from '@/lib/format'
+import { selectedRowsText } from '@/lib/copy'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 
 const props = defineProps<{
@@ -35,31 +36,13 @@ const highlightedRaw = computed(() =>
   event.value?.raw_message ? highlight(event.value.raw_message) : '',
 )
 
-const copyText = computed(() => {
-  if (!event.value) return ''
-  const e = event.value
-  const lines = [
-    `severity: ${e.severity_label} (${e.severity})`,
-    `message: ${e.message}`,
-    `received: ${formatDateTime(e.received_at)}`,
-    `reported: ${formatDateTime(e.reported_at)}`,
-    `hostname: ${e.hostname || '–'}`,
-    `ip: ${e.fromhost_ip || '–'}`,
-    `program: ${e.programname || '–'}`,
-    `tag: ${e.syslogtag || '–'}`,
-    `msgid: ${e.msgid || '–'}`,
-    `facility: ${e.facility_label} (${e.facility})`,
-  ]
-  if (e.structured_data) lines.push(`structured data: ${e.structured_data}`)
-  if (e.raw_message) lines.push(`raw message: ${e.raw_message}`)
-  return lines.join('\n')
-})
-
 function onCopy(ev: ClipboardEvent) {
-  const sel = window.getSelection()?.toString() ?? ''
-  if (!sel.includes('\n')) return // single field: use browser default
+  const container = ev.currentTarget as Element | null
+  if (!container) return
+  const text = selectedRowsText(container, window.getSelection())
+  if (text == null) return
   ev.preventDefault()
-  ev.clipboardData?.setData('text/plain', copyText.value)
+  ev.clipboardData?.setData('text/plain', text)
 }
 
 let fetchVersion = 0
@@ -146,12 +129,16 @@ watch(() => props.id, async (id) => {
           class="bg-t-bg-dark rounded border-l-2 p-4"
           :class="borderClass"
         >
-          <div class="mb-2">
+          <div class="mb-2" :data-copytext="`severity: ${event.severity_label} (${event.severity})`">
             <span class="text-xs font-semibold uppercase" :class="sevClass">
               {{ event.severity_label }}
             </span>
           </div>
-          <p class="text-t-fg break-all font-mono text-sm leading-relaxed" v-html="highlightedMsg" />
+          <p
+            class="text-t-fg break-all font-mono text-sm leading-relaxed"
+            :data-copytext="`message: ${event.message}`"
+            v-html="highlightedMsg"
+          />
         </div>
 
         <!-- Metadata grid -->
@@ -160,15 +147,15 @@ watch(() => props.id, async (id) => {
             Details
           </h3>
           <div class="divide-t-border divide-y text-sm">
-            <div class="flex gap-2 px-4 py-1.5">
+            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`received: ${formatDateTime(event.received_at)}`">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">received</span>
               <span class="text-t-fg font-mono">{{ formatDateTime(event.received_at) }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5">
+            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`reported: ${formatDateTime(event.reported_at)}`">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">reported</span>
               <span class="text-t-fg font-mono">{{ formatDateTime(event.reported_at) }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5">
+            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`hostname: ${event.hostname || '–'}`">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">hostname</span>
               <RouterLink
                 :to="{ name: 'srvlog-device-detail', params: { hostname: event.hostname } }"
@@ -177,23 +164,23 @@ watch(() => props.id, async (id) => {
                 {{ event.hostname || '–' }} <span class="text-t-fg-dark text-xs">&rarr;</span>
               </RouterLink>
             </div>
-            <div class="flex gap-2 px-4 py-1.5">
+            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`ip: ${event.fromhost_ip || '–'}`">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">ip</span>
               <span class="text-t-blue font-mono">{{ event.fromhost_ip || '–' }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5">
+            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`program: ${event.programname || '–'}`">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">program</span>
               <span class="text-t-purple font-mono">{{ event.programname || '–' }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5">
+            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`msgid: ${event.msgid || '–'}`">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">msgid</span>
               <span class="text-t-fg font-mono">{{ event.msgid || '–' }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5">
+            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`severity: ${event.severity_label} (${event.severity})`">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">severity</span>
               <span class="font-mono" :class="sevClass">{{ event.severity_label }} ({{ event.severity }})</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5">
+            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`facility: ${event.facility_label} (${event.facility})`">
               <span class="text-t-fg-dark w-24 shrink-0 text-right">facility</span>
               <span class="text-t-orange font-mono">{{ event.facility_label }} ({{ event.facility }})</span>
             </div>
@@ -205,7 +192,10 @@ watch(() => props.id, async (id) => {
           <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
             Structured Data
           </h3>
-          <pre class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed">{{ event.structured_data }}</pre>
+          <pre
+            class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed"
+            :data-copytext="`structured data: ${event.structured_data}`"
+          >{{ event.structured_data }}</pre>
         </div>
 
         <!-- Juniper reference -->
@@ -246,7 +236,11 @@ watch(() => props.id, async (id) => {
           <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
             Raw Message
           </h3>
-          <pre class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed" v-html="highlightedRaw"></pre>
+          <pre
+            class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed"
+            :data-copytext="`raw message: ${event.raw_message}`"
+            v-html="highlightedRaw"
+          ></pre>
         </div>
       </div>
     </div>

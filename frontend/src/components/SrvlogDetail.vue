@@ -4,6 +4,7 @@ import type { SrvlogEvent } from '@/types/srvlog'
 import { severityBorderClass, severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
 import { formatDateTime } from '@/lib/format'
+import { selectedRowsText } from '@/lib/copy'
 import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
 
 const props = defineProps<{
@@ -33,17 +34,18 @@ const borderClass = severityBorderClass[props.event.severity] ?? 'border-t-borde
 const sevClass = severityColorClass[props.event.severity] ?? 'text-t-fg'
 
 const highlightedMsg = computed(() => highlight(props.event.message))
-const copyText = computed(() => {
-  const lines = fields.map((f) => `${f.label}: ${props.event[f.key] ?? '–'}`)
-  lines.push(`message: ${props.event.message}`)
-  return lines.join('\n')
-})
 
 function onCopy(e: ClipboardEvent) {
-  const sel = window.getSelection()?.toString() ?? ''
-  if (!sel.includes('\n')) return // single field: use browser default
+  const container = e.currentTarget as Element | null
+  if (!container) return
+  const text = selectedRowsText(container, window.getSelection())
+  if (text == null) return
   e.preventDefault()
-  e.clipboardData?.setData('text/plain', copyText.value)
+  e.clipboardData?.setData('text/plain', text)
+}
+
+function rowCopyText(field: Field): string {
+  return `${field.label}: ${props.event[field.key] ?? '–'}`
 }
 
 function fieldValue(field: Field): string {
@@ -93,6 +95,7 @@ function applyFilter(field: Field) {
       v-for="field in fields"
       :key="field.key"
       class="flex gap-2 py-0.5 text-sm"
+      :data-copytext="rowCopyText(field)"
     >
       <span class="text-t-fg-dark w-24 shrink-0 text-right">{{ field.label }}</span>
       <RouterLink
@@ -114,7 +117,7 @@ function applyFilter(field: Field) {
     </div>
 
     <!-- message -->
-    <div class="flex gap-2 py-0.5 text-sm">
+    <div class="flex gap-2 py-0.5 text-sm" :data-copytext="`message: ${event.message}`">
       <span class="text-t-fg-dark w-24 shrink-0 text-right">message</span>
       <span class="text-t-fg min-w-0 break-all font-mono text-xs" v-html="highlightedMsg"></span>
     </div>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import type { AppLogEvent } from '@/types/applog'
 import { levelBorderClass, levelColorClass } from '@/lib/applog-constants'
 import { formatDateTime, highlightAttrs } from '@/lib/format'
+import { selectedRowsText } from '@/lib/copy'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
 
 const props = defineProps<{
@@ -30,19 +30,21 @@ const fields: Field[] = [
 const borderClass = levelBorderClass[props.event.level] ?? 'border-t-border'
 const lvlClass = levelColorClass[props.event.level] ?? 'text-t-fg'
 
-const copyText = computed(() => {
-  const lines = fields.map((f) => `${f.label}: ${props.event[f.key] ?? '–'}`)
-  lines.push(`message: ${props.event.msg}`)
-  if (props.event.attrs && Object.keys(props.event.attrs).length > 0)
-    lines.push(`attrs: ${JSON.stringify(props.event.attrs, null, 2)}`)
-  return lines.join('\n')
-})
-
 function onCopy(e: ClipboardEvent) {
-  const sel = window.getSelection()?.toString() ?? ''
-  if (!sel.includes('\n')) return // single field: use browser default
+  const container = e.currentTarget as Element | null
+  if (!container) return
+  const text = selectedRowsText(container, window.getSelection())
+  if (text == null) return
   e.preventDefault()
-  e.clipboardData?.setData('text/plain', copyText.value)
+  e.clipboardData?.setData('text/plain', text)
+}
+
+function rowCopyText(field: Field): string {
+  return `${field.label}: ${props.event[field.key] ?? '–'}`
+}
+
+function attrsCopyText(): string {
+  return `attrs: ${JSON.stringify(props.event.attrs, null, 2)}`
 }
 
 function fieldValue(field: Field): string {
@@ -86,6 +88,7 @@ function applyFilter(field: Field) {
       v-for="field in fields"
       :key="field.key"
       class="flex gap-2 py-0.5 text-sm"
+      :data-copytext="rowCopyText(field)"
     >
       <span class="text-t-fg-dark w-24 shrink-0 text-right">{{ field.label }}</span>
       <RouterLink
@@ -108,13 +111,17 @@ function applyFilter(field: Field) {
     </div>
 
     <!-- message -->
-    <div class="flex gap-2 py-0.5 text-sm">
+    <div class="flex gap-2 py-0.5 text-sm" :data-copytext="`message: ${event.msg}`">
       <span class="text-t-fg-dark w-24 shrink-0 text-right">message</span>
       <span class="text-t-fg min-w-0 break-all font-mono text-xs">{{ event.msg }}</span>
     </div>
 
     <!-- attrs -->
-    <div v-if="event.attrs && Object.keys(event.attrs).length > 0" class="flex gap-2 py-0.5 text-sm">
+    <div
+      v-if="event.attrs && Object.keys(event.attrs).length > 0"
+      class="flex gap-2 py-0.5 text-sm"
+      :data-copytext="attrsCopyText()"
+    >
       <span class="text-t-fg-dark w-24 shrink-0 text-right">attrs</span>
       <pre class="language-json text-t-fg min-w-0 break-all font-mono text-xs" v-html="highlightAttrs(event.attrs)"></pre>
     </div>
