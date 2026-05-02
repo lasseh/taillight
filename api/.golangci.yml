@@ -53,6 +53,8 @@ linters:
         - appendCombine
     exhaustive:
       default-signifies-exhaustive: true
+    goconst:
+      ignore-tests: true
 
 issues:
   max-issues-per-linter: 0

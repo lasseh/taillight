@@ -79,7 +79,7 @@ func pickApplogLevel() string {
 			return lw.level
 		}
 	}
-	return "INFO"
+	return levelInfo
 }
 
 // pickMsg selects a message from the service profile, optionally filtering by level.
