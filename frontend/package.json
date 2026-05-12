@@ -21,7 +21,7 @@
     "marked": "^18.0.3",
     "pinia": "^3.0.4",
     "prismjs": "^1.30.0",
-    "vue": "^3.5.33",
+    "vue": "^3.5.34",
     "vue-router": "^5.0.6"
   },
   "devDependencies": {
