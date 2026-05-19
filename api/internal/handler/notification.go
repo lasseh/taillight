@@ -285,16 +285,8 @@ func (h *NotificationHandler) CreateRule(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if rule.Name == "" {
-		writeError(w, http.StatusBadRequest, "validation_failed", "name is required")
-		return
-	}
-	if rule.EventKind == "" {
-		writeError(w, http.StatusBadRequest, "validation_failed", "event_kind is required (srvlog, netlog, or applog)")
-		return
-	}
-	if rule.EventKind != notification.EventKindSrvlog && rule.EventKind != notification.EventKindNetlog && rule.EventKind != notification.EventKindAppLog {
-		writeError(w, http.StatusBadRequest, "validation_failed", "event_kind must be srvlog, netlog, or applog")
+	if err := rule.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
 		return
 	}
 
@@ -325,6 +317,11 @@ func (h *NotificationHandler) UpdateRule(w http.ResponseWriter, r *http.Request)
 	var rule notification.Rule
 	if err := json.Unmarshal(body, &rule); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", "malformed JSON body")
+		return
+	}
+
+	if err := rule.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
 		return
 	}
 

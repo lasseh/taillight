@@ -175,3 +175,32 @@ func TestRule_MatchesAppLog(t *testing.T) {
 		})
 	}
 }
+
+func TestRule_Validate(t *testing.T) {
+	sev := 3
+	tests := []struct {
+		name    string
+		rule    Rule
+		wantErr bool
+	}{
+		{"valid srvlog", Rule{Name: "r", EventKind: EventKindSrvlog, Hostname: "router1", Severity: &sev}, false},
+		{"valid netlog", Rule{Name: "r", EventKind: EventKindNetlog, Programname: "RT_FLOW"}, false},
+		{"valid applog", Rule{Name: "r", EventKind: EventKindAppLog, Service: "api", Level: "ERROR"}, false},
+		{"valid search shared", Rule{Name: "r", EventKind: EventKindAppLog, Search: "boom"}, false},
+		{"missing name", Rule{EventKind: EventKindSrvlog}, true},
+		{"missing kind", Rule{Name: "r"}, true},
+		{"unknown kind", Rule{Name: "r", EventKind: "bogus"}, true},
+		{"srvlog with applog field", Rule{Name: "r", EventKind: EventKindSrvlog, Service: "api"}, true},
+		{"netlog with applog field", Rule{Name: "r", EventKind: EventKindNetlog, Level: "WARN"}, true},
+		{"applog with syslog field hostname", Rule{Name: "r", EventKind: EventKindAppLog, Hostname: "router1"}, true},
+		{"applog with syslog field severity", Rule{Name: "r", EventKind: EventKindAppLog, Severity: &sev}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.rule.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

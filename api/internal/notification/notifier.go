@@ -5,6 +5,8 @@ package notification
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lasseh/taillight/internal/model"
@@ -99,6 +101,38 @@ func (r Rule) SilenceMax() time.Duration {
 // Coalesce returns the first-alert coalesce window (0 = send immediately).
 func (r Rule) Coalesce() time.Duration {
 	return time.Duration(r.CoalesceMS) * time.Millisecond
+}
+
+// Validate reports whether the rule is internally consistent: it must have a
+// name and a known EventKind, and may only set filter fields valid for that
+// kind. A srvlog/netlog rule carrying applog-only fields (or vice versa) is
+// rejected here so it can never be persisted and then silently ignored at
+// evaluation time — the kind↔fields invariant lives in this one place rather
+// than implicitly across three projection methods and a CRUD handler.
+//
+// Search is shared across all kinds. GroupBy, channels and the silence
+// windows are delivery behaviour, not filter criteria, and are not validated
+// here.
+func (r Rule) Validate() error {
+	if r.Name == "" {
+		return errors.New("name is required")
+	}
+	switch r.EventKind {
+	case EventKindSrvlog, EventKindNetlog:
+		if r.Service != "" || r.Component != "" || r.Host != "" || r.Level != "" {
+			return fmt.Errorf("event_kind %q does not support applog filter fields (service/component/host/level)", r.EventKind)
+		}
+	case EventKindAppLog:
+		if r.Hostname != "" || r.Programname != "" || r.Severity != nil || r.SeverityMax != nil ||
+			r.Facility != nil || r.SyslogTag != "" || r.MsgID != "" {
+			return fmt.Errorf("event_kind %q does not support syslog filter fields (hostname/programname/severity/severity_max/facility/syslogtag/msgid)", r.EventKind)
+		}
+	case "":
+		return errors.New("event_kind is required (srvlog, netlog, or applog)")
+	default:
+		return fmt.Errorf("event_kind must be srvlog, netlog, or applog, got %q", r.EventKind)
+	}
+	return nil
 }
 
 // Payload carries the notification content to backends.

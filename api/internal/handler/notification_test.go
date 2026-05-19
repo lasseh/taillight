@@ -475,6 +475,12 @@ func TestCreateRule(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:       "foreign filter fields rejected",
+			body:       `{"name":"rule","event_kind":"applog","hostname":"router1"}`,
+			store:      &mockNotificationStore{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name:       "store error",
 			body:       `{"name":"err-rule","event_kind":"srvlog"}`,
 			store:      &mockNotificationStore{createRuErr: errors.New("db error")},
@@ -524,6 +530,15 @@ func TestUpdateRule(t *testing.T) {
 			name:       "invalid json",
 			id:         "1",
 			body:       `{bad}`,
+			store:      &mockNotificationStore{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// Previously UpdateRule did no validation at all, so an applog
+			// rule mutated to carry a syslog-only field round-tripped fine.
+			name:       "invalid rule rejected (closed gap)",
+			id:         "1",
+			body:       `{"name":"r","event_kind":"applog","hostname":"router1"}`,
 			store:      &mockNotificationStore{},
 			wantStatus: http.StatusBadRequest,
 		},
