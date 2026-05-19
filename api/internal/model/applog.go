@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -116,62 +115,36 @@ func (f AppLogFilter) Matches(e AppLogEvent) bool {
 
 // ParseAppLogFilter extracts a AppLogFilter from HTTP query parameters.
 func ParseAppLogFilter(r *http.Request) (AppLogFilter, error) {
-	q := r.URL.Query()
+	p := newQueryParams(r)
 	f := AppLogFilter{
-		Service:   q.Get("service"),
-		Component: q.Get("component"),
-		Host:      q.Get("host"),
-		Search:    q.Get("search"),
+		Service:   p.str("service"),
+		Component: p.str("component"),
+		Host:      p.str("host"),
+		Search:    p.str("search"),
 	}
 
-	var errs []string
-
-	for _, p := range []struct{ name, val string }{
-		{"service", f.Service},
-		{"component", f.Component},
-		{"host", f.Host},
-		{"search", f.Search},
-	} {
-		if len(p.val) > maxFilterStringLen {
-			errs = append(errs, fmt.Sprintf("%s: exceeds max length %d", p.name, maxFilterStringLen))
-		}
-	}
-
-	if v := q.Get("level"); v != "" {
+	if v := r.URL.Query().Get("level"); v != "" {
 		if normalized, ok := NormalizeLevel(v); !ok {
-			errs = append(errs, "level: must be one of DEBUG, INFO, WARN, ERROR, FATAL")
+			p.fail("level: must be one of DEBUG, INFO, WARN, ERROR, FATAL")
 		} else {
 			f.Level = normalized
 			rank := AppLogLevelRank(normalized)
 			f.levelMinRank = &rank
 		}
 	}
-	if v := q.Get("level_exact"); v != "" {
+	if v := r.URL.Query().Get("level_exact"); v != "" {
 		if normalized, ok := NormalizeLevel(v); !ok {
-			errs = append(errs, "level_exact: must be one of DEBUG, INFO, WARN, ERROR, FATAL")
+			p.fail("level_exact: must be one of DEBUG, INFO, WARN, ERROR, FATAL")
 		} else {
 			f.LevelExact = normalized
 		}
 	}
-	if v := q.Get("from"); v != "" {
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			errs = append(errs, "from: must be RFC3339 format")
-		} else {
-			f.From = &t
-		}
-	}
-	if v := q.Get("to"); v != "" {
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			errs = append(errs, "to: must be RFC3339 format")
-		} else {
-			f.To = &t
-		}
-	}
 
-	if len(errs) > 0 {
-		return AppLogFilter{}, fmt.Errorf("invalid query parameters: %s", strings.Join(errs, "; "))
+	f.From = p.rfc3339("from")
+	f.To = p.rfc3339("to")
+
+	if err := p.err(); err != nil {
+		return AppLogFilter{}, err
 	}
 	return f, nil
 }

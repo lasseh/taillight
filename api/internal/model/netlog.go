@@ -1,10 +1,7 @@
 package model
 
 import (
-	"fmt"
 	"net/http"
-	"net/netip"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -83,80 +80,22 @@ func (f NetlogFilter) Matches(e NetlogEvent) bool {
 // ParseNetlogFilter extracts a NetlogFilter from HTTP query parameters.
 // Returns an error if any typed parameter has an invalid value.
 func ParseNetlogFilter(r *http.Request) (NetlogFilter, error) {
-	q := r.URL.Query()
+	p := newQueryParams(r)
 	f := NetlogFilter{
-		Hostname:    q.Get("hostname"),
-		Programname: q.Get("programname"),
-		SyslogTag:   q.Get("syslogtag"),
-		MsgID:       q.Get("msgid"),
-		Search:      q.Get("search"),
+		Hostname:    p.str("hostname"),
+		Programname: p.str("programname"),
+		SyslogTag:   p.str("syslogtag"),
+		MsgID:       p.str("msgid"),
+		Search:      p.str("search"),
+		FromhostIP:  p.ip("fromhost_ip"),
+		Severity:    p.boundedInt("severity", 0, 7),
+		SeverityMax: p.boundedInt("severity_max", 0, 7),
+		Facility:    p.boundedInt("facility", 0, 23),
+		From:        p.rfc3339("from"),
+		To:          p.rfc3339("to"),
 	}
-
-	var errs []string
-
-	for _, p := range []struct{ name, val string }{
-		{"hostname", f.Hostname},
-		{"programname", f.Programname},
-		{"syslogtag", f.SyslogTag},
-		{"msgid", f.MsgID},
-		{"search", f.Search},
-	} {
-		if len(p.val) > maxFilterStringLen {
-			errs = append(errs, fmt.Sprintf("%s: exceeds max length %d", p.name, maxFilterStringLen))
-		}
-	}
-
-	if v := q.Get("fromhost_ip"); v != "" {
-		addr, err := netip.ParseAddr(v)
-		if err != nil {
-			errs = append(errs, "fromhost_ip: must be a valid IP address")
-		} else {
-			f.FromhostIP = addr.String()
-		}
-	}
-	if v := q.Get("severity"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 || n > 7 {
-			errs = append(errs, "severity: must be an integer 0-7")
-		} else {
-			f.Severity = &n
-		}
-	}
-	if v := q.Get("severity_max"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 || n > 7 {
-			errs = append(errs, "severity_max: must be an integer 0-7")
-		} else {
-			f.SeverityMax = &n
-		}
-	}
-	if v := q.Get("facility"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 || n > 23 {
-			errs = append(errs, "facility: must be an integer 0-23")
-		} else {
-			f.Facility = &n
-		}
-	}
-	if v := q.Get("from"); v != "" {
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			errs = append(errs, "from: must be RFC3339 format")
-		} else {
-			f.From = &t
-		}
-	}
-	if v := q.Get("to"); v != "" {
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			errs = append(errs, "to: must be RFC3339 format")
-		} else {
-			f.To = &t
-		}
-	}
-
-	if len(errs) > 0 {
-		return NetlogFilter{}, fmt.Errorf("invalid query parameters: %s", strings.Join(errs, "; "))
+	if err := p.err(); err != nil {
+		return NetlogFilter{}, err
 	}
 	return f, nil
 }
