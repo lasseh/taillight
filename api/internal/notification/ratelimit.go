@@ -89,13 +89,20 @@ func (l *PerKeyLimiter) evictLoop() {
 		case <-l.stopCh:
 			return
 		case now := <-ticker.C:
-			l.mu.Lock()
-			for id, entry := range l.limiters {
-				if now.Sub(entry.lastUsed) > limiterTTL {
-					delete(l.limiters, id)
-				}
-			}
-			l.mu.Unlock()
+			l.evictOlderThan(now, limiterTTL)
+		}
+	}
+}
+
+// evictOlderThan drops every limiter idle longer than ttl as of now. It is the
+// pure eviction step behind the evictLoop timer — an internal seam so the
+// eviction policy is testable without waiting on a real ticker.
+func (l *PerKeyLimiter) evictOlderThan(now time.Time, ttl time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for id, entry := range l.limiters {
+		if now.Sub(entry.lastUsed) > ttl {
+			delete(l.limiters, id)
 		}
 	}
 }

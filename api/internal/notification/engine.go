@@ -603,11 +603,16 @@ func (e *Engine) getOrCreateBreaker(channelID int64, channelName string) *gobrea
 
 // evictStaleBreakers removes circuit breakers that haven't been used recently.
 func (e *Engine) evictStaleBreakers() {
+	e.evictStaleBreakersAsOf(time.Now(), limiterTTL)
+}
+
+// evictStaleBreakersAsOf is the pure eviction step behind the breaker-eviction
+// timer — an internal seam so the policy is testable without a real ticker.
+func (e *Engine) evictStaleBreakersAsOf(now time.Time, ttl time.Duration) {
 	e.breakerMu.Lock()
 	defer e.breakerMu.Unlock()
-	now := time.Now()
 	for id, entry := range e.breakers {
-		if now.Sub(entry.lastUsed) > limiterTTL {
+		if now.Sub(entry.lastUsed) > ttl {
 			delete(e.breakers, id)
 		}
 	}
