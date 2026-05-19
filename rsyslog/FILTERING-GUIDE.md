@@ -389,6 +389,55 @@ if ($msgid == "SMID_ISSU_CURR_STATE_EVENT" and
 
 This keeps state changes like `<UPGRADING>` or `<REBOOTING>` while silencing the idle chatter.
 
+## Known-benign Junos firmware / internal noise
+
+A distinct class of noise: ERR/WARNING/NOTICE messages that *look* alarming (they
+contain "failed", "Invalid", "NULL") but are confirmed-cosmetic Junos firmware
+flaws or internal kernel bookkeeping with **no traffic, power, or security
+impact** and **no fix available in device config**. These are grouped together
+at the end of `filters/05-by-msgid.conf`.
+
+Current blocks (each individually verified before commit):
+
+| Block | Platform | Signature | Why benign |
+|---|---|---|---|
+| SRX `sp-0/0/0` CoS / `jdhcpd` reap | Branch SRX (300/320/340/345) | `fwdd_ifd_set_eff_bandwidth` / `cosman_*` for `sp-0/0/0`; `jdhcpd waitpid failed ... No child processes` | `sp-0/0/0` is the internal services PIC (no real queues); jdhcpd child-reap race. Confirmed via `show security flow status`, `show interfaces sp-0/0/0 extensive`, `show class-of-service interface`. |
+| EX4100-F phantom PSU | EX4100-F-12T / -12P | `chassisd` `CHASSISD_SNMP_TRAP6` "Power Supply failed" for any `Power Supply N @ 0/N/*` (N≥1) | Single external adapter; only PSU 0 is real. Juniper-acknowledged flaw; `fru-absence`/`pem-absence ignore` only gates the alarm object, not the trap path. |
+| SRX `mtj_nh` static-MAC walker | Branch SRX | `mtj_nh_ucast_process_static_mac` | Internal auto-generated static-MAC NH on a host-internal pseudo-interface. Verified the box has zero `static-mac` / ethernet-switching config, so not config-fixable. |
+
+These do **not** belong in `40-by-severity.conf` or behind a generic
+safety-net (`error|fail|...`) — the whole point is they contain failure
+keywords but are benign, so they need explicit, narrowly-scoped `stop` rules.
+
+### Conventions for this class
+
+When adding another known-benign block, follow the same discipline:
+
+1. **Confirm it's benign first.** Get device `show` output (or a Juniper
+   KB / JTAC PR) proving no operational impact. Document the evidence in the
+   rule comment — a future maintainer must be able to see *why* it was safe to
+   drop without re-investigating.
+2. **Scope to the signature, not the severity.** Match the unique function
+   name / trap descriptor (and `programname`/`$msgid` where they exist). Add
+   just enough of the message body that a *genuine* failure of the same
+   subsystem on a different interface/slot/model still passes through (e.g.
+   the EX4100-F rule preserves a real `Power Supply 0` failure; the SRX CoS
+   rules preserve a real CoS failure on a physical interface).
+3. **No safety-net keyword check.** Intentional and noted in every block —
+   these are benign *despite* saying "failed".
+4. **Host-scope only if the cause is host-specific.** Most of these are the
+   same firmware/internal behaviour on every box of that platform, so they
+   are not host-bound. Add a hostname guard only when a real lookalike could
+   legitimately appear elsewhere (called out in the EX4100-F caveat).
+5. **Verify before commit.** Run the full filter chain against the exact
+   captured message(s) plus control "must-keep" lookalikes (a real failure of
+   the same subsystem, an unrelated message). The `make test` Docker build
+   needs the `ompgsql` module; for filter-only behaviour an isolated
+   `rsyslogd` run loading just the filter chain + an `omfile` output is
+   sufficient (see `tests/test-filters.sh` for the pattern).
+6. **Open a JTAC case in parallel** for firmware flaws — the long-term fix is
+   a Junos PR; the filter is the interim mitigation, not a substitute.
+
 ## Top 10 things to filter in a typical network
 
 These are the highest-volume, lowest-value messages from Juniper devices:
