@@ -160,6 +160,10 @@ work waiting for a release.
 - Unify srvlog/netlog/applog SSE handlers into one generic streamer behind a testable sink seam
 - Extract shared filter query-param parsing/validation across srvlog/netlog/applog
 - Unify the notification engine's per-plane rule fan-in into one generic handler
+- Enforce the notification Rule kind↔fields invariant via `Rule.Validate`, closing an UpdateRule validation gap
+- Share the syslog filter→SQL builder and meta-string queries between srvlog and netlog stores
+- Make rate-limiter and circuit-breaker eviction testable via an internal seam
+- Extract the LISTEN/NOTIFY dispatch into a testable `ingestbridge` module
 
 ### Fixed
 
