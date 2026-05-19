@@ -149,6 +149,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Improve light themes with white-card-on-gray-canvas pattern
 - Bump color contrast ratios to pass WCAG AA across all themes
 - Improve Lighthouse scores across all categories
+- Unify srvlog/netlog/applog SSE handlers into one generic streamer behind a testable sink seam
+- Extract shared filter query-param parsing/validation across srvlog/netlog/applog
+- Unify the notification engine's per-plane rule fan-in into one generic handler
 
 ### Fixed
 
