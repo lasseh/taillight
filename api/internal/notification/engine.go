@@ -156,94 +156,69 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 	}
 }
 
-// HandleSrvlogEvent evaluates all srvlog rules against the event.
-func (e *Engine) HandleSrvlogEvent(event model.SrvlogEvent) {
+// handleEvent is the shared rule fan-in: it walks the rule cache, evaluates
+// the rule's match for this event kind, and records matches with the
+// suppressor. The three Handle*Event methods differ only in the bits passed
+// here — match/groupKey functions, the payload timestamp source (applog uses
+// the event's own Timestamp, srvlog/netlog use ReceivedAt), and which Payload
+// event field to attach — so the orchestration lives in exactly one place and
+// is testable through one path.
+func handleEvent[E any](
+	e *Engine,
+	kind EventKind,
+	event E,
+	matches func(Rule, E) bool,
+	groupKey func(Rule, E) string,
+	timestamp time.Time,
+	attach func(*Payload, E),
+) {
 	e.cacheMu.RLock()
 	rules := e.rules
 	e.cacheMu.RUnlock()
 
 	for _, r := range rules {
-		if !r.Enabled || r.EventKind != EventKindSrvlog {
+		if !r.Enabled || r.EventKind != kind {
 			continue
 		}
 		metrics.NotifRulesEvaluatedTotal.Inc()
 
-		if r.MatchesSrvlog(event) {
-			metrics.NotifRulesMatchedTotal.Inc()
-
-			payload := Payload{
-				Kind:        EventKindSrvlog,
-				RuleName:    r.Name,
-				Timestamp:   event.ReceivedAt,
-				EventCount:  1,
-				SrvlogEvent: &event,
-			}
-
-			groupKey := r.GroupKeyFromSrvlog(event)
-			silence, silenceMax, coalesce := e.windowsFor(r)
-			e.suppressor.Record(r.ID, groupKey, silence, silenceMax, coalesce, payload)
+		if !matches(r, event) {
+			continue
 		}
+		metrics.NotifRulesMatchedTotal.Inc()
+
+		payload := Payload{
+			Kind:       kind,
+			RuleName:   r.Name,
+			Timestamp:  timestamp,
+			EventCount: 1,
+		}
+		attach(&payload, event)
+
+		silence, silenceMax, coalesce := e.windowsFor(r)
+		e.suppressor.Record(r.ID, groupKey(r, event), silence, silenceMax, coalesce, payload)
 	}
+}
+
+// HandleSrvlogEvent evaluates all srvlog rules against the event.
+func (e *Engine) HandleSrvlogEvent(event model.SrvlogEvent) {
+	handleEvent(e, EventKindSrvlog, event,
+		Rule.MatchesSrvlog, Rule.GroupKeyFromSrvlog, event.ReceivedAt,
+		func(p *Payload, ev model.SrvlogEvent) { p.SrvlogEvent = &ev })
 }
 
 // HandleNetlogEvent evaluates all netlog rules against the event.
 func (e *Engine) HandleNetlogEvent(event model.NetlogEvent) {
-	e.cacheMu.RLock()
-	rules := e.rules
-	e.cacheMu.RUnlock()
-
-	for _, r := range rules {
-		if !r.Enabled || r.EventKind != EventKindNetlog {
-			continue
-		}
-		metrics.NotifRulesEvaluatedTotal.Inc()
-
-		if r.MatchesNetlog(event) {
-			metrics.NotifRulesMatchedTotal.Inc()
-
-			payload := Payload{
-				Kind:        EventKindNetlog,
-				RuleName:    r.Name,
-				Timestamp:   event.ReceivedAt,
-				EventCount:  1,
-				NetlogEvent: &event,
-			}
-
-			groupKey := r.GroupKeyFromNetlog(event)
-			silence, silenceMax, coalesce := e.windowsFor(r)
-			e.suppressor.Record(r.ID, groupKey, silence, silenceMax, coalesce, payload)
-		}
-	}
+	handleEvent(e, EventKindNetlog, event,
+		Rule.MatchesNetlog, Rule.GroupKeyFromNetlog, event.ReceivedAt,
+		func(p *Payload, ev model.NetlogEvent) { p.NetlogEvent = &ev })
 }
 
 // HandleAppLogEvent evaluates all applog rules against the event.
 func (e *Engine) HandleAppLogEvent(event model.AppLogEvent) {
-	e.cacheMu.RLock()
-	rules := e.rules
-	e.cacheMu.RUnlock()
-
-	for _, r := range rules {
-		if !r.Enabled || r.EventKind != EventKindAppLog {
-			continue
-		}
-		metrics.NotifRulesEvaluatedTotal.Inc()
-
-		if r.MatchesAppLog(event) {
-			metrics.NotifRulesMatchedTotal.Inc()
-
-			payload := Payload{
-				Kind:        EventKindAppLog,
-				RuleName:    r.Name,
-				Timestamp:   event.Timestamp,
-				EventCount:  1,
-				AppLogEvent: &event,
-			}
-
-			groupKey := r.GroupKeyFromAppLog(event)
-			silence, silenceMax, coalesce := e.windowsFor(r)
-			e.suppressor.Record(r.ID, groupKey, silence, silenceMax, coalesce, payload)
-		}
-	}
+	handleEvent(e, EventKindAppLog, event,
+		Rule.MatchesAppLog, Rule.GroupKeyFromAppLog, event.Timestamp,
+		func(p *Payload, ev model.AppLogEvent) { p.AppLogEvent = &ev })
 }
 
 // windowsFor resolves the silence/silenceMax/coalesce durations for a rule,
