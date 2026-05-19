@@ -27,8 +27,10 @@ import (
 	"github.com/lasseh/taillight/internal/broker"
 	"github.com/lasseh/taillight/internal/config"
 	"github.com/lasseh/taillight/internal/handler"
+	"github.com/lasseh/taillight/internal/ingestbridge"
 	ldapauth "github.com/lasseh/taillight/internal/ldap"
 	"github.com/lasseh/taillight/internal/metrics"
+	"github.com/lasseh/taillight/internal/model"
 	"github.com/lasseh/taillight/internal/netbox"
 	"github.com/lasseh/taillight/internal/notification"
 	"github.com/lasseh/taillight/internal/notification/backend"
@@ -302,38 +304,28 @@ func startBackgroundWorkers(
 	// Bridge: fetch each notified row by ID and broadcast to SSE clients.
 	// Multiple workers drain the channel concurrently so that DB fetch
 	// latency doesn't cause backpressure under high event volume.
+	onSrvlog := func(e model.SrvlogEvent) {
+		srvlogBroker.Broadcast(e)
+		if notifEngine != nil {
+			notifEngine.HandleSrvlogEvent(e)
+		}
+	}
+	var onNetlog func(model.NetlogEvent)
+	if netlogBroker != nil {
+		onNetlog = func(e model.NetlogEvent) {
+			netlogBroker.Broadcast(e)
+			if notifEngine != nil {
+				notifEngine.HandleNetlogEvent(e)
+			}
+		}
+	}
+
 	for range notifWorkers {
 		go func() {
 			for n := range notifications {
 				metrics.NotificationsReceivedTotal.WithLabelValues(n.Channel).Inc()
-				switch n.Channel {
-				case "srvlog_ingest":
-					queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
-					event, err := store.GetSrvlog(queryCtx, n.ID)
-					queryCancel()
-					if err != nil {
-						logger.Warn("fetch srvlog event for broadcast", "id", n.ID, "err", err)
-						continue
-					}
-					srvlogBroker.Broadcast(event)
-					if notifEngine != nil {
-						notifEngine.HandleSrvlogEvent(event)
-					}
-				case "netlog_ingest":
-					if netlogBroker != nil {
-						queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
-						event, err := store.GetNetlog(queryCtx, n.ID)
-						queryCancel()
-						if err != nil {
-							logger.Warn("fetch netlog event for broadcast", "id", n.ID, "err", err)
-							continue
-						}
-						netlogBroker.Broadcast(event)
-						if notifEngine != nil {
-							notifEngine.HandleNetlogEvent(event)
-						}
-					}
-				}
+				ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID},
+					store, onSrvlog, onNetlog, logger, 30*time.Second)
 			}
 		}()
 	}
