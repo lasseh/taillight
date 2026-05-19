@@ -64,7 +64,7 @@
 
 /* Numbers */
 .token.number {
-  color: var(--color-t-orange);
+  color: var(--color-t-green);
 }
 
 /* Booleans */
@@ -79,7 +79,7 @@
 
 /* Operators and punctuation */
 .token.operator {
-  color: var(--color-t-terminal);
+  color: var(--color-t-green);
 }
 .token.punctuation {
   color: var(--color-t-terminal);
