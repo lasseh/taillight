@@ -210,10 +210,20 @@ func (s *Store) ListSrvlogFacilities(ctx context.Context) ([]int, error) {
 }
 
 func (s *Store) listDistinctStrings(ctx context.Context, column string) ([]string, error) {
-	if _, ok := allowedMetaColumns[column]; !ok {
+	return s.listMetaStrings(ctx, "srvlog_meta_cache", column, allowedMetaColumns)
+}
+
+// listMetaStrings reads distinct cached string values for a whitelisted column
+// from a *_meta_cache table. The srvlog and netlog meta queries were identical
+// apart from the cache table and the column whitelist, so the query/scan body
+// lives here once; callers pass the table and their allow-list.
+func (s *Store) listMetaStrings(ctx context.Context, cacheTable, column string, allowed map[string]struct{}) ([]string, error) {
+	if _, ok := allowed[column]; !ok {
 		return nil, fmt.Errorf("disallowed meta column: %s", column)
 	}
-	rows, err := s.pool.Query(ctx, "SELECT value FROM srvlog_meta_cache WHERE column_name = $1 ORDER BY value LIMIT $2", column, metaLimit)
+	//nolint:gosec // cacheTable is a hardcoded literal from callers, not user input
+	query := "SELECT value FROM " + cacheTable + " WHERE column_name = $1 ORDER BY value LIMIT $2"
+	rows, err := s.pool.Query(ctx, query, column, metaLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", column, err)
 	}
@@ -228,49 +238,6 @@ func (s *Store) listDistinctStrings(ctx context.Context, column string) ([]strin
 		values = append(values, v)
 	}
 	return values, rows.Err()
-}
-
-func applySrvlogFilter(qb sq.SelectBuilder, f model.SrvlogFilter) sq.SelectBuilder {
-	if f.Hostname != "" {
-		if strings.Contains(f.Hostname, "*") {
-			pattern := strings.ReplaceAll(escapeLike(f.Hostname), "*", "%")
-			qb = qb.Where("hostname ILIKE ?", pattern)
-		} else {
-			qb = qb.Where(sq.Eq{"hostname": f.Hostname})
-		}
-	}
-	if f.FromhostIP != "" {
-		qb = qb.Where("fromhost_ip = ?::inet", f.FromhostIP)
-	}
-	if f.Programname != "" {
-		qb = qb.Where(sq.Eq{"programname": f.Programname})
-	}
-	if f.Severity != nil {
-		qb = qb.Where(sq.Eq{"severity": *f.Severity})
-	}
-	if f.SeverityMax != nil {
-		qb = qb.Where(sq.LtOrEq{"severity": *f.SeverityMax})
-	}
-	if f.Facility != nil {
-		qb = qb.Where(sq.Eq{"facility": *f.Facility})
-	}
-	if f.SyslogTag != "" {
-		qb = qb.Where(sq.Eq{"syslogtag": f.SyslogTag})
-	}
-	if f.MsgID != "" {
-		qb = qb.Where(sq.Eq{"msgid": f.MsgID})
-	}
-	if f.Search != "" {
-		escaped := escapeLike(f.Search)
-		qb = qb.Where("message ILIKE ?", "%"+escaped+"%")
-	}
-	if f.From != nil {
-		qb = qb.Where(sq.GtOrEq{"received_at": *f.From})
-	}
-	if f.To != nil {
-		qb = qb.Where(sq.LtOrEq{"received_at": *f.To})
-	}
-	return qb
 }
 
 // escapeLike escapes LIKE/ILIKE metacharacters so they are treated as literals.
