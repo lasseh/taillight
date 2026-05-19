@@ -47,6 +47,7 @@ CLAUDE.md
 # Internal notes
 FEATURES.md
 research/
+docs/agents/
 
 # Agent skills (auto-generated, not project code)
 **/.agents/
