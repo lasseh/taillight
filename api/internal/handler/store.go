@@ -9,6 +9,10 @@ import (
 )
 
 // SrvlogStore defines the srvlog data access interface.
+//
+// SSE backfill dedup relies on the result ordering of the two list methods:
+// ListSrvlogs returns newest-first (DESC); ListSrvlogsSince returns
+// chronological (ASC). Implementations must preserve this.
 type SrvlogStore interface {
 	GetSrvlog(ctx context.Context, id int64) (model.SrvlogEvent, error)
 	ListSrvlogs(ctx context.Context, f model.SrvlogFilter, cursor *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error)
@@ -21,6 +25,10 @@ type SrvlogStore interface {
 }
 
 // NetlogStore defines the netlog data access interface.
+//
+// As with SrvlogStore, ListNetlogs returns newest-first (DESC) and
+// ListNetlogsSince returns chronological (ASC); SSE backfill dedup depends
+// on this ordering.
 type NetlogStore interface {
 	GetNetlog(ctx context.Context, id int64) (model.NetlogEvent, error)
 	ListNetlogs(ctx context.Context, f model.NetlogFilter, cursor *model.Cursor, limit int) ([]model.NetlogEvent, *model.Cursor, error)
@@ -43,6 +51,10 @@ type NetboxStore interface {
 }
 
 // AppLogStore defines the application log data access interface.
+//
+// As with SrvlogStore, ListAppLogs returns newest-first (DESC) and
+// ListAppLogsSince returns chronological (ASC); SSE backfill dedup depends
+// on this ordering.
 type AppLogStore interface {
 	GetAppLog(ctx context.Context, id int64) (model.AppLogEvent, error)
 	ListAppLogs(ctx context.Context, f model.AppLogFilter, cursor *model.Cursor, limit int) ([]model.AppLogEvent, *model.Cursor, error)
