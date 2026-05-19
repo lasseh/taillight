@@ -2,10 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+This project is deployed continuously and does not cut tagged, versioned
+releases. The **[Unreleased]** section below is therefore a permanent running
+log of everything shipped since `0.1.0` — it is intentional, not a backlog of
+work waiting for a release.
 
 ## [Unreleased]
+
+<!-- Continuous deploy: add entries here under Added/Changed/Fixed/Security.
+     Do not rename this section to a version or create release tags. -->
+
 
 ### Added
 
