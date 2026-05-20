@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -298,9 +300,20 @@ func (e *Engine) SendSummary(ctx context.Context, report SummaryReport, channelI
 func (e *Engine) ValidateChannel(ch Channel) error {
 	backend, ok := e.backends[ch.Type]
 	if !ok {
-		return fmt.Errorf("unknown channel type %q", ch.Type)
+		return fmt.Errorf("unknown channel type %q (registered types: %s)", ch.Type, e.registeredTypes())
 	}
 	return backend.Validate(ch)
+}
+
+// registeredTypes returns a sorted, comma-separated list of registered channel
+// types. Used for friendlier error messages.
+func (e *Engine) registeredTypes() string {
+	types := make([]string, 0, len(e.backends))
+	for t := range e.backends {
+		types = append(types, string(t))
+	}
+	sort.Strings(types)
+	return strings.Join(types, ", ")
 }
 
 // onFlush is the callback from the Suppressor when a fingerprint decides

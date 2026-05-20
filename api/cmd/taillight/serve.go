@@ -139,17 +139,17 @@ func runServe(_ *cobra.Command, _ []string) error {
 		notifEngine.RegisterBackend(notification.ChannelTypeSlack, backend.NewSlack(logger))
 		notifEngine.RegisterBackend(notification.ChannelTypeWebhook, backend.NewWebhook(logger))
 		notifEngine.RegisterBackend(notification.ChannelTypeNtfy, backend.NewNtfy(logger))
-		if cfg.SMTP.Host != "" {
-			notifEngine.RegisterBackend(notification.ChannelTypeEmail, backend.NewEmail(backend.EmailGlobalConfig{
-				Host:     cfg.SMTP.Host,
-				Port:     cfg.SMTP.Port,
-				Username: cfg.SMTP.Username,
-				Password: cfg.SMTP.Password,
-				From:     cfg.SMTP.From,
-				TLS:      cfg.SMTP.TLS,
-				AuthType: cfg.SMTP.AuthType,
-			}, logger))
-		}
+		// Email backend is always registered so channels can be created without SMTP
+		// configured. Send-time will surface a clear error if smtp.host is unset.
+		notifEngine.RegisterBackend(notification.ChannelTypeEmail, backend.NewEmail(backend.EmailGlobalConfig{
+			Host:     cfg.SMTP.Host,
+			Port:     cfg.SMTP.Port,
+			Username: cfg.SMTP.Username,
+			Password: cfg.SMTP.Password,
+			From:     cfg.SMTP.From,
+			TLS:      cfg.SMTP.TLS,
+			AuthType: cfg.SMTP.AuthType,
+		}, logger))
 		notifEngine.Start(ctx)
 	}
 

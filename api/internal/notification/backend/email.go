@@ -76,6 +76,13 @@ func (e *Email) Validate(ch notification.Channel) error {
 func (e *Email) Send(ctx context.Context, ch notification.Channel, payload notification.Payload) notification.SendResult {
 	start := time.Now()
 
+	if e.cfg.Host == "" {
+		return notification.SendResult{
+			Error:    fmt.Errorf("email backend is not configured: smtp.host is not set in the server config"),
+			Duration: time.Since(start),
+		}
+	}
+
 	var cfg emailConfig
 	if err := json.Unmarshal(ch.Config, &cfg); err != nil {
 		return notification.SendResult{Error: fmt.Errorf("parse email config: %w", err), Duration: time.Since(start)}
