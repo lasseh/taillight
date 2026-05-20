@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { SrvlogEvent } from '@/types/srvlog'
-import { severityBorderClass, severityColorClass } from '@/lib/constants'
+import { severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
 import { formatDateTime } from '@/lib/format'
 import { selectedRowsText } from '@/lib/copy'
@@ -30,7 +30,6 @@ const fields: Field[] = [
   { label: 'facility', key: 'facility_label', color: 'text-t-orange', filter: 'facility' },
 ]
 
-const borderClass = severityBorderClass[props.event.severity] ?? 'border-t-border'
 const sevClass = severityColorClass[props.event.severity] ?? 'text-t-fg'
 
 const highlightedMsg = computed(() => highlight(props.event.message))
@@ -77,7 +76,6 @@ function applyFilter(field: Field) {
 <template>
   <div
     class="bg-t-bg-dark relative border mx-2 my-1 rounded py-1.5 pl-4 pr-4"
-    :class="borderClass"
     @copy="onCopy"
   >
     <!-- permalink -->
