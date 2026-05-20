@@ -10,7 +10,14 @@ import type { ChannelListResponse, ChannelResponse, RuleListResponse, RuleRespon
 import type { SummaryScheduleListResponse, SummaryScheduleResponse, SummarySchedule } from '@/types/summary'
 import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
 import type { HostsResponse } from '@/types/host'
-import type { AnalysisReportListResponse, AnalysisReportResponse, AnalysisTriggerResponse } from '@/types/analysis'
+import type {
+  AnalysisReportListResponse,
+  AnalysisReportResponse,
+  AnalysisScheduleListResponse,
+  AnalysisScheduleResponse,
+  CreateAnalysisReportRequest,
+  CreateAnalysisScheduleRequest,
+} from '@/types/analysis'
 import { config } from './config'
 
 /** Shape of the JSON error body returned by the API. */
@@ -362,22 +369,47 @@ export const api = {
     return fetchAPI(`/api/v1/notifications/log?${params}`)
   },
 
-  // Analysis
+  // Analysis reports
   listAnalysisReports(limit?: number): Promise<AnalysisReportListResponse> {
     const q = limit ? `?limit=${limit}` : ''
     return fetchAPI(`/api/v1/analysis/reports${q}`)
   },
 
-  getAnalysisReport(id: number): Promise<AnalysisReportResponse> {
-    return fetchAPI(`/api/v1/analysis/reports/${id}`)
+  getAnalysisReport(slug: string): Promise<AnalysisReportResponse> {
+    return fetchAPI(`/api/v1/analysis/reports/${encodeURIComponent(slug)}`)
   },
 
-  getLatestAnalysisReport(): Promise<AnalysisReportResponse> {
-    return fetchAPI('/api/v1/analysis/reports/latest')
+  createAnalysisReport(req: CreateAnalysisReportRequest): Promise<AnalysisReportResponse> {
+    return postAPI('/api/v1/analysis/reports', req)
   },
 
-  triggerAnalysis(signal?: AbortSignal): Promise<AnalysisTriggerResponse> {
-    return postAPI('/api/v1/analysis/reports/trigger', {}, signal)
+  deleteAnalysisReport(slug: string): Promise<void> {
+    return deleteAPI(`/api/v1/analysis/reports/${encodeURIComponent(slug)}`)
+  },
+
+  // Analysis schedules
+  listAnalysisSchedules(): Promise<AnalysisScheduleListResponse> {
+    return fetchAPI('/api/v1/analysis/schedules')
+  },
+
+  getAnalysisSchedule(id: number): Promise<AnalysisScheduleResponse> {
+    return fetchAPI(`/api/v1/analysis/schedules/${id}`)
+  },
+
+  createAnalysisSchedule(s: CreateAnalysisScheduleRequest): Promise<AnalysisScheduleResponse> {
+    return postAPI('/api/v1/analysis/schedules', s)
+  },
+
+  updateAnalysisSchedule(id: number, s: CreateAnalysisScheduleRequest): Promise<AnalysisScheduleResponse> {
+    return putAPI(`/api/v1/analysis/schedules/${id}`, s)
+  },
+
+  deleteAnalysisSchedule(id: number): Promise<void> {
+    return deleteAPI(`/api/v1/analysis/schedules/${id}`)
+  },
+
+  runAnalysisSchedule(id: number): Promise<void> {
+    return postAPI(`/api/v1/analysis/schedules/${id}/run`, {})
   },
 
   // Summary Schedules

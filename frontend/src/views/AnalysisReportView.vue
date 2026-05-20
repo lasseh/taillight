@@ -1,0 +1,326 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+import { api, ApiError } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth'
+import { usePolling } from '@/composables/usePolling'
+import type { AnalysisReport, AnalysisReportResponse } from '@/types/analysis'
+
+const props = defineProps<{ slug: string }>()
+
+const router = useRouter()
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.user?.is_admin === true)
+
+const report = ref<AnalysisReport | null>(null)
+const loading = ref(true)
+const loadError = ref('')
+
+const confirmDelete = ref(false)
+const deleting = ref(false)
+const deleteError = ref('')
+
+// Pin the allowed tag/attr set to what the report template actually emits, so a
+// future marked extension or model output can't widen the attack surface.
+const MARKDOWN_SANITIZE = {
+  ALLOWED_TAGS: [
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'p', 'br', 'hr',
+    'ul', 'ol', 'li',
+    'strong', 'em', 'del', 's', 'code', 'pre',
+    'blockquote', 'a',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  ],
+  ALLOWED_ATTR: ['href', 'title', 'align'],
+}
+
+const renderedMarkdown = computed(() => {
+  if (!report.value?.report) return ''
+  const html = marked.parse(report.value.report) as string
+  return DOMPurify.sanitize(html, MARKDOWN_SANITIZE)
+})
+
+const polling = usePolling<AnalysisReportResponse>(
+  () => api.getAnalysisReport(props.slug),
+  (res) => res.data.status === 'pending' || res.data.status === 'running',
+  3000,
+)
+
+watch(
+  () => polling.data.value,
+  (res) => {
+    if (res) report.value = res.data
+  },
+)
+
+async function refresh() {
+  try {
+    const res = await api.getAnalysisReport(props.slug)
+    report.value = res.data
+    loadError.value = ''
+    if (res.data.status === 'pending' || res.data.status === 'running') {
+      void polling.start()
+    }
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      loadError.value = 'report not found'
+    } else {
+      loadError.value = e instanceof Error ? e.message : 'failed to load report'
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+async function deleteReport() {
+  deleting.value = true
+  deleteError.value = ''
+  try {
+    await api.deleteAnalysisReport(props.slug)
+    router.push({ name: 'analysis' })
+  } catch (e) {
+    deleteError.value = e instanceof ApiError ? e.message : 'failed to delete report'
+  } finally {
+    deleting.value = false
+    confirmDelete.value = false
+  }
+}
+
+function exportPDF() {
+  window.print()
+}
+
+function formatDate(ts: string): string {
+  return new Date(ts).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+function formatPeriod(start: string, end: string): string {
+  return `${formatDate(start)} → ${formatDate(end)}`
+}
+
+function formatDuration(r: AnalysisReport): string {
+  if (!r.started_at || !r.completed_at) return '—'
+  const ms = new Date(r.completed_at).getTime() - new Date(r.started_at).getTime()
+  if (ms < 1000) return `${ms}ms`
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+function feedBadgeClass(feed: string): string {
+  switch (feed) {
+    case 'netlog':
+      return 'bg-t-blue/10 text-t-blue'
+    case 'srvlog':
+      return 'bg-t-green/10 text-t-green'
+    case 'all':
+      return 'bg-t-purple/10 text-t-purple'
+    default:
+      return 'bg-t-fg-dark/10 text-t-fg-dark'
+  }
+}
+
+function statusBadgeClass(status: string): string {
+  switch (status) {
+    case 'completed':
+      return 'bg-t-green/15 text-t-green'
+    case 'running':
+      return 'bg-t-yellow/15 text-t-yellow'
+    case 'pending':
+      return 'bg-t-fg-dark/15 text-t-fg-dark'
+    case 'failed':
+      return 'bg-t-red/15 text-t-red'
+    default:
+      return 'bg-t-fg-dark/15 text-t-fg-dark'
+  }
+}
+
+onMounted(refresh)
+</script>
+
+<template>
+  <div class="flex min-h-0 flex-1 flex-col">
+    <div class="flex-1 overflow-y-auto px-4 py-6">
+      <div class="mx-auto max-w-5xl space-y-5">
+
+        <div v-if="loading" class="text-t-fg-dark py-20 text-center text-sm">loading...</div>
+
+        <div v-else-if="loadError" class="space-y-3">
+          <router-link :to="{ name: 'analysis' }" class="text-t-fg-dark hover:text-t-fg text-sm">← back to analysis</router-link>
+          <div class="rounded border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {{ loadError }}
+          </div>
+        </div>
+
+        <template v-else-if="report">
+          <div class="print-hide flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <router-link :to="{ name: 'analysis' }" class="text-t-fg-dark hover:text-t-fg text-sm">← back</router-link>
+            </div>
+            <div class="flex items-center gap-3">
+              <button
+                class="bg-t-bg-highlight text-t-fg hover:brightness-125 border-t-border border px-3 py-1.5 text-xs transition-all"
+                @click="exportPDF"
+              >
+                Export PDF
+              </button>
+              <template v-if="isAdmin">
+                <button
+                  v-if="!confirmDelete"
+                  class="text-t-red/70 hover:text-t-red text-xs transition-colors"
+                  @click="confirmDelete = true"
+                >
+                  delete
+                </button>
+                <span v-else class="flex items-center gap-2">
+                  <button
+                    class="text-t-red hover:brightness-125 text-xs font-semibold"
+                    :disabled="deleting"
+                    @click="deleteReport"
+                  >
+                    {{ deleting ? 'deleting...' : 'yes' }}
+                  </button>
+                  <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="confirmDelete = false">no</button>
+                </span>
+              </template>
+            </div>
+          </div>
+
+          <h1 class="text-t-fg font-mono text-base font-semibold">{{ report.slug }}</h1>
+
+          <div
+            class="bg-t-bg-dark border-t-border flex flex-wrap items-center gap-x-6 gap-y-2 rounded border px-4 py-3"
+          >
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Status</span>
+              <span class="rounded px-1.5 py-0.5 text-xs font-medium" :class="statusBadgeClass(report.status)">
+                {{ report.status }}
+              </span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Source</span>
+              <span class="rounded px-1.5 py-0.5 text-xs font-medium" :class="feedBadgeClass(report.feed)">
+                {{ report.feed }}
+              </span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Period</span>
+              <span class="text-t-fg text-xs font-medium">{{ formatPeriod(report.period_start, report.period_end) }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Model</span>
+              <span class="text-t-fg text-xs font-medium">{{ report.model || '—' }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Tokens</span>
+              <span class="text-t-fg text-xs font-medium">
+                {{ report.prompt_tokens ? `${report.prompt_tokens.toLocaleString()} + ${report.completion_tokens.toLocaleString()}` : '—' }}
+              </span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Duration</span>
+              <span class="text-t-fg text-xs font-medium">{{ formatDuration(report) }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Created</span>
+              <span class="text-t-fg text-xs font-medium">{{ formatDate(report.created_at) }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Started</span>
+              <span class="text-t-fg text-xs font-medium">{{ report.started_at ? formatDate(report.started_at) : '—' }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Completed</span>
+              <span class="text-t-fg text-xs font-medium">{{ report.completed_at ? formatDate(report.completed_at) : '—' }}</span>
+            </div>
+          </div>
+
+          <div v-if="deleteError" class="rounded border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {{ deleteError }}
+          </div>
+
+          <div
+            v-if="report.status === 'pending' || report.status === 'running'"
+            class="text-t-fg-dark flex items-center gap-3 py-10 text-sm justify-center"
+          >
+            <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+            </svg>
+            <span>report is being generated — this page will update automatically</span>
+          </div>
+
+          <div
+            v-else-if="report.status === 'failed'"
+            class="rounded border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+          >
+            <div class="font-semibold mb-1">analysis failed</div>
+            <div class="font-mono text-xs">{{ report.error || 'no error message' }}</div>
+          </div>
+
+          <div
+            v-else-if="report.status === 'completed' && report.report"
+            class="prose border-t-border rounded border px-6 py-5"
+            v-html="renderedMarkdown"
+          />
+        </template>
+
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.prose {
+  color: var(--color-t-fg);
+  line-height: 1.75;
+}
+.prose :deep(h1) { color: var(--color-t-fg); font-size: 1.25rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem; padding-bottom: 0.625rem; border-bottom: 2px solid var(--color-t-orange); }
+.prose :deep(h2) { color: var(--color-t-orange); font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.625rem; padding-bottom: 0.375rem; border-bottom: 1px solid var(--color-t-border); }
+.prose :deep(h3) { color: var(--color-t-teal); font-size: 0.875rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.375rem; }
+.prose :deep(p) { margin-top: 0.5rem; margin-bottom: 0.5rem; font-size: 0.8125rem; }
+.prose :deep(ul), .prose :deep(ol) { margin-top: 0.375rem; margin-bottom: 0.375rem; padding-left: 1.5rem; font-size: 0.8125rem; }
+.prose :deep(li) { margin-top: 0.1875rem; margin-bottom: 0.1875rem; }
+.prose :deep(li::marker) { color: var(--color-t-fg-dark); }
+.prose :deep(strong) { color: var(--color-t-fg); font-weight: 600; }
+.prose :deep(em) { color: var(--color-t-fg-dark); font-style: italic; }
+.prose :deep(code) { color: var(--color-t-teal); background: var(--color-t-bg-highlight); padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.75rem; border: 1px solid var(--color-t-border); }
+.prose :deep(pre) { background: var(--color-t-bg-dark); border: 1px solid var(--color-t-border); border-radius: 0.375rem; padding: 0.875rem 1rem; overflow-x: auto; margin-top: 0.75rem; margin-bottom: 0.75rem; }
+.prose :deep(pre code) { background: none; padding: 0; border: none; color: var(--color-t-fg); }
+.prose :deep(hr) { border: none; border-top: 1px solid var(--color-t-border); margin: 1.5rem 0; }
+.prose :deep(table) { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-top: 0.75rem; margin-bottom: 0.75rem; border: 1px solid var(--color-t-border); border-radius: 0.375rem; overflow: hidden; }
+.prose :deep(th) { color: var(--color-t-orange); font-weight: 600; text-align: left; padding: 0.5rem 0.75rem; background: var(--color-t-bg-dark); border-bottom: 1px solid var(--color-t-border); }
+.prose :deep(td) { padding: 0.375rem 0.75rem; border-bottom: 1px solid var(--color-t-border); }
+.prose :deep(tr:last-child td) { border-bottom: none; }
+.prose :deep(tr:hover td) { background: var(--color-t-bg-highlight); }
+.prose :deep(a) { color: var(--color-t-blue); text-decoration: underline; text-underline-offset: 2px; }
+.prose :deep(a:hover) { color: var(--color-t-teal); }
+.prose :deep(blockquote) { border-left: 3px solid var(--color-t-orange); padding-left: 1rem; color: var(--color-t-fg-dark); margin: 0.75rem 0; font-size: 0.8125rem; }
+</style>
+
+<style>
+/* Global print styles — when the user prints, hide chrome and let the report
+ * body span the full page. Scoped <style> would not catch the global nav. */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .print-hide,
+  nav,
+  header,
+  aside,
+  .app-sidebar,
+  .app-topbar {
+    display: none !important;
+  }
+}
+</style>

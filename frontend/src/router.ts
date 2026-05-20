@@ -121,6 +121,12 @@ const router = createRouter({
       component: () => import('@/views/AnalysisView.vue'),
     },
     {
+      path: '/analysis/reports/:slug',
+      name: 'analysis-report',
+      component: () => import('@/views/AnalysisReportView.vue'),
+      props: true,
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),
