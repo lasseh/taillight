@@ -83,11 +83,28 @@ function applyFilter(field: Field) {
     <!-- permalink -->
     <RouterLink
       :to="{ name: 'netlog-detail', params: { id: event.id } }"
-      class="absolute right-3 top-1.5 text-xs font-normal leading-none text-t-purple transition-all hover:font-extrabold hover:brightness-125"
-      title="permalink"
+      title="Open detail page"
+      aria-label="Open detail page"
+      class="absolute right-2 top-1.5 inline-flex items-center justify-center rounded border border-t-purple/30 bg-t-purple/10 p-1 text-t-purple transition-colors hover:bg-t-purple/20 hover:brightness-125"
       @click.stop
     >
-      Details
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="h-5 w-5"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 5H3" />
+        <path d="M10 12H3" />
+        <path d="M10 19H3" />
+        <circle cx="17" cy="15" r="3" />
+        <path d="m21 19-1.9-1.9" />
+      </svg>
     </RouterLink>
 
     <!-- fields -->
