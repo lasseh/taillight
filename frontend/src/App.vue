@@ -15,6 +15,7 @@ import { useAppLogStream } from '@/composables/useAppLogStream'
 import { useNotifications } from '@/composables/useNotifications'
 import { useFavicon } from '@/composables/useFavicon'
 import { useFullscreen } from '@/composables/useFullscreen'
+import { useNavHotkeys } from '@/composables/useNavHotkeys'
 import { useColumnVisibility } from '@/composables/useColumnVisibility'
 import { features as getFeatures } from '@/lib/features'
 import AppHeader from '@/components/AppHeader.vue'
@@ -66,6 +67,7 @@ const isHistoricalMode = computed(() => {
 })
 
 useFavicon(connected)
+useNavHotkeys()
 
 const { active: fullscreenActive, exit: exitFullscreen, toggle: toggleFullscreen } = useFullscreen()
 

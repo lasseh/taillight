@@ -159,6 +159,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
       <div class="hidden gap-1 md:flex">
         <router-link
           to="/"
+          title="Dashboard (1)"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             route.name === 'home'
@@ -170,6 +171,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         </router-link>
         <button
           v-if="features.netlog"
+          title="Netlog (2)"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             String(route.name).startsWith('netlog')
@@ -182,6 +184,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         </button>
         <button
           v-if="features.srvlog"
+          title="Srvlog (3)"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             String(route.name).startsWith('srvlog')
@@ -194,6 +197,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
         </button>
         <button
           v-if="features.applog"
+          title="Applog (4)"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             String(route.name).startsWith('applog')
