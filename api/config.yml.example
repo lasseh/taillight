@@ -44,6 +44,13 @@ cors_allowed_origins:
 # Empty disables the metrics endpoint entirely — safe default for public-facing deploys.
 metrics_addr: ""
 
+# Directory containing Juniper syslog reference XLSX files (e.g.
+# System_Log_Messages_Junos_OS_25.4R1.xlsx). On `serve` startup, any *.xlsx
+# in this folder is auto-imported when the juniper_netlog_ref table has no
+# rows yet for that OS. OS is inferred from the filename: names containing
+# "evolved" → junos-evolved, otherwise → junos. Empty disables auto-import.
+juniper_ref_path: "reference/juniper"
+
 # Database connection pool settings.
 db_max_conns: 10
 db_min_conns: 2

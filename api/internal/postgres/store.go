@@ -878,6 +878,24 @@ func (s *Store) LookupJuniperRef(ctx context.Context, name string) ([]model.Juni
 	return refs, rows.Err()
 }
 
+// CountJuniperRefsByOS returns the number of juniper_netlog_ref rows for the given OS.
+func (s *Store) CountJuniperRefsByOS(ctx context.Context, osName string) (int64, error) {
+	query, args, err := psq.
+		Select("COUNT(*)").
+		From("juniper_netlog_ref").
+		Where(sq.Eq{"os": osName}).
+		ToSql()
+	if err != nil {
+		return 0, fmt.Errorf("build juniper ref count query: %w", err)
+	}
+
+	var n int64
+	if err := s.pool.QueryRow(ctx, query, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count juniper refs for os %q: %w", osName, err)
+	}
+	return n, nil
+}
+
 // UpsertJuniperRefs inserts or updates Juniper syslog reference entries.
 // Returns the number of rows affected.
 func (s *Store) UpsertJuniperRefs(ctx context.Context, refs []model.JuniperNetlogRef) (int64, error) {

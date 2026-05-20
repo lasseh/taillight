@@ -34,6 +34,7 @@ type Config struct {
 	CookieSecure           bool     // When true, force Secure flag on session cookies regardless of X-Forwarded-Proto.
 	NotificationBufferSize int      // LISTEN/NOTIFY channel buffer size (0 = default 1024).
 	NotificationWorkers    int      // Number of goroutines consuming LISTEN/NOTIFY events (0 = default 4).
+	JuniperRefPath         string   // Directory containing Juniper syslog reference XLSX files for startup auto-import. Empty disables.
 	Features               FeaturesConfig
 	LogShipper             LogShipperConfig
 	Analysis               AnalysisConfig
@@ -153,6 +154,7 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("notification_buffer_size", 1024)
 	v.SetDefault("notification_workers", 4)
 	v.SetDefault("metrics_addr", "")
+	v.SetDefault("juniper_ref_path", "reference/juniper")
 	v.SetDefault("logshipper.enabled", false)
 	v.SetDefault("logshipper.service", "taillight")
 	v.SetDefault("logshipper.component", "server")
@@ -237,6 +239,7 @@ func Load(configFile ...string) (Config, error) {
 		NotificationBufferSize: v.GetInt("notification_buffer_size"),
 		NotificationWorkers:    v.GetInt("notification_workers"),
 		MetricsAddr:            v.GetString("metrics_addr"),
+		JuniperRefPath:         v.GetString("juniper_ref_path"),
 		Features: FeaturesConfig{
 			Srvlog: v.GetBool("features.srvlog"),
 			Netlog: v.GetBool("features.netlog"),

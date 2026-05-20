@@ -28,6 +28,7 @@ import (
 	"github.com/lasseh/taillight/internal/config"
 	"github.com/lasseh/taillight/internal/handler"
 	"github.com/lasseh/taillight/internal/ingestbridge"
+	"github.com/lasseh/taillight/internal/juniperref"
 	ldapauth "github.com/lasseh/taillight/internal/ldap"
 	"github.com/lasseh/taillight/internal/metrics"
 	"github.com/lasseh/taillight/internal/model"
@@ -91,6 +92,13 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Seed continuous aggregates so summaries work immediately on fresh deploys.
 	if err := store.RefreshContinuousAggregates(ctx); err != nil {
 		logger.Warn("failed to refresh continuous aggregates", "err", err)
+	}
+
+	// Auto-import Juniper syslog reference XLSX files on a cold table.
+	if cfg.JuniperRefPath != "" {
+		if err := juniperref.AutoImport(ctx, logger, store, cfg.JuniperRefPath); err != nil {
+			logger.Warn("juniper ref auto-import failed", "err", err)
+		}
 	}
 
 	// Dedicated LISTEN connection.
