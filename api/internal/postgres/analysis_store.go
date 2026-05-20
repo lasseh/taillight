@@ -8,9 +8,19 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/lasseh/taillight/internal/model"
 )
+
+// ErrDuplicateActiveReport is returned by InsertPendingReport when a pending
+// or running report already exists for the same (feed, period_end). The
+// underlying database guard is a partial unique index.
+var ErrDuplicateActiveReport = errors.New("analysis report already active for feed/period")
+
+// pgUniqueViolation is the SQLSTATE code returned by Postgres on a unique
+// constraint or unique-index violation.
+const pgUniqueViolation = "23505"
 
 const (
 	// feedAll indicates analysis should query both srvlog and netlog tables.
@@ -410,44 +420,138 @@ func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[stri
 	return refs, rows.Err()
 }
 
-// InsertReport stores an analysis report.
-func (s *Store) InsertReport(ctx context.Context, r model.AnalysisReport) (int64, error) {
-	query, args, err := psq.
-		Insert("analysis_reports").
-		Columns("model", "period_start", "period_end", "report",
-			"prompt_tokens", "completion_tokens", "duration_ms", "status").
-		Values(r.Model, r.PeriodStart, r.PeriodEnd, r.Report,
-			r.PromptTokens, r.CompletionTokens, r.DurationMS, r.Status).
-		Suffix("RETURNING id").
-		ToSql()
-	if err != nil {
-		return 0, fmt.Errorf("build insert report query: %w", err)
-	}
+// analysisReportColumns lists the columns selected for full report reads.
+const analysisReportColumns = "id, slug, feed, model, period_start, period_end, " +
+	"report, prompt_tokens, completion_tokens, status, error, " +
+	"created_at, started_at, completed_at"
 
-	var id int64
-	if err := s.pool.QueryRow(ctx, query, args...).Scan(&id); err != nil {
-		return 0, fmt.Errorf("insert report: %w", err)
+// analysisReportSummaryColumns lists the columns selected for list reads.
+const analysisReportSummaryColumns = "id, slug, feed, model, period_start, period_end, " +
+	"prompt_tokens, completion_tokens, status, " +
+	"created_at, started_at, completed_at"
+
+// BuildAnalysisSlug returns the canonical slug for a (feed, periodEnd) pair.
+// periodEnd is truncated to the minute in UTC before formatting.
+func BuildAnalysisSlug(feed string, periodEnd time.Time) string {
+	t := periodEnd.UTC().Truncate(time.Minute)
+	return fmt.Sprintf("%s-%s-%s", feed, t.Format("2006-01-02"), t.Format("1504"))
+}
+
+// InsertPendingReport creates a new report row in the pending state. It
+// generates a slug from feed+periodEnd and resolves slug collisions with a
+// numeric suffix so historical reports for the same minute can coexist.
+//
+// Returns ErrDuplicateActiveReport when the partial unique index
+// analysis_reports_active_uniq is violated, which happens when another pending
+// or running report already covers the same (feed, period_end).
+func (s *Store) InsertPendingReport(ctx context.Context, r model.AnalysisReport) (model.AnalysisReport, error) {
+	if r.Slug == "" {
+		r.Slug = BuildAnalysisSlug(r.Feed, r.PeriodEnd)
 	}
-	return id, nil
+	r.Status = model.AnalysisStatusPending
+
+	// Try the natural slug first, then -2, -3, ... if another completed report
+	// happens to share the same minute. Capped to avoid runaway loops.
+	base := r.Slug
+	for attempt := 1; attempt <= 10; attempt++ {
+		slug := base
+		if attempt > 1 {
+			slug = fmt.Sprintf("%s-%d", base, attempt)
+		}
+		r.Slug = slug
+
+		query, args, err := psq.
+			Insert("analysis_reports").
+			Columns("slug", "feed", "model", "period_start", "period_end", "status").
+			Values(r.Slug, r.Feed, r.Model, r.PeriodStart, r.PeriodEnd, r.Status).
+			Suffix("RETURNING id, created_at").
+			ToSql()
+		if err != nil {
+			return model.AnalysisReport{}, fmt.Errorf("build insert pending report: %w", err)
+		}
+
+		err = s.pool.QueryRow(ctx, query, args...).Scan(&r.ID, &r.CreatedAt)
+		if err == nil {
+			return r, nil
+		}
+
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+			switch pgErr.ConstraintName {
+			case "analysis_reports_active_uniq":
+				return model.AnalysisReport{}, ErrDuplicateActiveReport
+			case "analysis_reports_slug_uniq":
+				continue // try next suffix
+			}
+		}
+		return model.AnalysisReport{}, fmt.Errorf("insert pending report: %w", err)
+	}
+	return model.AnalysisReport{}, fmt.Errorf("insert pending report: exhausted slug suffix attempts for %q", base)
+}
+
+// MarkReportRunning flips a pending row to running and stamps started_at.
+// Returns pgx.ErrNoRows if the row was deleted while queued.
+func (s *Store) MarkReportRunning(ctx context.Context, id int64) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE analysis_reports
+		   SET status='running', started_at=now()
+		 WHERE id=$1 AND status='pending'`, id)
+	if err != nil {
+		return fmt.Errorf("mark report %d running: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// MarkReportCompleted writes the report body, token counts, and timestamps.
+// Zero rows affected is benign — the report may have been deleted mid-flight.
+func (s *Store) MarkReportCompleted(ctx context.Context, id int64, body string, promptTokens, completionTokens int) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE analysis_reports
+		   SET status='completed', report=$2, prompt_tokens=$3, completion_tokens=$4,
+		       completed_at=now()
+		 WHERE id=$1`, id, body, promptTokens, completionTokens)
+	if err != nil {
+		return fmt.Errorf("mark report %d completed: %w", id, err)
+	}
+	return nil
+}
+
+// MarkReportFailed records a short error message and completion time.
+// Zero rows affected is benign for the same reason as MarkReportCompleted.
+func (s *Store) MarkReportFailed(ctx context.Context, id int64, msg string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE analysis_reports
+		   SET status='failed', error=$2, completed_at=now()
+		 WHERE id=$1`, id, msg)
+	if err != nil {
+		return fmt.Errorf("mark report %d failed: %w", id, err)
+	}
+	return nil
+}
+
+// ReconcileOrphanedReports marks every pending/running row as failed. Intended
+// for boot-time recovery — anything still in flight when the process restarted
+// is unrecoverable because the in-memory queue is gone. Returns the number of
+// rows touched.
+func (s *Store) ReconcileOrphanedReports(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE analysis_reports
+		   SET status='failed', error='abandoned: server restarted', completed_at=now()
+		 WHERE status IN ('pending','running')`)
+	if err != nil {
+		return 0, fmt.Errorf("reconcile orphaned reports: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // GetReport returns a single analysis report by ID.
 func (s *Store) GetReport(ctx context.Context, id int64) (model.AnalysisReport, error) {
-	query, args, err := psq.
-		Select("id", "generated_at", "model", "period_start", "period_end",
-			"report", "prompt_tokens", "completion_tokens", "duration_ms", "status").
-		From("analysis_reports").
-		Where(sq.Eq{"id": id}).
-		ToSql()
-	if err != nil {
-		return model.AnalysisReport{}, fmt.Errorf("build get report query: %w", err)
-	}
-
-	var r model.AnalysisReport
-	err = s.pool.QueryRow(ctx, query, args...).Scan(
-		&r.ID, &r.GeneratedAt, &r.Model, &r.PeriodStart, &r.PeriodEnd,
-		&r.Report, &r.PromptTokens, &r.CompletionTokens, &r.DurationMS, &r.Status,
-	)
+	row := s.pool.QueryRow(ctx,
+		`SELECT `+analysisReportColumns+` FROM analysis_reports WHERE id=$1`, id)
+	r, err := scanAnalysisReport(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.AnalysisReport{}, err
 	}
@@ -457,22 +561,41 @@ func (s *Store) GetReport(ctx context.Context, id int64) (model.AnalysisReport, 
 	return r, nil
 }
 
-// ListReports returns recent analysis report summaries.
-func (s *Store) ListReports(ctx context.Context, limit int) ([]model.AnalysisReportSummary, error) {
-	query, args, err := psq.
-		Select("id", "generated_at", "model", "period_start", "period_end",
-			"prompt_tokens", "completion_tokens", "duration_ms", "status").
-		From("analysis_reports").
-		OrderBy("generated_at DESC").
-		Limit(uint64(limit)).
-		ToSql()
-	if err != nil {
-		return nil, fmt.Errorf("build list reports query: %w", err)
+// GetReportBySlug returns a single analysis report by slug.
+func (s *Store) GetReportBySlug(ctx context.Context, slug string) (model.AnalysisReport, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT `+analysisReportColumns+` FROM analysis_reports WHERE slug=$1`, slug)
+	r, err := scanAnalysisReport(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.AnalysisReport{}, err
 	}
-
-	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list reports query: %w", err)
+		return model.AnalysisReport{}, fmt.Errorf("get report %q: %w", slug, err)
+	}
+	return r, nil
+}
+
+// DeleteReport removes a report row. Returns pgx.ErrNoRows when nothing matched.
+func (s *Store) DeleteReport(ctx context.Context, id int64) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM analysis_reports WHERE id=$1`, id)
+	if err != nil {
+		return fmt.Errorf("delete report %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// ListReports returns recent analysis report summaries newest-first.
+func (s *Store) ListReports(ctx context.Context, limit int) ([]model.AnalysisReportSummary, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+analysisReportSummaryColumns+`
+		   FROM analysis_reports
+		  ORDER BY created_at DESC
+		  LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list reports: %w", err)
 	}
 	defer rows.Close()
 
@@ -480,8 +603,9 @@ func (s *Store) ListReports(ctx context.Context, limit int) ([]model.AnalysisRep
 	for rows.Next() {
 		var r model.AnalysisReportSummary
 		if err := rows.Scan(
-			&r.ID, &r.GeneratedAt, &r.Model, &r.PeriodStart, &r.PeriodEnd,
-			&r.PromptTokens, &r.CompletionTokens, &r.DurationMS, &r.Status,
+			&r.ID, &r.Slug, &r.Feed, &r.Model, &r.PeriodStart, &r.PeriodEnd,
+			&r.PromptTokens, &r.CompletionTokens, &r.Status,
+			&r.CreatedAt, &r.StartedAt, &r.CompletedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan report summary: %w", err)
 		}
@@ -490,30 +614,22 @@ func (s *Store) ListReports(ctx context.Context, limit int) ([]model.AnalysisRep
 	return reports, rows.Err()
 }
 
-// GetLatestReport returns the most recent completed analysis report.
-func (s *Store) GetLatestReport(ctx context.Context) (model.AnalysisReport, error) {
-	query, args, err := psq.
-		Select("id", "generated_at", "model", "period_start", "period_end",
-			"report", "prompt_tokens", "completion_tokens", "duration_ms", "status").
-		From("analysis_reports").
-		Where(sq.Eq{"status": "completed"}).
-		OrderBy("generated_at DESC").
-		Limit(1).
-		ToSql()
-	if err != nil {
-		return model.AnalysisReport{}, fmt.Errorf("build latest report query: %w", err)
-	}
-
+// scanAnalysisReport scans a full analysis report row, handling nullable fields.
+func scanAnalysisReport(row pgx.Row) (model.AnalysisReport, error) {
 	var r model.AnalysisReport
-	err = s.pool.QueryRow(ctx, query, args...).Scan(
-		&r.ID, &r.GeneratedAt, &r.Model, &r.PeriodStart, &r.PeriodEnd,
-		&r.Report, &r.PromptTokens, &r.CompletionTokens, &r.DurationMS, &r.Status,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	var body, errMsg *string
+	if err := row.Scan(
+		&r.ID, &r.Slug, &r.Feed, &r.Model, &r.PeriodStart, &r.PeriodEnd,
+		&body, &r.PromptTokens, &r.CompletionTokens, &r.Status, &errMsg,
+		&r.CreatedAt, &r.StartedAt, &r.CompletedAt,
+	); err != nil {
 		return model.AnalysisReport{}, err
 	}
-	if err != nil {
-		return model.AnalysisReport{}, fmt.Errorf("get latest report: %w", err)
+	if body != nil {
+		r.Report = *body
+	}
+	if errMsg != nil {
+		r.Error = *errMsg
 	}
 	return r, nil
 }

@@ -143,6 +143,7 @@ work waiting for a release.
 
 ### Changed
 
+- Rework `/analysis`: async per-feed reports with `pending`/`running`/`completed`/`failed` lifecycle, slug-based URLs (`/analysis/reports/<feed>-YYYY-MM-DD-HHMM`), single-worker queue (depth 5) with partial-unique-index guard against duplicate active runs, in-DB recurring schedules (`analysis_schedules`) replacing the single `analysis.schedule_at`/`analysis.feed` config keys
 - Rename syslog to srvlog across entire codebase
 - Rename dashboard to volume, move alerts to settings dropdown
 - Flatten dropdown menu into page links and account sections

@@ -19,15 +19,24 @@ type Store interface {
 	GetNewMsgIDs(ctx context.Context, feed string, since, baselineSince time.Time) ([]string, error)
 	GetEventClusters(ctx context.Context, feed string, since time.Time, windowMinutes int) ([]model.EventCluster, error)
 	LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error)
-	InsertReport(ctx context.Context, r model.AnalysisReport) (int64, error)
 }
 
-// Config holds analyzer configuration.
+// Config holds analyzer configuration. Feed selection is per-run (passed to Run),
+// not configured globally.
 type Config struct {
 	Model       string
 	Temperature float64
 	NumCtx      int
-	Feed        string // "srvlog", "netlog", or "all" (default "netlog").
+}
+
+// Result is the output of a single analysis run. Persistence is the caller's
+// responsibility (the worker writes it to the report row).
+type Result struct {
+	PeriodStart      time.Time
+	PeriodEnd        time.Time
+	Report           string
+	PromptTokens     int
+	CompletionTokens int
 }
 
 // Analyzer orchestrates data gathering, prompt building, and LLM inference.

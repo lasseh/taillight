@@ -38,12 +38,12 @@ func feedTitle(feed string) string {
 }
 
 var systemPromptTemplate = template.Must(template.New("system").Parse(
-	`You are a senior network operations analyst reviewing {{ .FeedDescription }}. Produce a concise daily operations briefing in markdown format.
+	`You are a senior network operations analyst reviewing {{ .FeedDescription }}. Produce a concise operations briefing in markdown format covering the last {{ .PeriodLabel }}.
 
 Your report MUST include these sections:
 
 ## Executive Summary
-A 2-3 sentence overview of the last 24 hours highlighting the most important findings.
+A 2-3 sentence overview of the last {{ .PeriodLabel }} highlighting the most important findings.
 
 ## Incident Analysis
 For each significant event type (msgid), analyze:
@@ -74,7 +74,7 @@ Guidelines:
 var userPromptTemplate = template.Must(template.New("user").Funcs(template.FuncMap{
 	"severityLabel": model.SeverityLabel,
 	"join":          strings.Join,
-}).Parse(`# {{ .FeedTitle }} Analysis Data — Last 24 Hours
+}).Parse(`# {{ .FeedTitle }} Analysis Data — Last {{ .PeriodLabel }}
 Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} to {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }}
 
 ## Top Event Types (by volume)
@@ -86,7 +86,7 @@ Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} to {{ .PeriodEnd.Format
   {{- if (index $.JuniperRefs .MsgID).Action }}  | Action: {{ (index $.JuniperRefs .MsgID).Action }}{{ end }}
 {{- end }}
 {{ end }}
-## Severity Comparison (current 24h vs 7-day daily average)
+## Severity Comparison (current daily average vs 7-day daily average)
 {{ range .SeverityComparison.Levels -}}
 - {{ .Label }} ({{ .Severity }}): current={{ .Current }}, baseline_avg={{ printf "%.0f" .BaselineAvg }}, change={{ printf "%+.1f" .ChangePct }}%
 {{ end }}

@@ -10,6 +10,8 @@ import (
 // analysisData holds all aggregated data for prompt building.
 type analysisData struct {
 	Feed               string // "srvlog", "netlog", or "all".
+	Period             time.Duration
+	PeriodLabel        string // e.g. "24 hours", "7 days".
 	PeriodStart        time.Time
 	PeriodEnd          time.Time
 	TopMsgIDs          []model.MsgIDCount
@@ -31,22 +33,33 @@ const (
 	feedAll    = "all"
 )
 
-// gather collects all aggregated data for the analysis period.
-func (a *Analyzer) gather(ctx context.Context) (analysisData, error) {
-	now := time.Now().UTC()
-	periodEnd := now
-	periodStart := now.Add(-24 * time.Hour)
-	baselineStart := now.Add(-8 * 24 * time.Hour) // 7 days before period start
-
-	feed := a.cfg.Feed
-	if feed == "" {
-		feed = feedNetlog
+// periodLabel returns a short human label for a Run period.
+func periodLabel(d time.Duration) string {
+	days := int(d.Hours() / 24)
+	switch {
+	case days >= 30:
+		return "30 days"
+	case days >= 7:
+		return "7 days"
+	case d >= 24*time.Hour:
+		return "24 hours"
+	default:
+		return d.String()
 	}
+}
+
+// gather collects all aggregated data for the analysis period ending at periodEnd.
+func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration, periodEnd time.Time) (analysisData, error) {
+	periodStart := periodEnd.Add(-period)
+	// Baseline = 7 days immediately preceding the current period.
+	baselineStart := periodStart.Add(-7 * 24 * time.Hour)
 
 	data := analysisData{
+		Feed:        feed,
+		Period:      period,
+		PeriodLabel: periodLabel(period),
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
-		Feed:        feed,
 	}
 
 	var err error
@@ -61,6 +74,23 @@ func (a *Analyzer) gather(ctx context.Context) (analysisData, error) {
 	data.SeverityComparison, err = a.store.GetSeverityComparison(ctx, feed, periodStart, baselineStart)
 	if err != nil {
 		return data, err
+	}
+
+	// Normalize current counts to a per-day average for multi-day periods so the
+	// percentage-change comparison against the always-daily baseline stays apples-
+	// to-apples. Baseline divisor inside the store already yields daily average.
+	periodDays := period.Hours() / 24
+	if periodDays > 1 {
+		for i := range data.SeverityComparison.Levels {
+			lvl := &data.SeverityComparison.Levels[i]
+			curDaily := float64(lvl.Current) / periodDays
+			var changePct float64
+			if lvl.BaselineAvg > 0 {
+				changePct = (curDaily - lvl.BaselineAvg) / lvl.BaselineAvg * 100
+			}
+			lvl.Current = int64(curDaily) // best-effort daily-average for display
+			lvl.ChangePct = changePct
+		}
 	}
 
 	a.logger.Info("gathering top error hosts", "feed", feed)
@@ -81,18 +111,26 @@ func (a *Analyzer) gather(ctx context.Context) (analysisData, error) {
 		return data, err
 	}
 
-	// Juniper ref lookup is best-effort — warn and continue on failure.
-	msgidNames := make([]string, 0, len(data.TopMsgIDs))
-	for _, mc := range data.TopMsgIDs {
-		msgidNames = append(msgidNames, mc.MsgID)
-	}
-	msgidNames = append(msgidNames, data.NewMsgIDs...)
+	data.JuniperRefs = make(map[string]model.JuniperNetlogRef)
 
-	a.logger.Info("looking up juniper references", "count", len(msgidNames))
-	data.JuniperRefs, err = a.store.LookupJuniperRefs(ctx, msgidNames)
-	if err != nil {
-		a.logger.Warn("juniper ref lookup failed, continuing without", "err", err)
-		data.JuniperRefs = make(map[string]model.JuniperNetlogRef)
+	// Juniper reference data only applies to netlog msgids; skip the lookup
+	// entirely for srvlog feeds (the table would return zero matches anyway,
+	// but skipping saves a DB roundtrip and clarifies intent).
+	if feed == feedNetlog || feed == feedAll {
+		msgidNames := make([]string, 0, len(data.TopMsgIDs)+len(data.NewMsgIDs))
+		for _, mc := range data.TopMsgIDs {
+			msgidNames = append(msgidNames, mc.MsgID)
+		}
+		msgidNames = append(msgidNames, data.NewMsgIDs...)
+
+		a.logger.Info("looking up juniper references", "count", len(msgidNames))
+		refs, lookupErr := a.store.LookupJuniperRefs(ctx, msgidNames)
+		if lookupErr != nil {
+			// Best-effort — warn and continue.
+			a.logger.Warn("juniper ref lookup failed, continuing without", "err", lookupErr)
+		} else {
+			data.JuniperRefs = refs
+		}
 	}
 
 	return data, nil

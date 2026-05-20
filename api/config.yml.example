@@ -123,13 +123,12 @@ netbox:
   # cache_ttl: 10m                # In-memory cache TTL for lookup results.
   # tls_skip_verify: false        # Skip TLS verification (self-signed test instances only).
 
-# AI-powered daily log analysis using a local Ollama instance.
-# Produces a morning ops briefing covering incidents, anomalies, and correlations.
+# AI-powered log analysis using a local Ollama instance.
+# Per-feed manual triggers and recurring schedules are managed via the
+# /analysis page in the UI (or /api/v1/analysis/schedules) — no cron config here.
 analysis:
   enabled: false
   ollama_url: "http://localhost:11434"
   model: "llama3.1:8b"          # Also try: mixtral:8x7b, llama3.1:70b
-  schedule_at: "06:00"          # Daily run time in UTC (HH:MM).
   temperature: 0.3              # Low temperature for factual/deterministic output.
   num_ctx: 8192                 # Context window size in tokens.
-  feed: "netlog"                # Feed to analyze: "srvlog", "netlog", or "all".

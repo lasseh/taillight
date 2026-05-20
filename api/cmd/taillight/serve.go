@@ -38,6 +38,7 @@ import (
 	"github.com/lasseh/taillight/internal/ollama"
 	"github.com/lasseh/taillight/internal/postgres"
 	"github.com/lasseh/taillight/internal/scheduler"
+	"github.com/lasseh/taillight/internal/worker"
 	"github.com/lasseh/taillight/pkg/logshipper"
 )
 
@@ -156,9 +157,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, srvlogBroker, netlogBroker, notifEngine, cfg.NotificationWorkers)
 
 	// Analysis (optional).
-	var analysisHandler *handler.AnalysisHandler
+	var analysis *analysisWiring
 	if cfg.Analysis.Enabled {
-		analysisHandler = setupAnalysis(ctx, cfg, store, logger)
+		analysis = setupAnalysis(ctx, cfg, store, logger)
 	}
 
 	// LDAP authentication (optional).
@@ -184,7 +185,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		go summaryScheduler.Start(ctx)
 	}
 
-	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysisHandler, notifEngine, summaryScheduler)
+	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -396,23 +397,43 @@ func startBackgroundWorkers(
 	}()
 }
 
-// setupAnalysis initializes the LLM analysis subsystem and starts the scheduler.
-func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store, logger *slog.Logger) *handler.AnalysisHandler {
+// analysisWiring bundles the per-request handlers produced by setupAnalysis so
+// the router can register both /analysis/reports and /analysis/schedules routes
+// without growing setupRouter's parameter list further.
+type analysisWiring struct {
+	reports   *handler.AnalysisHandler
+	schedules *handler.AnalysisScheduleHandler
+}
+
+// setupAnalysis initializes the LLM analysis subsystem: analyzer + queued
+// worker + DB-backed schedule scheduler + HTTP handlers. Returns nil when
+// analysis is disabled.
+func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store, logger *slog.Logger) *analysisWiring {
 	ollamaClient := ollama.New(cfg.Analysis.OllamaURL)
 	a := analyzer.New(store, ollamaClient, analyzer.Config{
 		Model:       cfg.Analysis.Model,
 		Temperature: cfg.Analysis.Temperature,
 		NumCtx:      cfg.Analysis.NumCtx,
-		Feed:        cfg.Analysis.Feed,
 	}, logger)
 
-	sched := scheduler.New(a, scheduler.Config{
-		Enabled:    cfg.Analysis.Enabled,
-		ScheduleAt: cfg.Analysis.ScheduleAt,
-	}, logger)
+	// Reconcile orphaned pending/running rows left by a previous crash before
+	// the worker starts accepting new work.
+	if n, err := store.ReconcileOrphanedReports(ctx); err != nil {
+		logger.Error("reconcile orphaned analysis reports failed", "err", err)
+	} else if n > 0 {
+		logger.Info("reconciled orphaned analysis reports", "count", n)
+	}
+
+	w := worker.NewAnalysis(store, a, logger)
+	go w.Start(ctx)
+
+	sched := scheduler.NewAnalysisScheduler(store, w, logger)
 	go sched.Start(ctx)
 
-	return handler.NewAnalysisHandler(store, a)
+	return &analysisWiring{
+		reports:   handler.NewAnalysisHandler(store, w, cfg.Features.Netlog),
+		schedules: handler.NewAnalysisScheduleHandler(store, sched, cfg.Features.Netlog),
+	}
 }
 
 // setupRouter builds the chi router with all middleware and route registrations.
@@ -425,7 +446,7 @@ func setupRouter(
 	srvlogBroker *broker.SrvlogBroker,
 	netlogBroker *broker.NetlogBroker,
 	applogBroker *broker.AppLogBroker,
-	analysisHandler *handler.AnalysisHandler,
+	analysis *analysisWiring,
 	notifEngine *notification.Engine,
 	summaryScheduler *scheduler.SummaryScheduler,
 ) chi.Router {
@@ -680,12 +701,13 @@ func setupRouter(
 			})
 
 			// Analysis read endpoints.
-			if analysisHandler != nil {
+			if analysis != nil {
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.Timeout(30 * time.Second))
-					r.Get("/analysis/reports", analysisHandler.List)
-					r.Get("/analysis/reports/latest", analysisHandler.Latest)
-					r.Get("/analysis/reports/{id}", analysisHandler.Get)
+					r.Get("/analysis/reports", analysis.reports.List)
+					r.Get("/analysis/reports/{slug}", analysis.reports.Get)
+					r.Get("/analysis/schedules", analysis.schedules.List)
+					r.Get("/analysis/schedules/{id}", analysis.schedules.Get)
 				})
 			}
 
@@ -753,11 +775,18 @@ func setupRouter(
 			}
 			r.Use(auth.RequireScope("admin"))
 
-			// Analysis trigger.
-			if analysisHandler != nil {
+			// Analysis write endpoints (create/delete reports, schedule CRUD,
+			// run-now). The async worker absorbs long-running work so each HTTP
+			// request can return promptly under the standard 30s timeout.
+			if analysis != nil {
 				r.Group(func(r chi.Router) {
-					r.Use(middleware.Timeout(15 * time.Minute))
-					r.Post("/analysis/reports/trigger", analysisHandler.Trigger)
+					r.Use(middleware.Timeout(30 * time.Second))
+					r.Post("/analysis/reports", analysis.reports.Create)
+					r.Delete("/analysis/reports/{slug}", analysis.reports.Delete)
+					r.Post("/analysis/schedules", analysis.schedules.Create)
+					r.Put("/analysis/schedules/{id}", analysis.schedules.Update)
+					r.Delete("/analysis/schedules/{id}", analysis.schedules.Delete)
+					r.Post("/analysis/schedules/{id}/run", analysis.schedules.Run)
 				})
 			}
 
