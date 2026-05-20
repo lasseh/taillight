@@ -78,7 +78,7 @@ function applyFilter(field: Field) {
       :to="{ name: 'applog-detail', params: { id: event.id } }"
       title="Open detail page"
       aria-label="Open detail page"
-      class="absolute right-2 top-1.5 inline-flex items-center justify-center rounded border border-t-purple/30 bg-t-purple/10 p-1 text-t-purple transition-colors hover:bg-t-purple/20 hover:brightness-125"
+      class="absolute right-2 top-1.5 inline-flex items-center justify-center rounded border border-t-fuchsia/30 bg-t-fuchsia/10 p-1 text-t-fuchsia transition-colors hover:bg-t-fuchsia/20 hover:brightness-125"
       @click.stop
     >
       <svg
