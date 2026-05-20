@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { AppLogEvent } from '@/types/applog'
-import { levelColorClass } from '@/lib/applog-constants'
+import { levelBorderClass, levelColorClass } from '@/lib/applog-constants'
 import { formatDateTime, highlightAttrs } from '@/lib/format'
 import { selectedRowsText } from '@/lib/copy'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
@@ -27,6 +27,7 @@ const fields: Field[] = [
   { label: 'source', key: 'source', color: 'text-t-blue' },
 ]
 
+const borderClass = levelBorderClass[props.event.level] ?? 'border-t-border'
 const lvlClass = levelColorClass[props.event.level] ?? 'text-t-fg'
 
 function onCopy(e: ClipboardEvent) {
@@ -69,6 +70,7 @@ function applyFilter(field: Field) {
 <template>
   <div
     class="bg-t-bg-dark relative border mx-2 my-1 rounded py-1.5 pl-4 pr-4"
+    :class="borderClass"
     @copy="onCopy"
   >
     <!-- permalink -->
