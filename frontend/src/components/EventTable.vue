@@ -2,6 +2,7 @@
 import { ref, watch, nextTick, provide, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useScrollStore } from '@/stores/scroll'
 import { useFullscreen } from '@/composables/useFullscreen'
+import { selectedRowsText } from '@/lib/copy'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 
@@ -185,27 +186,17 @@ watch(
   { flush: 'sync' },
 )
 
-// Intercept copy to produce clean log lines from selected rows.
+// Intercept copy to produce clean log lines from selected rows. Bails if a
+// nested handler (e.g. an inline-expanded detail panel) already handled it,
+// or if the selection isn't wide enough for the helper to format.
 function onCopy(e: ClipboardEvent) {
-  const sel = window.getSelection()
-  if (!sel || sel.isCollapsed) return
-
+  if (e.defaultPrevented) return
   const el = scrollEl.value
   if (!el) return
-
-  const rows = el.querySelectorAll('[data-copytext]')
-  const lines: string[] = []
-  for (const row of rows) {
-    if (sel.containsNode(row, true)) {
-      const text = (row as HTMLElement).dataset.copytext
-      if (text) lines.push(text)
-    }
-  }
-
-  if (lines.length > 0) {
-    e.preventDefault()
-    e.clipboardData?.setData('text/plain', lines.join('\n'))
-  }
+  const text = selectedRowsText(el, window.getSelection())
+  if (text == null) return
+  e.preventDefault()
+  e.clipboardData?.setData('text/plain', text)
 }
 </script>
 

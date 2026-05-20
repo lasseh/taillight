@@ -10,6 +10,9 @@ export function selectedRowsText(container: Element, sel: Selection | null): str
   const rows = container.querySelectorAll<HTMLElement>('[data-copytext]')
   const lines: string[] = []
   for (const row of rows) {
+    // Skip nodes that aren't rendered (e.g. the inactive variant of a
+    // responsive mobile/desktop pair) so each logical row counts once.
+    if (row.getClientRects().length === 0) continue
     if (sel.containsNode(row, true)) {
       const text = row.dataset.copytext
       if (text) lines.push(text)
