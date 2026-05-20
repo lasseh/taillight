@@ -29,6 +29,7 @@ function makeStore(
     fetchEvents,
     useStream: () => ({
       connected: ref(true),
+      reconnectAfterGap: ref(0),
       subscribe: () => () => {},
     }),
     useFilterStore: () => ({ activeFilters: {} }),

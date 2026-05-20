@@ -4,6 +4,10 @@ import { config } from '@/lib/config'
 const INITIAL_BACKOFF = 1000
 const MAX_BACKOFF = 30000
 const HEARTBEAT_TIMEOUT = 35000 // ~2x server heartbeat (15s)
+// Reconnects after this much offline time trigger a full history refresh in
+// consumers, since the server's SSE backfill is capped at 100 events and a
+// long outage leaves an invisible gap between backfill and live events.
+const RECONNECT_REFRESH_MS = 30000
 
 export function createEventStream<T>(path: string, eventName: string) {
   // Module-level singleton state.
@@ -14,7 +18,13 @@ export function createEventStream<T>(path: string, eventName: string) {
   let lastEventId = ''
   let backoff = INITIAL_BACKOFF
   let started = false
+  // Earliest time the stream became unhealthy in the current outage. Captures
+  // the start of the gap, not intermediate retries.
+  let disconnectedSince: number | null = null
   const connected = ref(false)
+  // Bumped each time we reconnect after an outage longer than
+  // RECONNECT_REFRESH_MS. Consumers watch this to trigger a history refresh.
+  const reconnectAfterGap = ref(0)
   const listeners = new Set<(event: T) => void>()
 
   // When the page becomes visible after sleep/tab switch, immediately
@@ -60,6 +70,12 @@ export function createEventStream<T>(path: string, eventName: string) {
       connected.value = true
       backoff = INITIAL_BACKOFF
       lastEventAt = Date.now()
+      if (disconnectedSince !== null) {
+        if (Date.now() - disconnectedSince >= RECONNECT_REFRESH_MS) {
+          reconnectAfterGap.value++
+        }
+        disconnectedSince = null
+      }
       startWatchdog()
     }
 
@@ -104,12 +120,18 @@ export function createEventStream<T>(path: string, eventName: string) {
       es.close()
       es = null
     }
+    // Mark the start of the outage on the first teardown; later retries don't
+    // overwrite, so we measure from when the stream first went unhealthy.
+    if (started && disconnectedSince === null) {
+      disconnectedSince = Date.now()
+    }
   }
 
   function start() {
     if (es || retryTimer) return
     started = true
     backoff = INITIAL_BACKOFF
+    disconnectedSince = null
     open()
   }
 
@@ -129,5 +151,5 @@ export function createEventStream<T>(path: string, eventName: string) {
     return () => listeners.delete(cb)
   }
 
-  return { connected, start, stop, subscribe }
+  return { connected, reconnectAfterGap, start, stop, subscribe }
 }

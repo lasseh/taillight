@@ -12,7 +12,12 @@ interface EventStoreConfig<TEvent extends { id: number }> {
   /** Fetch a page of events from the API. */
   fetchEvents: (params: URLSearchParams, signal?: AbortSignal) => Promise<{ data: TEvent[]; cursor?: string; has_more: boolean }>
   /** Get the SSE stream composable. */
-  useStream: () => { connected: Ref<boolean>; subscribe: (cb: (event: TEvent) => void) => () => void }
+  useStream: () => {
+    connected: Ref<boolean>
+    /** Bumped when the stream reconnects after an outage long enough to outrun the server's SSE backfill window. */
+    reconnectAfterGap: Ref<number>
+    subscribe: (cb: (event: TEvent) => void) => () => void
+  }
   /** Get the filter store — must return an object with activeFilters (unwrapped by Pinia). */
   useFilterStore: () => { activeFilters: Record<string, string> }
   /** Client-side filter for SSE events. */
@@ -149,9 +154,25 @@ export function createEventStore<TEvent extends { id: number }>(
       { deep: true },
     )
 
+    // After a long SSE outage the server's 100-event backfill leaves an
+    // invisible gap between backfill and live events. Refresh the view from
+    // REST so the user sees the actual recent history. Only refresh when this
+    // store's view is active; other routes will refresh via their own enter()
+    // on activation.
+    const _stopReconnectWatch = watch(
+      () => stream.reconnectAfterGap.value,
+      (count, prev) => {
+        if (count === prev) return
+        if (!_initialLoadComplete.value) return
+        if (route.name !== config.routeName) return
+        enter()
+      },
+    )
+
     onScopeDispose(() => {
       _unsubscribe()
       _stopFilterWatch()
+      _stopReconnectWatch()
     })
 
     return {
