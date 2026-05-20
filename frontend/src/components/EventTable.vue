@@ -55,6 +55,17 @@ function onScroll() {
   }
 }
 
+// On large viewports the initial page may not fill the scroll area, so
+// onScroll never fires and infinite scroll stalls. Request another page
+// whenever the content is shorter than the viewport and more is available.
+function maybeFillViewport() {
+  const el = scrollEl.value
+  if (!el) return
+  if (!props.hasMore || props.loading) return
+  if (el.scrollHeight > el.clientHeight) return
+  props.loadHistory(false, preserveScrollForPrepend)
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (e.code !== 'Escape') return
   collapseSignal.value++
@@ -67,6 +78,19 @@ onMounted(() => {
   document.addEventListener('keydown', onKeydown)
 })
 
+// Watch scrollEl for resize so a user enlarging the window past the content
+// height triggers a fetch instead of stranding hasMore.
+let _resizeObserver: ResizeObserver | null = null
+watch(scrollEl, (el, _old, onCleanup) => {
+  if (!el) return
+  _resizeObserver = new ResizeObserver(() => maybeFillViewport())
+  _resizeObserver.observe(el)
+  onCleanup(() => {
+    _resizeObserver?.disconnect()
+    _resizeObserver = null
+  })
+})
+
 // Scroll to bottom whenever events arrive after being empty (initial load or filter reset).
 let _prevEventCount = 0
 watch(
@@ -75,9 +99,23 @@ watch(
     if (len > 0 && _prevEventCount === 0) {
       isPinned.value = true
       scrollStore.setPinned(props.routeName, true)
-      nextTick(() => scrollToBottom('instant'))
+      nextTick(() => {
+        scrollToBottom('instant')
+        maybeFillViewport()
+      })
     }
     _prevEventCount = len
+  },
+)
+
+// Chain additional pages after each load completes if the viewport still
+// isn't filled. Loops naturally via the same trigger until hasMore is false.
+watch(
+  () => props.loading,
+  (now, prev) => {
+    if (prev && !now) {
+      nextTick(() => maybeFillViewport())
+    }
   },
 )
 
@@ -118,12 +156,11 @@ watch(
   () => scrollToBottom(),
 )
 
-// Snap to the newest entry and re-pin when entering fullscreen so the user
+// Snap to the newest entry and re-pin on both fullscreen edges so the user
 // lands on live tail instead of wherever they last scrolled to.
 watch(
   () => fullscreen.active.value,
-  (v) => {
-    if (!v) return
+  () => {
     isPinned.value = true
     scrollStore.setPinned(props.routeName, true)
     nextTick(() => scrollToBottom('auto'))
