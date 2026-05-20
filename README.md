@@ -420,3 +420,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commit conventions
 ## License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+---
+
+Built with Claude Code as an implementation aid — all architectural decisions are mine.
