@@ -264,7 +264,11 @@ func (m *Model) renderRecentCritical() string {
 	lines = append(lines, theme.CardLabel.Render("  RECENT HIGH-SEVERITY"))
 	lines = append(lines, "")
 
-	for _, e := range m.criticalLogs {
+	// Iterate newest-last so the rendered panel reads oldest-on-top, newest at
+	// the bottom — matches every other log feed in the product. The producer
+	// (drainSrvlogCritical) prepends, so m.criticalLogs is newest-first.
+	for i := len(m.criticalLogs) - 1; i >= 0; i-- {
+		e := m.criticalLogs[i]
 		ts := theme.Timestamp.Render(e.ReceivedAt.Local().Format("15:04"))
 		sev := theme.SeverityStyle(e.Severity).Render(padRight(strings.ToUpper(e.SeverityLabel), 8))
 		host := theme.Hostname.Render(padRight(truncate(e.Hostname, 18), 18))
@@ -286,7 +290,11 @@ func (m *Model) renderRecentErrors() string {
 	lines = append(lines, theme.CardLabel.Render("  RECENT ERRORS"))
 	lines = append(lines, "")
 
-	for _, e := range m.recentErrors {
+	// Iterate newest-last so the rendered panel reads oldest-on-top, newest at
+	// the bottom — matches every other log feed in the product. The producer
+	// (drainApplogErrors) prepends, so m.recentErrors is newest-first.
+	for i := len(m.recentErrors) - 1; i >= 0; i-- {
+		e := m.recentErrors[i]
 		ts := theme.Timestamp.Render(e.Timestamp.Local().Format("15:04"))
 		lvl := theme.AppLogLevelStyle(e.Level).Render(padRight(e.Level, 6))
 		svc := theme.Program.Render(padRight(truncate(e.Service, 18), 18))

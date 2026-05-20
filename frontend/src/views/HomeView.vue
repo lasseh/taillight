@@ -31,6 +31,12 @@ const anyActivityVisible = computed(() =>
   ['syslog-heatmap', 'applog-heatmap'].some(id => isVisible(id)),
 )
 
+// Recent applog errors reversed to chronological order (oldest first, newest at
+// bottom) so this widget scrolls the same direction as every other log feed
+// in the product. The home store prepends new events, so the source list is
+// newest-first; we flip only for display.
+const chronologicalApplogEvents = computed(() => [...home.recentApplogEvents].reverse())
+
 const rangePresets = [
   { label: '1h', value: '1h' },
   { label: '6h', value: '6h' },
@@ -486,7 +492,7 @@ function getSeverityBgClass(level: string): string {
                 </div>
                 <!-- Mobile: color bar + service + message -->
                 <router-link
-                  v-for="event in home.recentApplogEvents"
+                  v-for="event in chronologicalApplogEvents"
                   :key="'m-' + event.id"
                   :to="`/applog/${event.id}`"
                   class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 transition-colors md:hidden"
@@ -500,7 +506,7 @@ function getSeverityBgClass(level: string): string {
                 </router-link>
                 <!-- Desktop: single-line layout -->
                 <router-link
-                  v-for="event in home.recentApplogEvents"
+                  v-for="event in chronologicalApplogEvents"
                   :key="'d-' + event.id"
                   :to="`/applog/${event.id}`"
                   class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors md:flex"

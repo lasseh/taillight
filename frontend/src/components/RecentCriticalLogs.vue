@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { SrvlogEvent } from '@/types/srvlog'
 import { severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
@@ -28,6 +29,11 @@ const props = withDefaults(defineProps<{
 function eventRoute(event: TaggedEvent) {
   return { name: event._routeName ?? props.routeName, params: { id: event.id } }
 }
+
+// Recent events reversed to chronological order (oldest first, newest at bottom)
+// to match every other log feed in the product. The producer prepends, so
+// props.events is newest-first; we flip only for display.
+const chronological = computed(() => [...props.events].reverse())
 </script>
 
 <template>
@@ -39,7 +45,7 @@ function eventRoute(event: TaggedEvent) {
       </div>
       <!-- Mobile: color bar + hostname + message -->
       <RouterLink
-        v-for="event in events"
+        v-for="event in chronological"
         :key="'m-' + event.id"
         :to="eventRoute(event)"
         class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 md:hidden"
@@ -58,7 +64,7 @@ function eventRoute(event: TaggedEvent) {
       </RouterLink>
       <!-- Desktop: single-line layout -->
       <RouterLink
-        v-for="event in events"
+        v-for="event in chronological"
         :key="'d-' + event.id"
         :to="eventRoute(event)"
         class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug md:flex"
