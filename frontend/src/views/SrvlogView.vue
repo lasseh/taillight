@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { SrvlogEvent, JuniperNetlogRef } from '@/types/srvlog'
 import { api, ApiError } from '@/lib/api'
-import { severityColorClass, severityBorderClass } from '@/lib/constants'
+import { severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
 import { formatDateTime } from '@/lib/format'
 import { selectedRowsText } from '@/lib/copy'
@@ -19,10 +19,6 @@ const juniperRefs = ref<JuniperNetlogRef[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const errorStatus = ref<number | null>(null)
-
-const borderClass = computed(() =>
-  event.value ? (severityBorderClass[event.value.severity] ?? 'border-t-border') : 'border-t-border',
-)
 
 const sevClass = computed(() =>
   event.value ? (severityColorClass[event.value.severity] ?? 'text-t-fg') : 'text-t-fg',
@@ -125,10 +121,7 @@ watch(() => props.id, async (id) => {
 
       <div v-else-if="event" class="mx-auto max-w-7xl space-y-4" @copy="onCopy">
         <!-- Header: severity + message -->
-        <div
-          class="bg-t-bg-dark rounded border-l-2 p-4"
-          :class="borderClass"
-        >
+        <div class="bg-t-bg-dark rounded p-4">
           <div class="mb-2" :data-copytext="`severity: ${event.severity_label} (${event.severity})`">
             <span class="text-xs font-semibold uppercase" :class="sevClass">
               {{ event.severity_label }}
