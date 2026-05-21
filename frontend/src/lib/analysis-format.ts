@@ -77,6 +77,26 @@ export function timeAgo(ts: string): string {
   return `${Math.floor(months / 12)}y ago`
 }
 
+const feedLabel: Record<AnalysisFeed, string> = {
+  netlog: 'Netlog',
+  srvlog: 'Srvlog',
+  all: 'Combined',
+}
+
+export function reportTitle(r: Pick<AnalysisReportSummary, 'feed' | 'prompt_mode'>): string {
+  const feed = feedLabel[r.feed] ?? r.feed
+  switch (r.prompt_mode) {
+    case 'daily':
+      return `${feed} daily brief`
+    case 'weekly':
+      return `${feed} weekly review`
+    case 'incident':
+      return `${feed} incident triage`
+    default:
+      return `${feed} report`
+  }
+}
+
 export function formatDuration(r: AnalysisReport | AnalysisReportSummary): string {
   if (!r.started_at || !r.completed_at) return ''
   const ms = new Date(r.completed_at).getTime() - new Date(r.started_at).getTime()

@@ -9,6 +9,7 @@ import {
   formatDate,
   formatDuration,
   promptModeBadgeClass,
+  reportTitle,
   statusBadgeClass,
   timeAgo,
 } from '@/lib/analysis-format'
@@ -263,12 +264,12 @@ onMounted(refresh)
           </h3>
         </div>
 
-        <div v-if="reports.length > 0" class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider">
-          <span class="min-w-0 flex-1">Name</span>
+        <div v-if="reports.length > 0" class="text-t-fg-gutter border-t-border flex items-center border-b px-5 py-2 text-xs uppercase tracking-wider">
+          <span class="min-w-0 flex-1">Report</span>
           <span class="w-20 shrink-0">Source</span>
           <span class="w-20 shrink-0">Mode</span>
-          <span class="w-44 shrink-0">Status</span>
-          <span class="w-24 shrink-0">Created</span>
+          <span class="w-28 shrink-0">Status</span>
+          <span class="w-24 shrink-0 text-right">Created</span>
           <span class="w-20 shrink-0 text-right">Duration</span>
         </div>
 
@@ -278,13 +279,16 @@ onMounted(refresh)
             :key="r.id"
             class="hover:bg-t-bg-hover flex items-center px-5 py-3 text-sm transition-colors"
           >
-            <div class="min-w-0 flex-1">
+            <div class="min-w-0 flex-1 pr-4">
               <router-link
                 :to="{ name: 'analysis-report', params: { slug: r.slug } }"
-                class="text-t-fg hover:text-t-orange font-mono font-medium transition-colors"
+                class="text-t-fg hover:text-t-orange block font-medium transition-colors"
               >
-                {{ r.slug }}
+                {{ reportTitle(r) }}
               </router-link>
+              <div class="text-t-fg-gutter mt-0.5 font-mono text-xs">
+                {{ formatDate(r.created_at) }}
+              </div>
             </div>
             <div class="w-20 shrink-0">
               <span
@@ -302,18 +306,15 @@ onMounted(refresh)
                 {{ r.prompt_mode }}
               </span>
             </div>
-            <div class="w-44 shrink-0">
+            <div class="w-28 shrink-0">
               <span
                 class="inline-block rounded px-1.5 py-0.5 text-xs"
                 :class="statusBadgeClass(r.status)"
               >
                 {{ r.status }}
               </span>
-              <span v-if="r.status === 'pending'" class="text-t-fg-gutter ml-2 text-xs">
-                queued, will start shortly
-              </span>
             </div>
-            <div class="w-24 shrink-0">
+            <div class="w-24 shrink-0 text-right">
               <span class="text-t-fg-dark text-xs" :title="formatDate(r.created_at)">
                 {{ timeAgo(r.created_at) }}
               </span>
