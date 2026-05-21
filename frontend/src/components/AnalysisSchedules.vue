@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError } from '@/lib/api'
 import { features as getFeatures } from '@/lib/features'
 import { useAuthStore } from '@/stores/auth'
 import { useFocusTrap } from '@/composables/useFocusTrap'
+import { feedBadgeClass } from '@/lib/analysis-format'
 import type {
   AnalysisFeed,
   AnalysisFrequency,
@@ -36,10 +37,25 @@ const formTimezone = ref('UTC')
 const modalEl = ref<HTMLElement | null>(null)
 useFocusTrap(modalEl)
 
+// Bind Escape only while the modal is open so other Escape handlers (filter
+// bars etc.) aren't shadowed when the page is idle.
+function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeModal()
+}
+watch(showModal, (open) => {
+  if (open) {
+    window.addEventListener('keydown', handleEscape)
+  } else {
+    window.removeEventListener('keydown', handleEscape)
+  }
+})
+
 const confirmDelete = ref<number | null>(null)
 const deleteError = ref('')
 
-const runResult = ref<{ scheduleId: number; success: boolean; message: string } | null>(null)
+// Keyed by schedule id so triggering several rows in quick succession doesn't
+// have one outcome silently overwrite another.
+const runResults = ref<Record<number, { success: boolean; message: string }>>({})
 const running = ref<number | null>(null)
 
 const enabledSchedules = computed(() => schedules.value.filter((s) => s.enabled))
@@ -167,33 +183,21 @@ async function deleteSchedule(id: number) {
 
 async function runSchedule(id: number) {
   running.value = id
-  runResult.value = null
+  delete runResults.value[id]
   try {
     await api.runAnalysisSchedule(id)
-    runResult.value = { scheduleId: id, success: true, message: 'queued' }
+    runResults.value = { ...runResults.value, [id]: { success: true, message: 'queued' } }
   } catch (e) {
     let message = 'failed'
     if (e instanceof ApiError) {
       if (e.code === 'duplicate_report') message = 'already pending'
       else if (e.code === 'queue_full') message = 'queue full'
+      else if (e.code === 'scheduler_disabled') message = 'scheduler disabled'
       else message = e.message
     }
-    runResult.value = { scheduleId: id, success: false, message }
+    runResults.value = { ...runResults.value, [id]: { success: false, message } }
   } finally {
     running.value = null
-  }
-}
-
-function feedBadgeClass(feed: AnalysisFeed): string {
-  switch (feed) {
-    case 'netlog':
-      return 'bg-t-blue/10 text-t-blue'
-    case 'srvlog':
-      return 'bg-t-green/10 text-t-green'
-    case 'all':
-      return 'bg-t-purple/10 text-t-purple'
-    default:
-      return 'bg-t-fg-dark/10 text-t-fg-dark'
   }
 }
 
@@ -302,11 +306,11 @@ onMounted(fetchData)
             <div class="min-w-0 flex-1 truncate">
               <span class="text-t-fg-gutter text-xs">{{ formatLastRun(sched.last_run_at) }}</span>
               <span
-                v-if="runResult?.scheduleId === sched.id"
+                v-if="runResults[sched.id] !== undefined"
                 class="ml-2 text-xs"
-                :class="runResult.success ? 'text-t-green' : 'text-t-red'"
+                :class="runResults[sched.id]!.success ? 'text-t-green' : 'text-t-red'"
               >
-                {{ runResult.message }}
+                {{ runResults[sched.id]!.message }}
               </span>
             </div>
             <div class="flex w-40 shrink-0 items-center justify-end gap-3">

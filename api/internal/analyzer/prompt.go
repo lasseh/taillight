@@ -88,7 +88,7 @@ Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} to {{ .PeriodEnd.Format
 {{ end }}
 ## Severity Comparison (current daily average vs 7-day daily average)
 {{ range .SeverityComparison.Levels -}}
-- {{ .Label }} ({{ .Severity }}): current={{ .Current }}, baseline_avg={{ printf "%.0f" .BaselineAvg }}, change={{ printf "%+.1f" .ChangePct }}%
+- {{ .Label }} ({{ .Severity }}): current={{ printf "%.1f" .Current }}/day, baseline_avg={{ printf "%.1f" .BaselineAvg }}/day, change={{ printf "%+.1f" .ChangePct }}%
 {{ end }}
 ## Hosts with Most Errors (severity <= 3)
 {{ range .TopErrorHosts -}}

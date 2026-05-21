@@ -23,6 +23,10 @@ export function usePolling<T>(
 
   let timer: ReturnType<typeof setTimeout> | null = null
   let cancelled = false
+  // runId disambiguates concurrent fetches across start() calls. A tick whose
+  // id no longer matches the current run is discarded, preventing two parallel
+  // timer chains when start() is called while a previous tick is in flight.
+  let runId = 0
 
   function clearTimer() {
     if (timer !== null) {
@@ -31,34 +35,36 @@ export function usePolling<T>(
     }
   }
 
-  async function tick() {
+  async function tick(id: number) {
     try {
       const next = await fetcher()
-      if (cancelled) return
+      if (cancelled || id !== runId) return
       data.value = next
       error.value = null
       if (shouldContinue(next)) {
-        timer = setTimeout(tick, intervalMs)
+        timer = setTimeout(() => tick(id), intervalMs)
       } else {
         active.value = false
         clearTimer()
       }
     } catch (e) {
-      if (cancelled) return
+      if (cancelled || id !== runId) return
       error.value = e
       // Back off but keep polling so transient failures self-heal.
-      timer = setTimeout(tick, intervalMs)
+      timer = setTimeout(() => tick(id), intervalMs)
     }
   }
 
   async function start() {
     if (cancelled) return
     clearTimer()
+    runId += 1
     active.value = true
-    await tick()
+    await tick(runId)
   }
 
   function stop() {
+    runId += 1 // invalidates any in-flight tick
     active.value = false
     clearTimer()
   }

@@ -1440,11 +1440,72 @@ paths:
                     items:
                       $ref: "#/components/schemas/ReportSummary"
 
-  /analysis/reports/latest:
-    get:
-      operationId: latestReport
+    post:
+      operationId: createReport
       tags: [Analysis]
-      summary: Most recent report
+      summary: Queue a new analysis run
+      description: |
+        Inserts a pending report row and queues it for processing by the worker.
+        Returns immediately with the new row (status="pending"); the worker
+        picks it up asynchronously. Subsequent rapid clicks for the same feed
+        return 409 because of the partial unique index on (feed, period_end).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [feed]
+              properties:
+                feed:
+                  type: string
+                  enum: [netlog, srvlog, all]
+      responses:
+        "201":
+          description: Report queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Report"
+        "400":
+          description: Invalid feed or feed unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Duplicate active report for feed+period
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Worker queue full
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Analysis not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /analysis/reports/{slug}:
+    get:
+      operationId: getReport
+      tags: [Analysis]
+      summary: Get report by slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         "200":
           description: Full report
@@ -1457,48 +1518,136 @@ paths:
                     $ref: "#/components/schemas/Report"
         "404":
           $ref: "#/components/responses/NotFound"
-
-  /analysis/reports/{id}:
-    get:
-      operationId: getReport
+    delete:
+      operationId: deleteReport
       tags: [Analysis]
-      summary: Get report by ID
+      summary: Delete a report by slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /analysis/schedules:
+    get:
+      operationId: listAnalysisSchedules
+      tags: [Analysis]
+      summary: List recurring analysis schedules
+      responses:
+        "200":
+          description: Schedule list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AnalysisSchedule"
+    post:
+      operationId: createAnalysisSchedule
+      tags: [Analysis]
+      summary: Create a recurring analysis schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalysisSchedule"
+      responses:
+        "201":
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AnalysisSchedule"
+
+  /analysis/schedules/{id}:
+    get:
+      operationId: getAnalysisSchedule
+      tags: [Analysis]
+      summary: Get a schedule by ID
       parameters:
         - $ref: "#/components/parameters/IntID"
       responses:
         "200":
-          description: Full report
+          description: Schedule
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   data:
-                    $ref: "#/components/schemas/Report"
+                    $ref: "#/components/schemas/AnalysisSchedule"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateAnalysisSchedule
+      tags: [Analysis]
+      summary: Update a schedule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalysisSchedule"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AnalysisSchedule"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteAnalysisSchedule
+      tags: [Analysis]
+      summary: Delete a schedule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "204":
+          description: Deleted
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /analysis/reports/trigger:
+  /analysis/schedules/{id}/run:
     post:
-      operationId: triggerReport
+      operationId: runAnalysisSchedule
       tags: [Analysis]
-      summary: Trigger analysis run
-      description: Manually starts an LLM analysis. May take several minutes.
+      summary: Run a schedule immediately
+      description: Enqueues a one-off run for the given schedule.
+      parameters:
+        - $ref: "#/components/parameters/IntID"
       responses:
-        "200":
-          description: Report generated
+        "204":
+          description: Run queued
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Duplicate active report
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: object
-                    properties:
-                      report_id:
-                        type: integer
-        "503":
-          description: Analysis not configured
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Worker queue full
           content:
             application/json:
               schema:
@@ -2581,9 +2730,12 @@ components:
       properties:
         id:
           type: integer
-        generated_at:
+        slug:
           type: string
-          format: date-time
+          description: "<feed>-YYYY-MM-DD-HHMM, used as the URL segment"
+        feed:
+          type: string
+          enum: [netlog, srvlog, all]
         model:
           type: string
         period_start:
@@ -2596,10 +2748,20 @@ components:
           type: integer
         completion_tokens:
           type: integer
-        duration_ms:
-          type: integer
         status:
           type: string
+          enum: [pending, running, completed, failed]
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
 
     Report:
       allOf:
@@ -2608,4 +2770,49 @@ components:
           properties:
             report:
               type: string
-              description: Markdown-formatted analysis report
+              description: Markdown-formatted analysis report; absent until status=completed
+            error:
+              type: string
+              description: Short failure message; present only when status=failed
+
+    AnalysisSchedule:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        enabled:
+          type: boolean
+        feed:
+          type: string
+          enum: [netlog, srvlog, all]
+        frequency:
+          type: string
+          enum: [daily, weekly, monthly]
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+          nullable: true
+        day_of_month:
+          type: integer
+          minimum: 1
+          maximum: 28
+          nullable: true
+        time_of_day:
+          type: string
+          example: "03:00"
+        timezone:
+          type: string
+          example: "UTC"
+        last_run_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

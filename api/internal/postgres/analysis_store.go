@@ -241,7 +241,7 @@ func (s *Store) GetSeverityComparison(ctx context.Context, feed string, currentS
 		levels = append(levels, model.SeverityLevelComparison{
 			Severity:    sev,
 			Label:       model.SeverityLabel(sev),
-			Current:     cur,
+			Current:     float64(cur),
 			BaselineAvg: avg,
 			ChangePct:   changePct,
 		})

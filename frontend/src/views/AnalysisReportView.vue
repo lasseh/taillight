@@ -6,6 +6,12 @@ import DOMPurify from 'dompurify'
 import { api, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { usePolling } from '@/composables/usePolling'
+import {
+  feedBadgeClass,
+  formatDate,
+  formatDuration,
+  statusBadgeClass,
+} from '@/lib/analysis-format'
 import type { AnalysisReport, AnalysisReportResponse } from '@/types/analysis'
 
 const props = defineProps<{ slug: string }>()
@@ -55,19 +61,18 @@ watch(
   },
 )
 
+// polling.start() does the initial fetch; we then read polling.error to surface
+// any failure, so we don't double-fetch on mount.
 async function refresh() {
   try {
-    const res = await api.getAnalysisReport(props.slug)
-    report.value = res.data
-    loadError.value = ''
-    if (res.data.status === 'pending' || res.data.status === 'running') {
-      void polling.start()
-    }
-  } catch (e) {
+    await polling.start()
+    const e = polling.error.value
     if (e instanceof ApiError && e.status === 404) {
       loadError.value = 'report not found'
-    } else {
+    } else if (e) {
       loadError.value = e instanceof Error ? e.message : 'failed to load report'
+    } else {
+      loadError.value = ''
     }
   } finally {
     loading.value = false
@@ -92,56 +97,14 @@ function exportPDF() {
   window.print()
 }
 
-function formatDate(ts: string): string {
-  return new Date(ts).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-}
-
 function formatPeriod(start: string, end: string): string {
   return `${formatDate(start)} → ${formatDate(end)}`
 }
 
-function formatDuration(r: AnalysisReport): string {
-  if (!r.started_at || !r.completed_at) return '—'
-  const ms = new Date(r.completed_at).getTime() - new Date(r.started_at).getTime()
-  if (ms < 1000) return `${ms}ms`
-  const seconds = Math.round(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-}
-
-function feedBadgeClass(feed: string): string {
-  switch (feed) {
-    case 'netlog':
-      return 'bg-t-blue/10 text-t-blue'
-    case 'srvlog':
-      return 'bg-t-green/10 text-t-green'
-    case 'all':
-      return 'bg-t-purple/10 text-t-purple'
-    default:
-      return 'bg-t-fg-dark/10 text-t-fg-dark'
-  }
-}
-
-function statusBadgeClass(status: string): string {
-  switch (status) {
-    case 'completed':
-      return 'bg-t-green/15 text-t-green'
-    case 'running':
-      return 'bg-t-yellow/15 text-t-yellow'
-    case 'pending':
-      return 'bg-t-fg-dark/15 text-t-fg-dark'
-    case 'failed':
-      return 'bg-t-red/15 text-t-red'
-    default:
-      return 'bg-t-fg-dark/15 text-t-fg-dark'
-  }
+// Detail page wants — for missing values rather than the empty string the
+// shared helper returns (used by the list table).
+function durationOrDash(r: AnalysisReport): string {
+  return formatDuration(r) || '—'
 }
 
 onMounted(refresh)
@@ -228,7 +191,7 @@ onMounted(refresh)
             </div>
             <div class="flex items-center gap-1.5">
               <span class="text-t-fg-dark text-xs">Duration</span>
-              <span class="text-t-fg text-xs font-medium">{{ formatDuration(report) }}</span>
+              <span class="text-t-fg text-xs font-medium">{{ durationOrDash(report) }}</span>
             </div>
             <div class="flex items-center gap-1.5">
               <span class="text-t-fg-dark text-xs">Created</span>
@@ -307,19 +270,20 @@ onMounted(refresh)
 </style>
 
 <style>
-/* Global print styles — when the user prints, hide chrome and let the report
- * body span the full page. Scoped <style> would not catch the global nav. */
+/* Global print styles — when the user prints from the report detail page,
+ * hide the app shell (header, banners, status footer) and let the report
+ * body span the full page. The App.vue shell renders the active view inside
+ * <main>; we hide every direct sibling of <main> via the body > div > *
+ * pattern. .print-hide inside the view itself hides per-page controls. */
 @media print {
   body {
     background: white !important;
     color: black !important;
   }
-  .print-hide,
-  nav,
-  header,
-  aside,
-  .app-sidebar,
-  .app-topbar {
+  body > div > *:not(main) {
+    display: none !important;
+  }
+  .print-hide {
     display: none !important;
   }
 }

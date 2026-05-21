@@ -76,20 +76,19 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 		return data, err
 	}
 
-	// Normalize current counts to a per-day average for multi-day periods so the
+	// Normalize current counts to a per-day rate for multi-day periods so the
 	// percentage-change comparison against the always-daily baseline stays apples-
 	// to-apples. Baseline divisor inside the store already yields daily average.
 	periodDays := period.Hours() / 24
 	if periodDays > 1 {
 		for i := range data.SeverityComparison.Levels {
 			lvl := &data.SeverityComparison.Levels[i]
-			curDaily := float64(lvl.Current) / periodDays
-			var changePct float64
+			lvl.Current /= periodDays
 			if lvl.BaselineAvg > 0 {
-				changePct = (curDaily - lvl.BaselineAvg) / lvl.BaselineAvg * 100
+				lvl.ChangePct = (lvl.Current - lvl.BaselineAvg) / lvl.BaselineAvg * 100
+			} else {
+				lvl.ChangePct = 0
 			}
-			lvl.Current = int64(curDaily) // best-effort daily-average for display
-			lvl.ChangePct = changePct
 		}
 	}
 

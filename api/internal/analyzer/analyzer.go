@@ -56,3 +56,10 @@ func New(store Store, client *ollama.Client, cfg Config, logger *slog.Logger) *A
 		logger: logger,
 	}
 }
+
+// Model returns the configured model name. Used by the worker to stamp pending
+// rows so the metadata bar can show which model produced (or was attempted on)
+// a given report, even before the run completes.
+func (a *Analyzer) Model() string {
+	return a.cfg.Model
+}

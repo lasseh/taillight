@@ -41,7 +41,7 @@ func (s *Store) ListAnalysisSchedules(ctx context.Context) ([]model.AnalysisSche
 func (s *Store) GetAnalysisSchedule(ctx context.Context, id int64) (model.AnalysisSchedule, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT `+analysisScheduleColumns+` FROM analysis_schedules WHERE id=$1`, id)
-	sched, err := scanAnalysisScheduleRow(row)
+	sched, err := scanAnalysisSchedule(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.AnalysisSchedule{}, err
 	}
@@ -93,7 +93,7 @@ func (s *Store) UpdateAnalysisSchedule(ctx context.Context, id int64, sched mode
 	}
 
 	row := s.pool.QueryRow(ctx, query, args...)
-	updated, err := scanAnalysisScheduleRow(row)
+	updated, err := scanAnalysisSchedule(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.AnalysisSchedule{}, err
 	}
@@ -125,21 +125,9 @@ func (s *Store) UpdateAnalysisScheduleLastRun(ctx context.Context, id int64, t t
 	return nil
 }
 
-func scanAnalysisSchedule(rows pgx.Rows) (model.AnalysisSchedule, error) {
-	var sched model.AnalysisSchedule
-	var timeOfDay time.Time
-	if err := rows.Scan(
-		&sched.ID, &sched.Name, &sched.Enabled, &sched.Feed, &sched.Frequency,
-		&sched.DayOfWeek, &sched.DayOfMonth, &timeOfDay, &sched.Timezone,
-		&sched.LastRunAt, &sched.CreatedAt, &sched.UpdatedAt,
-	); err != nil {
-		return model.AnalysisSchedule{}, fmt.Errorf("scan analysis schedule: %w", err)
-	}
-	sched.TimeOfDay = timeOfDay.Format("15:04")
-	return sched, nil
-}
-
-func scanAnalysisScheduleRow(row pgx.Row) (model.AnalysisSchedule, error) {
+// scanAnalysisSchedule reads a row into AnalysisSchedule. pgx.Rows satisfies
+// pgx.Row, so this works for both Query (loop) and QueryRow (single) call sites.
+func scanAnalysisSchedule(row pgx.Row) (model.AnalysisSchedule, error) {
 	var sched model.AnalysisSchedule
 	var timeOfDay time.Time
 	if err := row.Scan(

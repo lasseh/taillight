@@ -90,11 +90,13 @@ type HostErrorCount struct {
 	TopMsgID string `json:"top_msgid"`
 }
 
-// SeverityLevelComparison compares current severity count to baseline average.
+// SeverityLevelComparison compares current severity rate to baseline average.
+// Both Current and BaselineAvg are per-day rates so multi-day periods compare
+// apples-to-apples; for a 24h run, Current equals the raw count.
 type SeverityLevelComparison struct {
 	Severity    int     `json:"severity"`
 	Label       string  `json:"label"`
-	Current     int64   `json:"current"`
+	Current     float64 `json:"current"`
 	BaselineAvg float64 `json:"baseline_avg"`
 	ChangePct   float64 `json:"change_pct"`
 }

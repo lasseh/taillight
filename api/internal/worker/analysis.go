@@ -5,7 +5,6 @@ package worker
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -39,9 +38,12 @@ type ReportStore interface {
 	MarkReportFailed(ctx context.Context, id int64, msg string) error
 }
 
-// Runner is the analyzer surface the worker depends on.
+// Runner is the analyzer surface the worker depends on. Model is the model
+// name to stamp onto pending rows so the UI can display it before the run
+// finishes (and on failed runs too).
 type Runner interface {
 	Run(ctx context.Context, feed string, period time.Duration) (analyzer.Result, error)
+	Model() string
 }
 
 // Analysis is the queued analysis worker.
@@ -85,9 +87,14 @@ func (a *Analysis) Start(ctx context.Context) {
 // if the queue is full we delete the row and return ErrQueueFull so the user
 // never sees an orphaned pending entry.
 //
-// ctx scopes only the database inserts and the optional rollback delete — the
-// actual run uses the worker's long-lived context plus a per-run timeout.
+// ctx scopes the insert. The rollback delete uses context.WithoutCancel so a
+// client disconnect between insert and the queue-full branch can't leave a
+// pending row behind.
 func (a *Analysis) Enqueue(ctx context.Context, req model.AnalysisReport) (model.AnalysisReport, error) {
+	if req.Model == "" {
+		req.Model = a.runner.Model()
+	}
+
 	report, err := a.store.InsertPendingReport(ctx, req)
 	if err != nil {
 		return model.AnalysisReport{}, err
@@ -97,9 +104,10 @@ func (a *Analysis) Enqueue(ctx context.Context, req model.AnalysisReport) (model
 	case a.work <- report.ID:
 		return report, nil
 	default:
-		// Best-effort rollback; if delete fails the boot-time reconciler will
-		// clean up on next restart.
-		if delErr := a.store.DeleteReport(ctx, report.ID); delErr != nil {
+		// Rollback must survive client disconnect — otherwise a cancelled
+		// request between insert success and this branch would leave the row
+		// in 'pending' forever (until the next boot reconciler).
+		if delErr := a.store.DeleteReport(context.WithoutCancel(ctx), report.ID); delErr != nil {
 			a.logger.Warn("rollback delete failed after queue-full",
 				"report_id", report.ID, "err", delErr)
 		}
@@ -156,5 +164,11 @@ func truncateErr(err error, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return fmt.Sprintf("%s…", s[:n])
+	// Trim back to a rune boundary so we never slice in the middle of a UTF-8
+	// multi-byte sequence.
+	cut := n
+	for cut > 0 && (s[cut]&0xC0) == 0x80 {
+		cut--
+	}
+	return s[:cut] + "…"
 }

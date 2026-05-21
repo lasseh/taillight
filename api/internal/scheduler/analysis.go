@@ -4,10 +4,8 @@ package scheduler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"time"
 
 	"github.com/lasseh/taillight/internal/model"
@@ -33,6 +31,7 @@ const analysisFiringWindow = 5 * time.Minute
 // AnalysisScheduleStore is the data access surface for the analysis scheduler.
 type AnalysisScheduleStore interface {
 	ListAnalysisSchedules(ctx context.Context) ([]model.AnalysisSchedule, error)
+	GetAnalysisSchedule(ctx context.Context, id int64) (model.AnalysisSchedule, error)
 	UpdateAnalysisScheduleLastRun(ctx context.Context, id int64, t time.Time) error
 }
 
@@ -137,9 +136,30 @@ func (s *AnalysisScheduler) isDue(sched model.AnalysisSchedule) bool {
 	return true
 }
 
+// scheduledPeriodEnd returns the period_end for a schedule firing today: the
+// scheduled wall-clock time in the schedule's timezone, expressed in UTC and
+// truncated to the minute. Used so retries within the firing window all land
+// on the same period_end (and therefore the same slug + duplicate-active key).
+func scheduledPeriodEnd(sched model.AnalysisSchedule) (time.Time, error) {
+	loc, err := time.LoadLocation(sched.Timezone)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid timezone %q: %w", sched.Timezone, err)
+	}
+	hour, minute, err := parseTime(sched.TimeOfDay)
+	if err != nil {
+		return time.Time{}, err
+	}
+	now := time.Now().In(loc)
+	return time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, loc).UTC().Truncate(time.Minute), nil
+}
+
 func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.AnalysisSchedule) {
 	period := periodDuration(sched.Frequency)
-	periodEnd := time.Now().UTC().Truncate(time.Minute)
+	periodEnd, err := scheduledPeriodEnd(sched)
+	if err != nil {
+		s.logger.Error("scheduled period_end failed", "schedule", sched.Name, "err", err)
+		return
+	}
 	periodStart := periodEnd.Add(-period)
 
 	req := model.AnalysisReport{
@@ -166,23 +186,20 @@ func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.Analysi
 }
 
 // RunNow enqueues a one-off run for the schedule identified by id, used by the
-// "run now" admin action.
+// "run now" admin action. The period window matches what a scheduled tick
+// would produce, so a same-minute manual click and scheduled fire collide on
+// the duplicate-active index rather than running twice.
 func (s *AnalysisScheduler) RunNow(ctx context.Context, id int64) error {
-	schedules, err := s.store.ListAnalysisSchedules(ctx)
+	sched, err := s.store.GetAnalysisSchedule(ctx, id)
 	if err != nil {
-		return fmt.Errorf("list schedules: %w", err)
+		return fmt.Errorf("get schedule: %w", err)
 	}
-	idx := slices.IndexFunc(schedules, func(a model.AnalysisSchedule) bool {
-		return a.ID == id
-	})
-	if idx < 0 {
-		return errors.New("schedule not found")
-	}
-	sched := schedules[idx]
 
-	period := periodDuration(sched.Frequency)
-	periodEnd := time.Now().UTC().Truncate(time.Minute)
-	periodStart := periodEnd.Add(-period)
+	periodEnd, err := scheduledPeriodEnd(sched)
+	if err != nil {
+		return err
+	}
+	periodStart := periodEnd.Add(-periodDuration(sched.Frequency))
 
 	_, err = s.enqueuer.Enqueue(ctx, model.AnalysisReport{
 		Feed:        sched.Feed,
