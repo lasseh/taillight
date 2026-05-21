@@ -1,32 +1,48 @@
-# {{ .FeedTitle }} Analysis Data — Last {{ .PeriodLabel }}
-Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} to {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }}
+# {{ .FeedTitle }} — {{ .PeriodLabel }} data block
+Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} → {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }}
 
-## Top Event Types (by volume)
+Severity legend: 0=emerg 1=alert 2=crit 3=err 4=warn 5=notice 6=info 7=debug.
+All counts below are raw event counts within the period unless explicitly labeled per-day.
+
+## Top Event Types (by volume, max 25)
 {{ range .TopMsgIDs -}}
-- **{{ .MsgID }}**: {{ .Count }} events {{ range $sev, $cnt := .SeverityCounts }}[{{ severityLabel $sev }}={{ $cnt }}] {{ end }}
+- `{{ .MsgID }}` — {{ .Count }} events · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
 {{- if index $.JuniperRefs .MsgID }}
-  Juniper ref: {{ (index $.JuniperRefs .MsgID).Description }}
-  {{- if (index $.JuniperRefs .MsgID).Cause }}  | Cause: {{ (index $.JuniperRefs .MsgID).Cause }}{{ end }}
-  {{- if (index $.JuniperRefs .MsgID).Action }}  | Action: {{ (index $.JuniperRefs .MsgID).Action }}{{ end }}
+  - **Description:** {{ (index $.JuniperRefs .MsgID).Description }}
+  {{- if (index $.JuniperRefs .MsgID).Cause }}
+  - **Cause:** {{ (index $.JuniperRefs .MsgID).Cause }}
+  {{- end }}
+  {{- if (index $.JuniperRefs .MsgID).Action }}
+  - **Action:** {{ (index $.JuniperRefs .MsgID).Action }}
+  {{- end }}
 {{- end }}
 {{ end }}
-## Severity Comparison (current daily average vs 7-day daily average)
+## Severity Drift (current daily average vs 7-day daily average)
 {{ range .SeverityComparison.Levels -}}
-- {{ .Label }} ({{ .Severity }}): current={{ printf "%.1f" .Current }}/day, baseline_avg={{ printf "%.1f" .BaselineAvg }}/day, change={{ printf "%+.1f" .ChangePct }}%
+- {{ .Label }} (sev {{ .Severity }}): current={{ printf "%.1f" .Current }}/day · baseline={{ printf "%.1f" .BaselineAvg }}/day · change={{ printf "%+.1f" .ChangePct }}%
 {{ end }}
-## Hosts with Most Errors (severity <= 3)
+## Hosts with Most Errors (severity ≤ 3, max 15)
 {{ range .TopErrorHosts -}}
-- **{{ .Hostname }}**: {{ .Count }} errors, top msgid={{ .TopMsgID }}
+- `{{ .Hostname }}` — {{ .Count }} errors · top msgid: `{{ .TopMsgID }}`
 {{ end }}
 {{- if .NewMsgIDs }}
-## New Event Types (not seen in prior 7 days)
+## New Event Types (not seen in the 7 days prior to this period)
 {{ range .NewMsgIDs -}}
-- {{ . }}{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ end }}
+- `{{ . }}`{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ if (index $.JuniperRefs .).Cause }} · Cause: {{ (index $.JuniperRefs .).Cause }}{{ end }}{{ end }}
 {{ end }}
+{{- else }}
+## New Event Types
+_None._
 {{- end }}
-{{- if .EventClusters }}
-## Cross-Host Event Clusters (5-min windows)
+{{ if .EventClusters }}
+## Cross-Host Event Clusters (5-minute windows; ≥2 hosts firing the same msgid)
 {{ range .EventClusters -}}
-- {{ .Bucket.Format "15:04 UTC" }}: {{ .Total }} events across [{{ join .Hosts ", " }}] — msgids: [{{ join .MsgIDs ", " }}]
+- {{ .Bucket.Format "2006-01-02 15:04 UTC" }} — {{ .Total }} events across [{{ join .Hosts ", " }}]; msgids: [{{ join .MsgIDs ", " }}]
 {{ end }}
+{{- else }}
+## Cross-Host Event Clusters
+_None in this period._
 {{- end }}
+
+---
+Write the briefing now, following the section order and rules from the system message. Do not echo this data block. Do not include any preamble before the TL;DR.
