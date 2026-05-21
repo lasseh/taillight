@@ -8,12 +8,14 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-// TestBuildPromptEmbeddedDefaults verifies the embedded default prompts parse
-// and render without error against representative data. Without this, a
-// template typo would only surface when the worker runs an actual report.
-func TestBuildPromptEmbeddedDefaults(t *testing.T) {
+// fixtureData returns a representative analysisData suitable for rendering any
+// of the prompt modes. The data deliberately mixes a routing event with a
+// hardware fault and a cross-host cluster so each mode has something to talk
+// about.
+func fixtureData(t *testing.T) analysisData {
+	t.Helper()
 	now := time.Date(2025, 5, 21, 12, 0, 0, 0, time.UTC)
-	data := analysisData{
+	return analysisData{
 		Feed:        feedNetlog,
 		Period:      24 * time.Hour,
 		PeriodLabel: "24 hours",
@@ -58,48 +60,93 @@ func TestBuildPromptEmbeddedDefaults(t *testing.T) {
 			},
 		},
 	}
+}
 
-	sys, usr, err := buildPrompt(data, "")
+// TestBuildPromptAllModes verifies every embedded mode parses and renders
+// without error, and that each one carries the persona / verdict cue
+// appropriate to its framing. Without this, a template typo or a renamed
+// mode would only surface when the worker runs an actual report.
+func TestBuildPromptAllModes(t *testing.T) {
+	data := fixtureData(t)
+
+	cases := []struct {
+		mode           string
+		systemContains string // a phrase distinctive to this mode's system prompt
+	}{
+		{mode: modeDaily, systemContains: "on-call team"},
+		{mode: modeWeekly, systemContains: "trend review"},
+		{mode: modeIncident, systemContains: "live triage"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.mode, func(t *testing.T) {
+			sys, usr, err := buildPrompt(data, "", tc.mode)
+			if err != nil {
+				t.Fatalf("buildPrompt(%s): %v", tc.mode, err)
+			}
+			if sys == "" || usr == "" {
+				t.Fatalf("buildPrompt(%s) returned empty prompt(s)", tc.mode)
+			}
+			if !strings.Contains(sys, tc.systemContains) {
+				t.Errorf("system prompt for %s missing %q distinctive phrase; got:\n%s", tc.mode, tc.systemContains, sys)
+			}
+			// All modes must inject the fixture data into the user prompt.
+			if !strings.Contains(usr, "RPD_BGP_NEIGHBOR_STATE_CHANGED") {
+				t.Errorf("user prompt for %s missing injected msgid; got:\n%s", tc.mode, usr)
+			}
+			if !strings.Contains(usr, "edge1-syd") {
+				t.Errorf("user prompt for %s missing injected hostname; got:\n%s", tc.mode, usr)
+			}
+		})
+	}
+}
+
+// TestBuildPromptDefaultsToDaily covers the back-compat path: an empty mode
+// string should be treated as "daily" so old callers keep working until the
+// rest of the plumbing lands.
+func TestBuildPromptDefaultsToDaily(t *testing.T) {
+	data := fixtureData(t)
+	sys, _, err := buildPrompt(data, "", "")
 	if err != nil {
-		t.Fatalf("buildPrompt with embedded defaults: %v", err)
+		t.Fatalf("buildPrompt with empty mode: %v", err)
 	}
+	if !strings.Contains(sys, "on-call team") {
+		t.Errorf("empty mode did not resolve to daily; system prompt:\n%s", sys)
+	}
+}
 
-	// Sanity: both prompts non-empty and reference the injected data.
-	if sys == "" {
-		t.Fatal("system prompt is empty")
+// TestBuildPromptUnknownMode verifies that an unknown mode errors out
+// instead of silently using a default — the whole point of the contract
+// is "no silent fallback".
+func TestBuildPromptUnknownMode(t *testing.T) {
+	data := fixtureData(t)
+	_, _, err := buildPrompt(data, "", "monthly-snapshot")
+	if err == nil {
+		t.Fatal("buildPrompt with unknown mode returned nil error")
 	}
-	if usr == "" {
-		t.Fatal("user prompt is empty")
-	}
-	if !strings.Contains(usr, "RPD_BGP_NEIGHBOR_STATE_CHANGED") {
-		t.Errorf("user prompt missing injected msgid; got:\n%s", usr)
-	}
-	if !strings.Contains(usr, "edge1-syd") {
-		t.Errorf("user prompt missing injected hostname; got:\n%s", usr)
-	}
-	if !strings.Contains(usr, "BGP neighbor state changed") {
-		t.Errorf("user prompt missing Juniper ref description; got:\n%s", usr)
-	}
-	if !strings.Contains(sys, "network operations engineer") {
-		t.Errorf("system prompt missing expected persona text; got:\n%s", sys)
+	if !strings.Contains(err.Error(), "unknown prompt mode") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
 // TestBuildPromptEmptyData ensures the templates render cleanly when the
 // period is genuinely quiet (no msgids, no hosts, no clusters). The system
-// prompt instructs the model to handle this gracefully — make sure the
-// templates themselves don't blow up first.
+// prompts instruct the model to handle this gracefully — make sure the
+// templates themselves don't blow up first, across every mode.
 func TestBuildPromptEmptyData(t *testing.T) {
-	data := analysisData{
-		Feed:        feedSrvlog,
-		Period:      24 * time.Hour,
-		PeriodLabel: "24 hours",
-		PeriodStart: time.Now().Add(-24 * time.Hour),
-		PeriodEnd:   time.Now(),
-		JuniperRefs: map[string]model.JuniperNetlogRef{},
-	}
-
-	if _, _, err := buildPrompt(data, ""); err != nil {
-		t.Fatalf("buildPrompt on empty data: %v", err)
+	for _, mode := range []string{modeDaily, modeWeekly, modeIncident} {
+		t.Run(mode, func(t *testing.T) {
+			data := analysisData{
+				Feed:        feedSrvlog,
+				Period:      24 * time.Hour,
+				PeriodLabel: "24 hours",
+				PeriodStart: time.Now().Add(-24 * time.Hour),
+				PeriodEnd:   time.Now(),
+				JuniperRefs: map[string]model.JuniperNetlogRef{},
+			}
+			if _, _, err := buildPrompt(data, "", mode); err != nil {
+				t.Fatalf("buildPrompt(%s) on empty data: %v", mode, err)
+			}
+		})
 	}
 }

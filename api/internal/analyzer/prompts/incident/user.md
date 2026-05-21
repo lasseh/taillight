@@ -1,0 +1,48 @@
+# {{ .FeedTitle }} — incident-window data block
+Window: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} → {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }} ({{ .PeriodLabel }})
+
+Severity legend: 0=emerg 1=alert 2=crit 3=err 4=warn 5=notice 6=info 7=debug.
+The Severity Comparison block reports rates extrapolated to per-day so this window is comparable to the 7-day baseline; raw counts elsewhere are exact events within the window.
+
+## Top Event Types in this window (by volume, max 25)
+{{ range .TopMsgIDs -}}
+- `{{ .MsgID }}` — {{ .Count }} events · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
+{{- if index $.JuniperRefs .MsgID }}
+  - **Description:** {{ (index $.JuniperRefs .MsgID).Description }}
+  {{- if (index $.JuniperRefs .MsgID).Cause }}
+  - **Cause:** {{ (index $.JuniperRefs .MsgID).Cause }}
+  {{- end }}
+  {{- if (index $.JuniperRefs .MsgID).Action }}
+  - **Action:** {{ (index $.JuniperRefs .MsgID).Action }}
+  {{- end }}
+{{- end }}
+{{ end }}
+## Severity Comparison (this window's rate per day vs 7-day daily average)
+{{ range .SeverityComparison.Levels -}}
+- {{ .Label }} (sev {{ .Severity }}): current={{ printf "%.1f" .Current }}/day equiv · baseline={{ printf "%.1f" .BaselineAvg }}/day · change={{ printf "%+.1f" .ChangePct }}%
+{{ end }}
+## Hosts with Most Errors in this window (severity ≤ 3, max 15)
+{{ range .TopErrorHosts -}}
+- `{{ .Hostname }}` — {{ .Count }} errors · top msgid: `{{ .TopMsgID }}`
+{{ end }}
+{{- if .NewMsgIDs }}
+## New Event Types (not seen in the 7 days prior to this window)
+{{ range .NewMsgIDs -}}
+- `{{ . }}`{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ if (index $.JuniperRefs .).Cause }} · Cause: {{ (index $.JuniperRefs .).Cause }}{{ end }}{{ end }}
+{{ end }}
+{{- else }}
+## New Event Types
+_None in this window._
+{{- end }}
+{{ if .EventClusters }}
+## Cross-Host Event Clusters (5-minute windows in this incident period; ≥2 hosts firing the same msgid)
+{{ range .EventClusters -}}
+- {{ .Bucket.Format "2006-01-02 15:04 UTC" }} — {{ .Total }} events across [{{ join .Hosts ", " }}]; msgids: [{{ join .MsgIDs ", " }}]
+{{ end }}
+{{- else }}
+## Cross-Host Event Clusters
+_None in this window._
+{{- end }}
+
+---
+Write the triage now, following the section order and rules from the system message. Do not echo this data block. Do not include any preamble before the Verdict. The responder is reading this under time pressure — keep it tight.

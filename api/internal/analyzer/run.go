@@ -28,7 +28,10 @@ func (a *Analyzer) Run(ctx context.Context, feed string, period time.Duration) (
 		return Result{}, fmt.Errorf("gather data: %w", err)
 	}
 
-	sysProm, userProm, err := buildPrompt(data, a.cfg.PromptsDir)
+	// Mode plumbing through Run() lands in a follow-up commit; defaulting to
+	// "daily" here keeps existing behaviour untouched while the per-mode
+	// directory layout settles in.
+	sysProm, userProm, err := buildPrompt(data, a.cfg.PromptsDir, modeDaily)
 	if err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
 		return Result{}, fmt.Errorf("build prompt: %w", err)
