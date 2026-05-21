@@ -48,6 +48,7 @@ CLAUDE.md
 FEATURES.md
 research/
 docs/agents/
+.scratch/
 
 # Agent skills (auto-generated, not project code)
 **/.agents/
