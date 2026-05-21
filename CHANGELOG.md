@@ -143,6 +143,7 @@ work waiting for a release.
 
 ### Changed
 
+- Overhaul the analyzer data block sent to Ollama: srvlog rows now group by `COALESCE(NULLIF(msgid,''), msg_pattern)` so RFC 3164 events (sshd/systemd/kernel/cron) reach the prompt instead of being dropped; each top signature ships with 1-2 verbatim sample messages, a 12-48 cell volume sparkline with peak timestamps, top programs/facilities for srvlog, and per-signature host distribution; system prompts updated across daily/weekly/incident with anti-hallucination rules around quoting samples
 - Rework `/analysis`: async per-feed reports with `pending`/`running`/`completed`/`failed` lifecycle, slug-based URLs (`/analysis/reports/<feed>-YYYY-MM-DD-HHMM`), single-worker queue (depth 5) with partial-unique-index guard against duplicate active runs, in-DB recurring schedules (`analysis_schedules`) replacing the single `analysis.schedule_at`/`analysis.feed` config keys
 - Rename syslog to srvlog across entire codebase
 - Rename dashboard to volume, move alerts to settings dropdown

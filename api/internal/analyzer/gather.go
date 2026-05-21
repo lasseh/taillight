@@ -304,18 +304,24 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 	// Program + facility breakdowns are srvlog-only signals. The store
 	// returns nil for netlog so calling unconditionally would also work,
 	// but skipping here keeps the log lines truthful about what was
-	// queried.
+	// queried. Both are best-effort — they enrich the prompt but the
+	// report is still useful without them, so a slow or failing query
+	// shouldn't kill the whole run.
 	if feed != feedNetlog {
 		a.logger.Info("gathering top programs", "feed", feed)
-		data.TopPrograms, err = a.store.GetTopPrograms(ctx, feed, periodStart, topProgramLimit)
-		if err != nil {
-			return data, err
+		programs, progErr := a.store.GetTopPrograms(ctx, feed, periodStart, topProgramLimit)
+		if progErr != nil {
+			a.logger.Warn("top programs lookup failed, continuing without", "err", progErr)
+		} else {
+			data.TopPrograms = programs
 		}
 
 		a.logger.Info("gathering top facilities", "feed", feed)
-		data.TopFacilities, err = a.store.GetTopFacilities(ctx, feed, periodStart, topFacilityLimit)
-		if err != nil {
-			return data, err
+		facilities, facErr := a.store.GetTopFacilities(ctx, feed, periodStart, topFacilityLimit)
+		if facErr != nil {
+			a.logger.Warn("top facilities lookup failed, continuing without", "err", facErr)
+		} else {
+			data.TopFacilities = facilities
 		}
 	}
 
