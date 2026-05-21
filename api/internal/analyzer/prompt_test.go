@@ -65,10 +65,10 @@ func TestBuildPromptEmbeddedDefaults(t *testing.T) {
 	}
 
 	// Sanity: both prompts non-empty and reference the injected data.
-	if len(sys) == 0 {
+	if sys == "" {
 		t.Fatal("system prompt is empty")
 	}
-	if len(usr) == 0 {
+	if usr == "" {
 		t.Fatal("user prompt is empty")
 	}
 	if !strings.Contains(usr, "RPD_BGP_NEIGHBOR_STATE_CHANGED") {
