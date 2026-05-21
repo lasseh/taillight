@@ -76,11 +76,15 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 		return data, err
 	}
 
-	// Normalize current counts to a per-day rate for multi-day periods so the
-	// percentage-change comparison against the always-daily baseline stays apples-
-	// to-apples. Baseline divisor inside the store already yields daily average.
+	// Normalize current counts to a per-day rate regardless of window length so
+	// the percentage-change comparison against the always-daily baseline stays
+	// apples-to-apples. Baseline divisor inside the store already yields daily
+	// average; for a 24h window this division is a no-op, but for sub-24h
+	// incident windows (e.g. 1h) it converts the raw count to a per-day-
+	// equivalent rate — otherwise 10 events in the last hour would look
+	// "quieter" than a 50/day baseline when it's actually a 5× spike.
 	periodDays := period.Hours() / 24
-	if periodDays > 1 {
+	if periodDays > 0 {
 		for i := range data.SeverityComparison.Levels {
 			lvl := &data.SeverityComparison.Levels[i]
 			lvl.Current /= periodDays
