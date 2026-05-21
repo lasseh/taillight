@@ -85,24 +85,44 @@ The `trigger` endpoint requires the `admin` scope; `reports[...]` reads require 
 
 ## 4. Remote taillight server → Mac Ollama via reverse SSH tunnel
 
-Common setup: taillight runs on a small Linux VPS that can't host a useful model, but your Mac can. A reverse SSH tunnel makes the Mac's Ollama appear at `localhost:11434` on the server — no config change on either side beyond starting the tunnel.
+Common setup: taillight runs on a small Linux VPS that can't host a useful model, but your Mac can. A reverse SSH tunnel makes the Mac's Ollama appear on the server with no config change on either side beyond starting the tunnel.
 
-From the Mac:
+Where the tunnel binds depends on whether taillight runs natively on the host or inside Docker (the default `docker-compose` setup). A container on a bridge network cannot reach the host's loopback, so the docker case binds the tunnel to the docker bridge gateway instead. Pick the matching variant:
+
+**Native on the host** — bind to loopback. Safe by default, no firewall changes, no sshd tweaks.
 
 ```sh
-ssh -N -R 11434:127.0.0.1:11434 ops@taillight.example.com
+ssh -N -R 127.0.0.1:11434:127.0.0.1:11434 ops@taillight.example.com
 ```
 
-- `-R 11434:127.0.0.1:11434` — the server's `localhost:11434` forwards to your Mac's `127.0.0.1:11434`.
-- `-N` — no remote shell, tunnel only.
+**Containerized (recommended path)** — bind to the docker bridge gateway. The container talks straight to the gateway IP, so you don't need `network_mode: host` or `extra_hosts`. Requires `GatewayPorts clientspecified` on the server (see 4b) and the gateway IP open to the docker subnet (UFW snippet below).
 
-Default `GatewayPorts no` on the server means the forwarded port binds the server's loopback only, so only the taillight process on that host can reach Ollama. **Do not** flip `GatewayPorts yes`. Ollama has no authentication; exposing it on a public interface is equivalent to handing out free GPU time on your Mac.
+```sh
+ssh -N -R 10.10.0.1:11434:127.0.0.1:11434 ops@taillight.example.com
+```
 
-On the server, `api/config.yml` stays exactly as in step 3:
+Replace `10.10.0.1` with whatever your compose network's gateway is — find it with:
+
+```sh
+docker network inspect taillight_default | jq -r '.[0].IPAM.Config[0].Gateway'
+```
+
+`GatewayPorts clientspecified` is **not** `yes`: it only allows binding to addresses the client explicitly names. The gateway IP lives on the docker bridge interface and isn't routable from outside the host, so this is not a public exposure. Do **not** switch to `GatewayPorts yes`, which would let any client bind `0.0.0.0`. Ollama has no authentication; exposing it on a public interface is equivalent to handing out free GPU time on your Mac.
+
+If UFW is enabled on the server, allow the docker subnet to reach the gateway on the Ollama port:
+
+```sh
+sudo ufw allow from 10.10.0.0/24 to 10.10.0.1 port 11434 proto tcp \
+  comment 'taillight analysis -> ollama tunnel'
+```
+
+On the server, `api/config.yml` points at whichever address the container reaches:
 
 ```yaml
 analysis:
-  ollama_url: "http://localhost:11434"
+  # native on host:        ollama_url: "http://localhost:11434"
+  # containerized + bridge gateway:
+  ollama_url: "http://10.10.0.1:11434"
 ```
 
 ### 4a. Find the right addresses
@@ -147,10 +167,19 @@ Host taillight-ollama
   ServerAliveInterval 30
   ServerAliveCountMax 3
   ExitOnForwardFailure yes
-  RemoteForward 11434 127.0.0.1:11434
+  # Native taillight on the server:
+  # RemoteForward 127.0.0.1:11434 127.0.0.1:11434
+  # Containerized (docker-compose) — bind to the bridge gateway:
+  RemoteForward 10.10.0.1:11434 127.0.0.1:11434
+  # Skip the connection multiplexer for this host so the bind address
+  # in RemoteForward is always honored on a fresh connection.
+  ControlMaster no
+  ControlPath none
 ```
 
 With that block, `ssh -N taillight-ollama` is the entire command — and the launchd plist in the next section can drop the inline `-R` and `-o` flags.
+
+The `ControlMaster no` / `ControlPath none` lines matter if you have multiplexing enabled globally (`Host *` block with `ControlMaster auto`). A new `-R` request sent through an existing master inherits the master's original bind address — so if you ever connected without an explicit bind, the forward stays glued to loopback no matter what you pass on the new command. Forcing a fresh connection for this host avoids that trap.
 
 First-time keychain load so launchd / autossh don't need a passphrase prompt:
 
@@ -161,11 +190,11 @@ ssh-add --apple-use-keychain ~/.ssh/id_ed25519
 Server side — `/etc/ssh/sshd_config`. Defaults on most distros are already fine; only touch these if the tunnel won't establish or keeps getting killed:
 
 ```sshconfig
-AllowTcpForwarding yes       # required; default yes
-GatewayPorts no              # keep — binds the forward to loopback only
-ClientAliveInterval 60       # server pings idle clients; prevents NAT/idle drops
+AllowTcpForwarding yes              # required; default yes
+GatewayPorts clientspecified        # honors the bind address the client passes; needed for the docker-bridge variant. "no" forces loopback regardless and breaks the container path.
+ClientAliveInterval 60              # server pings idle clients; prevents NAT/idle drops
 ClientAliveCountMax 3
-PermitOpen 127.0.0.1:11434   # optional: restrict what this user may forward
+PermitOpen 127.0.0.1:11434 10.10.0.1:11434   # optional: restrict what this user may forward (loopback for native, gateway for container)
 ```
 
 After editing: `sudo sshd -t && sudo systemctl reload ssh` (or `sshd`).
@@ -201,6 +230,90 @@ curl -fsS http://localhost:11434/api/chat \
 
 If step 2 fails with `connection refused`, the Mac dropped the tunnel — see Troubleshooting. If step 3 succeeds but step 4 returns `model not found`, the model name in `api/config.yml` doesn't match `ollama list` on the Mac exactly.
 
+### 4d. Verify from inside the taillight container
+
+Step 4c proves the tunnel works from the server's shell, but taillight runs inside a Docker container on a bridge network — `localhost` there means the container itself, not the host. There are three ways to make Ollama reachable from the container; option A is the path the rest of this guide is built around.
+
+**Option A — bind the tunnel to the docker bridge gateway (recommended).** If you used the containerized SSH command from section 4 (`-R 10.10.0.1:11434:127.0.0.1:11434`), there is nothing to add on the compose side: the container reaches Ollama at `http://10.10.0.1:11434` because the gateway IP is directly addressable on the bridge. `api/config.yml`:
+
+```yaml
+analysis:
+  ollama_url: "http://10.10.0.1:11434"   # docker bridge gateway
+```
+
+Verify from inside the container:
+
+```sh
+docker compose exec -T api wget -qO- http://10.10.0.1:11434/api/tags
+```
+
+If that fails with `connection refused`, check on the host that the tunnel actually bound the gateway IP (not loopback):
+
+```sh
+ss -ltnp 'sport = :11434'   # expect 10.10.0.1:11434, owned by sshd-session
+```
+
+Loopback-only output means the Mac side either fell back to `127.0.0.1` (missing/empty bind address) or piggybacked on an existing SSH control-master that was already bound to loopback — see Troubleshooting.
+
+**Option B — host networking.** Simplest from a compose standpoint; the api container shares the host's loopback, so a loopback-bound tunnel works. In `docker-compose.override.yml`:
+
+```yaml
+services:
+  api:
+    network_mode: host
+```
+
+`ollama_url` stays `http://localhost:11434`. Note that `network_mode: host` disables the compose-defined `networks:` block for that service, so the api will reach postgres via `127.0.0.1:5432` (or whatever you've exposed) rather than the `postgres` service name — adjust `DATABASE_URL` accordingly.
+
+**Option C — `host.docker.internal` on the bridge.** Keeps the bridge network intact without changing the tunnel bind. In `docker-compose.override.yml`:
+
+```yaml
+services:
+  api:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
+
+Then set `ollama_url: "http://host.docker.internal:11434"` in `api/config.yml`. On Linux, `host-gateway` resolves to the docker bridge gateway, which is reachable from the host's loopback-bound tunnel only because Docker NATs bridge traffic through the host network stack — strict iptables/nftables setups can drop it. Confirm with the checks below before assuming it works.
+
+Once your chosen option is in place, `docker compose up -d api` and walk the stack from inside the container (substitute `OLLAMA` for whichever URL you picked):
+
+```sh
+OLLAMA=http://10.10.0.1:11434   # or http://localhost:11434 / http://host.docker.internal:11434
+
+# 1. TCP reachability to Ollama (port open)
+docker compose exec -T api wget -q -O- "$OLLAMA/api/version"
+
+# 2. The model taillight is configured for is visible from the container
+docker compose exec -T api wget -q -O- "$OLLAMA/api/tags" | grep -o '"name":"[^"]*"'
+
+# 3. End-to-end inference round-trip via the same URL taillight will use
+docker compose exec -T api wget -q -O- \
+  --header="content-type: application/json" \
+  --post-data='{"model":"llama3.1:8b","stream":false,
+                "messages":[{"role":"user","content":"reply with the single word: ok"}]}' \
+  "$OLLAMA/api/chat"
+```
+
+The distroless runtime image has no shell, so `docker compose exec api sh` will fail on a production build — but `wget` itself is in the busybox layer of the api image, so the direct `wget` invocations above work without one. If you need a shell anyway, temporarily switch the api `Dockerfile` final stage to `gcr.io/distroless/static-debian12:debug` (ships busybox at `/busybox/sh`), or skip to step 5 and let taillight itself prove reachability.
+
+**5. Let taillight do the round-trip.** The most honest test is the one taillight will actually run:
+
+```sh
+curl -X POST -H "X-Api-Key: $TAILLIGHT_ADMIN_KEY" \
+  http://localhost:8080/api/v1/analysis/reports/trigger
+docker compose logs -f --tail=50 api | grep -i ollama
+```
+
+A successful trigger followed by an `ollama` log line with non-zero token counts confirms the full path: container → bridge → SSH tunnel → Mac Ollama → model → response.
+
+Common failure modes specific to the container hop:
+
+- `connect: connection refused` to the gateway IP, but the tunnel is up → check that `ss -ltnp 'sport = :11434'` shows the gateway address, not loopback. Most often this is a stale `ControlMaster` session on the Mac (see Troubleshooting).
+- `connect: connection refused` to `host.docker.internal` → tunnel bound loopback (`127.0.0.1`) and your nft/iptables rules forbid bridge → loopback. Switch to option A.
+- `no such host: host.docker.internal` → the `extra_hosts` entry is missing or the container wasn't recreated (`docker compose up -d --force-recreate api`).
+- UFW dropping the connection silently → confirm the `ufw allow from <docker-subnet> to <gateway> port 11434` rule from section 4 is present (`sudo ufw status | grep 11434`).
+
 ### Keep the tunnel up across drops with autossh
 
 ```sh
@@ -210,9 +323,12 @@ autossh -M 0 -N \
   -o ServerAliveInterval=30 \
   -o ServerAliveCountMax=3 \
   -o ExitOnForwardFailure=yes \
-  -R 11434:127.0.0.1:11434 \
+  -o ControlMaster=no -o ControlPath=none \
+  -R 10.10.0.1:11434:127.0.0.1:11434 \
   ops@taillight.example.com
 ```
+
+Drop the explicit bind prefix (`10.10.0.1:`) only if you're on the native-host variant; for the docker case it is mandatory.
 
 ### Start it at login via launchd
 
@@ -234,7 +350,9 @@ Save as `~/Library/LaunchAgents/com.taillight.ollama-tunnel.plist`:
     <string>-o</string><string>ServerAliveInterval=30</string>
     <string>-o</string><string>ServerAliveCountMax=3</string>
     <string>-o</string><string>ExitOnForwardFailure=yes</string>
-    <string>-R</string><string>11434:127.0.0.1:11434</string>
+    <string>-o</string><string>ControlMaster=no</string>
+    <string>-o</string><string>ControlPath=none</string>
+    <string>-R</string><string>10.10.0.1:11434:127.0.0.1:11434</string>
     <string>ops@taillight.example.com</string>
   </array>
   <key>RunAtLoad</key><true/>
@@ -256,6 +374,9 @@ launchctl load ~/Library/LaunchAgents/com.taillight.ollama-tunnel.plist
 ## 5. Troubleshooting
 
 - **`connection refused` on the server** — the Mac tunnel dropped. Check `pgrep -fl autossh` on the Mac and `launchctl list | grep taillight` if you wrapped it in launchd.
+- **Tunnel "is up" but the container still gets `connection refused`** — almost always a stale SSH `ControlMaster` on the Mac. `ssh -v ...` will show `auto-mux: Trying existing master at '/tmp/ssh-control-...'`, and the new `-R bind:port:host:port` request gets routed through that pre-existing connection — which was opened *without* a bind address, so it's glued to loopback. Either kill the master (`ssh -O exit user@host`) and reconnect fresh, or pass `-o ControlMaster=no -o ControlPath=none` on the tunnel command. Confirm on the server with `ss -ltnp 'sport = :11434'`: the listener address must be the docker bridge gateway, not `127.0.0.1`/`::1`.
+- **`ss` shows the listener bound to loopback even with a bind prefix** — `GatewayPorts` is set to `no` on the server (the default on some distros). Set `GatewayPorts clientspecified` in `/etc/ssh/sshd_config`, `sudo sshd -t && sudo systemctl reload ssh`, then reconnect the tunnel. `clientspecified` is safe — it only allows binds to addresses the client names explicitly.
+- **Container gets `connection refused` but the server's shell can curl the gateway IP fine** — UFW is dropping the packet from the docker subnet. `sudo ufw status | grep 11434`; add the rule from section 4 if missing.
 - **`model "foo" not found`** — the model name in `api/config.yml` must match `ollama list` on the Mac exactly, tag included (`llama3.1:8b`, not `llama3.1`).
 - **First request takes 30+ s, then snappy** — cold load; the Mac is paging the model in. Set `OLLAMA_KEEP_ALIVE=24h` in the Ollama app's environment to pin it (Settings → Advanced, or `launchctl setenv OLLAMA_KEEP_ALIVE 24h` before launching).
 - **Mac fans spinning hard, machine sluggish** — model too large for your RAM. Drop one tier in the table.
