@@ -44,7 +44,19 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		return Result{}, fmt.Errorf("build prompt: %w", err)
 	}
 
-	a.logger.Info("sending prompt to ollama", "model", a.cfg.Model, "prompt_mode", mode)
+	// Log what's actually reaching the model. The data-signal counts let an
+	// operator tell "the prompt arrived empty" (gather returned nothing)
+	// from "the prompt had data and the model was lazy" without DB access.
+	a.logger.Info("sending prompt to ollama",
+		"model", a.cfg.Model,
+		"prompt_mode", mode,
+		"system_bytes", len(sysProm),
+		"user_bytes", len(userProm),
+		"top_msgids", len(data.TopMsgIDs),
+		"new_msgids", len(data.NewMsgIDs),
+		"event_clusters", len(data.EventClusters),
+		"top_error_hosts", len(data.TopErrorHosts),
+	)
 
 	messages := []ollama.ChatMessage{
 		{Role: "system", Content: sysProm},
@@ -65,52 +77,50 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		return Result{}, fmt.Errorf("ollama chat: %w", err)
 	}
 
-	// Structure check: if the model drifted off the required section template
-	// (e.g. emitted "Key Findings / Recommendations / Appendices" instead of
-	// the mandated headers), send one corrective follow-up and prefer
-	// whichever reply validates. We never make the report worse — if the
-	// retry also fails or the call errors, we keep the original.
-	if required := requiredHeaders[mode]; len(required) > 0 {
-		if vErr := validateStructure(resp.Message.Content, required); vErr != nil {
-			a.logger.Warn("report failed structure check, retrying once",
+	// Report check: structure (exact section set + order) and first-section
+	// content (must contain a status/trend/verdict token, not just the
+	// placeholder). On any violation, send one corrective follow-up and
+	// prefer whichever reply validates. We never make the report worse — if
+	// the retry also fails or the call errors, we keep the original.
+	if vErr := validateReport(resp.Message.Content, mode); vErr != nil {
+		a.logger.Warn("report failed validation, retrying once",
+			"feed", params.Feed,
+			"prompt_mode", mode,
+			"issue", vErr.Error(),
+		)
+		retry, rErr := a.client.Chat(ctx, ollama.ChatRequest{
+			Model: a.cfg.Model,
+			Messages: append(messages,
+				ollama.ChatMessage{Role: "assistant", Content: resp.Message.Content},
+				ollama.ChatMessage{Role: "user", Content: structureCorrection(vErr, requiredHeaders[mode])},
+			),
+			Options: options,
+		})
+		switch {
+		case rErr != nil:
+			metrics.AnalysisStructureRetriesTotal.WithLabelValues("retry_error").Inc()
+			a.logger.Warn("validation retry chat failed, keeping first reply",
 				"feed", params.Feed,
 				"prompt_mode", mode,
-				"issue", vErr.Error(),
+				"err", rErr.Error(),
 			)
-			retry, rErr := a.client.Chat(ctx, ollama.ChatRequest{
-				Model: a.cfg.Model,
-				Messages: append(messages,
-					ollama.ChatMessage{Role: "assistant", Content: resp.Message.Content},
-					ollama.ChatMessage{Role: "user", Content: structureCorrection(vErr, required)},
-				),
-				Options: options,
-			})
-			switch {
-			case rErr != nil:
-				metrics.AnalysisStructureRetriesTotal.WithLabelValues("retry_error").Inc()
-				a.logger.Warn("structure retry chat failed, keeping first reply",
-					"feed", params.Feed,
-					"prompt_mode", mode,
-					"err", rErr.Error(),
-				)
-			case validateStructure(retry.Message.Content, required) == nil:
-				metrics.AnalysisStructureRetriesTotal.WithLabelValues("fixed").Inc()
-				a.logger.Info("structure retry fixed the report",
-					"feed", params.Feed,
-					"prompt_mode", mode,
-				)
-				// Add the retry's eval counts to the first call's so the
-				// token tallies reflect what the run actually cost.
-				retry.PromptEvalCount += resp.PromptEvalCount
-				retry.EvalCount += resp.EvalCount
-				resp = retry
-			default:
-				metrics.AnalysisStructureRetriesTotal.WithLabelValues("still_invalid").Inc()
-				a.logger.Warn("structure retry still invalid, keeping first reply",
-					"feed", params.Feed,
-					"prompt_mode", mode,
-				)
-			}
+		case validateReport(retry.Message.Content, mode) == nil:
+			metrics.AnalysisStructureRetriesTotal.WithLabelValues("fixed").Inc()
+			a.logger.Info("validation retry fixed the report",
+				"feed", params.Feed,
+				"prompt_mode", mode,
+			)
+			// Add the retry's eval counts to the first call's so the token
+			// tallies reflect what the run actually cost.
+			retry.PromptEvalCount += resp.PromptEvalCount
+			retry.EvalCount += resp.EvalCount
+			resp = retry
+		default:
+			metrics.AnalysisStructureRetriesTotal.WithLabelValues("still_invalid").Inc()
+			a.logger.Warn("validation retry still invalid, keeping first reply",
+				"feed", params.Feed,
+				"prompt_mode", mode,
+			)
 		}
 	}
 
@@ -123,6 +133,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		"duration_ms", time.Since(start).Milliseconds(),
 		"prompt_tokens", resp.PromptEvalCount,
 		"completion_tokens", resp.EvalCount,
+		"completion_bytes", len(resp.Message.Content),
 	)
 
 	return Result{

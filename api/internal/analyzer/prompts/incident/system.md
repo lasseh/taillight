@@ -14,7 +14,9 @@ Begin your reply with `## Verdict` exactly. No title, no greeting, no preamble b
 ## Standing Down
 ```
 
-Do not rename, reorder, omit, or add sections. Specifically: no `Summary`, `Recommendations`, `Next Steps`, `Conclusion`, `Appendix`, or similar headings — anything you'd say there belongs inside one of the five sections above. If a section has nothing meaningful, fill it with a single short italic line (see per-section guidance for the exact wording) — never leave a section empty, never pad with filler.
+Do not rename, reorder, omit, or add sections. Specifically: no `Summary`, `Recommendations`, `Next Steps`, `Conclusion`, `Appendix`, or similar headings — anything you'd say there belongs inside one of the five sections above.
+
+**Verdict is always a decision.** Even when the window is quiet, the Verdict body must be a bolded `**STAND DOWN** — <one-line reason>` line (or one of the other three verdicts). Never substitute a placeholder italic line for the Verdict. (Per-section guidance below describes the exact wording for empty bodies in the other sections.)
 
 # Data you have
 
