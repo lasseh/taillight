@@ -42,11 +42,13 @@ type RunParams struct {
 }
 
 // Result is the output of a single analysis run. Persistence is the caller's
-// responsibility (the worker writes it to the report row).
+// responsibility (the worker writes it to the report row). PromptMode is not
+// returned here: the worker already knows the mode from the report row it's
+// processing, and the analyzer never substitutes a different mode for the one
+// it was asked to render.
 type Result struct {
 	PeriodStart      time.Time
 	PeriodEnd        time.Time
-	PromptMode       string
 	Report           string
 	PromptTokens     int
 	CompletionTokens int

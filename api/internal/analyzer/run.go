@@ -76,7 +76,6 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 	return Result{
 		PeriodStart:      data.PeriodStart,
 		PeriodEnd:        data.PeriodEnd,
-		PromptMode:       mode,
 		Report:           resp.Message.Content,
 		PromptTokens:     resp.PromptEvalCount,
 		CompletionTokens: resp.EvalCount,

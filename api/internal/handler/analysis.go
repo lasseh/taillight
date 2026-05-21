@@ -98,11 +98,14 @@ type createReportRequest struct {
 	PeriodMinutes int    `json:"period_minutes,omitempty"`
 }
 
-// Period bounds for manual triggers. The upper bound matches monthly schedules
-// so manual runs can never exceed what a recurring schedule could produce.
+// Period bounds for manual triggers. The general upper bound matches monthly
+// schedules so manual runs can never exceed what a recurring schedule could
+// produce. Incident mode has a tighter ceiling because the prompt is written
+// for "live triage" — handing it a 30-day window produces incoherent output.
 const (
-	minPeriodMinutes = 5
-	maxPeriodMinutes = 30 * 24 * 60 // 30 days
+	minPeriodMinutes         = 5
+	maxPeriodMinutes         = 30 * 24 * 60 // 30 days
+	maxIncidentPeriodMinutes = 6 * 60       // 6 hours
 )
 
 // defaultPeriodMinutes returns the per-mode default analysis window when the
@@ -165,6 +168,11 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if periodMinutes < minPeriodMinutes || periodMinutes > maxPeriodMinutes {
 		writeError(w, http.StatusBadRequest, "invalid_period",
 			"period_minutes must be between 5 and 43200")
+		return
+	}
+	if mode == model.AnalysisModeIncident && periodMinutes > maxIncidentPeriodMinutes {
+		writeError(w, http.StatusBadRequest, "invalid_period",
+			"incident mode period_minutes must be 360 or less")
 		return
 	}
 
