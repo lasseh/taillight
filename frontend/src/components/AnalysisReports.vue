@@ -279,13 +279,16 @@ onMounted(refresh)
             :key="r.id"
             class="hover:bg-t-bg-hover flex items-center px-5 py-3 text-sm transition-colors"
           >
-            <div class="min-w-0 flex-1 pr-4">
+            <div class="min-w-0 flex-1 pr-4 flex items-center gap-2">
               <router-link
                 :to="{ name: 'analysis-report', params: { slug: r.slug } }"
                 class="text-t-fg hover:text-t-orange font-medium transition-colors"
               >
                 {{ reportTitle(r) }}
               </router-link>
+              <span class="bg-t-fg-dark/10 text-t-fg-dark inline-block rounded px-1.5 py-0.5 font-mono text-xs">
+                {{ formatDate(r.created_at) }}
+              </span>
             </div>
             <div class="w-20 shrink-0">
               <span
