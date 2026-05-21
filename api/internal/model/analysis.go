@@ -118,8 +118,19 @@ type AnalysisSchedule struct {
 type MsgIDCount struct {
 	MsgID          string          `json:"msgid"`
 	Count          int64           `json:"count"`
+	HostCount      int             `json:"host_count"`
+	TopHosts       []HostCount     `json:"top_hosts,omitempty"`
 	SeverityCounts map[int]int64   `json:"severity_counts"`
 	Samples        []SampleMessage `json:"samples,omitempty"`
+}
+
+// HostCount holds a hostname and how many events it contributed to a
+// parent aggregation (e.g. one event signature). Used to surface
+// "1 host vs 50 hosts" distinction on top msgids — same total volume
+// reads as a wildly different incident depending on how concentrated it is.
+type HostCount struct {
+	Hostname string `json:"hostname"`
+	Count    int64  `json:"count"`
 }
 
 // SampleMessage is one example log row attached to a top event signature so

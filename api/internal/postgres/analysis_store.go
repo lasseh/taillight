@@ -159,8 +159,59 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, 
 		return nil, fmt.Errorf("severity breakdown rows: %w", err)
 	}
 
+	// Host distribution per key: distinct host count + the top
+	// topHostsPerMsgID contributors. The window function gives us both
+	// in one pass so we don't issue two more round trips per signature.
+	hostSource := analysisSource(feed, "received_at, hostname, msgid, msg_pattern")
+	hostQuery := fmt.Sprintf(`
+		WITH per_host AS (
+			SELECT %s AS event_key, hostname, count(*) AS cnt
+			FROM %s
+			WHERE received_at >= $1 AND %s = ANY($2)
+			GROUP BY event_key, hostname
+		), ranked AS (
+			SELECT event_key, hostname, cnt,
+			       ROW_NUMBER() OVER (PARTITION BY event_key ORDER BY cnt DESC) AS rn,
+			       COUNT(*) OVER (PARTITION BY event_key) AS host_count
+			FROM per_host
+		)
+		SELECT event_key, hostname, cnt, host_count
+		FROM ranked
+		WHERE rn <= $3
+		ORDER BY event_key, rn`, keyExpr, hostSource, keyExpr)
+
+	hostRows, err := s.pool.Query(ctx, hostQuery, since, keys, topHostsPerMsgID)
+	if err != nil {
+		return nil, fmt.Errorf("msgid host distribution query: %w", err)
+	}
+	defer hostRows.Close()
+
+	for hostRows.Next() {
+		var key, hostname string
+		var cnt int64
+		var hostCount int
+		if err := hostRows.Scan(&key, &hostname, &cnt, &hostCount); err != nil {
+			return nil, fmt.Errorf("scan msgid host distribution: %w", err)
+		}
+		if idx, ok := keyIndex[key]; ok {
+			results[idx].HostCount = hostCount
+			results[idx].TopHosts = append(results[idx].TopHosts, model.HostCount{
+				Hostname: hostname,
+				Count:    cnt,
+			})
+		}
+	}
+	if err := hostRows.Err(); err != nil {
+		return nil, fmt.Errorf("msgid host distribution rows: %w", err)
+	}
+
 	return results, nil
 }
+
+// topHostsPerMsgID is the number of top contributing hosts attached to
+// each top event signature. Three is enough to distinguish single-host /
+// pair / cluster patterns without bloating the prompt.
+const topHostsPerMsgID = 3
 
 // GetSeverityComparison compares current period severity counts against baseline daily average.
 // The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".

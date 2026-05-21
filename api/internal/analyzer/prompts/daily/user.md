@@ -7,7 +7,7 @@ All counts below are raw event counts within the period unless explicitly labele
 ## Top Event Signatures (by volume, max 25)
 Each signature is the RFC 5424 MSGID when present, otherwise a normalized message template (numbers → `<n>`, IPs → `<ip>`). Sample messages are verbatim log text — use them to ground your interpretation; do not invent details that aren't in them.
 {{ range .TopMsgIDs -}}
-- `{{ .MsgID }}` — {{ .Count }} events · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
+- `{{ .MsgID }}` — {{ .Count }} events{{ if .HostCount }} · {{ .HostCount }} host{{ if gt .HostCount 1 }}s{{ end }}{{ if .TopHosts }} (top: {{ range $i, $h := .TopHosts }}{{ if $i }}, {{ end }}`{{ $h.Hostname }}` ({{ $h.Count }}){{ end }}){{ end }}{{ end }} · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
 {{- if index $.JuniperRefs .MsgID }}
   - **Description:** {{ (index $.JuniperRefs .MsgID).Description }}
   {{- if (index $.JuniperRefs .MsgID).Cause }}

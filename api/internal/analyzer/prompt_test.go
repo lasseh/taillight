@@ -23,8 +23,13 @@ func fixtureData(t *testing.T) analysisData {
 		PeriodEnd:   now,
 		TopMsgIDs: []model.MsgIDCount{
 			{
-				MsgID:          "RPD_BGP_NEIGHBOR_STATE_CHANGED",
-				Count:          42,
+				MsgID:     "RPD_BGP_NEIGHBOR_STATE_CHANGED",
+				Count:     42,
+				HostCount: 2,
+				TopHosts: []model.HostCount{
+					{Hostname: "edge1-syd", Count: 25},
+					{Hostname: "edge2-syd", Count: 17},
+				},
 				SeverityCounts: map[int]int64{3: 30, 4: 12},
 				Samples: []model.SampleMessage{
 					{Hostname: "edge1-syd", ReceivedAt: now.Add(-30 * time.Minute), Severity: 3, Message: "bgp peer 10.0.0.1 (External AS 65001) changed state from Established to Idle"},
@@ -125,6 +130,10 @@ func TestBuildPromptAllModes(t *testing.T) {
 			}
 			if !strings.Contains(usr, "Peaks:") {
 				t.Errorf("user prompt for %s missing peaks line; got:\n%s", tc.mode, usr)
+			}
+			// Host distribution: hostcount + top contributors must render.
+			if !strings.Contains(usr, "2 hosts") || !strings.Contains(usr, "edge2-syd") {
+				t.Errorf("user prompt for %s missing msgid host distribution; got:\n%s", tc.mode, usr)
 			}
 		})
 	}
