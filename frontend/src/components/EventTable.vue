@@ -62,6 +62,11 @@ function maybeFillViewport() {
   const el = scrollEl.value
   if (!el) return
   if (!props.hasMore || props.loading) return
+  // KeepAlive can deactivate this view (e.g. tab switch) while the scroll
+  // element stays in the DOM — its clientHeight then collapses to 0 and the
+  // height comparison below would loop forever fetching pages for a view the
+  // user can't see.
+  if (el.clientHeight === 0) return
   if (el.scrollHeight > el.clientHeight) return
   props.loadHistory(false, preserveScrollForPrepend)
 }
