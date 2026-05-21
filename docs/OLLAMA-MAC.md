@@ -105,12 +105,101 @@ analysis:
   ollama_url: "http://localhost:11434"
 ```
 
-Verify from the server (over your normal SSH session):
+### 4a. Find the right addresses
+
+The reverse tunnel itself only needs `127.0.0.1` on each end — the Mac's LAN IP is not part of the path. You only need to look anything up when (a) you're choosing which interface Ollama listens on, (b) the server doesn't resolve by name, or (c) you want to confirm Ollama is actually bound where you think.
+
+On the Mac — primary outbound interface and its IP:
 
 ```sh
-curl http://localhost:11434/api/version
-curl http://localhost:11434/api/tags    # models you've pulled on the Mac
+route get default | awk '/interface:/ {print $2}'   # e.g. en0
+ipconfig getifaddr en0                              # IPv4 on that interface
+scutil --nwi                                        # full ranked view
+ifconfig | grep "inet "                             # every IPv4 (incl. Tailscale, utun)
 ```
+
+Confirm Ollama is bound to loopback only (the safe default):
+
+```sh
+lsof -nP -iTCP:11434 -sTCP:LISTEN
+# expect: ollama ... TCP 127.0.0.1:11434 (LISTEN)
+```
+
+If it shows `*:11434` or a LAN address, Ollama is reachable on the network with no auth — fix it via Settings → Advanced (or `launchctl setenv OLLAMA_HOST 127.0.0.1:11434`) and relaunch.
+
+Server hostname / IP the Mac's `ssh` will actually use:
+
+```sh
+ssh -G ops@taillight.example.com | grep -E '^(hostname|port|user|identityfile) '
+dig +short taillight.example.com
+```
+
+### 4b. SSH config you'll want in place
+
+Mac side — `~/.ssh/config`. Without this you're retyping flags every time and `autossh` / launchd have nowhere to pick up the identity:
+
+```sshconfig
+Host taillight-ollama
+  HostName taillight.example.com
+  User ops
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  ServerAliveInterval 30
+  ServerAliveCountMax 3
+  ExitOnForwardFailure yes
+  RemoteForward 11434 127.0.0.1:11434
+```
+
+With that block, `ssh -N taillight-ollama` is the entire command — and the launchd plist in the next section can drop the inline `-R` and `-o` flags.
+
+First-time keychain load so launchd / autossh don't need a passphrase prompt:
+
+```sh
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+```
+
+Server side — `/etc/ssh/sshd_config`. Defaults on most distros are already fine; only touch these if the tunnel won't establish or keeps getting killed:
+
+```sshconfig
+AllowTcpForwarding yes       # required; default yes
+GatewayPorts no              # keep — binds the forward to loopback only
+ClientAliveInterval 60       # server pings idle clients; prevents NAT/idle drops
+ClientAliveCountMax 3
+PermitOpen 127.0.0.1:11434   # optional: restrict what this user may forward
+```
+
+After editing: `sudo sshd -t && sudo systemctl reload ssh` (or `sshd`).
+
+### 4c. Verify the tunnel end-to-end
+
+On the Mac, confirm the tunnel process is alive and which remote it's pinned to:
+
+```sh
+pgrep -fl 'ssh.*-R 11434' || echo "no tunnel running"
+launchctl list | grep taillight     # if you wrapped it in launchd
+```
+
+SSH into the server in a normal session and walk up the stack:
+
+```sh
+# 1. The forwarded port is listening on the server's loopback
+ss -ltnp 'sport = :11434' 2>/dev/null || lsof -iTCP:11434 -sTCP:LISTEN
+
+# 2. Ollama answers — anything other than 200 means the Mac end is broken
+curl -fsS -o /dev/null -w '%{http_code}\n' http://localhost:11434/api/version
+
+# 3. The model taillight is configured for is actually pulled on the Mac
+curl -fsS http://localhost:11434/api/tags | jq -r '.models[].name'
+
+# 4. End-to-end inference round-trip
+curl -fsS http://localhost:11434/api/chat \
+  -H 'content-type: application/json' \
+  -d '{"model":"llama3.1:8b","stream":false,
+       "messages":[{"role":"user","content":"reply with the single word: ok"}]}' \
+  | jq -r '.message.content'
+```
+
+If step 2 fails with `connection refused`, the Mac dropped the tunnel — see Troubleshooting. If step 3 succeeds but step 4 returns `model not found`, the model name in `api/config.yml` doesn't match `ollama list` on the Mac exactly.
 
 ### Keep the tunnel up across drops with autossh
 
