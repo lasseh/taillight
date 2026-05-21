@@ -186,6 +186,16 @@ var (
 		Buckets:   []float64{30, 60, 120, 300, 600},
 	})
 
+	// AnalysisStructureRetriesTotal counts structure-validation retries by outcome:
+	// "fixed" when the corrective follow-up produced a valid reply, "still_invalid"
+	// when the retry also failed (and we kept the first reply), "retry_error"
+	// when the follow-up chat call itself errored.
+	AnalysisStructureRetriesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "analysis_structure_retries_total",
+		Help:      "Structure-validation retries on analysis report output, by outcome.",
+	}, []string{"outcome"})
+
 	// Notification metrics.
 
 	// NotifRulesEvaluatedTotal counts events × rules evaluated.
