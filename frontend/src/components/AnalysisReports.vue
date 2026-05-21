@@ -282,13 +282,10 @@ onMounted(refresh)
             <div class="min-w-0 flex-1 pr-4">
               <router-link
                 :to="{ name: 'analysis-report', params: { slug: r.slug } }"
-                class="text-t-fg hover:text-t-orange block font-medium transition-colors"
+                class="text-t-fg hover:text-t-orange font-medium transition-colors"
               >
                 {{ reportTitle(r) }}
               </router-link>
-              <div class="text-t-fg-gutter mt-0.5 font-mono text-xs">
-                {{ formatDate(r.created_at) }}
-              </div>
             </div>
             <div class="w-20 shrink-0">
               <span
@@ -315,7 +312,10 @@ onMounted(refresh)
               </span>
             </div>
             <div class="w-24 shrink-0 text-right">
-              <span class="text-t-fg-dark text-xs" :title="formatDate(r.created_at)">
+              <span
+                class="bg-t-fg-dark/10 text-t-fg-dark inline-block rounded px-1.5 py-0.5 text-xs"
+                :title="formatDate(r.created_at)"
+              >
                 {{ timeAgo(r.created_at) }}
               </span>
             </div>
