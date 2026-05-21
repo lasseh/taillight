@@ -65,18 +65,21 @@ func analysisSource(feed, cols string) string {
 // eventKeyExpr returns the SQL expression that produces a stable grouping
 // key for events.
 //
-// msgid is the RFC 5424 MSGID field. Juniper netlog rows always have one
-// (controlled vocabulary), but the majority of srvlog rows are RFC 3164 and
-// arrive with an empty msgid, which would otherwise lump every unrelated
-// event into a single empty-string bucket. msg_pattern is a trigger-computed
-// template (numbers and IPs replaced with placeholders, see trg_*_msg_pattern
-// in migrations 2 and 3) that gives us a stable key for free-form messages.
+// msgid is the RFC 5424 MSGID field. Juniper netlog rows usually carry a
+// named code (RTPERF_CPU_THRESHOLD_EXCEEDED, RPD_MPLS_LSP_CHANGE, …), but
+// senders that omit MSGID emit the RFC 5424 NILVALUE "-" on the wire and
+// rsyslog stores that literal "-". The double NULLIF treats both the
+// empty string and "-" as missing so those rows fall through to
+// msg_pattern, a trigger-computed template with numbers/IPs replaced
+// (see trg_*_msg_pattern in migrations 2 and 3), instead of all
+// collapsing into a single "-" bucket that the LLM then narrates as
+// "generic syslog messages".
 //
-// The same expression is used for every feed: for netlog the COALESCE is a
-// no-op since msgid is always present, and using the fallback uniformly
-// keeps the SQL generation predictable.
+// RFC 3164 srvlog rows always have an empty msgid and rely on the same
+// fallback; using one expression for every feed keeps SQL generation
+// predictable.
 func eventKeyExpr(_ string) string {
-	return "COALESCE(NULLIF(msgid, ''), msg_pattern)"
+	return "COALESCE(NULLIF(NULLIF(msgid, ''), '-'), msg_pattern)"
 }
 
 // GetTopMsgIDs returns the top event signatures by count since the given
