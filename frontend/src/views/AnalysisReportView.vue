@@ -272,15 +272,16 @@ onMounted(refresh)
 <style>
 /* Global print styles — when the user prints from the report detail page,
  * hide the app shell (header, banners, status footer) and let the report
- * body span the full page. The App.vue shell renders the active view inside
- * <main>; we hide every direct sibling of <main> via the body > div > *
- * pattern. .print-hide inside the view itself hides per-page controls. */
+ * body span the full page. Vue mounts at <div id="app">, App.vue renders
+ * one wrapping <div>, and that div holds <header>, <main>, and a status
+ * <div>. We hide every sibling of <main> at that level. .print-hide inside
+ * the view itself hides per-page controls. */
 @media print {
   body {
     background: white !important;
     color: black !important;
   }
-  body > div > *:not(main) {
+  body > div > div > *:not(main) {
     display: none !important;
   }
   .print-hide {
