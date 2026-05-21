@@ -97,48 +97,9 @@ export function reportTitle(r: Pick<AnalysisReportSummary, 'feed' | 'prompt_mode
   }
 }
 
-// briefingTitle is the long-form heading for the report detail page — paired
-// with formatPeriodRange and formatPeriodUTC to render the classic ops-brief
-// header. The list view stays on the shorter reportTitle() above.
-const briefingLabel: Record<AnalysisPromptMode, string> = {
-  daily: 'Daily Operations Briefing',
-  weekly: 'Weekly Operations Briefing',
-  incident: 'Incident Briefing',
-}
-
-export function briefingTitle(mode: AnalysisPromptMode | undefined): string {
-  return (mode && briefingLabel[mode]) || 'Operations Briefing'
-}
-
-// formatPeriodRange renders the date span used in the briefing heading:
-//   "2026-05-20 → 2026-05-21".
-// Uses UTC so a report's calendar dates are stable across the operator's
-// local timezone — the briefing is anchored to the syslog period, not their
-// laptop clock.
-export function formatPeriodRange(start: string, end: string): string {
-  return `${formatDateUTC(start)} → ${formatDateUTC(end)}`
-}
-
-// formatPeriodUTC renders the precise window for the sub-line:
-//   "2026-05-20 19:19 UTC – 2026-05-21 19:19 UTC".
-export function formatPeriodUTC(start: string, end: string): string {
-  return `${formatDateTimeUTC(start)} – ${formatDateTimeUTC(end)}`
-}
-
-function formatDateUTC(ts: string): string {
-  const d = new Date(ts)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
-}
-
-function formatDateTimeUTC(ts: string): string {
-  const d = new Date(ts)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return (
-    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
-    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`
-  )
-}
+// The briefing title and period sub-line are rendered by the backend
+// (api/internal/analyzer/header.go) directly into the report markdown, so
+// the frontend no longer needs helpers for them here.
 
 export function formatDuration(r: AnalysisReport | AnalysisReportSummary): string {
   if (!r.started_at || !r.completed_at) return ''

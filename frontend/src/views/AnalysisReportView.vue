@@ -7,11 +7,8 @@ import { api, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { usePolling } from '@/composables/usePolling'
 import {
-  briefingTitle,
   feedBadgeClass,
   formatDuration,
-  formatPeriodRange,
-  formatPeriodUTC,
   promptModeBadgeClass,
   statusBadgeClass,
 } from '@/lib/analysis-format'
@@ -100,19 +97,10 @@ function exportPDF() {
   window.print()
 }
 
-// Classic ops-brief header:
-//   Daily Operations Briefing — 2026-05-20 → 2026-05-21
-//   Period: 2026-05-20 19:19 UTC – 2026-05-21 19:19 UTC
-// Mode label comes from briefingTitle (daily/weekly/incident); the date
-// span and full UTC window are rendered from period_start/period_end so
-// the heading reflects the syslog window, not the report's creation time.
-function reportTitle(r: AnalysisReport): string {
-  return `${briefingTitle(r.prompt_mode)} — ${formatPeriodRange(r.period_start, r.period_end)}`
-}
-
-function reportPeriodLine(r: AnalysisReport): string {
-  return `Period: ${formatPeriodUTC(r.period_start, r.period_end)}`
-}
+// The briefing title + period sub-line are rendered as part of the report
+// markdown itself (api/internal/analyzer prepends them), so the page chrome
+// only needs the slug + metadata chips above the rendered body — no
+// duplicate H1 here.
 
 // Detail page wants — for missing values rather than the empty string the
 // shared helper returns (used by the list table).
@@ -171,16 +159,13 @@ onMounted(refresh)
             </div>
           </div>
 
-          <div class="space-y-1">
-            <h1 class="text-t-fg text-xl font-semibold">{{ reportTitle(report) }}</h1>
-            <div class="text-t-fg-dark text-sm">{{ reportPeriodLine(report) }}</div>
-            <div class="text-t-fg-dark font-mono text-xs">{{ report.slug }}</div>
-          </div>
+          <!-- Briefing title and period now lead the report markdown itself
+               (prepended in api/internal/analyzer/header.go), so the page
+               chrome only carries the slug above the metadata chip row. -->
+          <div class="text-t-fg-dark font-mono text-xs">{{ report.slug }}</div>
 
-          <!-- Period moved into the heading above; the chip row keeps Mode
-               for the at-a-glance colour cue. Status, source, model, and
-               duration stay because each answers a question the heading
-               doesn't. -->
+          <!-- Chip row keeps Mode for the at-a-glance colour cue alongside
+               Status, source, model, and duration. -->
           <div
             class="bg-t-bg-dark border-t-border flex flex-wrap items-center gap-x-6 gap-y-2 rounded border px-4 py-3"
           >

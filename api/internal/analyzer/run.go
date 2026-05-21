@@ -136,10 +136,16 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		"completion_bytes", len(resp.Message.Content),
 	)
 
+	// Prepend the deterministic briefing header so the markdown body starts
+	// with the title block instead of `## TL;DR`. The header lives in code
+	// rather than the prompt — dates don't need a model, and a fixed format
+	// keeps the H1 stable across reports.
+	report := prependReportHeader(resp.Message.Content, mode, data.PeriodStart, data.PeriodEnd)
+
 	return Result{
 		PeriodStart:      data.PeriodStart,
 		PeriodEnd:        data.PeriodEnd,
-		Report:           resp.Message.Content,
+		Report:           report,
 		PromptTokens:     resp.PromptEvalCount,
 		CompletionTokens: resp.EvalCount,
 	}, nil
