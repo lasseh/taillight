@@ -26,11 +26,17 @@ func fixtureData(t *testing.T) analysisData {
 				MsgID:          "RPD_BGP_NEIGHBOR_STATE_CHANGED",
 				Count:          42,
 				SeverityCounts: map[int]int64{3: 30, 4: 12},
+				Samples: []model.SampleMessage{
+					{Hostname: "edge1-syd", ReceivedAt: now.Add(-30 * time.Minute), Severity: 3, Message: "bgp peer 10.0.0.1 (External AS 65001) changed state from Established to Idle"},
+				},
 			},
 			{
 				MsgID:          "CHASSISD_PSU_FAILURE",
 				Count:          3,
 				SeverityCounts: map[int]int64{1: 3},
+				Samples: []model.SampleMessage{
+					{Hostname: "core2-osl", ReceivedAt: now.Add(-90 * time.Minute), Severity: 1, Message: "PSU 1 input feed lost; chassis on redundant feed"},
+				},
 			},
 		},
 		SeverityComparison: model.SeverityComparison{
@@ -44,6 +50,9 @@ func fixtureData(t *testing.T) analysisData {
 			{Hostname: "core2-osl", Count: 3, TopMsgID: "CHASSISD_PSU_FAILURE"},
 		},
 		NewMsgIDs: []string{"KERN_ARP_ADDR_CHANGE"},
+		NewMsgIDSamples: map[string]model.SampleMessage{
+			"KERN_ARP_ADDR_CHANGE": {Hostname: "edge3-osl", ReceivedAt: now.Add(-15 * time.Minute), Severity: 4, Message: "arp address change for 10.1.2.3 from aa:bb:cc:dd:ee:ff to 11:22:33:44:55:66"},
+		},
 		EventClusters: []model.EventCluster{
 			{
 				Bucket: now.Add(-2 * time.Hour),
@@ -96,6 +105,14 @@ func TestBuildPromptAllModes(t *testing.T) {
 			}
 			if !strings.Contains(usr, "edge1-syd") {
 				t.Errorf("user prompt for %s missing injected hostname; got:\n%s", tc.mode, usr)
+			}
+			// Sample message text must reach the prompt — this is the
+			// whole point of attaching samples in gather.
+			if !strings.Contains(usr, "bgp peer 10.0.0.1") {
+				t.Errorf("user prompt for %s missing top-msgid sample text; got:\n%s", tc.mode, usr)
+			}
+			if !strings.Contains(usr, "arp address change") {
+				t.Errorf("user prompt for %s missing new-msgid sample text; got:\n%s", tc.mode, usr)
 			}
 		})
 	}

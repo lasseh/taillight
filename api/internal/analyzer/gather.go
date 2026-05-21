@@ -18,6 +18,7 @@ type analysisData struct {
 	SeverityComparison model.SeverityComparison
 	TopErrorHosts      []model.HostErrorCount
 	NewMsgIDs          []string
+	NewMsgIDSamples    map[string]model.SampleMessage // first observed example per new signature.
 	EventClusters      []model.EventCluster
 	JuniperRefs        map[string]model.JuniperNetlogRef
 }
@@ -26,6 +27,12 @@ const (
 	topMsgIDLimit    = 25
 	topHostLimit     = 15
 	clusterWindowMin = 5
+
+	// topMsgIDSampleCount is the number of representative messages attached
+	// per top event signature. Two samples give the model both freshness
+	// and a hedge against an outlier first example without exploding the
+	// prompt budget (25 signatures × 2 samples ≈ 50 lines).
+	topMsgIDSampleCount = 2
 
 	// Feed name constants.
 	feedNetlog = "netlog"
@@ -112,6 +119,46 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 	data.EventClusters, err = a.store.GetEventClusters(ctx, feed, periodStart, clusterWindowMin)
 	if err != nil {
 		return data, err
+	}
+
+	// Attach representative sample messages to every top signature so the
+	// prompt carries actual log text — without this the model only sees an
+	// event ID and a severity histogram, which for srvlog is rarely enough
+	// to reason about what happened.
+	if len(data.TopMsgIDs) > 0 {
+		topKeys := make([]string, len(data.TopMsgIDs))
+		for i, mc := range data.TopMsgIDs {
+			topKeys[i] = mc.MsgID
+		}
+		a.logger.Info("gathering samples for top msgids", "feed", feed, "keys", len(topKeys))
+		samples, sampErr := a.store.GetMsgIDSamples(ctx, feed, periodStart, topKeys, topMsgIDSampleCount)
+		if sampErr != nil {
+			// Best-effort — warn and continue without samples.
+			a.logger.Warn("top msgid sample lookup failed, continuing without", "err", sampErr)
+		} else {
+			for i := range data.TopMsgIDs {
+				if s, ok := samples[data.TopMsgIDs[i].MsgID]; ok {
+					data.TopMsgIDs[i].Samples = s
+				}
+			}
+		}
+	}
+
+	// One sample per new signature — "first observed" context turns a
+	// dangling event ID into something the model can interpret.
+	data.NewMsgIDSamples = make(map[string]model.SampleMessage)
+	if len(data.NewMsgIDs) > 0 {
+		a.logger.Info("gathering samples for new msgids", "feed", feed, "keys", len(data.NewMsgIDs))
+		newSamples, sampErr := a.store.GetMsgIDSamples(ctx, feed, periodStart, data.NewMsgIDs, 1)
+		if sampErr != nil {
+			a.logger.Warn("new msgid sample lookup failed, continuing without", "err", sampErr)
+		} else {
+			for k, list := range newSamples {
+				if len(list) > 0 {
+					data.NewMsgIDSamples[k] = list[0]
+				}
+			}
+		}
 	}
 
 	data.JuniperRefs = make(map[string]model.JuniperNetlogRef)

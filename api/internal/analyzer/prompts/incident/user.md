@@ -4,7 +4,8 @@ Window: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} → {{ .PeriodEnd.Forma
 Severity legend: 0=emerg 1=alert 2=crit 3=err 4=warn 5=notice 6=info 7=debug.
 The Severity Comparison block reports rates extrapolated to per-day so this window is comparable to the 7-day baseline; raw counts elsewhere are exact events within the window.
 
-## Top Event Types in this window (by volume, max 25)
+## Top Event Signatures in this window (by volume, max 25)
+Each signature is the RFC 5424 MSGID when present, otherwise a normalized message template. Sample messages are verbatim log text — use them to ground your interpretation; do not invent details that aren't in them.
 {{ range .TopMsgIDs -}}
 - `{{ .MsgID }}` — {{ .Count }} events · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
 {{- if index $.JuniperRefs .MsgID }}
@@ -14,6 +15,12 @@ The Severity Comparison block reports rates extrapolated to per-day so this wind
   {{- end }}
   {{- if (index $.JuniperRefs .MsgID).Action }}
   - **Action:** {{ (index $.JuniperRefs .MsgID).Action }}
+  {{- end }}
+{{- end }}
+{{- if .Samples }}
+  - **Samples:**
+  {{- range .Samples }}
+    - {{ .ReceivedAt.Format "15:04:05" }} `{{ .Hostname }}` ({{ severityLabel .Severity }}): `{{ .Message }}`
   {{- end }}
 {{- end }}
 {{ end }}
@@ -26,12 +33,15 @@ The Severity Comparison block reports rates extrapolated to per-day so this wind
 - `{{ .Hostname }}` — {{ .Count }} errors · top msgid: `{{ .TopMsgID }}`
 {{ end }}
 {{- if .NewMsgIDs }}
-## New Event Types (not seen in the 7 days prior to this window)
+## New Event Signatures (not seen in the 7 days prior to this window)
 {{ range .NewMsgIDs -}}
 - `{{ . }}`{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ if (index $.JuniperRefs .).Cause }} · Cause: {{ (index $.JuniperRefs .).Cause }}{{ end }}{{ end }}
+{{- if index $.NewMsgIDSamples . }}
+  - **First observed:** {{ (index $.NewMsgIDSamples .).ReceivedAt.Format "15:04:05" }} on `{{ (index $.NewMsgIDSamples .).Hostname }}` ({{ severityLabel (index $.NewMsgIDSamples .).Severity }}): `{{ (index $.NewMsgIDSamples .).Message }}`
+{{- end }}
 {{ end }}
 {{- else }}
-## New Event Types
+## New Event Signatures
 _None in this window._
 {{- end }}
 {{ if .EventClusters }}

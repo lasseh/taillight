@@ -42,6 +42,10 @@ func (s stubStore) GetEventClusters(context.Context, string, time.Time, int) ([]
 	return nil, nil
 }
 
+func (s stubStore) GetMsgIDSamples(context.Context, string, time.Time, []string, int) (map[string][]model.SampleMessage, error) {
+	return nil, nil
+}
+
 func (s stubStore) LookupJuniperRefs(context.Context, []string) (map[string]model.JuniperNetlogRef, error) {
 	return nil, nil
 }

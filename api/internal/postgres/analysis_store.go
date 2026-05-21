@@ -24,16 +24,18 @@ const pgUniqueViolation = "23505"
 
 const (
 	// feedAll indicates analysis should query both srvlog and netlog tables.
-	feedAll = "all"
+	feedAll    = "all"
+	feedNetlog = "netlog"
+	feedSrvlog = "srvlog"
 )
 
 // analysisTableName returns the table name for the given feed.
 // Valid feeds: "srvlog", "netlog". For "all", use analysisUnionSource instead.
 func analysisTableName(feed string) string {
 	switch feed {
-	case "netlog":
+	case feedNetlog:
 		return "netlog_events"
-	case "srvlog":
+	case feedSrvlog:
 		return "srvlog_events"
 	default:
 		return "srvlog_events"
@@ -50,46 +52,68 @@ func analysisUnionSource(columns string) string {
 	)
 }
 
-// GetTopMsgIDs returns the top msgids by count since the given time,
-// with per-severity breakdowns. The feed parameter selects which table(s)
+// analysisSource picks between a single table and the unioned subquery
+// depending on feed. cols is the projected column list — only used for the
+// union case but accepted uniformly so call sites stay symmetric.
+func analysisSource(feed, cols string) string {
+	if feed == feedAll {
+		return analysisUnionSource(cols)
+	}
+	return analysisTableName(feed)
+}
+
+// eventKeyExpr returns the SQL expression that produces a stable grouping
+// key for events.
+//
+// msgid is the RFC 5424 MSGID field. Juniper netlog rows always have one
+// (controlled vocabulary), but the majority of srvlog rows are RFC 3164 and
+// arrive with an empty msgid, which would otherwise lump every unrelated
+// event into a single empty-string bucket. msg_pattern is a trigger-computed
+// template (numbers and IPs replaced with placeholders, see trg_*_msg_pattern
+// in migrations 2 and 3) that gives us a stable key for free-form messages.
+//
+// The same expression is used for every feed: for netlog the COALESCE is a
+// no-op since msgid is always present, and using the fallback uniformly
+// keeps the SQL generation predictable.
+func eventKeyExpr(_ string) string {
+	return "COALESCE(NULLIF(msgid, ''), msg_pattern)"
+}
+
+// GetTopMsgIDs returns the top event signatures by count since the given
+// time, with per-severity breakdowns. The "event signature" is msgid when
+// present and msg_pattern (a normalized message template) otherwise — see
+// eventKeyExpr for the rationale. The feed parameter selects which table(s)
 // to query: "srvlog", "netlog", or "all".
 func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, limit int) ([]model.MsgIDCount, error) {
-	var table string
-	if feed == feedAll {
-		table = analysisUnionSource("received_at, msgid, severity")
-	} else {
-		table = analysisTableName(feed)
-	}
+	source := analysisSource(feed, "received_at, msgid, msg_pattern, severity")
+	keyExpr := eventKeyExpr(feed)
 
-	// First get top msgids by total count.
-	query, args, err := psq.
-		Select("msgid", "count(*) AS cnt").
-		From(table).
-		Where(sq.GtOrEq{"received_at": since}).
-		Where(sq.NotEq{"msgid": ""}).
-		GroupBy("msgid").
-		OrderBy("cnt DESC").
-		Limit(uint64(limit)).
-		ToSql()
-	if err != nil {
-		return nil, fmt.Errorf("build top msgids query: %w", err)
-	}
+	// Top by total count. Filter out empty keys defensively — message is
+	// NOT NULL on both event tables so msg_pattern is almost always
+	// populated, but a whitespace-only message could yield "".
+	topQuery := fmt.Sprintf(`
+		SELECT %s AS event_key, count(*) AS cnt
+		FROM %s
+		WHERE received_at >= $1 AND %s <> ''
+		GROUP BY event_key
+		ORDER BY cnt DESC
+		LIMIT $2`, keyExpr, source, keyExpr)
 
-	rows, err := s.pool.Query(ctx, query, args...)
+	rows, err := s.pool.Query(ctx, topQuery, since, limit)
 	if err != nil {
 		return nil, fmt.Errorf("top msgids query: %w", err)
 	}
 	defer rows.Close()
 
 	var results []model.MsgIDCount
-	msgidIndex := make(map[string]int)
+	keyIndex := make(map[string]int)
 	for rows.Next() {
 		var mc model.MsgIDCount
 		if err := rows.Scan(&mc.MsgID, &mc.Count); err != nil {
 			return nil, fmt.Errorf("scan top msgid: %w", err)
 		}
 		mc.SeverityCounts = make(map[int]int64)
-		msgidIndex[mc.MsgID] = len(results)
+		keyIndex[mc.MsgID] = len(results)
 		results = append(results, mc)
 	}
 	if err := rows.Err(); err != nil {
@@ -100,37 +124,34 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, 
 		return results, nil
 	}
 
-	// Get severity breakdown for these msgids.
-	msgids := make([]string, len(results))
+	// Per-severity breakdown for the same keys. We re-derive the key inline
+	// rather than passing back a list, so the filter is just a single
+	// comparison against the precomputed top list via ANY($3).
+	keys := make([]string, len(results))
 	for i, mc := range results {
-		msgids[i] = mc.MsgID
+		keys[i] = mc.MsgID
 	}
 
-	sevQuery, sevArgs, err := psq.
-		Select("msgid", "severity", "count(*) AS cnt").
-		From(table).
-		Where(sq.GtOrEq{"received_at": since}).
-		Where(sq.Eq{"msgid": msgids}).
-		GroupBy("msgid", "severity").
-		ToSql()
-	if err != nil {
-		return nil, fmt.Errorf("build severity breakdown query: %w", err)
-	}
+	sevQuery := fmt.Sprintf(`
+		SELECT %s AS event_key, severity, count(*) AS cnt
+		FROM %s
+		WHERE received_at >= $1 AND %s = ANY($2)
+		GROUP BY event_key, severity`, keyExpr, source, keyExpr)
 
-	sevRows, err := s.pool.Query(ctx, sevQuery, sevArgs...)
+	sevRows, err := s.pool.Query(ctx, sevQuery, since, keys)
 	if err != nil {
 		return nil, fmt.Errorf("severity breakdown query: %w", err)
 	}
 	defer sevRows.Close()
 
 	for sevRows.Next() {
-		var msgid string
+		var key string
 		var sev int
 		var cnt int64
-		if err := sevRows.Scan(&msgid, &sev, &cnt); err != nil {
+		if err := sevRows.Scan(&key, &sev, &cnt); err != nil {
 			return nil, fmt.Errorf("scan severity breakdown: %w", err)
 		}
-		if idx, ok := msgidIndex[msgid]; ok {
+		if idx, ok := keyIndex[key]; ok {
 			results[idx].SeverityCounts[sev] = cnt
 		}
 	}
@@ -144,12 +165,7 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, 
 // GetSeverityComparison compares current period severity counts against baseline daily average.
 // The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
 func (s *Store) GetSeverityComparison(ctx context.Context, feed string, currentSince, baselineSince time.Time) (model.SeverityComparison, error) {
-	var table string
-	if feed == feedAll {
-		table = analysisUnionSource("received_at, severity")
-	} else {
-		table = analysisTableName(feed)
-	}
+	table := analysisSource(feed, "received_at, severity")
 
 	// Current period counts.
 	curQuery, curArgs, err := psq.
@@ -252,13 +268,11 @@ func (s *Store) GetSeverityComparison(ctx context.Context, feed string, currentS
 
 // GetTopErrorHosts returns hosts with the most errors (severity <= 3).
 // The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
+// The "top msgid" per host is the most common event signature (msgid when
+// present, otherwise msg_pattern) — see eventKeyExpr.
 func (s *Store) GetTopErrorHosts(ctx context.Context, feed string, since time.Time, limit int) ([]model.HostErrorCount, error) {
-	var source string
-	if feed == feedAll {
-		source = analysisUnionSource("received_at, hostname, severity, msgid")
-	} else {
-		source = analysisTableName(feed)
-	}
+	source := analysisSource(feed, "received_at, hostname, severity, msgid, msg_pattern")
+	keyExpr := eventKeyExpr(feed)
 
 	query := fmt.Sprintf(`
 		WITH events AS (
@@ -271,17 +285,17 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, feed string, since time.Ti
 			ORDER BY cnt DESC
 			LIMIT $2
 		)
-		SELECT hc.hostname, hc.cnt, tm.msgid AS top_msgid
+		SELECT hc.hostname, hc.cnt, tm.event_key AS top_msgid
 		FROM host_counts hc
 		LEFT JOIN LATERAL (
-			SELECT msgid
+			SELECT %s AS event_key
 			FROM events
-			WHERE hostname = hc.hostname AND received_at >= $1 AND severity <= 3 AND msgid != ''
-			GROUP BY msgid
+			WHERE hostname = hc.hostname AND received_at >= $1 AND severity <= 3 AND %s <> ''
+			GROUP BY event_key
 			ORDER BY count(*) DESC
 			LIMIT 1
 		) tm ON true
-		ORDER BY hc.cnt DESC`, source)
+		ORDER BY hc.cnt DESC`, source, keyExpr, keyExpr)
 
 	rows, err := s.pool.Query(ctx, query, since, limit)
 	if err != nil {
@@ -304,29 +318,28 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, feed string, since time.Ti
 	return results, rows.Err()
 }
 
-// GetNewMsgIDs returns msgids seen in the current period but not in the baseline period.
-// The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
+// GetNewMsgIDs returns event signatures seen in the current period but not in
+// the baseline period. The feed parameter selects which table(s) to query:
+// "srvlog", "netlog", or "all". The signature is msgid when present and
+// msg_pattern otherwise — see eventKeyExpr.
 func (s *Store) GetNewMsgIDs(ctx context.Context, feed string, since, baselineSince time.Time) ([]string, error) {
-	var source string
-	if feed == feedAll {
-		source = analysisUnionSource("received_at, msgid")
-	} else {
-		source = analysisTableName(feed)
-	}
+	source := analysisSource(feed, "received_at, msgid, msg_pattern")
+	keyExpr := eventKeyExpr(feed)
 
 	query := fmt.Sprintf(`
 		WITH events AS (
-			SELECT * FROM %s
+			SELECT %s AS event_key, received_at FROM %s
 		)
-		SELECT DISTINCT msgid FROM events curr
-		WHERE curr.received_at >= $1 AND curr.msgid != ''
+		SELECT DISTINCT event_key
+		FROM events curr
+		WHERE curr.received_at >= $1 AND curr.event_key <> ''
 		  AND NOT EXISTS (
 		    SELECT 1 FROM events base
-		    WHERE base.msgid = curr.msgid
+		    WHERE base.event_key = curr.event_key
 		      AND base.received_at >= $2 AND base.received_at < $1
-		      AND base.msgid != ''
+		      AND base.event_key <> ''
 		  )
-		ORDER BY msgid`, source)
+		ORDER BY event_key`, keyExpr, source)
 
 	rows, err := s.pool.Query(ctx, query, since, baselineSince)
 	if err != nil {
@@ -347,25 +360,24 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, feed string, since, baselineSi
 
 // GetEventClusters returns time windows where events from multiple hosts overlap.
 // The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
+// Cluster signatures use the same msgid-or-msg_pattern fallback as the rest of
+// the analyzer (see eventKeyExpr), so srvlog clusters surface even when the
+// underlying rows have no RFC 5424 MSGID.
 func (s *Store) GetEventClusters(ctx context.Context, feed string, since time.Time, windowMinutes int) ([]model.EventCluster, error) {
-	var source string
-	if feed == feedAll {
-		source = analysisUnionSource("received_at, hostname, msgid")
-	} else {
-		source = analysisTableName(feed)
-	}
+	source := analysisSource(feed, "received_at, hostname, msgid, msg_pattern")
+	keyExpr := eventKeyExpr(feed)
 
 	query := fmt.Sprintf(`
 		SELECT time_bucket($2::interval, received_at) AS bucket,
 		       array_agg(DISTINCT hostname) AS hosts,
-		       array_agg(DISTINCT msgid) FILTER (WHERE msgid != '') AS msgids,
+		       array_agg(DISTINCT %s) FILTER (WHERE %s <> '') AS msgids,
 		       count(*) AS total
 		FROM %s
 		WHERE received_at >= $1
 		GROUP BY bucket
 		HAVING count(DISTINCT hostname) > 1
 		ORDER BY total DESC
-		LIMIT 20`, source)
+		LIMIT 20`, keyExpr, keyExpr, source)
 
 	interval := fmt.Sprintf("%d minutes", windowMinutes)
 	rows, err := s.pool.Query(ctx, query, since, interval)
@@ -383,6 +395,63 @@ func (s *Store) GetEventClusters(ctx context.Context, feed string, since time.Ti
 		clusters = append(clusters, c)
 	}
 	return clusters, rows.Err()
+}
+
+// sampleMessageMaxLen caps the message text stored per sample. Picked to
+// give the model enough context to reason about a single line without
+// blowing the prompt budget when 25 top signatures each carry samples.
+const sampleMessageMaxLen = 300
+
+// GetMsgIDSamples returns up to perKeyLimit recent representative messages
+// per event signature in keys. Empty keys input returns an empty map.
+//
+// "Recent" means ORDER BY received_at DESC — the model gets the freshest
+// message for each signature, which is usually the most diagnostically
+// useful one. Message text is left-truncated to sampleMessageMaxLen.
+//
+// The returned map is keyed by event signature (same string the caller
+// passed in keys). Signatures with no rows in the window are simply absent.
+func (s *Store) GetMsgIDSamples(ctx context.Context, feed string, since time.Time, keys []string, perKeyLimit int) (map[string][]model.SampleMessage, error) {
+	out := make(map[string][]model.SampleMessage)
+	if len(keys) == 0 || perKeyLimit <= 0 {
+		return out, nil
+	}
+
+	source := analysisSource(feed, "received_at, hostname, severity, message, msgid, msg_pattern")
+	keyExpr := eventKeyExpr(feed)
+
+	query := fmt.Sprintf(`
+		WITH tagged AS (
+			SELECT %s AS event_key,
+			       hostname, received_at, severity,
+			       LEFT(message, %d) AS message
+			FROM %s
+			WHERE received_at >= $1 AND %s = ANY($2)
+		), ranked AS (
+			SELECT event_key, hostname, received_at, severity, message,
+			       ROW_NUMBER() OVER (PARTITION BY event_key ORDER BY received_at DESC) AS rn
+			FROM tagged
+		)
+		SELECT event_key, hostname, received_at, severity, message
+		FROM ranked
+		WHERE rn <= $3
+		ORDER BY event_key, rn`, keyExpr, sampleMessageMaxLen, source, keyExpr)
+
+	rows, err := s.pool.Query(ctx, query, since, keys, perKeyLimit)
+	if err != nil {
+		return nil, fmt.Errorf("msgid samples query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key string
+		var sm model.SampleMessage
+		if err := rows.Scan(&key, &sm.Hostname, &sm.ReceivedAt, &sm.Severity, &sm.Message); err != nil {
+			return nil, fmt.Errorf("scan msgid sample: %w", err)
+		}
+		out[key] = append(out[key], sm)
+	}
+	return out, rows.Err()
 }
 
 // LookupJuniperRefs returns Juniper reference data for the given msgid names.
