@@ -77,10 +77,16 @@ Two sub-bullets, each one line if no findings:
 ## Correlations
 A markdown table — one row per cluster — sorted by **Time ascending** so the reader can scan the day chronologically. Cap msgid leads at 3 (the dominant signatures in that cluster, abbreviated to the canonical token like `RPD_MPLS_LSP_CHANGE`, `BRCM_SALM`, `EVO_PFEMAND`). The cause column is one short clause, not a sentence — pick from: maintenance window, upstream reconvergence, control-plane policer trip, cascading link failure, time-sync issue, scheduled job, config commit fan-out, BGP/OSPF churn, unknown.
 
+The **Hosts** column shows the count plus an expandable list of the actual hostnames using a literal `<details>` tag — the operator clicks to drill in, the table stays scannable. Use this exact HTML shape, with hostnames in backticks and comma-separated. The data block gives you the hosts for each cluster; do not invent extras and do not omit any.
+
+```
+<details><summary>N hosts</summary>`host-1`, `host-2`, `host-3`</details>
+```
+
 | Time (UTC) | Events | Hosts | Dominant msgids | Likely cause |
 | --- | --- | --- | --- | --- |
-| `00:00` | 59 | 4 | `EVO_PFEMAND`, `BrcmPlusNh`, `PFEMAN session down` | overnight route convergence |
-| `06:50` | 135 | 15 | `RPD_MPLS_LSP_CHANGE`, `RPD_OSPF_NBRDOWN`, `BRCM_SALM` | scheduled maintenance / bulk LSP convergence |
+| `00:00` | 59 | <details><summary>4 hosts</summary>`00a-core-3`, `00a-hs-leaf-d6e32-02`, `00b-core-1`, `00y-pe-1`</details> | `EVO_PFEMAND`, `BrcmPlusNh`, `PFEMAN session down` | overnight route convergence |
+| `06:50` | 135 | <details><summary>15 hosts</summary>`00a-core-3`, `00a-hs-leaf-d6e32-02`, `00b-core-1`, ... (truncated for example)</details> | `RPD_MPLS_LSP_CHANGE`, `RPD_OSPF_NBRDOWN`, `BRCM_SALM` | scheduled maintenance / bulk LSP convergence |
 
 If clusters look like background noise (e.g. periodic CRON across servers, or a known maintenance window already named in TL;DR) collapse them into a single trailing row `_<N> low-signal clusters omitted (CRON / maintenance noise)_` rather than padding the table.
 
@@ -111,7 +117,8 @@ Front-load anything that's customer-facing or risks SLA. End with lower-priority
 - **CPU signatures: threshold-cross vs sustained-max.** `RTPERF_CPU_THRESHOLD_EXCEEDED` is a threshold cross (typically 85%) — it means the RE/PFE microkernel went over the warning line, not that the box is saturated. `RTPERF_CPU_UTIL_MAX` is the sustained-max signal ("greater than 99%, expect packet loss"). Calibrate accordingly:
   - `RTPERF_CPU_THRESHOLD_EXCEEDED` alone, even at high volume → **WATCH**, investigate cause (route churn / DDOS-protection trip / control-plane policer); do not call it saturation. The forwarding plane runs fine through 85–95% RE CPU.
   - `RTPERF_CPU_UTIL_MAX` firing in the same window — even once — promotes the host to **ACT NOW**, because that one explicitly warns of packet loss.
-  - Treating THRESHOLD without MAX as "PFE saturation" is the same trust-burning miscalibration as catastrophizing corrected SER. Be specific: "RE CPU repeatedly crossed the warn threshold; never hit MAX; investigate before peak hours" beats "PFE saturation, possible packet loss".
+  - **Wiring (read this carefully — iter-04 got it inverted).** A host whose CPU evidence is THRESHOLD only → maximum **[WARN]** in Action Queue; a host where MAX fires → minimum **[CRIT]** in Action Queue. Do not place a MAX-firing host below a THRESHOLD-only host in the queue.
+  - **Forbidden vocabulary on threshold-only events.** Do not write `potential packet loss`, `PFE saturation`, `CPU saturation`, `consider hardware upgrade`, or `consider CPU tuning` when the only evidence is `RTPERF_CPU_THRESHOLD_EXCEEDED`. These phrases are reserved for hosts where `RTPERF_CPU_UTIL_MAX` or `expect packet loss` actually appears in the data. For threshold-only hosts, use the literal threshold language: "RE CPU repeatedly crossed the warn threshold; MAX did not fire; investigate cause before peak hours."
 - **No filler thresholds in Actions.** Generic conditionals like "if errors persist", "if CPU remains high", "consider RMA if continues" are filler — they don't tell the operator when to act. Every conditional clause in an Action must either name a concrete trigger (e.g. "if error rate climbs above the 7-day baseline", "if errors continue across an FPC restart", "after confirming next-hop miss with `show route forwarding-table family inet`") or be omitted. Imperative-first actions with no conditional are preferred over imperative-plus-filler-conditional.
 - **Hostnames are always inline code.** Every hostname you mention — in TL;DR, section bodies, prose, bullet leads, and parentheticals — must be wrapped in backticks like `` `edge1-syd` ``. Right: ``severity-3 errors on `edge1-syd` and `core2-osl```. Wrong: `severity-3 errors on edge1-syd and core2-osl`. This applies even inside a sentence, and even when only one hostname is named.
 - **No fluff.** No restating the period. No "in conclusion". No marketing voice. Imperative verbs, concrete nouns.

@@ -30,6 +30,9 @@ const deleteError = ref('')
 
 // Pin the allowed tag/attr set to what the report template actually emits, so a
 // future marked extension or model output can't widen the attack surface.
+// details/summary land here because the Correlations table renders the Hosts
+// column as an expandable disclosure; `open` is the boolean attr that lets the
+// markdown pre-expand a row if needed.
 const MARKDOWN_SANITIZE = {
   ALLOWED_TAGS: [
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -38,8 +41,9 @@ const MARKDOWN_SANITIZE = {
     'strong', 'em', 'del', 's', 'code', 'pre',
     'blockquote', 'a',
     'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'details', 'summary',
   ],
-  ALLOWED_ATTR: ['href', 'title', 'align'],
+  ALLOWED_ATTR: ['href', 'title', 'align', 'open'],
 }
 
 const renderedMarkdown = computed(() => {
@@ -260,6 +264,15 @@ onMounted(refresh)
 .prose :deep(a) { color: var(--color-t-blue); text-decoration: underline; text-underline-offset: 2px; }
 .prose :deep(a:hover) { color: var(--color-t-teal); }
 .prose :deep(blockquote) { border-left: 3px solid var(--color-t-orange); padding-left: 1rem; color: var(--color-t-fg-dark); margin: 0.75rem 0; font-size: 0.8125rem; }
+/* Disclosure widget used inside Correlations table Hosts column. Summary
+ * picks up the blue accent so a reader sees a clickable affordance; the
+ * expanded body keeps the same font size as the surrounding cell. */
+.prose :deep(details) { display: inline; }
+.prose :deep(summary) { color: var(--color-t-blue); cursor: pointer; list-style: none; }
+.prose :deep(summary::-webkit-details-marker) { display: none; }
+.prose :deep(summary::before) { content: '▸ '; color: var(--color-t-fg-dark); font-size: 0.7rem; }
+.prose :deep(details[open]) > summary::before { content: '▾ '; }
+.prose :deep(details[open]) { display: block; }
 </style>
 
 <style>
@@ -276,6 +289,17 @@ onMounted(refresh)
   }
   body > div > div > *:not(main) {
     display: none !important;
+  }
+  /* Print expands every <details> so the host lists in the Correlations
+   * table aren't lost in PDF exports — operators want the full hostnames
+   * on the printed page even though the on-screen view collapses them. */
+  details {
+    display: block !important;
+  }
+  details > summary { list-style: none; }
+  details > summary::before { content: ''; }
+  details:not([open]) > * {
+    display: revert !important;
   }
   .print-hide {
     display: none !important;
