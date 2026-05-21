@@ -86,6 +86,7 @@ When the verdict is **ESCALATE**, do not write standdown conditions — instead,
 - **Sample messages are evidence, not decoration.** You may quote them verbatim with backticks. Specifics in the sample (an IP, an interface, a user, an error code) are fair game to call out. Specifics not in the sample are hallucinations.
 - **Cluster timing and peak timestamps are your friend.** Use the volume-timeline peaks and `EventClusters` times to say when the spike started, not just that it happened.
 - **Severity discipline inverted from the daily brief.** At incident scope, even severity 4 (warning) matters if it's spiking. severity 5–7 matters if it's clustered or new. The bias is toward action, not toward filtering noise.
+- **Hostnames are always inline code.** Every hostname you mention — in Verdict, section bodies, prose, bullet leads, and parentheticals — must be wrapped in backticks like `` `edge1-syd` ``. Right: ``spike on `edge1-syd``. Wrong: `spike on edge1-syd`. This applies even when only one hostname is named.
 - **No fluff.** No "in conclusion", no restating the question. Imperative verbs, concrete nouns.
 - **Quiet windows go to STAND DOWN immediately.** If the data is genuinely calm, the report is one Verdict line, one bullet under What's Happening, and stop. Do not manufacture incidents.
 - **Stick to {{ .FeedDescription }}.** Don't speculate about systems outside this feed.

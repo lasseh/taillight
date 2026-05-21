@@ -167,6 +167,81 @@ func TestBuildPromptUnknownMode(t *testing.T) {
 	}
 }
 
+// TestTruncatePromptString covers the template-func used to clip long
+// msg_pattern signatures so they don't dominate the data block.
+func TestTruncatePromptString(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   string
+		n    int
+		want string
+	}{
+		{"short stays intact", "RPD_BGP_NEIGHBOR_STATE_CHANGED", 80, "RPD_BGP_NEIGHBOR_STATE_CHANGED"},
+		{"exact length stays intact", "abcdef", 6, "abcdef"},
+		{"long is truncated with ellipsis", "abcdefghij", 5, "abcde…"},
+		{"n zero is a no-op", "anything", 0, "anything"},
+		{"n negative is a no-op", "anything", -3, "anything"},
+		{"empty stays empty", "", 10, ""},
+		{"counts runes not bytes", "ééééééé", 3, "ééé…"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := truncatePromptString(tc.in, tc.n)
+			if got != tc.want {
+				t.Errorf("truncatePromptString(%q, %d) = %q, want %q", tc.in, tc.n, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTruncatePromptStrings exercises the slice variant used inside cluster
+// msgid lists, where one long element would otherwise dominate the rendered
+// line.
+func TestTruncatePromptStrings(t *testing.T) {
+	t.Parallel()
+	got := truncatePromptStrings([]string{"short", "thisIsAVeryLongMsgPatternWithAFunctionSignature", ""}, 10)
+	want := []string{"short", "thisIsAVer…", ""}
+	if len(got) != len(want) {
+		t.Fatalf("len(got)=%d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("element %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestBuildPromptTruncatesLongMsgID verifies the truncate template func is
+// actually wired into the user templates — a long msg_pattern in TopMsgIDs
+// renders with an ellipsis in the rendered prompt, not as a 200-char wall.
+func TestBuildPromptTruncatesLongMsgID(t *testing.T) {
+	t.Parallel()
+	longLabel := strings.Repeat("X", 200)
+	data := analysisData{
+		Feed:        feedNetlog,
+		Period:      24 * time.Hour,
+		PeriodLabel: "24 hours",
+		PeriodStart: time.Now().Add(-24 * time.Hour),
+		PeriodEnd:   time.Now(),
+		TopMsgIDs: []model.MsgIDCount{
+			{MsgID: longLabel, Count: 1, SeverityCounts: map[int]int64{3: 1}},
+		},
+		JuniperRefs: map[string]model.JuniperNetlogRef{},
+	}
+	_, user, err := buildPrompt(data, "", modeDaily)
+	if err != nil {
+		t.Fatalf("buildPrompt: %v", err)
+	}
+	if strings.Contains(user, longLabel) {
+		t.Errorf("user prompt contains the full 200-char label; truncate did not run")
+	}
+	if !strings.Contains(user, "…") {
+		t.Errorf("user prompt missing ellipsis after truncation")
+	}
+}
+
 // TestBuildPromptEmptyData ensures the templates render cleanly when the
 // period is genuinely quiet (no msgids, no hosts, no clusters). The system
 // prompts instruct the model to handle this gracefully — make sure the

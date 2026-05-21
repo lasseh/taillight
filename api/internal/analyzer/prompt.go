@@ -52,6 +52,36 @@ var validModes = map[string]struct{}{
 var promptFuncs = template.FuncMap{
 	"severityLabel": model.SeverityLabel,
 	"join":          strings.Join,
+	"truncate":      truncatePromptString,
+	"truncateAll":   truncatePromptStrings,
+}
+
+// truncatePromptString returns s clipped to at most n runes, appending a
+// single ellipsis rune when truncation occurred. Real RFC 5424 MSGIDs are
+// short (~50 chars max) so a reasonable n leaves them intact while
+// shortening long msg_pattern fallbacks that include ASIC SDK function
+// signatures and stack traces.
+func truncatePromptString(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
+// truncatePromptStrings applies truncatePromptString to every element of
+// ss, returning a new slice. Used by templates that join lists of
+// signatures into a single line — without per-element truncation, one
+// long msg_pattern in the list can dominate the rendered line.
+func truncatePromptStrings(ss []string, n int) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = truncatePromptString(s, n)
+	}
+	return out
 }
 
 // feedDescription returns a human-readable description of the feed for use in prompts.

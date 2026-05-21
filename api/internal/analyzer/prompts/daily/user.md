@@ -5,9 +5,9 @@ Severity legend: 0=emerg 1=alert 2=crit 3=err 4=warn 5=notice 6=info 7=debug.
 All counts below are raw event counts within the period unless explicitly labeled per-day.
 
 ## Top Event Signatures (by volume, max 25)
-Each signature is the RFC 5424 MSGID when present, otherwise a normalized message template (numbers → `<n>`, IPs → `<ip>`). Sample messages are verbatim log text — use them to ground your interpretation; do not invent details that aren't in them.
+Each signature is the RFC 5424 MSGID when present, otherwise a normalized message template (numbers → `<n>`, IPs → `<ip>`). Long templates are truncated with `…` for readability; the full text is in the sample messages below. Sample messages are verbatim log text — use them to ground your interpretation; do not invent details that aren't in them.
 {{ range .TopMsgIDs -}}
-- `{{ .MsgID }}` — {{ .Count }} events{{ if .HostCount }} · {{ .HostCount }} host{{ if gt .HostCount 1 }}s{{ end }}{{ if .TopHosts }} (top: {{ range $i, $h := .TopHosts }}{{ if $i }}, {{ end }}`{{ $h.Hostname }}` ({{ $h.Count }}){{ end }}){{ end }}{{ end }} · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
+- `{{ truncate .MsgID 80 }}` — {{ .Count }} events{{ if .HostCount }} · {{ .HostCount }} host{{ if gt .HostCount 1 }}s{{ end }}{{ if .TopHosts }} (top: {{ range $i, $h := .TopHosts }}{{ if $i }}, {{ end }}`{{ $h.Hostname }}` ({{ $h.Count }}){{ end }}){{ end }}{{ end }} · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
 {{- if index $.JuniperRefs .MsgID }}
   - **Description:** {{ (index $.JuniperRefs .MsgID).Description }}
   {{- if (index $.JuniperRefs .MsgID).Cause }}
@@ -50,12 +50,12 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 {{- end }}
 ## Hosts with Most Errors (severity ≤ 3, max 15)
 {{ range .TopErrorHosts -}}
-- `{{ .Hostname }}` — {{ .Count }} errors · top msgid: `{{ .TopMsgID }}`
+- `{{ .Hostname }}` — {{ .Count }} errors · top msgid: `{{ truncate .TopMsgID 80 }}`
 {{ end }}
 {{- if .NewMsgIDs }}
 ## New Event Signatures (not seen in the 7 days prior to this period)
 {{ range .NewMsgIDs -}}
-- `{{ . }}`{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ if (index $.JuniperRefs .).Cause }} · Cause: {{ (index $.JuniperRefs .).Cause }}{{ end }}{{ end }}
+- `{{ truncate . 80 }}`{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ if (index $.JuniperRefs .).Cause }} · Cause: {{ (index $.JuniperRefs .).Cause }}{{ end }}{{ end }}
 {{- if index $.NewMsgIDSamples . }}
   - **First observed:** {{ (index $.NewMsgIDSamples .).ReceivedAt.Format "2006-01-02 15:04 UTC" }} on `{{ (index $.NewMsgIDSamples .).Hostname }}` ({{ severityLabel (index $.NewMsgIDSamples .).Severity }}): `{{ (index $.NewMsgIDSamples .).Message }}`
 {{- end }}
@@ -65,9 +65,9 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 _None._
 {{- end }}
 {{ if .EventClusters }}
-## Cross-Host Event Clusters (5-minute windows; ≥2 hosts firing the same msgid)
+## Cross-Host Event Clusters (5-minute windows; ≥2 hosts firing the same msgid; max 8)
 {{ range .EventClusters -}}
-- {{ .Bucket.Format "2006-01-02 15:04 UTC" }} — {{ .Total }} events across [{{ join .Hosts ", " }}]; msgids: [{{ join .MsgIDs ", " }}]
+- {{ .Bucket.Format "2006-01-02 15:04 UTC" }} — {{ .Total }} events across [{{ join .Hosts ", " }}]; msgids: [{{ join (truncateAll .MsgIDs 60) ", " }}]
 {{ end }}
 {{- else }}
 ## Cross-Host Event Clusters

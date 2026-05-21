@@ -216,6 +216,12 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, 
 // pair / cluster patterns without bloating the prompt.
 const topHostsPerMsgID = 3
 
+// eventClusterLimit bounds how many cross-host clusters we surface to the
+// model. Eight is plenty to anchor a Correlations section; sending many
+// more invites the model to pad the section with low-signal entries (and
+// occasionally repeat them verbatim).
+const eventClusterLimit = 8
+
 // GetSeverityComparison compares current period severity counts against baseline daily average.
 // The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
 func (s *Store) GetSeverityComparison(ctx context.Context, feed string, currentSince, baselineSince time.Time) (model.SeverityComparison, error) {
@@ -431,7 +437,7 @@ func (s *Store) GetEventClusters(ctx context.Context, feed string, since time.Ti
 		GROUP BY bucket
 		HAVING count(DISTINCT hostname) > 1
 		ORDER BY total DESC
-		LIMIT 20`, keyExpr, keyExpr, source)
+		LIMIT %d`, keyExpr, keyExpr, source, eventClusterLimit)
 
 	interval := fmt.Sprintf("%d minutes", windowMinutes)
 	rows, err := s.pool.Query(ctx, query, since, interval)
