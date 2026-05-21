@@ -42,7 +42,7 @@ type ReportStore interface {
 // name to stamp onto pending rows so the UI can display it before the run
 // finishes (and on failed runs too).
 type Runner interface {
-	Run(ctx context.Context, feed string, period time.Duration) (analyzer.Result, error)
+	Run(ctx context.Context, params analyzer.RunParams) (analyzer.Result, error)
 	Model() string
 }
 
@@ -141,7 +141,11 @@ func (a *Analysis) process(parent context.Context, id int64) {
 	}
 
 	period := report.PeriodEnd.Sub(report.PeriodStart)
-	res, runErr := a.runner.Run(ctx, report.Feed, period)
+	res, runErr := a.runner.Run(ctx, analyzer.RunParams{
+		Feed:   report.Feed,
+		Period: period,
+		Mode:   report.PromptMode,
+	})
 	if runErr != nil {
 		msg := truncateErr(runErr, 200)
 		if errors.Is(runErr, context.DeadlineExceeded) {

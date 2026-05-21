@@ -26,11 +26,42 @@ func IsValidAnalysisFeed(s string) bool {
 	return false
 }
 
+// Analysis prompt modes — which prompt set frames the report.
+const (
+	AnalysisModeDaily    = "daily"
+	AnalysisModeWeekly   = "weekly"
+	AnalysisModeIncident = "incident"
+)
+
+// IsValidAnalysisMode reports whether s is a recognized prompt mode.
+func IsValidAnalysisMode(s string) bool {
+	switch s {
+	case AnalysisModeDaily, AnalysisModeWeekly, AnalysisModeIncident:
+		return true
+	}
+	return false
+}
+
+// AnalysisModeForFrequency maps a schedule frequency to the prompt mode that
+// scheduled runs use. Per the design decision to auto-derive mode from
+// cadence: daily cadence uses the daily prompt; weekly and monthly both reuse
+// the weekly prompt (no distinct monthly prompt exists today). Unknown
+// frequencies fall back to daily so the worker never receives an empty mode.
+func AnalysisModeForFrequency(frequency string) string {
+	switch frequency {
+	case "weekly", "monthly":
+		return AnalysisModeWeekly
+	default:
+		return AnalysisModeDaily
+	}
+}
+
 // AnalysisReport represents a stored AI analysis report.
 type AnalysisReport struct {
 	ID               int64      `json:"id"`
 	Slug             string     `json:"slug"`
 	Feed             string     `json:"feed"`
+	PromptMode       string     `json:"prompt_mode"`
 	Model            string     `json:"model"`
 	PeriodStart      time.Time  `json:"period_start"`
 	PeriodEnd        time.Time  `json:"period_end"`
@@ -49,6 +80,7 @@ type AnalysisReportSummary struct {
 	ID               int64      `json:"id"`
 	Slug             string     `json:"slug"`
 	Feed             string     `json:"feed"`
+	PromptMode       string     `json:"prompt_mode"`
 	Model            string     `json:"model"`
 	PeriodStart      time.Time  `json:"period_start"`
 	PeriodEnd        time.Time  `json:"period_end"`
@@ -91,8 +123,10 @@ type HostErrorCount struct {
 }
 
 // SeverityLevelComparison compares current severity rate to baseline average.
-// Both Current and BaselineAvg are per-day rates so multi-day periods compare
-// apples-to-apples; for a 24h run, Current equals the raw count.
+// Both Current and BaselineAvg are per-day rates regardless of window length:
+// for a 24h run Current equals the raw count, for sub-24h incident windows it
+// is extrapolated to a per-day-equivalent rate so percentage comparisons stay
+// apples-to-apples.
 type SeverityLevelComparison struct {
 	Severity    int     `json:"severity"`
 	Label       string  `json:"label"`

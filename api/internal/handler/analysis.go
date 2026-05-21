@@ -87,8 +87,37 @@ func (h *AnalysisHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 // createReportRequest is the JSON body for POST /api/v1/analysis/reports.
+//
+// PromptMode selects the prompt set framing the report ("daily", "weekly", or
+// "incident"). Empty defaults to "daily". PeriodMinutes overrides the analysis
+// window; empty/zero picks a mode-aware default (24h for daily/weekly, 60min
+// for incident). Bounds: 5 ≤ period_minutes ≤ 43200 (5min..30d).
 type createReportRequest struct {
-	Feed string `json:"feed"`
+	Feed          string `json:"feed"`
+	PromptMode    string `json:"prompt_mode,omitempty"`
+	PeriodMinutes int    `json:"period_minutes,omitempty"`
+}
+
+// Period bounds for manual triggers. The upper bound matches monthly schedules
+// so manual runs can never exceed what a recurring schedule could produce.
+const (
+	minPeriodMinutes = 5
+	maxPeriodMinutes = 30 * 24 * 60 // 30 days
+)
+
+// defaultPeriodMinutes returns the per-mode default analysis window when the
+// caller doesn't override it. Daily mirrors the historical 24h window; weekly
+// gives the trend prompt 7 days of context; incident keeps a tight 1h window
+// so live triage focuses on what's happening right now.
+func defaultPeriodMinutes(mode string) int {
+	switch mode {
+	case model.AnalysisModeWeekly:
+		return 7 * 24 * 60
+	case model.AnalysisModeIncident:
+		return 60
+	default:
+		return 24 * 60
+	}
 }
 
 // Create handles POST /api/v1/analysis/reports. The new row is returned with
@@ -120,14 +149,34 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Period for manual triggers is always the last 24 hours; scheduled runs use
-	// per-frequency windows via the scheduler. period_end is minute-truncated so
-	// rapid clicks resolve to the same window and hit the duplicate-active guard.
+	mode := req.PromptMode
+	if mode == "" {
+		mode = model.AnalysisModeDaily
+	}
+	if !model.IsValidAnalysisMode(mode) {
+		writeError(w, http.StatusBadRequest, "invalid_prompt_mode", "prompt_mode must be daily, weekly, or incident")
+		return
+	}
+
+	periodMinutes := req.PeriodMinutes
+	if periodMinutes == 0 {
+		periodMinutes = defaultPeriodMinutes(mode)
+	}
+	if periodMinutes < minPeriodMinutes || periodMinutes > maxPeriodMinutes {
+		writeError(w, http.StatusBadRequest, "invalid_period",
+			"period_minutes must be between 5 and 43200")
+		return
+	}
+
+	// period_end is minute-truncated so rapid clicks resolve to the same window
+	// and hit the duplicate-active guard (which now includes prompt_mode, so
+	// different modes for the same window don't collide).
 	periodEnd := time.Now().UTC().Truncate(time.Minute)
-	periodStart := periodEnd.Add(-24 * time.Hour)
+	periodStart := periodEnd.Add(-time.Duration(periodMinutes) * time.Minute)
 
 	report, err := h.enqueuer.Enqueue(r.Context(), model.AnalysisReport{
 		Feed:        req.Feed,
+		PromptMode:  mode,
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 	})

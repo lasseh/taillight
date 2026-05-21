@@ -9,35 +9,42 @@ import (
 	"github.com/lasseh/taillight/internal/ollama"
 )
 
-// Run executes a single analysis cycle for the given feed and period ending now.
-// Persistence is the caller's responsibility — Run returns the assembled Result.
-func (a *Analyzer) Run(ctx context.Context, feed string, period time.Duration) (Result, error) {
+// Run executes a single analysis cycle for the given parameters. Persistence
+// is the caller's responsibility — Run returns the assembled Result.
+func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
+	mode := params.Mode
+	if mode == "" {
+		mode = modeDaily
+	}
+
 	start := time.Now()
 	periodEnd := start.UTC().Truncate(time.Minute)
 
-	a.logger.Info("starting analysis run", "model", a.cfg.Model, "feed", feed, "period", period)
+	a.logger.Info("starting analysis run",
+		"model", a.cfg.Model,
+		"feed", params.Feed,
+		"period", params.Period,
+		"prompt_mode", mode,
+	)
 
 	if err := a.client.Ping(ctx); err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
 		return Result{}, fmt.Errorf("ollama not available: %w", err)
 	}
 
-	data, err := a.gather(ctx, feed, period, periodEnd)
+	data, err := a.gather(ctx, params.Feed, params.Period, periodEnd)
 	if err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
 		return Result{}, fmt.Errorf("gather data: %w", err)
 	}
 
-	// Mode plumbing through Run() lands in a follow-up commit; defaulting to
-	// "daily" here keeps existing behaviour untouched while the per-mode
-	// directory layout settles in.
-	sysProm, userProm, err := buildPrompt(data, a.cfg.PromptsDir, modeDaily)
+	sysProm, userProm, err := buildPrompt(data, a.cfg.PromptsDir, mode)
 	if err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
 		return Result{}, fmt.Errorf("build prompt: %w", err)
 	}
 
-	a.logger.Info("sending prompt to ollama", "model", a.cfg.Model)
+	a.logger.Info("sending prompt to ollama", "model", a.cfg.Model, "prompt_mode", mode)
 
 	resp, err := a.client.Chat(ctx, ollama.ChatRequest{
 		Model: a.cfg.Model,
@@ -59,7 +66,8 @@ func (a *Analyzer) Run(ctx context.Context, feed string, period time.Duration) (
 	metrics.AnalysisDurationSeconds.Observe(time.Since(start).Seconds())
 
 	a.logger.Info("analysis complete",
-		"feed", feed,
+		"feed", params.Feed,
+		"prompt_mode", mode,
 		"duration_ms", time.Since(start).Milliseconds(),
 		"prompt_tokens", resp.PromptEvalCount,
 		"completion_tokens", resp.EvalCount,
@@ -68,6 +76,7 @@ func (a *Analyzer) Run(ctx context.Context, feed string, period time.Duration) (
 	return Result{
 		PeriodStart:      data.PeriodStart,
 		PeriodEnd:        data.PeriodEnd,
+		PromptMode:       mode,
 		Report:           resp.Message.Content,
 		PromptTokens:     resp.PromptEvalCount,
 		CompletionTokens: resp.EvalCount,

@@ -421,20 +421,26 @@ func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[stri
 }
 
 // analysisReportColumns lists the columns selected for full report reads.
-const analysisReportColumns = "id, slug, feed, model, period_start, period_end, " +
+const analysisReportColumns = "id, slug, feed, prompt_mode, model, period_start, period_end, " +
 	"report, prompt_tokens, completion_tokens, status, error, " +
 	"created_at, started_at, completed_at"
 
 // analysisReportSummaryColumns lists the columns selected for list reads.
-const analysisReportSummaryColumns = "id, slug, feed, model, period_start, period_end, " +
+const analysisReportSummaryColumns = "id, slug, feed, prompt_mode, model, period_start, period_end, " +
 	"prompt_tokens, completion_tokens, status, " +
 	"created_at, started_at, completed_at"
 
-// BuildAnalysisSlug returns the canonical slug for a (feed, periodEnd) pair.
-// periodEnd is truncated to the minute in UTC before formatting.
-func BuildAnalysisSlug(feed string, periodEnd time.Time) string {
+// BuildAnalysisSlug returns the canonical slug for a (feed, mode, periodEnd)
+// triple. periodEnd is truncated to the minute in UTC before formatting. Mode
+// is always included as a segment so daily/weekly/incident slugs can coexist
+// for the same feed + window without collision. Empty mode defaults to "daily"
+// so legacy callers don't need updating.
+func BuildAnalysisSlug(feed, mode string, periodEnd time.Time) string {
+	if mode == "" {
+		mode = model.AnalysisModeDaily
+	}
 	t := periodEnd.UTC().Truncate(time.Minute)
-	return fmt.Sprintf("%s-%s-%s", feed, t.Format("2006-01-02"), t.Format("1504"))
+	return fmt.Sprintf("%s-%s-%s-%s", feed, mode, t.Format("2006-01-02"), t.Format("1504"))
 }
 
 // InsertPendingReport creates a new report row in the pending state. It
@@ -445,8 +451,11 @@ func BuildAnalysisSlug(feed string, periodEnd time.Time) string {
 // analysis_reports_active_uniq is violated, which happens when another pending
 // or running report already covers the same (feed, period_end).
 func (s *Store) InsertPendingReport(ctx context.Context, r model.AnalysisReport) (model.AnalysisReport, error) {
+	if r.PromptMode == "" {
+		r.PromptMode = model.AnalysisModeDaily
+	}
 	if r.Slug == "" {
-		r.Slug = BuildAnalysisSlug(r.Feed, r.PeriodEnd)
+		r.Slug = BuildAnalysisSlug(r.Feed, r.PromptMode, r.PeriodEnd)
 	}
 	r.Status = model.AnalysisStatusPending
 
@@ -462,8 +471,8 @@ func (s *Store) InsertPendingReport(ctx context.Context, r model.AnalysisReport)
 
 		query, args, err := psq.
 			Insert("analysis_reports").
-			Columns("slug", "feed", "model", "period_start", "period_end", "status").
-			Values(r.Slug, r.Feed, r.Model, r.PeriodStart, r.PeriodEnd, r.Status).
+			Columns("slug", "feed", "prompt_mode", "model", "period_start", "period_end", "status").
+			Values(r.Slug, r.Feed, r.PromptMode, r.Model, r.PeriodStart, r.PeriodEnd, r.Status).
 			Suffix("RETURNING id, created_at").
 			ToSql()
 		if err != nil {
@@ -603,7 +612,7 @@ func (s *Store) ListReports(ctx context.Context, limit int) ([]model.AnalysisRep
 	for rows.Next() {
 		var r model.AnalysisReportSummary
 		if err := rows.Scan(
-			&r.ID, &r.Slug, &r.Feed, &r.Model, &r.PeriodStart, &r.PeriodEnd,
+			&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Model, &r.PeriodStart, &r.PeriodEnd,
 			&r.PromptTokens, &r.CompletionTokens, &r.Status,
 			&r.CreatedAt, &r.StartedAt, &r.CompletedAt,
 		); err != nil {
@@ -619,7 +628,7 @@ func scanAnalysisReport(row pgx.Row) (model.AnalysisReport, error) {
 	var r model.AnalysisReport
 	var body, errMsg *string
 	if err := row.Scan(
-		&r.ID, &r.Slug, &r.Feed, &r.Model, &r.PeriodStart, &r.PeriodEnd,
+		&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Model, &r.PeriodStart, &r.PeriodEnd,
 		&body, &r.PromptTokens, &r.CompletionTokens, &r.Status, &errMsg,
 		&r.CreatedAt, &r.StartedAt, &r.CompletedAt,
 	); err != nil {

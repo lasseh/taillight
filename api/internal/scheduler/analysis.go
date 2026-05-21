@@ -164,12 +164,14 @@ func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.Analysi
 
 	req := model.AnalysisReport{
 		Feed:        sched.Feed,
+		PromptMode:  model.AnalysisModeForFrequency(sched.Frequency),
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 	}
 
 	s.logger.Info("firing analysis schedule",
-		"schedule", sched.Name, "feed", sched.Feed, "period", period)
+		"schedule", sched.Name, "feed", sched.Feed, "period", period,
+		"prompt_mode", req.PromptMode)
 
 	if _, err := s.enqueuer.Enqueue(ctx, req); err != nil {
 		// Leave last_run_at unchanged so the schedule retries on the next tick
@@ -203,6 +205,7 @@ func (s *AnalysisScheduler) RunNow(ctx context.Context, id int64) error {
 
 	_, err = s.enqueuer.Enqueue(ctx, model.AnalysisReport{
 		Feed:        sched.Feed,
+		PromptMode:  model.AnalysisModeForFrequency(sched.Frequency),
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 	})

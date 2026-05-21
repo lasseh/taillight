@@ -33,11 +33,20 @@ type Config struct {
 	PromptsDir string
 }
 
+// RunParams carries the per-run inputs for Analyzer.Run. Grouping them keeps
+// the signature stable as new dimensions (mode, scope, host filter) get added.
+type RunParams struct {
+	Feed   string
+	Period time.Duration
+	Mode   string // "" defaults to AnalysisModeDaily.
+}
+
 // Result is the output of a single analysis run. Persistence is the caller's
 // responsibility (the worker writes it to the report row).
 type Result struct {
 	PeriodStart      time.Time
 	PeriodEnd        time.Time
+	PromptMode       string
 	Report           string
 	PromptTokens     int
 	CompletionTokens int
