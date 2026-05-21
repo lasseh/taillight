@@ -14,9 +14,13 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
+// appLogColumns is the SELECT list for all applog reads. source_ip is cast to
+// text so it scans cleanly into *string (mirrors sessions.ip_address handling
+// in auth_store.go).
 var appLogColumns = []string{
 	"id", "received_at", "timestamp", "level", "service",
 	"component", "host", "msg", "source", "attrs",
+	"source_ip::text", "api_key_id",
 }
 
 // allowedAppLogMetaColumns is a whitelist of columns that can be used in log meta queries.
@@ -34,16 +38,21 @@ func (s *Store) InsertLogBatch(ctx context.Context, events []model.AppLogEvent) 
 	}
 
 	batch := &pgx.Batch{}
-	const insertSQL = `INSERT INTO applog_events (timestamp, level, service, component, host, msg, source, attrs)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, received_at, timestamp, level, service, component, host, msg, source, attrs`
+	const insertSQL = `INSERT INTO applog_events
+			(timestamp, level, service, component, host, msg, source, attrs, source_ip, api_key_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::inet, $10)
+		RETURNING id, received_at, timestamp, level, service, component, host, msg, source, attrs,
+		          source_ip::text, api_key_id`
 
 	for _, e := range events {
 		var attrsBytes []byte
 		if e.Attrs != nil {
 			attrsBytes = []byte(e.Attrs)
 		}
-		batch.Queue(insertSQL, e.Timestamp, e.Level, e.Service, e.Component, e.Host, e.Msg, e.Source, attrsBytes)
+		batch.Queue(insertSQL,
+			e.Timestamp, e.Level, e.Service, e.Component, e.Host, e.Msg, e.Source, attrsBytes,
+			e.SourceIP, e.APIKeyID,
+		)
 	}
 
 	results := s.pool.SendBatch(ctx, batch)
@@ -56,6 +65,7 @@ func (s *Store) InsertLogBatch(ctx context.Context, events []model.AppLogEvent) 
 			&e.ID, &e.ReceivedAt, &e.Timestamp,
 			&e.Level, &e.Service, &e.Component,
 			&e.Host, &e.Msg, &e.Source, &attrs,
+			&e.SourceIP, &e.APIKeyID,
 		)
 		if err != nil {
 			results.Close() //nolint:errcheck
@@ -263,6 +273,7 @@ func scanAppLog(row pgx.Row, e *model.AppLogEvent) error {
 	err := row.Scan(
 		&e.ID, &e.ReceivedAt, &e.Timestamp, &e.Level, &e.Service,
 		&e.Component, &e.Host, &e.Msg, &e.Source, &attrs,
+		&e.SourceIP, &e.APIKeyID,
 	)
 	if err != nil {
 		return err

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/lasseh/taillight/internal/httputil"
 	"github.com/lasseh/taillight/internal/model"
 )
@@ -25,11 +27,12 @@ func (m *mockSessionLookup) GetSessionUser(_ context.Context, _ string) (*model.
 type mockAPIKeyLookup struct {
 	user   *model.User
 	scopes []string
+	keyID  pgtype.UUID
 	err    error
 }
 
-func (m *mockAPIKeyLookup) GetAPIKeyUser(_ context.Context, _ string) (*model.User, []string, error) {
-	return m.user, m.scopes, m.err
+func (m *mockAPIKeyLookup) GetAPIKeyUser(_ context.Context, _ string) (*model.User, []string, pgtype.UUID, error) {
+	return m.user, m.scopes, m.keyID, m.err
 }
 
 func TestAllowAnonymous(t *testing.T) {

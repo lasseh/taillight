@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lasseh/taillight/internal/model"
@@ -411,12 +412,12 @@ func (s *AuthStore) GetSessionUser(ctx context.Context, tokenHash string) (*mode
 }
 
 // GetAPIKeyUser implements auth.APIKeyLookup.
-func (s *AuthStore) GetAPIKeyUser(ctx context.Context, keyHash string) (*model.User, []string, error) {
+func (s *AuthStore) GetAPIKeyUser(ctx context.Context, keyHash string) (*model.User, []string, pgtype.UUID, error) {
 	kw, err := s.GetAPIKeyByHash(ctx, keyHash)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, pgtype.UUID{}, err
 	}
-	return &kw.User, kw.Key.Scopes, nil
+	return &kw.User, kw.Key.Scopes, kw.Key.ID, nil
 }
 
 func collectUsers(rows pgx.Rows) ([]model.User, error) {

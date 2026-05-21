@@ -8,12 +8,15 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/lasseh/taillight/internal/httputil"
 	"github.com/lasseh/taillight/internal/model"
 )
 
 type ctxKeyUser struct{}
 type ctxKeyScopes struct{}
+type ctxKeyAPIKeyID struct{}
 
 // WithUser stores a user in the context.
 func WithUser(ctx context.Context, user *model.User) context.Context {
@@ -37,14 +40,28 @@ func ScopesFromContext(ctx context.Context) []string {
 	return s
 }
 
+// WithAPIKeyID stores the authenticated API key's ID in the context.
+func WithAPIKeyID(ctx context.Context, id pgtype.UUID) context.Context {
+	return context.WithValue(ctx, ctxKeyAPIKeyID{}, id)
+}
+
+// APIKeyIDFromContext returns the authenticated API key's ID and true if the
+// request was authenticated via an API key. Returns the zero value and false
+// for session auth.
+func APIKeyIDFromContext(ctx context.Context) (pgtype.UUID, bool) {
+	id, ok := ctx.Value(ctxKeyAPIKeyID{}).(pgtype.UUID)
+	return id, ok
+}
+
 // SessionLookup is the interface for looking up sessions by token hash.
 type SessionLookup interface {
 	GetSessionUser(ctx context.Context, tokenHash string) (*model.User, error)
 }
 
 // APIKeyLookup is the interface for looking up API keys by hash.
+// Returns the owning user, the key's scopes, and the key's row ID.
 type APIKeyLookup interface {
-	GetAPIKeyUser(ctx context.Context, keyHash string) (*model.User, []string, error)
+	GetAPIKeyUser(ctx context.Context, keyHash string) (*model.User, []string, pgtype.UUID, error)
 }
 
 // AllowAnonymous is a middleware that stores an anonymous user in the context.
@@ -76,10 +93,11 @@ func SessionOrAPIKey(sessions SessionLookup, apiKeys APIKeyLookup) func(http.Han
 			if bearer := extractBearer(r); bearer != "" {
 				if strings.HasPrefix(bearer, "tl_") {
 					keyHash := HashToken(bearer)
-					user, scopes, err := apiKeys.GetAPIKeyUser(r.Context(), keyHash)
+					user, scopes, keyID, err := apiKeys.GetAPIKeyUser(r.Context(), keyHash)
 					if err == nil && user != nil {
 						ctx := WithUser(r.Context(), user)
 						ctx = WithScopes(ctx, scopes)
+						ctx = WithAPIKeyID(ctx, keyID)
 						next.ServeHTTP(w, r.WithContext(ctx))
 						return
 					}

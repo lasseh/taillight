@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/broker"
 	"github.com/lasseh/taillight/internal/metrics"
 	"github.com/lasseh/taillight/internal/model"
@@ -133,6 +136,14 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Server-captured ingest metadata, identical for every entry in the batch.
+	// RemoteAddr has already been resolved by chi's middleware.RealIP from
+	// X-Forwarded-For / X-Real-IP, so this is the upstream client IP when
+	// behind a trusted reverse proxy. The trust model is acceptable here
+	// because ingest requires a valid API key.
+	sourceIP := resolveSourceIP(r.RemoteAddr)
+	apiKeyID, _ := auth.APIKeyIDFromContext(r.Context()) // zero-value UUID (Valid=false) → SQL NULL for session auth.
+
 	// Convert to model events.
 	events := make([]model.AppLogEvent, len(req.Logs))
 	for i, entry := range req.Logs {
@@ -145,6 +156,8 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 			Msg:       entry.Msg,
 			Source:    entry.Source,
 			Attrs:     entry.Attrs,
+			SourceIP:  sourceIP,
+			APIKeyID:  apiKeyID,
 		}
 	}
 
@@ -172,4 +185,23 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONStatus(w, http.StatusAccepted, map[string]int{"accepted": len(inserted)})
+}
+
+// resolveSourceIP returns the host portion of remoteAddr as a parsed IP string,
+// or nil if remoteAddr is empty/malformed. RemoteAddr arrives as "ip:port" (or
+// "[ipv6]:port"); the port is dropped because Postgres `inet` doesn't accept it.
+func resolveSourceIP(remoteAddr string) *string {
+	if remoteAddr == "" {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr // fall back if no port
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return nil
+	}
+	s := addr.String()
+	return &s
 }

@@ -126,6 +126,10 @@ func sendBatch(ctx context.Context, client *http.Client, entries []ingestEntry) 
 		return fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Recognizable placeholder so loadgen-generated rows are visually
+	// distinguishable from real ingest traffic in the source_ip column.
+	// Resolved by chi's middleware.RealIP on the server side.
+	req.Header.Set("X-Forwarded-For", "127.1.2.3")
 	if applogLoadgenAPIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+applogLoadgenAPIKey)
 	}

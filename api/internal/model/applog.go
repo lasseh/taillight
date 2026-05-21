@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // AppLogEvent represents a row from applog_events.
@@ -19,6 +21,12 @@ type AppLogEvent struct {
 	Msg        string          `json:"msg"`
 	Source     string          `json:"source"`
 	Attrs      json.RawMessage `json:"attrs"`
+	// SourceIP is the resolved client IP captured by the ingest handler.
+	// NULL on rows ingested before this field was added.
+	SourceIP *string `json:"source_ip,omitempty"`
+	// APIKeyID identifies the API key that ingested this row. Invalid (NULL)
+	// when inserted via session auth or before this field was added.
+	APIKeyID pgtype.UUID `json:"api_key_id"`
 }
 
 // ValidAppLogLevels is the set of canonical log levels and their ranks.
