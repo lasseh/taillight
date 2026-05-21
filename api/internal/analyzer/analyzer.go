@@ -19,6 +19,8 @@ type Store interface {
 	GetNewMsgIDs(ctx context.Context, feed string, since, baselineSince time.Time) ([]string, error)
 	GetEventClusters(ctx context.Context, feed string, since time.Time, windowMinutes int) ([]model.EventCluster, error)
 	GetMsgIDSamples(ctx context.Context, feed string, since time.Time, keys []string, perKeyLimit int) (map[string][]model.SampleMessage, error)
+	GetTopPrograms(ctx context.Context, feed string, since time.Time, limit int) ([]model.ProgramCount, error)
+	GetTopFacilities(ctx context.Context, feed string, since time.Time, limit int) ([]model.FacilityCount, error)
 	LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error)
 }
 

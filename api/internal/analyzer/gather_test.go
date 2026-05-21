@@ -46,6 +46,14 @@ func (s stubStore) GetMsgIDSamples(context.Context, string, time.Time, []string,
 	return nil, nil
 }
 
+func (s stubStore) GetTopPrograms(context.Context, string, time.Time, int) ([]model.ProgramCount, error) {
+	return nil, nil
+}
+
+func (s stubStore) GetTopFacilities(context.Context, string, time.Time, int) ([]model.FacilityCount, error) {
+	return nil, nil
+}
+
 func (s stubStore) LookupJuniperRefs(context.Context, []string) (map[string]model.JuniperNetlogRef, error) {
 	return nil, nil
 }

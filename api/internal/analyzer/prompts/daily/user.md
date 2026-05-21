@@ -28,6 +28,18 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 {{ range .SeverityComparison.Levels -}}
 - {{ .Label }} (sev {{ .Severity }}): current={{ printf "%.1f" .Current }}/day · baseline={{ printf "%.1f" .BaselineAvg }}/day · change={{ printf "%+.1f" .ChangePct }}%
 {{ end }}
+{{- if .TopPrograms }}
+## Top Programs (srvlog programname; max 10)
+{{ range .TopPrograms -}}
+- `{{ .Programname }}` — {{ .Count }} events ({{ .ErrorCount }} severity ≤ 3) · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
+{{ end }}
+{{- end }}
+{{- if .TopFacilities }}
+## Top Facilities (syslog facility; max 8)
+{{ range .TopFacilities -}}
+- `{{ .Label }}` (facility {{ .Facility }}) — {{ .Count }} events ({{ .ErrorCount }} severity ≤ 3)
+{{ end }}
+{{- end }}
 ## Hosts with Most Errors (severity ≤ 3, max 15)
 {{ range .TopErrorHosts -}}
 - `{{ .Hostname }}` — {{ .Count }} errors · top msgid: `{{ .TopMsgID }}`

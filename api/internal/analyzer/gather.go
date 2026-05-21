@@ -20,12 +20,16 @@ type analysisData struct {
 	NewMsgIDs          []string
 	NewMsgIDSamples    map[string]model.SampleMessage // first observed example per new signature.
 	EventClusters      []model.EventCluster
+	TopPrograms        []model.ProgramCount
+	TopFacilities      []model.FacilityCount
 	JuniperRefs        map[string]model.JuniperNetlogRef
 }
 
 const (
 	topMsgIDLimit    = 25
 	topHostLimit     = 15
+	topProgramLimit  = 10
+	topFacilityLimit = 8
 	clusterWindowMin = 5
 
 	// topMsgIDSampleCount is the number of representative messages attached
@@ -141,6 +145,24 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 					data.TopMsgIDs[i].Samples = s
 				}
 			}
+		}
+	}
+
+	// Program + facility breakdowns are srvlog-only signals. The store
+	// returns nil for netlog so calling unconditionally would also work,
+	// but skipping here keeps the log lines truthful about what was
+	// queried.
+	if feed != feedNetlog {
+		a.logger.Info("gathering top programs", "feed", feed)
+		data.TopPrograms, err = a.store.GetTopPrograms(ctx, feed, periodStart, topProgramLimit)
+		if err != nil {
+			return data, err
+		}
+
+		a.logger.Info("gathering top facilities", "feed", feed)
+		data.TopFacilities, err = a.store.GetTopFacilities(ctx, feed, periodStart, topFacilityLimit)
+		if err != nil {
+			return data, err
 		}
 	}
 

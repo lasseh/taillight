@@ -454,6 +454,122 @@ func (s *Store) GetMsgIDSamples(ctx context.Context, feed string, since time.Tim
 	return out, rows.Err()
 }
 
+// GetTopPrograms returns the top srvlog programnames by total count with an
+// errors (severity ≤ 3) breakdown alongside. Only meaningful for srvlog (and
+// "all" if it contains srvlog rows); netlog rows have no programname so this
+// will return empty. The caller is expected to skip rendering when feed is
+// pure netlog.
+func (s *Store) GetTopPrograms(ctx context.Context, feed string, since time.Time, limit int) ([]model.ProgramCount, error) {
+	// netlog_events doesn't carry programname — skip the union and just
+	// return empty rather than emitting a no-op query.
+	if feed == feedNetlog {
+		return nil, nil
+	}
+	source := analysisSource(feed, "received_at, programname, severity")
+
+	topQuery := fmt.Sprintf(`
+		SELECT programname,
+		       count(*) AS cnt,
+		       count(*) FILTER (WHERE severity <= 3) AS err_cnt
+		FROM %s
+		WHERE received_at >= $1 AND programname <> ''
+		GROUP BY programname
+		ORDER BY cnt DESC
+		LIMIT $2`, source)
+
+	rows, err := s.pool.Query(ctx, topQuery, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("top programs query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.ProgramCount
+	progIndex := make(map[string]int)
+	for rows.Next() {
+		var pc model.ProgramCount
+		if err := rows.Scan(&pc.Programname, &pc.Count, &pc.ErrorCount); err != nil {
+			return nil, fmt.Errorf("scan top program: %w", err)
+		}
+		pc.SeverityCounts = make(map[int]int64)
+		progIndex[pc.Programname] = len(results)
+		results = append(results, pc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("top programs rows: %w", err)
+	}
+
+	if len(results) == 0 {
+		return results, nil
+	}
+
+	names := make([]string, len(results))
+	for i, pc := range results {
+		names[i] = pc.Programname
+	}
+
+	sevQuery := fmt.Sprintf(`
+		SELECT programname, severity, count(*) AS cnt
+		FROM %s
+		WHERE received_at >= $1 AND programname = ANY($2)
+		GROUP BY programname, severity`, source)
+
+	sevRows, err := s.pool.Query(ctx, sevQuery, since, names)
+	if err != nil {
+		return nil, fmt.Errorf("program severity breakdown query: %w", err)
+	}
+	defer sevRows.Close()
+
+	for sevRows.Next() {
+		var name string
+		var sev int
+		var cnt int64
+		if err := sevRows.Scan(&name, &sev, &cnt); err != nil {
+			return nil, fmt.Errorf("scan program severity breakdown: %w", err)
+		}
+		if idx, ok := progIndex[name]; ok {
+			results[idx].SeverityCounts[sev] = cnt
+		}
+	}
+	return results, sevRows.Err()
+}
+
+// GetTopFacilities returns the top syslog facilities by total count with an
+// errors (severity ≤ 3) breakdown. Cheap (facility is indexed) and useful
+// for surfacing auth/authpriv activity as a first-class signal.
+func (s *Store) GetTopFacilities(ctx context.Context, feed string, since time.Time, limit int) ([]model.FacilityCount, error) {
+	if feed == feedNetlog {
+		return nil, nil
+	}
+	source := analysisSource(feed, "received_at, facility, severity")
+
+	query := fmt.Sprintf(`
+		SELECT facility,
+		       count(*) AS cnt,
+		       count(*) FILTER (WHERE severity <= 3) AS err_cnt
+		FROM %s
+		WHERE received_at >= $1
+		GROUP BY facility
+		ORDER BY cnt DESC
+		LIMIT $2`, source)
+
+	rows, err := s.pool.Query(ctx, query, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("top facilities query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.FacilityCount
+	for rows.Next() {
+		var fc model.FacilityCount
+		if err := rows.Scan(&fc.Facility, &fc.Count, &fc.ErrorCount); err != nil {
+			return nil, fmt.Errorf("scan top facility: %w", err)
+		}
+		fc.Label = model.FacilityLabel(fc.Facility)
+		results = append(results, fc)
+	}
+	return results, rows.Err()
+}
+
 // LookupJuniperRefs returns Juniper reference data for the given msgid names.
 func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error) {
 	if len(names) == 0 {

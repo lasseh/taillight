@@ -164,3 +164,24 @@ type EventCluster struct {
 	MsgIDs []string  `json:"msgids"`
 	Total  int64     `json:"total"`
 }
+
+// ProgramCount holds a srvlog programname (sshd, systemd, kernel, cron…)
+// with its total event count and severity breakdown. Programname is the
+// fastest way for a triage reader to distinguish auth events from cron
+// noise from kernel faults, so the analyzer surfaces it alongside msgids.
+type ProgramCount struct {
+	Programname    string        `json:"programname"`
+	Count          int64         `json:"count"`
+	ErrorCount     int64         `json:"error_count"` // severity ≤ 3
+	SeverityCounts map[int]int64 `json:"severity_counts"`
+}
+
+// FacilityCount holds a syslog facility (auth, kern, cron, daemon…) with
+// its total event count. Facility movement on auth/authpriv is intrinsically
+// a security signal worth its own line in the briefing.
+type FacilityCount struct {
+	Facility   int    `json:"facility"`
+	Label      string `json:"label"`
+	Count      int64  `json:"count"`
+	ErrorCount int64  `json:"error_count"` // severity ≤ 3
+}
