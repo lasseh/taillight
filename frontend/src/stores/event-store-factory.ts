@@ -107,10 +107,15 @@ export function createEventStore<TEvent extends { id: number }>(
         }
 
         if (reset) {
-          events.value = reversed
+          events.value = reversed.length > MAX_EVENTS ? reversed.slice(-MAX_EVENTS) : reversed
         } else {
           const merge = () => {
-            events.value = [...reversed, ...events.value]
+            // Cap the prepended buffer at MAX_EVENTS, same as the SSE append
+            // path. Without this, infinite scroll-up (or maybeFillViewport
+            // chaining on a tall viewport) can grow the array unboundedly and
+            // eat gigabytes of RAM on high-volume feeds.
+            const next = [...reversed, ...events.value]
+            events.value = next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next
           }
           // wrapMerge lets the caller preserve scroll position when prepending
           // older events (see EventTable.preserveScrollForPrepend).
@@ -122,7 +127,10 @@ export function createEventStore<TEvent extends { id: number }>(
         }
 
         cursor.value = res.cursor ?? null
-        hasMore.value = res.has_more
+        // Once the in-memory buffer is full, stop chasing older pages even if
+        // the API still has more — the user would have to scroll the buffer
+        // off-screen before another page could fit.
+        hasMore.value = res.has_more && events.value.length < MAX_EVENTS
       } catch (e) {
         if (signal.aborted) return
         error.value = e instanceof Error ? e.message : 'failed to load events'
