@@ -28,7 +28,7 @@ func (a *Analyzer) Run(ctx context.Context, feed string, period time.Duration) (
 		return Result{}, fmt.Errorf("gather data: %w", err)
 	}
 
-	sysProm, userProm, err := buildPrompt(data)
+	sysProm, userProm, err := buildPrompt(data, a.cfg.PromptsDir)
 	if err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
 		return Result{}, fmt.Errorf("build prompt: %w", err)

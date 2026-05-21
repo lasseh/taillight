@@ -2,12 +2,38 @@ package analyzer
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 
 	"github.com/lasseh/taillight/internal/model"
 )
+
+// Embedded default prompts. Used when AnalysisConfig.PromptsDir is empty.
+// Override by setting analysis.prompts_dir in config.yml to a directory
+// containing system.md and user.md — files are reloaded on every analysis run,
+// so prompt edits take effect without a rebuild or restart.
+//
+//go:embed prompts/system.md
+var defaultSystemPrompt string
+
+//go:embed prompts/user.md
+var defaultUserPrompt string
+
+const (
+	systemPromptFile = "system.md"
+	userPromptFile   = "user.md"
+)
+
+// promptFuncs are the template functions available to both prompts.
+// Registered fresh on every parse so hot-reload picks up new files.
+var promptFuncs = template.FuncMap{
+	"severityLabel": model.SeverityLabel,
+	"join":          strings.Join,
+}
 
 // feedDescription returns a human-readable description of the feed for use in prompts.
 func feedDescription(feed string) string {
@@ -37,76 +63,6 @@ func feedTitle(feed string) string {
 	}
 }
 
-var systemPromptTemplate = template.Must(template.New("system").Parse(
-	`You are a senior network operations analyst reviewing {{ .FeedDescription }}. Produce a concise operations briefing in markdown format covering the last {{ .PeriodLabel }}.
-
-Your report MUST include these sections:
-
-## Executive Summary
-A 2-3 sentence overview of the last {{ .PeriodLabel }} highlighting the most important findings.
-
-## Incident Analysis
-For each significant event type (msgid), analyze:
-- What the event means (use Juniper reference data when available)
-- Volume and severity distribution
-- Which hosts are affected
-- Recommended operator action
-
-## Anomaly Detection
-- Severity level spikes compared to 7-day baseline
-- New/previously unseen event types
-- Unusual patterns
-
-## Event Correlation
-- Events that occurred simultaneously across multiple hosts
-- Potential cascading failures or related incidents
-
-## Priority Actions
-A numbered list of recommended actions for the ops team, ordered by urgency.
-
-Guidelines:
-- Be specific — reference actual hostnames, msgids, and counts
-- Flag anything with severity 0-3 (emerg/alert/crit/err) as requiring attention
-- Note percentage changes vs baseline that exceed ±50%
-- Keep the report actionable — tell operators what to DO, not just what happened
-- If there is little activity, say so briefly — do not fabricate issues`))
-
-var userPromptTemplate = template.Must(template.New("user").Funcs(template.FuncMap{
-	"severityLabel": model.SeverityLabel,
-	"join":          strings.Join,
-}).Parse(`# {{ .FeedTitle }} Analysis Data — Last {{ .PeriodLabel }}
-Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} to {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }}
-
-## Top Event Types (by volume)
-{{ range .TopMsgIDs -}}
-- **{{ .MsgID }}**: {{ .Count }} events {{ range $sev, $cnt := .SeverityCounts }}[{{ severityLabel $sev }}={{ $cnt }}] {{ end }}
-{{- if index $.JuniperRefs .MsgID }}
-  Juniper ref: {{ (index $.JuniperRefs .MsgID).Description }}
-  {{- if (index $.JuniperRefs .MsgID).Cause }}  | Cause: {{ (index $.JuniperRefs .MsgID).Cause }}{{ end }}
-  {{- if (index $.JuniperRefs .MsgID).Action }}  | Action: {{ (index $.JuniperRefs .MsgID).Action }}{{ end }}
-{{- end }}
-{{ end }}
-## Severity Comparison (current daily average vs 7-day daily average)
-{{ range .SeverityComparison.Levels -}}
-- {{ .Label }} ({{ .Severity }}): current={{ printf "%.1f" .Current }}/day, baseline_avg={{ printf "%.1f" .BaselineAvg }}/day, change={{ printf "%+.1f" .ChangePct }}%
-{{ end }}
-## Hosts with Most Errors (severity <= 3)
-{{ range .TopErrorHosts -}}
-- **{{ .Hostname }}**: {{ .Count }} errors, top msgid={{ .TopMsgID }}
-{{ end }}
-{{- if .NewMsgIDs }}
-## New Event Types (not seen in prior 7 days)
-{{ range .NewMsgIDs -}}
-- {{ . }}{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ end }}
-{{ end }}
-{{- end }}
-{{- if .EventClusters }}
-## Cross-Host Event Clusters (5-min windows)
-{{ range .EventClusters -}}
-- {{ .Bucket.Format "15:04 UTC" }}: {{ .Total }} events across [{{ join .Hosts ", " }}] — msgids: [{{ join .MsgIDs ", " }}]
-{{ end }}
-{{- end }}`))
-
 // promptData wraps analysisData with feed-specific template fields.
 type promptData struct {
 	analysisData
@@ -114,21 +70,64 @@ type promptData struct {
 	FeedTitle       string
 }
 
-// buildPrompt renders the system and user prompts from gathered data.
-func buildPrompt(data analysisData) (string, string, error) {
+// loadPromptSource returns the raw template text for the given prompt file.
+// When dir is empty, the embedded default is used; otherwise the file is read
+// from disk on every call so edits take effect without restarting the server.
+func loadPromptSource(dir, file, embedded string) (string, error) {
+	if dir == "" {
+		return embedded, nil
+	}
+	path := filepath.Join(dir, file)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("load prompt %s: %w", path, err)
+	}
+	return string(b), nil
+}
+
+// parsePrompt parses one template, registering the shared FuncMap.
+func parsePrompt(name, src string) (*template.Template, error) {
+	t, err := template.New(name).Funcs(promptFuncs).Parse(src)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s prompt: %w", name, err)
+	}
+	return t, nil
+}
+
+// buildPrompt loads, parses, and renders the system and user prompts.
+// If promptsDir is empty, the embedded defaults are used.
+func buildPrompt(data analysisData, promptsDir string) (string, string, error) {
 	pd := promptData{
 		analysisData:    data,
 		FeedDescription: feedDescription(data.Feed),
 		FeedTitle:       feedTitle(data.Feed),
 	}
 
+	sysSrc, err := loadPromptSource(promptsDir, systemPromptFile, defaultSystemPrompt)
+	if err != nil {
+		return "", "", err
+	}
+	sysTmpl, err := parsePrompt("system", sysSrc)
+	if err != nil {
+		return "", "", err
+	}
+
+	userSrc, err := loadPromptSource(promptsDir, userPromptFile, defaultUserPrompt)
+	if err != nil {
+		return "", "", err
+	}
+	userTmpl, err := parsePrompt("user", userSrc)
+	if err != nil {
+		return "", "", err
+	}
+
 	var sysBuf bytes.Buffer
-	if err := systemPromptTemplate.Execute(&sysBuf, pd); err != nil {
+	if err := sysTmpl.Execute(&sysBuf, pd); err != nil {
 		return "", "", fmt.Errorf("render system prompt: %w", err)
 	}
 
 	var userBuf bytes.Buffer
-	if err := userPromptTemplate.Execute(&userBuf, pd); err != nil {
+	if err := userTmpl.Execute(&userBuf, pd); err != nil {
 		return "", "", fmt.Errorf("render user prompt: %w", err)
 	}
 	return sysBuf.String(), userBuf.String(), nil

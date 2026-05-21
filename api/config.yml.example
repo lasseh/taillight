@@ -132,3 +132,5 @@ analysis:
   model: "llama3.1:8b"          # Also try: mixtral:8x7b, llama3.1:70b
   temperature: 0.3              # Low temperature for factual/deterministic output.
   num_ctx: 8192                 # Context window size in tokens.
+  prompts_dir: ""               # Optional: dir holding system.md/user.md. Empty = use embedded defaults.
+                                # Files are reloaded on every analysis run — edits take effect without restart.

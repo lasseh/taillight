@@ -27,6 +27,10 @@ type Config struct {
 	Model       string
 	Temperature float64
 	NumCtx      int
+	// PromptsDir, when non-empty, is the directory containing system.md and
+	// user.md. Files are reloaded on every Run so edits take effect without a
+	// rebuild or restart. Empty means use the embedded default prompts.
+	PromptsDir string
 }
 
 // Result is the output of a single analysis run. Persistence is the caller's

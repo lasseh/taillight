@@ -131,6 +131,7 @@ type AnalysisConfig struct {
 	Model       string  // Model name.
 	Temperature float64 // Sampling temperature.
 	NumCtx      int     // Context window size.
+	PromptsDir  string  // Optional directory holding system.md and user.md; empty = use embedded defaults.
 }
 
 // Load reads configuration from config.yml with environment variable overrides.
@@ -167,6 +168,7 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("analysis.model", "llama3")
 	v.SetDefault("analysis.temperature", 0.3)
 	v.SetDefault("analysis.num_ctx", 8192)
+	v.SetDefault("analysis.prompts_dir", "")
 	v.SetDefault("retention.srvlog_days", 90)
 	v.SetDefault("retention.netlog_days", 90)
 	v.SetDefault("retention.applog_days", 90)
@@ -260,6 +262,7 @@ func Load(configFile ...string) (Config, error) {
 			Model:       v.GetString("analysis.model"),
 			Temperature: v.GetFloat64("analysis.temperature"),
 			NumCtx:      v.GetInt("analysis.num_ctx"),
+			PromptsDir:  v.GetString("analysis.prompts_dir"),
 		},
 		Notification: NotificationConfig{
 			Enabled:             v.GetBool("notification.enabled"),
