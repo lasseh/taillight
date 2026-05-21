@@ -435,6 +435,9 @@ onMounted(fetchData)
                     Monthly
                   </button>
                 </div>
+                <p class="text-t-fg-gutter text-xs">
+                  daily cadence uses the daily prompt; weekly and monthly both use the weekly trend prompt.
+                </p>
 
                 <div class="grid grid-cols-2 gap-3">
                   <label v-if="formFrequency === 'weekly'" class="block">

@@ -1,4 +1,9 @@
-import type { AnalysisFeed, AnalysisReport, AnalysisReportSummary } from '@/types/analysis'
+import type {
+  AnalysisFeed,
+  AnalysisPromptMode,
+  AnalysisReport,
+  AnalysisReportSummary,
+} from '@/types/analysis'
 
 export function feedBadgeClass(feed: AnalysisFeed): string {
   switch (feed) {
@@ -8,6 +13,19 @@ export function feedBadgeClass(feed: AnalysisFeed): string {
       return 'bg-t-green/10 text-t-green'
     case 'all':
       return 'bg-t-purple/10 text-t-purple'
+    default:
+      return 'bg-t-fg-dark/10 text-t-fg-dark'
+  }
+}
+
+export function promptModeBadgeClass(mode: AnalysisPromptMode | undefined): string {
+  switch (mode) {
+    case 'daily':
+      return 'bg-t-fg-dark/10 text-t-fg-dark'
+    case 'weekly':
+      return 'bg-t-blue/10 text-t-blue'
+    case 'incident':
+      return 'bg-t-red/10 text-t-red'
     default:
       return 'bg-t-fg-dark/10 text-t-fg-dark'
   }

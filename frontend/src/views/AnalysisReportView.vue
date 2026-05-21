@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { usePolling } from '@/composables/usePolling'
 import {
   feedBadgeClass,
+  promptModeBadgeClass,
   formatDate,
   formatDuration,
   formatReportTimestamp,
@@ -188,6 +189,15 @@ onMounted(refresh)
               <span class="text-t-fg-dark text-xs">Source</span>
               <span class="rounded px-1.5 py-0.5 text-xs font-medium" :class="feedBadgeClass(report.feed)">
                 {{ report.feed }}
+              </span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-t-fg-dark text-xs">Mode</span>
+              <span
+                class="rounded px-1.5 py-0.5 text-xs font-medium"
+                :class="promptModeBadgeClass(report.prompt_mode)"
+              >
+                {{ report.prompt_mode }}
               </span>
             </div>
             <div class="flex items-center gap-1.5">

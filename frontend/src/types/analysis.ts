@@ -2,10 +2,16 @@ export type AnalysisFeed = 'netlog' | 'srvlog' | 'all'
 
 export type AnalysisStatus = 'pending' | 'running' | 'completed' | 'failed'
 
+// Prompt mode framing the report's narrative. Auto-derived from cadence for
+// scheduled runs (daily cadence -> daily, weekly/monthly -> weekly). User-
+// selectable for manual triggers; incident is only available manually.
+export type AnalysisPromptMode = 'daily' | 'weekly' | 'incident'
+
 export interface AnalysisReport {
   id: number
   slug: string
   feed: AnalysisFeed
+  prompt_mode: AnalysisPromptMode
   model: string
   period_start: string
   period_end: string
@@ -23,6 +29,7 @@ export interface AnalysisReportSummary {
   id: number
   slug: string
   feed: AnalysisFeed
+  prompt_mode: AnalysisPromptMode
   model: string
   period_start: string
   period_end: string
@@ -69,6 +76,11 @@ export interface AnalysisScheduleResponse {
 
 export interface CreateAnalysisReportRequest {
   feed: AnalysisFeed
+  // Optional. Empty/undefined defaults to "daily" on the server.
+  prompt_mode?: AnalysisPromptMode
+  // Optional. Empty/0 picks a mode-aware default: 1440 (daily), 10080 (weekly),
+  // or 60 (incident). Bounds: 5..43200 (5 min..30 days).
+  period_minutes?: number
 }
 
 export type CreateAnalysisScheduleRequest = Omit<

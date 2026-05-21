@@ -8,11 +8,13 @@ import {
   feedBadgeClass,
   formatDate,
   formatDuration,
+  promptModeBadgeClass,
   statusBadgeClass,
   timeAgo,
 } from '@/lib/analysis-format'
 import type {
   AnalysisFeed,
+  AnalysisPromptMode,
   AnalysisReportListResponse,
   AnalysisReportSummary,
 } from '@/types/analysis'
@@ -27,6 +29,10 @@ const initialLoading = ref(true)
 
 const showCreate = ref(false)
 const selectedFeed = ref<AnalysisFeed>(features.netlog ? 'netlog' : 'srvlog')
+const selectedMode = ref<AnalysisPromptMode>('daily')
+// Window in minutes used only when mode = incident. Daily/weekly use the
+// server-side mode-aware default (24h / 7d) so the period selector is hidden.
+const incidentPeriodMinutes = ref(60)
 const creating = ref(false)
 const createError = ref('')
 
@@ -34,6 +40,19 @@ const confirmedFeeds: { value: AnalysisFeed; label: string; available: boolean }
   { value: 'netlog', label: 'Netlog', available: features.netlog },
   { value: 'srvlog', label: 'Srvlog', available: true },
   { value: 'all', label: 'All', available: features.netlog },
+]
+
+const promptModes: { value: AnalysisPromptMode; label: string; hint: string }[] = [
+  { value: 'daily', label: 'Daily', hint: 'last 24h, ops brief framing' },
+  { value: 'weekly', label: 'Weekly', hint: 'last 7d, trend review framing' },
+  { value: 'incident', label: 'Incident', hint: 'narrow window, live triage' },
+]
+
+const incidentPeriodOptions: { minutes: number; label: string }[] = [
+  { minutes: 15, label: '15 min' },
+  { minutes: 30, label: '30 min' },
+  { minutes: 60, label: '1 hour' },
+  { minutes: 180, label: '3 hours' },
 ]
 
 // Reports tab uses smart polling: keep ticking while any row is still pending
@@ -76,18 +95,27 @@ async function createReport() {
   createError.value = ''
   creating.value = true
   try {
-    const res = await api.createAnalysisReport({ feed: selectedFeed.value })
+    const payload: { feed: AnalysisFeed; prompt_mode: AnalysisPromptMode; period_minutes?: number } = {
+      feed: selectedFeed.value,
+      prompt_mode: selectedMode.value,
+    }
+    if (selectedMode.value === 'incident') {
+      payload.period_minutes = incidentPeriodMinutes.value
+    }
+    const res = await api.createAnalysisReport(payload)
     reports.value = [res.data, ...reports.value]
     showCreate.value = false
     void polling.start()
   } catch (e) {
     if (e instanceof ApiError) {
       if (e.code === 'duplicate_report') {
-        createError.value = 'a report for this feed is already pending or running'
+        createError.value = 'a report for this feed and mode is already pending or running'
       } else if (e.code === 'queue_full') {
         createError.value = 'analysis queue is full — try again shortly'
       } else if (e.code === 'feed_unavailable') {
         createError.value = 'this feed is disabled on the server'
+      } else if (e.code === 'invalid_prompt_mode' || e.code === 'invalid_period') {
+        createError.value = e.message
       } else {
         createError.value = e.message
       }
@@ -154,9 +182,59 @@ onMounted(refresh)
                 </button>
               </div>
               <p class="text-t-fg-gutter mt-2 text-xs">
-                covers the last 24 hours. for longer periods, set up a schedule.
+                for recurring runs on a longer cadence, set up a schedule.
               </p>
             </label>
+
+            <label class="block">
+              <span class="text-t-fg-dark text-sm">framing</span>
+              <div class="mt-1.5 flex flex-wrap gap-2">
+                <button
+                  v-for="opt in promptModes"
+                  :key="opt.value"
+                  class="flex items-center gap-2 rounded border px-3 py-1.5 text-sm transition-all"
+                  :class="
+                    selectedMode === opt.value
+                      ? 'bg-t-orange/15 border-t-orange text-t-orange'
+                      : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
+                  "
+                  :title="opt.hint"
+                  @click="selectedMode = opt.value"
+                >
+                  <span class="w-4 text-center text-xs">{{ selectedMode === opt.value ? '✓' : '' }}</span>
+                  {{ opt.label }}
+                </button>
+              </div>
+              <p class="text-t-fg-gutter mt-2 text-xs">
+                {{ promptModes.find((m) => m.value === selectedMode)?.hint }}
+              </p>
+            </label>
+
+            <label v-if="selectedMode === 'incident'" class="block">
+              <span class="text-t-fg-dark text-sm">window</span>
+              <div class="mt-1.5 flex flex-wrap gap-2">
+                <button
+                  v-for="opt in incidentPeriodOptions"
+                  :key="opt.minutes"
+                  class="flex items-center gap-2 rounded border px-3 py-1.5 text-sm transition-all"
+                  :class="
+                    incidentPeriodMinutes === opt.minutes
+                      ? 'bg-t-orange/15 border-t-orange text-t-orange'
+                      : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
+                  "
+                  @click="incidentPeriodMinutes = opt.minutes"
+                >
+                  <span class="w-4 text-center text-xs">{{
+                    incidentPeriodMinutes === opt.minutes ? '✓' : ''
+                  }}</span>
+                  {{ opt.label }}
+                </button>
+              </div>
+              <p class="text-t-fg-gutter mt-2 text-xs">
+                how far back to scan for the active spike.
+              </p>
+            </label>
+
             <div class="flex items-center gap-3 pt-1">
               <button
                 class="bg-t-bg-highlight text-t-fg hover:brightness-125 border-t-border border px-4 py-2 text-sm transition-all"
@@ -188,6 +266,7 @@ onMounted(refresh)
         <div v-if="reports.length > 0" class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider">
           <span class="min-w-0 flex-1">Name</span>
           <span class="w-20 shrink-0">Source</span>
+          <span class="w-20 shrink-0">Mode</span>
           <span class="w-44 shrink-0">Status</span>
           <span class="w-24 shrink-0">Created</span>
           <span class="w-20 shrink-0 text-right">Duration</span>
@@ -213,6 +292,14 @@ onMounted(refresh)
                 :class="feedBadgeClass(r.feed)"
               >
                 {{ r.feed }}
+              </span>
+            </div>
+            <div class="w-20 shrink-0">
+              <span
+                class="inline-block rounded px-1.5 py-0.5 text-xs"
+                :class="promptModeBadgeClass(r.prompt_mode)"
+              >
+                {{ r.prompt_mode }}
               </span>
             </div>
             <div class="w-44 shrink-0">
