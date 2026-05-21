@@ -2,6 +2,9 @@ package analyzer
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/lasseh/taillight/internal/model"
@@ -22,6 +25,11 @@ type analysisData struct {
 	EventClusters      []model.EventCluster
 	TopPrograms        []model.ProgramCount
 	TopFacilities      []model.FacilityCount
+	VolumeTimeline     []model.AnalysisVolumeBucket
+	VolumeSparkline    string   // total-events sparkline across the period.
+	ErrorSparkline     string   // sev≤3 sparkline aligned to VolumeSparkline.
+	VolumePeaks        []string // pre-formatted peak descriptions.
+	VolumeBucketLabel  string   // e.g. "1 hour", "5 minutes" — describes one sparkline cell.
 	JuniperRefs        map[string]model.JuniperNetlogRef
 }
 
@@ -43,6 +51,125 @@ const (
 	feedSrvlog = "srvlog"
 	feedAll    = "all"
 )
+
+// sparkBlocks is the set of unicode block characters used to render
+// sparklines, ordered low → high. Index 0 is reserved for "no data".
+var sparkBlocks = [...]rune{' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
+// pickBucketMinutes chooses a sparkline bucket size that keeps the output
+// readable (target 12–48 cells across the period). Hourly granularity is
+// the sweet spot for daily reports; weekly reports compress to 6h cells;
+// monthly to day cells. Short incident windows drop to 5-minute cells.
+func pickBucketMinutes(period time.Duration) int {
+	switch {
+	case period <= 6*time.Hour:
+		return 5
+	case period <= 36*time.Hour:
+		return 60
+	case period <= 8*24*time.Hour:
+		return 360
+	default:
+		return 1440
+	}
+}
+
+// bucketLabel formats a bucket-minutes value for prompt rendering.
+func bucketLabel(minutes int) string {
+	switch {
+	case minutes%1440 == 0:
+		return fmt.Sprintf("%d day", minutes/1440)
+	case minutes%60 == 0:
+		return fmt.Sprintf("%d hour", minutes/60)
+	default:
+		return fmt.Sprintf("%d minutes", minutes)
+	}
+}
+
+// sparkline renders counts as a unicode sparkline scaled to the max value
+// in the slice. Empty input returns "". Cells with count 0 render as a
+// single space so the model can see the "gap" shape directly.
+func sparkline(counts []int64) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	var maxv int64
+	for _, c := range counts {
+		if c > maxv {
+			maxv = c
+		}
+	}
+	if maxv == 0 {
+		// All zeros: render as blanks rather than a row of ▁ to avoid
+		// implying activity.
+		return strings.Repeat(" ", len(counts))
+	}
+	// Steps 1..len(sparkBlocks)-1 are real bars; 0 is the blank cell.
+	steps := int64(len(sparkBlocks) - 1)
+	var b strings.Builder
+	b.Grow(len(counts) * 3) // unicode chars are 3 bytes.
+	for _, c := range counts {
+		if c <= 0 {
+			b.WriteRune(sparkBlocks[0])
+			continue
+		}
+		idx := (c*steps + maxv - 1) / maxv // ceil
+		if idx < 1 {
+			idx = 1
+		}
+		b.WriteRune(sparkBlocks[idx])
+	}
+	return b.String()
+}
+
+// topPeakBuckets returns up to n bucket descriptions sorted by error count
+// descending (then total descending as tiebreaker). Peaks are formatted as
+// e.g. "03:00 (240 err / 1200 total)" using bucketTimeFormat to keep the
+// label compact for the rendered prompt.
+func topPeakBuckets(buckets []model.AnalysisVolumeBucket, n int, bucketTimeFormat string) []string {
+	if len(buckets) == 0 || n <= 0 {
+		return nil
+	}
+	type idxScore struct {
+		i           int
+		errs, total int64
+	}
+	scored := make([]idxScore, len(buckets))
+	for i, b := range buckets {
+		scored[i] = idxScore{i: i, errs: b.ErrorCount, total: b.Total}
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].errs != scored[j].errs {
+			return scored[i].errs > scored[j].errs
+		}
+		return scored[i].total > scored[j].total
+	})
+	if n > len(scored) {
+		n = len(scored)
+	}
+	out := make([]string, 0, n)
+	for _, s := range scored[:n] {
+		if s.errs == 0 && s.total == 0 {
+			continue
+		}
+		b := buckets[s.i]
+		out = append(out, fmt.Sprintf("%s (%d err / %d total)",
+			b.Bucket.Format(bucketTimeFormat), s.errs, s.total))
+	}
+	return out
+}
+
+// peakTimeFormat returns the time format string appropriate for a bucket
+// granularity — finer buckets need more precision in the peak label.
+func peakTimeFormat(bucketMinutes int) string {
+	switch {
+	case bucketMinutes < 60:
+		return "01-02 15:04"
+	case bucketMinutes < 1440:
+		return "01-02 15:00"
+	default:
+		return "2006-01-02"
+	}
+}
 
 // periodLabel returns a short human label for a Run period.
 func periodLabel(d time.Duration) string {
@@ -146,6 +273,32 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 				}
 			}
 		}
+	}
+
+	// Volume timeline + sparkline. Bucket size is derived from period
+	// length to keep the sparkline within 12–48 cells (readable for the
+	// model and human reviewers).
+	bucketMinutes := pickBucketMinutes(period)
+	data.VolumeBucketLabel = bucketLabel(bucketMinutes)
+	a.logger.Info("gathering volume timeline", "feed", feed, "bucket_minutes", bucketMinutes)
+	timeline, volErr := a.store.GetVolumeTimeline(ctx, feed, periodStart, periodEnd, bucketMinutes)
+	if volErr != nil {
+		// Best-effort — the sparkline is a nice-to-have, not load-bearing
+		// for the rest of the analysis.
+		a.logger.Warn("volume timeline lookup failed, continuing without", "err", volErr)
+	} else {
+		data.VolumeTimeline = timeline
+	}
+	if len(data.VolumeTimeline) > 0 {
+		totals := make([]int64, len(data.VolumeTimeline))
+		errs := make([]int64, len(data.VolumeTimeline))
+		for i, b := range data.VolumeTimeline {
+			totals[i] = b.Total
+			errs[i] = b.ErrorCount
+		}
+		data.VolumeSparkline = sparkline(totals)
+		data.ErrorSparkline = sparkline(errs)
+		data.VolumePeaks = topPeakBuckets(data.VolumeTimeline, 3, peakTimeFormat(bucketMinutes))
 	}
 
 	// Program + facility breakdowns are srvlog-only signals. The store

@@ -570,6 +570,76 @@ func (s *Store) GetTopFacilities(ctx context.Context, feed string, since time.Ti
 	return results, rows.Err()
 }
 
+// GetVolumeTimeline returns event counts bucketed across the analysis
+// period, with errors (severity ≤ 3) called out separately. bucketMinutes
+// controls bucket granularity.
+//
+// For buckets ≥ 60 minutes the query reads from the continuous aggregate
+// (srvlog_summary_hourly / netlog_summary_hourly) since those views are
+// already pre-rolled per (bucket, hostname, severity); for finer buckets
+// the function falls back to the raw event tables.
+func (s *Store) GetVolumeTimeline(ctx context.Context, feed string, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error) {
+	if bucketMinutes <= 0 {
+		return nil, nil
+	}
+	interval := fmt.Sprintf("%d minutes", bucketMinutes)
+
+	var query string
+	switch {
+	case bucketMinutes >= 60:
+		caSource := analysisAggregateSource(feed)
+		query = fmt.Sprintf(`
+			SELECT time_bucket($1::interval, bucket) AS b,
+			       SUM(cnt) AS total,
+			       SUM(cnt) FILTER (WHERE severity <= 3) AS err_cnt
+			FROM %s
+			WHERE bucket >= $2 AND bucket < $3
+			GROUP BY b
+			ORDER BY b`, caSource)
+	default:
+		source := analysisSource(feed, "received_at, severity")
+		query = fmt.Sprintf(`
+			SELECT time_bucket($1::interval, received_at) AS b,
+			       count(*) AS total,
+			       count(*) FILTER (WHERE severity <= 3) AS err_cnt
+			FROM %s
+			WHERE received_at >= $2 AND received_at < $3
+			GROUP BY b
+			ORDER BY b`, source)
+	}
+
+	rows, err := s.pool.Query(ctx, query, interval, since, until)
+	if err != nil {
+		return nil, fmt.Errorf("volume timeline query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.AnalysisVolumeBucket
+	for rows.Next() {
+		var b model.AnalysisVolumeBucket
+		if err := rows.Scan(&b.Bucket, &b.Total, &b.ErrorCount); err != nil {
+			return nil, fmt.Errorf("scan volume bucket: %w", err)
+		}
+		results = append(results, b)
+	}
+	return results, rows.Err()
+}
+
+// analysisAggregateSource returns the hourly continuous-aggregate source
+// for the given feed. For "all", srvlog and netlog summaries are unioned.
+func analysisAggregateSource(feed string) string {
+	switch feed {
+	case feedNetlog:
+		return "netlog_summary_hourly"
+	case feedSrvlog:
+		return "srvlog_summary_hourly"
+	case feedAll:
+		return "(SELECT bucket, severity, cnt FROM srvlog_summary_hourly UNION ALL SELECT bucket, severity, cnt FROM netlog_summary_hourly) AS combined_hourly"
+	default:
+		return "srvlog_summary_hourly"
+	}
+}
+
 // LookupJuniperRefs returns Juniper reference data for the given msgid names.
 func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error) {
 	if len(names) == 0 {

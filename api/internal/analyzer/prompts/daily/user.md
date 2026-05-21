@@ -24,6 +24,14 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
   {{- end }}
 {{- end }}
 {{ end }}
+{{- if .VolumeSparkline }}
+## Volume Timeline ({{ .VolumeBucketLabel }} per cell)
+- Total: `{{ .VolumeSparkline }}`
+- Errors (sev ≤ 3): `{{ .ErrorSparkline }}`
+{{- if .VolumePeaks }}
+- Peaks: {{ join .VolumePeaks "; " }}
+{{- end }}
+{{ end }}
 ## Severity Drift (current daily average vs 7-day daily average)
 {{ range .SeverityComparison.Levels -}}
 - {{ .Label }} (sev {{ .Severity }}): current={{ printf "%.1f" .Current }}/day · baseline={{ printf "%.1f" .BaselineAvg }}/day · change={{ printf "%+.1f" .ChangePct }}%

@@ -53,6 +53,10 @@ func fixtureData(t *testing.T) analysisData {
 		NewMsgIDSamples: map[string]model.SampleMessage{
 			"KERN_ARP_ADDR_CHANGE": {Hostname: "edge3-osl", ReceivedAt: now.Add(-15 * time.Minute), Severity: 4, Message: "arp address change for 10.1.2.3 from aa:bb:cc:dd:ee:ff to 11:22:33:44:55:66"},
 		},
+		VolumeBucketLabel: "1 hour",
+		VolumeSparkline:   "▁▂▃▅▇█▆▄▂▁",
+		ErrorSparkline:    "▁▁▁▂▄█▆▃▁▁",
+		VolumePeaks:       []string{"05-21 11:00 (240 err / 1200 total)"},
 		EventClusters: []model.EventCluster{
 			{
 				Bucket: now.Add(-2 * time.Hour),
@@ -113,6 +117,14 @@ func TestBuildPromptAllModes(t *testing.T) {
 			}
 			if !strings.Contains(usr, "arp address change") {
 				t.Errorf("user prompt for %s missing new-msgid sample text; got:\n%s", tc.mode, usr)
+			}
+			// Volume sparkline branch must render — exercising the
+			// {{ if .VolumeSparkline }} guard at least once across modes.
+			if !strings.Contains(usr, "▁▂▃▅▇█▆▄▂▁") {
+				t.Errorf("user prompt for %s missing volume sparkline; got:\n%s", tc.mode, usr)
+			}
+			if !strings.Contains(usr, "Peaks:") {
+				t.Errorf("user prompt for %s missing peaks line; got:\n%s", tc.mode, usr)
 			}
 		})
 	}

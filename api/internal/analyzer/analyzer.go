@@ -21,6 +21,7 @@ type Store interface {
 	GetMsgIDSamples(ctx context.Context, feed string, since time.Time, keys []string, perKeyLimit int) (map[string][]model.SampleMessage, error)
 	GetTopPrograms(ctx context.Context, feed string, since time.Time, limit int) ([]model.ProgramCount, error)
 	GetTopFacilities(ctx context.Context, feed string, since time.Time, limit int) ([]model.FacilityCount, error)
+	GetVolumeTimeline(ctx context.Context, feed string, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error)
 	LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error)
 }
 

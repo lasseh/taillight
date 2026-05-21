@@ -176,6 +176,16 @@ type ProgramCount struct {
 	SeverityCounts map[int]int64 `json:"severity_counts"`
 }
 
+// AnalysisVolumeBucket is a single time bucket in the analyzer's per-period
+// volume timeline. Distinct from the dashboard VolumeBucket type because
+// the analyzer cares about total + errors (sev ≤ 3) per bucket, not
+// per-host breakdown.
+type AnalysisVolumeBucket struct {
+	Bucket     time.Time `json:"bucket"`
+	Total      int64     `json:"total"`
+	ErrorCount int64     `json:"error_count"`
+}
+
 // FacilityCount holds a syslog facility (auth, kern, cron, daemon…) with
 // its total event count. Facility movement on auth/authpriv is intrinsically
 // a security signal worth its own line in the briefing.

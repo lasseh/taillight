@@ -54,8 +54,61 @@ func (s stubStore) GetTopFacilities(context.Context, string, time.Time, int) ([]
 	return nil, nil
 }
 
+func (s stubStore) GetVolumeTimeline(context.Context, string, time.Time, time.Time, int) ([]model.AnalysisVolumeBucket, error) {
+	return nil, nil
+}
+
 func (s stubStore) LookupJuniperRefs(context.Context, []string) (map[string]model.JuniperNetlogRef, error) {
 	return nil, nil
+}
+
+// TestSparklineMath spot-checks the ceil-scaling behavior. The crucial
+// property: the single max value in the input must map to the tallest
+// block, and zeros must map to the blank cell — otherwise the model
+// can't distinguish "quiet hour" from "low activity".
+func TestSparklineMath(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []int64
+		want string
+	}{
+		{name: "empty", in: nil, want: ""},
+		{name: "all zero", in: []int64{0, 0, 0}, want: "   "},
+		{name: "single peak", in: []int64{0, 0, 100, 0}, want: "  █ "},
+		{name: "monotonic ramp", in: []int64{1, 2, 3, 4, 5, 6, 7, 8}, want: "▁▂▃▄▅▆▇█"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sparkline(tc.in)
+			if got != tc.want {
+				t.Errorf("sparkline(%v) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPickBucketMinutes ensures the period → bucket mapping stays within
+// the readable cell-count range (12–72 cells) across the supported
+// periods. A regression here would either crush the sparkline to a few
+// cells (loses signal) or balloon it past comprehension.
+func TestPickBucketMinutes(t *testing.T) {
+	cases := []struct {
+		period time.Duration
+		bucket int
+		cells  int // period / bucket
+	}{
+		{period: 1 * time.Hour, bucket: 5, cells: 12},
+		{period: 6 * time.Hour, bucket: 5, cells: 72},
+		{period: 24 * time.Hour, bucket: 60, cells: 24},
+		{period: 7 * 24 * time.Hour, bucket: 360, cells: 28},
+		{period: 30 * 24 * time.Hour, bucket: 1440, cells: 30},
+	}
+	for _, tc := range cases {
+		got := pickBucketMinutes(tc.period)
+		if got != tc.bucket {
+			t.Errorf("pickBucketMinutes(%v) = %d, want %d", tc.period, got, tc.bucket)
+		}
+	}
 }
 
 // TestGatherSeverityNormalization verifies that the per-day-rate normalization
