@@ -10,6 +10,7 @@ import {
   feedBadgeClass,
   formatDate,
   formatDuration,
+  formatReportTimestamp,
   statusBadgeClass,
 } from '@/lib/analysis-format'
 import type { AnalysisReport, AnalysisReportResponse } from '@/types/analysis'
@@ -101,6 +102,17 @@ function formatPeriod(start: string, end: string): string {
   return `${formatDate(start)} → ${formatDate(end)}`
 }
 
+const FEED_LABEL: Record<string, string> = {
+  netlog: 'Netlog',
+  srvlog: 'Srvlog',
+  all: 'Combined',
+}
+
+function reportTitle(r: AnalysisReport): string {
+  const feed = FEED_LABEL[r.feed] ?? r.feed
+  return `${feed} Analysis Report ${formatReportTimestamp(r.created_at)}`
+}
+
 // Detail page wants — for missing values rather than the empty string the
 // shared helper returns (used by the list table).
 function durationOrDash(r: AnalysisReport): string {
@@ -158,7 +170,10 @@ onMounted(refresh)
             </div>
           </div>
 
-          <h1 class="text-t-fg font-mono text-base font-semibold">{{ report.slug }}</h1>
+          <div class="space-y-1">
+            <h1 class="text-t-fg text-xl font-semibold">{{ reportTitle(report) }}</h1>
+            <div class="text-t-fg-dark font-mono text-xs">{{ report.slug }}</div>
+          </div>
 
           <div
             class="bg-t-bg-dark border-t-border flex flex-wrap items-center gap-x-6 gap-y-2 rounded border px-4 py-3"
@@ -184,26 +199,8 @@ onMounted(refresh)
               <span class="text-t-fg text-xs font-medium">{{ report.model || '—' }}</span>
             </div>
             <div class="flex items-center gap-1.5">
-              <span class="text-t-fg-dark text-xs">Tokens</span>
-              <span class="text-t-fg text-xs font-medium">
-                {{ report.prompt_tokens ? `${report.prompt_tokens.toLocaleString()} + ${report.completion_tokens.toLocaleString()}` : '—' }}
-              </span>
-            </div>
-            <div class="flex items-center gap-1.5">
               <span class="text-t-fg-dark text-xs">Duration</span>
               <span class="text-t-fg text-xs font-medium">{{ durationOrDash(report) }}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="text-t-fg-dark text-xs">Created</span>
-              <span class="text-t-fg text-xs font-medium">{{ formatDate(report.created_at) }}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="text-t-fg-dark text-xs">Started</span>
-              <span class="text-t-fg text-xs font-medium">{{ report.started_at ? formatDate(report.started_at) : '—' }}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="text-t-fg-dark text-xs">Completed</span>
-              <span class="text-t-fg text-xs font-medium">{{ report.completed_at ? formatDate(report.completed_at) : '—' }}</span>
             </div>
           </div>
 
