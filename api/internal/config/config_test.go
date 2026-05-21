@@ -87,6 +87,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Analysis.NumCtx != 8192 {
 		t.Errorf("Analysis.NumCtx = %d, want %d", cfg.Analysis.NumCtx, 8192)
 	}
+	if cfg.Analysis.OllamaTimeout != 30*time.Minute {
+		t.Errorf("Analysis.OllamaTimeout = %s, want 30m", cfg.Analysis.OllamaTimeout)
+	}
+	if cfg.Analysis.RunTimeout != 60*time.Minute {
+		t.Errorf("Analysis.RunTimeout = %s, want 60m", cfg.Analysis.RunTimeout)
+	}
 	if cfg.Notification.Enabled {
 		t.Error("Notification.Enabled should be false by default")
 	}

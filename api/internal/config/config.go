@@ -126,12 +126,14 @@ type NetboxConfig struct {
 // and scheduling now live in the analysis_schedules table — managed via the UI
 // or API rather than configuration.
 type AnalysisConfig struct {
-	Enabled     bool    // Enable analysis.
-	OllamaURL   string  // Ollama API URL.
-	Model       string  // Model name.
-	Temperature float64 // Sampling temperature.
-	NumCtx      int     // Context window size.
-	PromptsDir  string  // Optional directory holding system.md and user.md; empty = use embedded defaults.
+	Enabled       bool          // Enable analysis.
+	OllamaURL     string        // Ollama API URL.
+	Model         string        // Model name.
+	Temperature   float64       // Sampling temperature.
+	NumCtx        int           // Context window size.
+	PromptsDir    string        // Optional directory holding system.md and user.md; empty = use embedded defaults.
+	OllamaTimeout time.Duration // Per-request HTTP timeout for Ollama chat calls. Default 30m.
+	RunTimeout    time.Duration // Wall-clock bound for a full analysis run (gather + prompt + chat + persist, including any validator retry). Default 60m. Should comfortably exceed OllamaTimeout to leave room for a structure-validation retry.
 }
 
 // Load reads configuration from config.yml with environment variable overrides.
@@ -169,6 +171,8 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("analysis.temperature", 0.3)
 	v.SetDefault("analysis.num_ctx", 8192)
 	v.SetDefault("analysis.prompts_dir", "")
+	v.SetDefault("analysis.ollama_timeout", "30m")
+	v.SetDefault("analysis.run_timeout", "60m")
 	v.SetDefault("retention.srvlog_days", 90)
 	v.SetDefault("retention.netlog_days", 90)
 	v.SetDefault("retention.applog_days", 90)
@@ -257,12 +261,14 @@ func Load(configFile ...string) (Config, error) {
 			BufferSize:  v.GetInt("logshipper.buffer_size"),
 		},
 		Analysis: AnalysisConfig{
-			Enabled:     v.GetBool("analysis.enabled"),
-			OllamaURL:   v.GetString("analysis.ollama_url"),
-			Model:       v.GetString("analysis.model"),
-			Temperature: v.GetFloat64("analysis.temperature"),
-			NumCtx:      v.GetInt("analysis.num_ctx"),
-			PromptsDir:  v.GetString("analysis.prompts_dir"),
+			Enabled:       v.GetBool("analysis.enabled"),
+			OllamaURL:     v.GetString("analysis.ollama_url"),
+			Model:         v.GetString("analysis.model"),
+			Temperature:   v.GetFloat64("analysis.temperature"),
+			NumCtx:        v.GetInt("analysis.num_ctx"),
+			PromptsDir:    v.GetString("analysis.prompts_dir"),
+			OllamaTimeout: v.GetDuration("analysis.ollama_timeout"),
+			RunTimeout:    v.GetDuration("analysis.run_timeout"),
 		},
 		Notification: NotificationConfig{
 			Enabled:             v.GetBool("notification.enabled"),

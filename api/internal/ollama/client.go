@@ -45,12 +45,22 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// New creates a new Ollama client.
-func New(baseURL string) *Client {
+// defaultChatTimeout is used when New is called with a zero/negative timeout,
+// e.g. from tests or other non-config call sites. Picked to cover weekly
+// reports on commodity-GPU Ollama hosts without surprising callers that
+// forget to set the value.
+const defaultChatTimeout = 30 * time.Minute
+
+// New creates a new Ollama client. timeout bounds each HTTP request; pass
+// 0 to use defaultChatTimeout.
+func New(baseURL string, timeout time.Duration) *Client {
+	if timeout <= 0 {
+		timeout = defaultChatTimeout
+	}
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Minute,
+			Timeout: timeout,
 		},
 	}
 }

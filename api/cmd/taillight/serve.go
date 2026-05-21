@@ -409,7 +409,7 @@ type analysisWiring struct {
 // worker + DB-backed schedule scheduler + HTTP handlers. Returns nil when
 // analysis is disabled.
 func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store, logger *slog.Logger) *analysisWiring {
-	ollamaClient := ollama.New(cfg.Analysis.OllamaURL)
+	ollamaClient := ollama.New(cfg.Analysis.OllamaURL, cfg.Analysis.OllamaTimeout)
 	a := analyzer.New(store, ollamaClient, analyzer.Config{
 		Model:       cfg.Analysis.Model,
 		Temperature: cfg.Analysis.Temperature,
@@ -425,7 +425,7 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 		logger.Info("reconciled orphaned analysis reports", "count", n)
 	}
 
-	w := worker.NewAnalysis(store, a, logger)
+	w := worker.NewAnalysis(store, a, logger, cfg.Analysis.RunTimeout)
 	go w.Start(ctx)
 
 	sched := scheduler.NewAnalysisScheduler(store, w, logger)

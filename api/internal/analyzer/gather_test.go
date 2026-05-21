@@ -163,7 +163,7 @@ func TestGatherSeverityNormalization(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a := New(makeStore(), ollama.New(""), Config{}, logger)
+			a := New(makeStore(), ollama.New("", 0), Config{}, logger)
 			data, err := a.gather(context.Background(), feedNetlog, tc.period, time.Now().UTC())
 			if err != nil {
 				t.Fatalf("gather: %v", err)

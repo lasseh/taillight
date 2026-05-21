@@ -20,8 +20,11 @@ import (
 const QueueDepth = 5
 
 // DefaultRunTimeout bounds a single analyzer run. Beyond this, the row is
-// marked failed and the worker frees up for the next job.
-const DefaultRunTimeout = 20 * time.Minute
+// marked failed and the worker frees up for the next job. Used when
+// NewAnalysis is called with a zero/negative runTimeout (tests, default
+// wiring). Picked to comfortably cover weekly reports including a
+// validator-driven retry.
+const DefaultRunTimeout = 60 * time.Minute
 
 // ErrQueueFull is returned by Enqueue when the worker queue is at capacity.
 var ErrQueueFull = errors.New("analysis worker queue full")
@@ -56,14 +59,18 @@ type Analysis struct {
 }
 
 // NewAnalysis constructs an analysis worker. Start must be called once before
-// Enqueue accepts work.
-func NewAnalysis(store ReportStore, runner Runner, logger *slog.Logger) *Analysis {
+// Enqueue accepts work. runTimeout bounds a single run; pass 0 to use
+// DefaultRunTimeout.
+func NewAnalysis(store ReportStore, runner Runner, logger *slog.Logger, runTimeout time.Duration) *Analysis {
+	if runTimeout <= 0 {
+		runTimeout = DefaultRunTimeout
+	}
 	return &Analysis{
 		store:      store,
 		runner:     runner,
 		logger:     logger.With("component", "analysis-worker"),
 		work:       make(chan int64, QueueDepth),
-		runTimeout: DefaultRunTimeout,
+		runTimeout: runTimeout,
 	}
 }
 

@@ -183,7 +183,10 @@ var (
 		Namespace: "taillight",
 		Name:      "analysis_duration_seconds",
 		Help:      "Duration of analysis runs in seconds.",
-		Buckets:   []float64{30, 60, 120, 300, 600},
+		// Buckets cover everything up to the worker run timeout (60m default)
+		// so weekly runs and validator-retry second-passes still land in
+		// observable bins rather than +Inf.
+		Buckets: []float64{30, 60, 120, 300, 600, 1200, 1800, 3600},
 	})
 
 	// AnalysisStructureRetriesTotal counts structure-validation retries by outcome:
