@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -254,6 +255,17 @@ func TestBuildEmailAnalysisReport(t *testing.T) {
 	for _, check := range checks {
 		if !strings.Contains(body, check) {
 			t.Errorf("expected body to contain %q", check)
+		}
+	}
+
+	// Opt-in visual preview: write the rendered body to /tmp so a maintainer
+	// can open it in a browser and eyeball the formatting. Off by default so
+	// `go test ./...` stays read-only.
+	if path := os.Getenv("TAILLIGHT_EMAIL_PREVIEW_PATH"); path != "" {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Logf("preview write failed: %v", err)
+		} else {
+			t.Logf("wrote email preview to %s", path)
 		}
 	}
 }
