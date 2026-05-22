@@ -10,6 +10,45 @@ import (
 	"github.com/lasseh/taillight/internal/ollama"
 )
 
+// isEmptyData reports whether the gathered period has no current-window
+// activity worth narrating. Three signals must all be absent:
+//
+//   - no top event signatures (the count-grouped query yields no rows when
+//     received_at had zero events);
+//   - no volume timeline buckets (the time-bucket query has the same shape);
+//   - no severity level with a non-zero current rate (the comparison can
+//     still carry baseline-only entries, but Current==0 across the board
+//     means nothing happened in the current window).
+//
+// All three together rule out the edge cases where one query happens to
+// return a stray row — e.g. an event with an empty key gets filtered out
+// of TopMsgIDs but still bumps the volume timeline.
+func isEmptyData(data analysisData) bool {
+	if len(data.TopMsgIDs) > 0 {
+		return false
+	}
+	if len(data.VolumeTimeline) > 0 {
+		return false
+	}
+	for _, lvl := range data.SeverityComparison.Levels {
+		if lvl.Current > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// emptyDataBody returns the deterministic markdown body for an empty-window
+// short-circuit. The phrasing tracks the scope so a reader skimming the
+// report knows immediately whether the silence is "the whole feed is quiet"
+// or "the hosts I picked are quiet".
+func emptyDataBody(scope model.AnalysisScope) string {
+	if scope.IsAllHosts() {
+		return "_No events recorded on this feed during this window._\n"
+	}
+	return "_No events recorded for the scoped host(s) during this window._\n"
+}
+
 // Run executes a single analysis cycle for the given parameters. Persistence
 // is the caller's responsibility — Run returns the assembled Result.
 func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
@@ -40,6 +79,33 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 	if err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
 		return Result{}, fmt.Errorf("gather data: %w", err)
+	}
+
+	// Empty-data short-circuit. Asking a model to narrate the absence of data
+	// invites hallucinations ("a small uptick was observed…") because the
+	// prompt structure demands a verdict; deterministic text is correct.
+	// Skipping the LLM also frees the worker slot during incident-triage
+	// bursts when an operator may fire several scoped reports quickly.
+	//
+	// The persisted row has tokens 0/0 with status=completed — see worker
+	// docs for the contract.
+	if isEmptyData(data) {
+		metrics.AnalysisRunsTotal.WithLabelValues("completed").Inc()
+		metrics.AnalysisDurationSeconds.Observe(time.Since(start).Seconds())
+		a.logger.Info("analysis short-circuited: no events in window",
+			"feed", params.Feed,
+			"prompt_mode", mode,
+			"scoped", !scope.IsAllHosts(),
+			"hosts", len(scope.Hosts),
+		)
+		return Result{
+			PeriodStart: data.PeriodStart,
+			PeriodEnd:   data.PeriodEnd,
+			Report: prependReportHeader(
+				emptyDataBody(scope),
+				mode, data.PeriodStart, data.PeriodEnd,
+			),
+		}, nil
 	}
 
 	sysProm, userProm, err := buildPrompt(data, a.cfg.PromptsDir, mode)

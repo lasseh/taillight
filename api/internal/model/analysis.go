@@ -67,6 +67,12 @@ func AnalysisModeForFrequency(frequency string) string {
 // comparison) to that exact set. The slice is normalized — sorted and deduped
 // — before persistence so two requests with the same set collide on the
 // active-report uniqueness constraint.
+//
+// Token-count contract: PromptTokens=0 && CompletionTokens=0 on a row with
+// Status="completed" means the analyzer short-circuited because the gathered
+// window had no current-window activity (see analyzer.isEmptyData). The
+// body is a deterministic markdown stub; do not treat zero tokens as an
+// anomaly signal in alerting on that combination.
 type AnalysisReport struct {
 	ID               int64      `json:"id"`
 	Slug             string     `json:"slug"`
