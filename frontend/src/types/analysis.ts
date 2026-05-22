@@ -81,6 +81,23 @@ export interface CreateAnalysisReportRequest {
   // Optional. Empty/0 picks a mode-aware default: 1440 (daily), 10080 (weekly),
   // or 60 (incident). Bounds: 5..43200 (5 min..30 days).
   period_minutes?: number
+  // Optional. Empty/undefined means "all hosts on the feed". Names are
+  // validated against the feed's host metadata server-side; bad names
+  // surface as a 400 unknown_hosts response.
+  hosts?: string[]
+}
+
+// One row from GET /api/v1/analysis/hosts?feed=…, used by the picker to
+// populate its autocomplete suggestions. last_seen is the most recent
+// hour-aligned bucket the host appeared in (may be undefined for hosts
+// that have entered the meta cache but not yet rolled into the aggregate).
+export interface AnalysisHostEntry {
+  hostname: string
+  last_seen?: string
+}
+
+export interface AnalysisHostListResponse {
+  data: AnalysisHostEntry[]
 }
 
 export type CreateAnalysisScheduleRequest = Omit<

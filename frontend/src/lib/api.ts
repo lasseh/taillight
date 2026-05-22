@@ -11,6 +11,8 @@ import type { SummaryScheduleListResponse, SummaryScheduleResponse, SummarySched
 import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
 import type { HostsResponse } from '@/types/host'
 import type {
+  AnalysisFeed,
+  AnalysisHostListResponse,
   AnalysisReportListResponse,
   AnalysisReportResponse,
   AnalysisScheduleListResponse,
@@ -385,6 +387,10 @@ export const api = {
 
   deleteAnalysisReport(slug: string): Promise<void> {
     return deleteAPI(`/api/v1/analysis/reports/${encodeURIComponent(slug)}`)
+  },
+
+  listAnalysisHosts(feed: AnalysisFeed): Promise<AnalysisHostListResponse> {
+    return fetchAPI(`/api/v1/analysis/hosts?feed=${encodeURIComponent(feed)}`)
   },
 
   // Analysis schedules

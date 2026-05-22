@@ -15,6 +15,7 @@ import {
 } from '@/lib/analysis-format'
 import type {
   AnalysisFeed,
+  AnalysisHostEntry,
   AnalysisPromptMode,
   AnalysisReportListResponse,
   AnalysisReportSummary,
@@ -56,6 +57,133 @@ const incidentPeriodOptions: { minutes: number; label: string }[] = [
   { minutes: 180, label: '3 hours' },
 ]
 
+// Host picker state. selectedHosts is empty = "all hosts on the feed",
+// matching the server's canonical {} representation. hostQuery is what the
+// user is typing into the autocomplete input. availableHosts is the list
+// loaded from /api/v1/analysis/hosts for the currently-selected feed; it
+// re-fetches whenever selectedFeed changes.
+const selectedHosts = ref<string[]>([])
+const hostQuery = ref('')
+const hostsLoading = ref(false)
+const hostsError = ref('')
+const availableHosts = ref<AnalysisHostEntry[]>([])
+const highlightedIndex = ref(0)
+// Names the server rejected on the last create attempt — used to badge bad
+// chips so the user can see exactly which entries failed validation.
+const unknownHostNames = ref<Set<string>>(new Set())
+
+// Suggestions = available hosts not already selected, filtered by the
+// current query (case-insensitive substring). Stable order = the server's
+// alphabetical order, so the highlighted index lines up predictably with
+// what the user sees.
+const hostSuggestions = computed<AnalysisHostEntry[]>(() => {
+  const q = hostQuery.value.trim().toLowerCase()
+  const taken = new Set(selectedHosts.value)
+  return availableHosts.value.filter((h) => {
+    if (taken.has(h.hostname)) return false
+    if (q === '') return true
+    return h.hostname.toLowerCase().includes(q)
+  })
+})
+
+// Reset highlight whenever the suggestion set changes so arrow-key
+// navigation always starts from the top of the new visible list.
+watch(hostSuggestions, () => {
+  highlightedIndex.value = 0
+})
+
+async function loadHostsForFeed(feed: AnalysisFeed) {
+  hostsLoading.value = true
+  hostsError.value = ''
+  try {
+    const res = await api.listAnalysisHosts(feed)
+    availableHosts.value = res.data
+  } catch (e) {
+    availableHosts.value = []
+    hostsError.value = e instanceof Error ? e.message : 'failed to load hosts'
+  } finally {
+    hostsLoading.value = false
+  }
+}
+
+// Refetch the host list every time the feed changes. If the user has
+// already picked hosts, warn before dropping any that don't exist in the
+// new feed — silent removal is the kind of "lost my work" surprise the
+// confirmation exists to prevent.
+watch(selectedFeed, async (next, prev) => {
+  if (next === prev) return
+  await loadHostsForFeed(next)
+  if (selectedHosts.value.length === 0) return
+  const valid = new Set(availableHosts.value.map((h) => h.hostname))
+  const stale = selectedHosts.value.filter((h) => !valid.has(h))
+  if (stale.length === 0) return
+  const ok = window.confirm(
+    `${stale.length} selected host${stale.length === 1 ? '' : 's'} ` +
+      `don't exist on the ${next} feed and will be removed: ${stale.join(', ')}. Continue?`,
+  )
+  if (ok) {
+    selectedHosts.value = selectedHosts.value.filter((h) => valid.has(h))
+  } else {
+    // User cancelled — revert to the previous feed so chips stay valid.
+    selectedFeed.value = prev
+  }
+})
+
+function addHost(name: string) {
+  const trimmed = name.trim()
+  if (trimmed === '') return
+  if (selectedHosts.value.includes(trimmed)) return
+  selectedHosts.value = [...selectedHosts.value, trimmed]
+  hostQuery.value = ''
+  unknownHostNames.value.delete(trimmed)
+}
+
+function removeHost(name: string) {
+  selectedHosts.value = selectedHosts.value.filter((h) => h !== name)
+  unknownHostNames.value.delete(name)
+}
+
+function clearHosts() {
+  selectedHosts.value = []
+  unknownHostNames.value = new Set()
+}
+
+function addAllMatching() {
+  for (const h of hostSuggestions.value) {
+    if (!selectedHosts.value.includes(h.hostname)) {
+      selectedHosts.value.push(h.hostname)
+    }
+  }
+  hostQuery.value = ''
+}
+
+function onHostKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    const pick = hostSuggestions.value[highlightedIndex.value]
+    if (pick) addHost(pick.hostname)
+    return
+  }
+  if (e.key === 'Backspace' && hostQuery.value === '' && selectedHosts.value.length > 0) {
+    // Pop the last chip on backspace-in-empty so the user can edit the
+    // list without reaching for the mouse.
+    e.preventDefault()
+    const last = selectedHosts.value[selectedHosts.value.length - 1]
+    if (last) removeHost(last)
+    return
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    highlightedIndex.value = Math.min(highlightedIndex.value + 1, hostSuggestions.value.length - 1)
+    return
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    highlightedIndex.value = Math.max(highlightedIndex.value - 1, 0)
+    return
+  }
+}
+
 // Reports tab uses smart polling: keep ticking while any row is still pending
 // or running, and stop once everything is terminal so the page goes idle.
 const polling = usePolling<AnalysisReportListResponse>(
@@ -95,13 +223,22 @@ watch(
 async function createReport() {
   createError.value = ''
   creating.value = true
+  unknownHostNames.value = new Set()
   try {
-    const payload: { feed: AnalysisFeed; prompt_mode: AnalysisPromptMode; period_minutes?: number } = {
+    const payload: {
+      feed: AnalysisFeed
+      prompt_mode: AnalysisPromptMode
+      period_minutes?: number
+      hosts?: string[]
+    } = {
       feed: selectedFeed.value,
       prompt_mode: selectedMode.value,
     }
     if (selectedMode.value === 'incident') {
       payload.period_minutes = incidentPeriodMinutes.value
+    }
+    if (selectedHosts.value.length > 0) {
+      payload.hosts = selectedHosts.value
     }
     const res = await api.createAnalysisReport(payload)
     reports.value = [res.data, ...reports.value]
@@ -115,6 +252,17 @@ async function createReport() {
         createError.value = 'analysis queue is full — try again shortly'
       } else if (e.code === 'feed_unavailable') {
         createError.value = 'this feed is disabled on the server'
+      } else if (e.code === 'unknown_hosts') {
+        // Server returns the bad names inline in the message. Parse the
+        // brackets so the picker can badge each offender; keep the full
+        // message as the error text for callers who want detail.
+        createError.value = e.message
+        const match = e.message.match(/\[([^\]]+)\]/)
+        const captured = match?.[1]
+        if (captured) {
+          const bad = captured.split(/\s+/).map((s) => s.trim()).filter(Boolean)
+          unknownHostNames.value = new Set(bad)
+        }
       } else if (e.code === 'invalid_prompt_mode' || e.code === 'invalid_period') {
         createError.value = e.message
       } else {
@@ -128,7 +276,10 @@ async function createReport() {
   }
 }
 
-onMounted(refresh)
+onMounted(async () => {
+  await refresh()
+  await loadHostsForFeed(selectedFeed.value)
+})
 </script>
 
 <template>
@@ -234,6 +385,96 @@ onMounted(refresh)
               <p class="text-t-fg-gutter mt-2 text-xs">
                 how far back to scan for the active spike.
               </p>
+            </label>
+
+            <label class="block">
+              <span class="text-t-fg-dark text-sm">hosts</span>
+              <div class="border-t-border bg-t-bg mt-1.5 rounded border p-2">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span
+                    v-for="h in selectedHosts"
+                    :key="h"
+                    class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs"
+                    :class="
+                      unknownHostNames.has(h)
+                        ? 'bg-t-red/15 text-t-red border border-t-red/40'
+                        : 'bg-t-orange/15 text-t-orange'
+                    "
+                  >
+                    {{ h }}
+                    <button
+                      type="button"
+                      class="hover:brightness-150"
+                      :title="`remove ${h}`"
+                      @click="removeHost(h)"
+                    >
+                      ×
+                    </button>
+                  </span>
+                  <input
+                    v-model="hostQuery"
+                    type="text"
+                    :placeholder="
+                      selectedHosts.length === 0
+                        ? 'All hosts. Type to filter…'
+                        : 'add another…'
+                    "
+                    class="text-t-fg placeholder:text-t-fg-gutter min-w-[8rem] flex-1 bg-transparent text-sm outline-none"
+                    @keydown="onHostKeydown"
+                  />
+                </div>
+              </div>
+              <div class="mt-1 flex items-center justify-between text-xs">
+                <span class="text-t-fg-gutter">
+                  <span v-if="hostsLoading">loading hosts…</span>
+                  <span v-else-if="hostsError" class="text-t-red">{{ hostsError }}</span>
+                  <span v-else-if="selectedHosts.length === 0">
+                    leave empty to analyze every host on the feed
+                  </span>
+                  <span v-else>
+                    {{ selectedHosts.length }} host{{ selectedHosts.length === 1 ? '' : 's' }}
+                    selected
+                  </span>
+                </span>
+                <span class="flex items-center gap-3">
+                  <button
+                    v-if="hostQuery.trim() !== '' && hostSuggestions.length > 1"
+                    type="button"
+                    class="text-t-orange hover:brightness-125"
+                    @click="addAllMatching"
+                  >
+                    add all {{ hostSuggestions.length }} matching
+                  </button>
+                  <button
+                    v-if="selectedHosts.length > 0"
+                    type="button"
+                    class="text-t-fg-dark hover:text-t-fg"
+                    @click="clearHosts"
+                  >
+                    clear all
+                  </button>
+                </span>
+              </div>
+              <div
+                v-if="hostQuery.trim() !== '' && hostSuggestions.length > 0"
+                class="border-t-border bg-t-bg-dark mt-1 max-h-48 overflow-y-auto rounded border"
+              >
+                <button
+                  v-for="(h, i) in hostSuggestions"
+                  :key="h.hostname"
+                  type="button"
+                  class="w-full px-2 py-1 text-left text-sm transition-colors"
+                  :class="
+                    i === highlightedIndex
+                      ? 'bg-t-bg-highlight text-t-fg'
+                      : 'text-t-fg-dark hover:text-t-fg hover:bg-t-bg-hover'
+                  "
+                  @mouseenter="highlightedIndex = i"
+                  @click="addHost(h.hostname)"
+                >
+                  {{ h.hostname }}
+                </button>
+              </div>
             </label>
 
             <div class="flex items-center gap-3 pt-1">
