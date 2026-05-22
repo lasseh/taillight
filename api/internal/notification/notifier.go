@@ -17,9 +17,10 @@ type EventKind string
 
 // Event kind constants.
 const (
-	EventKindSrvlog EventKind = "srvlog"
-	EventKindNetlog EventKind = "netlog"
-	EventKindAppLog EventKind = "applog"
+	EventKindSrvlog   EventKind = "srvlog"
+	EventKindNetlog   EventKind = "netlog"
+	EventKindAppLog   EventKind = "applog"
+	EventKindAnalysis EventKind = "analysis_report"
 )
 
 // ChannelType identifies a notification backend.
@@ -148,6 +149,11 @@ type Payload struct {
 	GroupKey      string             `json:"group_key,omitempty"`
 	Window        time.Duration      `json:"window,omitempty"`
 	SummaryReport *SummaryReport     `json:"summary_report,omitempty"`
+	// AnalysisReport carries a completed AI analysis report when the
+	// notification fires from internal/worker/analysis.go after MarkReportCompleted.
+	// Backends that support attachments (currently: email) may render the
+	// report's markdown to a PDF and ship it alongside the body.
+	AnalysisReport *model.AnalysisReport `json:"analysis_report,omitempty"`
 }
 
 // SendResult captures the outcome of a backend Send call.

@@ -269,6 +269,33 @@ func (e *Engine) SendTestNotification(ctx context.Context, ch Channel) (SendResu
 	return result, nil
 }
 
+// SendAnalysisReport dispatches a completed analysis report to one or more
+// channels. Unlike SrvlogEvent / NetlogEvent / AppLogEvent (which fan out via
+// rule matching), an analysis report's audience is decided by the caller —
+// either a config-driven recipient list (tracer scope today) or a future
+// rule-engine pass on the report's feed/prompt_mode. The engine just
+// dispatches; suppression/coalescing doesn't apply since reports already
+// arrive at human-meaningful cadences.
+func (e *Engine) SendAnalysisReport(ctx context.Context, report model.AnalysisReport, channels []Channel) {
+	if len(channels) == 0 {
+		return
+	}
+	payload := Payload{
+		Kind:           EventKindAnalysis,
+		RuleName:       report.Slug,
+		Timestamp:      time.Now(),
+		EventCount:     1,
+		AnalysisReport: &report,
+	}
+	rule := Rule{Name: report.Slug}
+	for _, ch := range channels {
+		if !ch.Enabled {
+			continue
+		}
+		e.safeSendToChannel(ctx, rule, ch, payload)
+	}
+}
+
 // SendSummary dispatches a summary report to the specified channels.
 func (e *Engine) SendSummary(ctx context.Context, report SummaryReport, channelIDs []int64) {
 	e.cacheMu.RLock()
@@ -534,6 +561,8 @@ func (e *Engine) recordLog(
 		eventID = payload.NetlogEvent.ID
 	case payload.AppLogEvent != nil:
 		eventID = payload.AppLogEvent.ID
+	case payload.AnalysisReport != nil:
+		eventID = payload.AnalysisReport.ID
 	}
 
 	if err := e.store.InsertNotificationLog(ctx, LogEntry{
