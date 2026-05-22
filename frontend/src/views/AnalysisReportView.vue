@@ -117,6 +117,25 @@ function durationOrDash(r: AnalysisReport): string {
   return formatDuration(r) || '—'
 }
 
+// Print header timestamp — prefer when the report actually finished, fall
+// back to creation time for in-progress or failed reports so the PDF still
+// has a date stamp.
+const generatedAt = computed(() => {
+  const r = report.value
+  if (!r) return ''
+  const ts = r.completed_at || r.created_at
+  if (!ts) return ''
+  return new Date(ts).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+    hour12: false,
+  })
+})
+
 onMounted(refresh)
 </script>
 
@@ -168,10 +187,21 @@ onMounted(refresh)
             </div>
           </div>
 
+          <!-- Print-only document header — gives the PDF a clear identity
+               (product name, slug, generated date) without polluting the
+               on-screen layout, which already carries the app header. -->
+          <div class="print-doc-header" aria-hidden="true">
+            <div class="print-doc-brand">Taillight — Analysis Report</div>
+            <div class="print-doc-meta">
+              <span>{{ report.slug }}</span>
+              <span v-if="generatedAt"> · generated {{ generatedAt }}</span>
+            </div>
+          </div>
+
           <!-- Briefing title and period now lead the report markdown itself
                (prepended in api/internal/analyzer/header.go), so the page
                chrome only carries the slug above the metadata chip row. -->
-          <div class="text-t-fg-dark font-mono text-xs">{{ report.slug }}</div>
+          <div class="text-t-fg-dark font-mono text-xs print-hide">{{ report.slug }}</div>
 
           <!-- Chip row keeps Mode for the at-a-glance colour cue alongside
                Status, source, model, and duration. -->
@@ -297,33 +327,164 @@ onMounted(refresh)
 </style>
 
 <style>
+/* The print document header is print-only — hidden on screen, visible in
+ * @media print where it leads the PDF with product + slug + timestamp. */
+.print-doc-header { display: none; }
+
 /* Global print styles — when the user prints from the report detail page,
- * hide the app shell (header, banners, status footer) and let the report
- * body span the full page. Vue mounts at <div id="app">, App.vue renders
- * one wrapping <div>, and that div holds <header>, <main>, and a status
- * <div>. We hide every sibling of <main> at that level. .print-hide inside
- * the view itself hides per-page controls. */
+ * the goal is a readable, ink-light PDF on white paper. The on-screen view
+ * uses a dark theme with light gray text (`--color-t-fg`) and dark chip
+ * backgrounds (`--color-t-bg-dark`) which print as either invisible (gray
+ * text on white) or as heavy black blocks. The rules below remap those
+ * tokens to black-on-white, strip chip pill backgrounds so the metadata
+ * strip becomes plain labelled text, and neutralise inline `<code>` /
+ * `<pre>` / table `<th>` backgrounds. Vue mounts at <div id="app">; App.vue
+ * renders one wrapping <div> that holds <header>, <main>, and the status
+ * <div>, so hiding every sibling of <main> at that level removes the app
+ * chrome from the PDF. */
 @media print {
-  body {
+  @page {
+    size: A4;
+    margin: 16mm 14mm 18mm 14mm;
+  }
+
+  html, body {
     background: white !important;
     color: black !important;
   }
   body > div > div > *:not(main) {
     display: none !important;
   }
-  /* Print expands every <details> so the host lists in the Correlations
-   * table aren't lost in PDF exports — operators want the full hostnames
-   * on the printed page even though the on-screen view collapses them. */
-  details {
-    display: block !important;
-  }
-  details > summary { list-style: none; }
-  details > summary::before { content: ''; }
-  details:not([open]) > * {
-    display: revert !important;
-  }
   .print-hide {
     display: none !important;
   }
+
+  /* Reveal the print-only document header and style it like a tight masthead. */
+  .print-doc-header {
+    display: block !important;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #999;
+  }
+  .print-doc-header .print-doc-brand {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #555;
+  }
+  .print-doc-header .print-doc-meta {
+    margin-top: 0.15rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.7rem;
+    color: #444;
+  }
+
+  /* Metadata chip strip — keep it as a single labelled line, drop the
+   * dark wrapper background, render each pill as plain text. The labels
+   * (Status, Source, …) stay as low-contrast gray so the value reads as
+   * the actual content. */
+  main .bg-t-bg-dark.border-t-border {
+    background: transparent !important;
+    border: none !important;
+    border-top: 1px solid #ddd !important;
+    border-bottom: 1px solid #ddd !important;
+    border-radius: 0 !important;
+    padding: 0.4rem 0 !important;
+    margin-bottom: 1rem;
+  }
+  main .bg-t-bg-dark.border-t-border > div > span:first-child {
+    color: #777 !important;
+  }
+  main .bg-t-bg-dark.border-t-border > div > span:not(:first-child) {
+    color: black !important;
+    background: transparent !important;
+    padding: 0 !important;
+    font-weight: 600 !important;
+  }
+
+  /* Report body — undo dark theme tokens. */
+  .prose {
+    color: black !important;
+    line-height: 1.55 !important;
+  }
+  .prose :deep(h1) {
+    color: black !important;
+    border-bottom-color: #333 !important;
+    font-size: 1.4rem !important;
+    page-break-after: avoid;
+  }
+  .prose :deep(h2) {
+    color: black !important;
+    border-bottom-color: #999 !important;
+    font-size: 1.05rem !important;
+    page-break-after: avoid;
+  }
+  .prose :deep(h3) {
+    color: #222 !important;
+    font-size: 0.9rem !important;
+    page-break-after: avoid;
+  }
+  .prose :deep(p),
+  .prose :deep(li) {
+    color: black !important;
+    font-size: 0.78rem !important;
+  }
+  .prose :deep(em) { color: #555 !important; }
+  .prose :deep(strong) { color: black !important; }
+  .prose :deep(code) {
+    background: transparent !important;
+    border: 1px solid #bbb !important;
+    color: black !important;
+    padding: 0 0.25rem !important;
+    border-radius: 2px !important;
+    font-size: 0.72rem !important;
+  }
+  .prose :deep(pre) {
+    background: #f5f5f5 !important;
+    border: 1px solid #ccc !important;
+    color: black !important;
+    page-break-inside: avoid;
+  }
+  .prose :deep(pre code) {
+    border: none !important;
+    color: black !important;
+  }
+  .prose :deep(blockquote) {
+    border-left-color: #666 !important;
+    color: #333 !important;
+  }
+  .prose :deep(a) {
+    color: #0033aa !important;
+  }
+  .prose :deep(table) {
+    border-color: #888 !important;
+    page-break-inside: avoid;
+  }
+  .prose :deep(th) {
+    background: #f0f0f0 !important;
+    color: black !important;
+    border-bottom-color: #888 !important;
+  }
+  .prose :deep(td) {
+    border-bottom-color: #ccc !important;
+  }
+  .prose :deep(hr) { border-top-color: #ccc !important; }
+  .prose :deep(li::marker) { color: #777 !important; }
+  .prose :deep(summary) { color: black !important; }
+  .prose :deep(summary::before) { color: #777 !important; }
+  /* Outer rounded border around the markdown body — paper doesn't need it. */
+  .prose {
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  /* Print expands every <details> so the host lists in the Correlations
+   * table aren't lost in PDF exports — operators want the full hostnames
+   * on the printed page even though the on-screen view collapses them. */
+  details { display: block !important; }
+  details > summary { list-style: none; }
+  details > summary::before { content: ''; }
+  details:not([open]) > * { display: revert !important; }
 }
 </style>
