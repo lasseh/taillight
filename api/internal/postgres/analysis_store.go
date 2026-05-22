@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -767,47 +768,51 @@ func analysisAggregateSource(feed string) string {
 
 // ListAnalysisHosts returns distinct hostnames from the meta caches for the
 // given feed, sorted alphabetically. Used by the analysis handler to validate
-// caller-supplied host scopes before enqueueing a report (and, in a sibling
-// endpoint, to populate the picker on the frontend).
+// caller-supplied host scopes before enqueueing a report.
 //
 // "all" returns the deduped union of srvlog and netlog hostnames; "srvlog"
 // and "netlog" return their respective meta caches; anything else returns an
 // empty slice without error so callers don't need to special-case feed
 // validation that already happened upstream.
+//
+// Delegates to the existing ListSrvlogHosts / ListNetlogHosts helpers, which
+// know the meta-cache schema is (column_name, value) rather than a bare
+// hostname column — writing the query inline here was the source of an
+// earlier "failed to validate host scope" 500.
 func (s *Store) ListAnalysisHosts(ctx context.Context, feed string) ([]string, error) {
-	var query string
 	switch feed {
 	case feedSrvlog:
-		query = `SELECT hostname FROM srvlog_meta_cache ORDER BY hostname`
+		return s.ListSrvlogHosts(ctx)
 	case feedNetlog:
-		query = `SELECT hostname FROM netlog_meta_cache ORDER BY hostname`
+		return s.ListNetlogHosts(ctx)
 	case feedAll:
-		// Union + DISTINCT so a hostname appearing in both caches surfaces
-		// once. ORDER BY in the outer query keeps the alphabetical contract.
-		query = `SELECT DISTINCT hostname FROM (
-			SELECT hostname FROM srvlog_meta_cache
-			UNION ALL
-			SELECT hostname FROM netlog_meta_cache
-		) AS combined ORDER BY hostname`
+		srvlog, err := s.ListSrvlogHosts(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list srvlog hosts: %w", err)
+		}
+		netlog, err := s.ListNetlogHosts(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list netlog hosts: %w", err)
+		}
+		// Merge + dedup. Both inputs are individually sorted; a small map
+		// is simpler than a merge-sort here and the lists are tiny.
+		seen := make(map[string]struct{}, len(srvlog)+len(netlog))
+		out := make([]string, 0, len(srvlog)+len(netlog))
+		for _, h := range srvlog {
+			seen[h] = struct{}{}
+			out = append(out, h)
+		}
+		for _, h := range netlog {
+			if _, ok := seen[h]; ok {
+				continue
+			}
+			out = append(out, h)
+		}
+		sort.Strings(out)
+		return out, nil
 	default:
 		return nil, nil
 	}
-
-	rows, err := s.pool.Query(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("list analysis hosts (%s): %w", feed, err)
-	}
-	defer rows.Close()
-
-	var hosts []string
-	for rows.Next() {
-		var h string
-		if err := rows.Scan(&h); err != nil {
-			return nil, fmt.Errorf("scan analysis host: %w", err)
-		}
-		hosts = append(hosts, h)
-	}
-	return hosts, rows.Err()
 }
 
 // ListAnalysisHostEntries returns hostname + last_seen rows for the analysis
