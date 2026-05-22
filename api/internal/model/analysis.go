@@ -173,6 +173,18 @@ type AnalysisSchedule struct {
 	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
+// AnalysisHostEntry is one row returned by the analysis hosts endpoint
+// (GET /api/v1/analysis/hosts?feed=…). The picker uses this to populate its
+// autocomplete suggestions; the report list does not.
+//
+// LastSeen is the most recent hour-aligned bucket from the continuous
+// aggregate; it may be nil for hosts that have entered the meta cache but
+// not yet produced an aggregated row (very freshly onboarded hosts).
+type AnalysisHostEntry struct {
+	Hostname string     `json:"hostname"`
+	LastSeen *time.Time `json:"last_seen,omitempty"`
+}
+
 // MsgIDCount holds an event signature with its total count, per-severity
 // breakdown, and a handful of representative sample messages.
 //

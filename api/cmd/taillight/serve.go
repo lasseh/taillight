@@ -707,6 +707,7 @@ func setupRouter(
 					r.Use(middleware.Timeout(30 * time.Second))
 					r.Get("/analysis/reports", analysis.reports.List)
 					r.Get("/analysis/reports/{slug}", analysis.reports.Get)
+					r.Get("/analysis/hosts", analysis.reports.Hosts)
 					r.Get("/analysis/schedules", analysis.schedules.List)
 					r.Get("/analysis/schedules/{id}", analysis.schedules.Get)
 				})

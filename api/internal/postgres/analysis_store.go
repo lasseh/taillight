@@ -810,6 +810,84 @@ func (s *Store) ListAnalysisHosts(ctx context.Context, feed string) ([]string, e
 	return hosts, rows.Err()
 }
 
+// ListAnalysisHostEntries returns hostname + last_seen rows for the analysis
+// picker. Hosts are sourced from the meta cache (every hostname that has
+// ever logged on the feed); last_seen comes from a LEFT JOIN against the
+// hourly continuous aggregate so a host appears even when it has no recent
+// activity (LastSeen is nil in that case).
+//
+// For feed=all the union de-dupes on hostname and takes the maximum
+// last_seen across both feeds.
+func (s *Store) ListAnalysisHostEntries(ctx context.Context, feed string) ([]model.AnalysisHostEntry, error) {
+	var query string
+	switch feed {
+	case feedSrvlog:
+		query = `
+			SELECT mc.value AS hostname, ls.last_seen
+			FROM srvlog_meta_cache mc
+			LEFT JOIN (
+				SELECT hostname, MAX(bucket) AS last_seen
+				FROM srvlog_summary_hourly
+				GROUP BY hostname
+			) ls ON ls.hostname = mc.value
+			WHERE mc.column_name = 'hostname'
+			ORDER BY mc.value`
+	case feedNetlog:
+		query = `
+			SELECT mc.value AS hostname, ls.last_seen
+			FROM netlog_meta_cache mc
+			LEFT JOIN (
+				SELECT hostname, MAX(bucket) AS last_seen
+				FROM netlog_summary_hourly
+				GROUP BY hostname
+			) ls ON ls.hostname = mc.value
+			WHERE mc.column_name = 'hostname'
+			ORDER BY mc.value`
+	case feedAll:
+		// One row per hostname appearing in either meta cache; last_seen is
+		// the max across feeds so a host that's quiet on one feed but
+		// active on the other still surfaces a useful timestamp.
+		query = `
+			WITH hostnames AS (
+				SELECT value AS hostname FROM srvlog_meta_cache WHERE column_name = 'hostname'
+				UNION
+				SELECT value AS hostname FROM netlog_meta_cache WHERE column_name = 'hostname'
+			), srvlog_ls AS (
+				SELECT hostname, MAX(bucket) AS last_seen
+				FROM srvlog_summary_hourly
+				GROUP BY hostname
+			), netlog_ls AS (
+				SELECT hostname, MAX(bucket) AS last_seen
+				FROM netlog_summary_hourly
+				GROUP BY hostname
+			)
+			SELECT h.hostname,
+			       GREATEST(s.last_seen, n.last_seen) AS last_seen
+			FROM hostnames h
+			LEFT JOIN srvlog_ls s ON s.hostname = h.hostname
+			LEFT JOIN netlog_ls n ON n.hostname = h.hostname
+			ORDER BY h.hostname`
+	default:
+		return nil, nil
+	}
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list analysis host entries (%s): %w", feed, err)
+	}
+	defer rows.Close()
+
+	var entries []model.AnalysisHostEntry
+	for rows.Next() {
+		var e model.AnalysisHostEntry
+		if err := rows.Scan(&e.Hostname, &e.LastSeen); err != nil {
+			return nil, fmt.Errorf("scan analysis host entry: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
 // LookupJuniperRefs returns Juniper reference data for the given msgid names.
 func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error) {
 	if len(names) == 0 {

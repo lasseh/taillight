@@ -25,6 +25,7 @@ type AnalysisReportStore interface {
 	GetReportBySlug(ctx context.Context, slug string) (model.AnalysisReport, error)
 	DeleteReport(ctx context.Context, id int64) error
 	ListAnalysisHosts(ctx context.Context, feed string) ([]string, error)
+	ListAnalysisHostEntries(ctx context.Context, feed string) ([]model.AnalysisHostEntry, error)
 }
 
 // AnalysisEnqueuer accepts new report runs.
@@ -260,6 +261,35 @@ func (h *AnalysisHandler) validateHostsForFeed(ctx context.Context, feed string,
 		}
 	}
 	return unknown, nil
+}
+
+// Hosts handles GET /api/v1/analysis/hosts?feed={srvlog|netlog|all}. The
+// frontend picker loads this once per feed-selection to populate its
+// autocomplete suggestions; the response is intentionally minimal (no per-host
+// stats — those live on /api/v1/hosts) so the call is cheap to fire on every
+// open of the create-report panel.
+func (h *AnalysisHandler) Hosts(w http.ResponseWriter, r *http.Request) {
+	feed := r.URL.Query().Get("feed")
+	if !model.IsValidAnalysisFeed(feed) {
+		writeError(w, http.StatusBadRequest, "invalid_feed", "feed must be netlog, srvlog, or all")
+		return
+	}
+	if (feed == model.AnalysisFeedNetlog || feed == model.AnalysisFeedAll) && !h.netlogEnabled {
+		writeError(w, http.StatusBadRequest, "feed_unavailable", "netlog feature is disabled")
+		return
+	}
+
+	entries, err := h.store.ListAnalysisHostEntries(r.Context(), feed)
+	if err != nil {
+		if isClientGone(r) {
+			return
+		}
+		LoggerFromContext(r.Context()).Error("list analysis host entries failed", "feed", feed, "err", err)
+		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list hosts")
+		return
+	}
+
+	writeJSON(w, itemResponse{Data: emptySlice(entries)})
 }
 
 // Delete handles DELETE /api/v1/analysis/reports/{slug}.

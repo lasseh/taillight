@@ -33,6 +33,15 @@ func (s *stubAnalysisStore) ListAnalysisHosts(_ context.Context, feed string) ([
 	return s.knownHosts[feed], nil
 }
 
+func (s *stubAnalysisStore) ListAnalysisHostEntries(_ context.Context, feed string) ([]model.AnalysisHostEntry, error) {
+	hosts := s.knownHosts[feed]
+	out := make([]model.AnalysisHostEntry, len(hosts))
+	for i, h := range hosts {
+		out[i] = model.AnalysisHostEntry{Hostname: h}
+	}
+	return out, nil
+}
+
 // stubEnqueuer captures what the handler hands to Enqueue so tests can assert
 // the host list arrived normalized and the feed/mode wiring is intact.
 type stubEnqueuer struct {
@@ -122,6 +131,58 @@ func TestCreateNormalizesHosts(t *testing.T) {
 		if enq.got.Hosts[i] != h {
 			t.Errorf("Hosts[%d]: got %q, want %q", i, enq.got.Hosts[i], h)
 		}
+	}
+}
+
+// TestHostsRejectsInvalidFeed locks in the validation contract for the
+// picker endpoint: an unknown feed gets a 400 with the standard
+// invalid_feed code, not an empty 200 (which would silently hide
+// typos in the frontend's feed switch).
+func TestHostsRejectsInvalidFeed(t *testing.T) {
+	store := &stubAnalysisStore{
+		knownHosts: map[string][]string{"srvlog": {"a.lab"}},
+	}
+	h := NewAnalysisHandler(store, &stubEnqueuer{}, true)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/analysis/hosts?feed=bogus", http.NoBody)
+	w := httptest.NewRecorder()
+	h.Hosts(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid_feed") {
+		t.Errorf("body should contain invalid_feed: %s", w.Body.String())
+	}
+}
+
+// TestHostsReturnsEntries proves the endpoint returns the meta cache's host
+// list under the standard envelope. The picker depends on this shape: a
+// missing "data" key or a null where [] is expected breaks the autocomplete.
+func TestHostsReturnsEntries(t *testing.T) {
+	store := &stubAnalysisStore{
+		knownHosts: map[string][]string{"srvlog": {"a.lab", "b.lab"}},
+	}
+	h := NewAnalysisHandler(store, &stubEnqueuer{}, true)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/analysis/hosts?feed=srvlog", http.NoBody)
+	w := httptest.NewRecorder()
+	h.Hosts(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data []model.AnalysisHostEntry `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode body: %v; raw=%s", err, w.Body.String())
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("Data len: got %d, want 2; body=%s", len(resp.Data), w.Body.String())
+	}
+	if resp.Data[0].Hostname != "a.lab" || resp.Data[1].Hostname != "b.lab" {
+		t.Errorf("hostnames: got %+v, want [a.lab b.lab]", resp.Data)
 	}
 }
 
