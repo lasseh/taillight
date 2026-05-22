@@ -49,7 +49,7 @@ type Client struct {
 // e.g. from tests or other non-config call sites. Picked to cover weekly
 // reports on commodity-GPU Ollama hosts without surprising callers that
 // forget to set the value.
-const defaultChatTimeout = 30 * time.Minute
+const defaultChatTimeout = 2 * time.Hour
 
 // New creates a new Ollama client. timeout bounds each HTTP request; pass
 // 0 to use defaultChatTimeout.

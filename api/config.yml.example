@@ -134,9 +134,9 @@ analysis:
   num_ctx: 8192                 # Context window size in tokens.
   prompts_dir: ""               # Optional: dir holding system.md/user.md. Empty = use embedded defaults.
                                 # Files are reloaded on every analysis run — edits take effect without restart.
-  ollama_timeout: "30m"         # Per-request HTTP timeout for Ollama chat calls. Bump for very large models
+  ollama_timeout: "2h"          # Per-request HTTP timeout for Ollama chat calls. Bump for very large models
                                 # or weekly reports if you see "ollama chat" errors with no body.
-  run_timeout: "60m"            # Wall-clock bound for a full analysis run (gather + prompt + chat + persist,
+  run_timeout: "4h"             # Wall-clock bound for a full analysis run (gather + prompt + chat + persist,
                                 # including any structure-validation retry). Should comfortably exceed
                                 # ollama_timeout — 2× is a safe floor since a retry can double the chat time.
 

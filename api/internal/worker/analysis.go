@@ -24,7 +24,7 @@ const QueueDepth = 5
 // NewAnalysis is called with a zero/negative runTimeout (tests, default
 // wiring). Picked to comfortably cover weekly reports including a
 // validator-driven retry.
-const DefaultRunTimeout = 60 * time.Minute
+const DefaultRunTimeout = 4 * time.Hour
 
 // ErrQueueFull is returned by Enqueue when the worker queue is at capacity.
 var ErrQueueFull = errors.New("analysis worker queue full")

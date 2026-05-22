@@ -132,8 +132,8 @@ type AnalysisConfig struct {
 	Temperature   float64       // Sampling temperature.
 	NumCtx        int           // Context window size.
 	PromptsDir    string        // Optional directory holding system.md and user.md; empty = use embedded defaults.
-	OllamaTimeout time.Duration // Per-request HTTP timeout for Ollama chat calls. Default 30m.
-	RunTimeout    time.Duration // Wall-clock bound for a full analysis run (gather + prompt + chat + persist, including any validator retry). Default 60m. Should comfortably exceed OllamaTimeout to leave room for a structure-validation retry.
+	OllamaTimeout time.Duration // Per-request HTTP timeout for Ollama chat calls. Default 2h.
+	RunTimeout    time.Duration // Wall-clock bound for a full analysis run (gather + prompt + chat + persist, including any validator retry). Default 4h. Should comfortably exceed OllamaTimeout to leave room for a structure-validation retry.
 }
 
 // Load reads configuration from config.yml with environment variable overrides.
@@ -171,8 +171,8 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("analysis.temperature", 0.3)
 	v.SetDefault("analysis.num_ctx", 8192)
 	v.SetDefault("analysis.prompts_dir", "")
-	v.SetDefault("analysis.ollama_timeout", "30m")
-	v.SetDefault("analysis.run_timeout", "60m")
+	v.SetDefault("analysis.ollama_timeout", "2h")
+	v.SetDefault("analysis.run_timeout", "4h")
 	v.SetDefault("retention.srvlog_days", 90)
 	v.SetDefault("retention.netlog_days", 90)
 	v.SetDefault("retention.applog_days", 90)
