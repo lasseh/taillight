@@ -39,7 +39,21 @@ type ReportStore interface {
 	MarkReportRunning(ctx context.Context, id int64) error
 	MarkReportCompleted(ctx context.Context, id int64, body string, promptTokens, completionTokens int) error
 	MarkReportFailed(ctx context.Context, id int64, msg string) error
+	// MarkReportNotified is the CAS seam for completion emails: returns
+	// won=true exactly once per report row. The worker only fires the
+	// completion callback when it wins so a Mark…Completed retry cannot
+	// produce duplicate notifications.
+	MarkReportNotified(ctx context.Context, id int64) (bool, error)
 }
+
+// CompletionCallback is invoked by the worker once per report after the
+// row is durably marked completed AND the notified_at CAS is won. The
+// callback owns dispatch into the notification engine — the worker stays
+// decoupled from internal/notification so tests can pass a noop. The report
+// passed to the callback is the in-memory representation already updated
+// with the run result; status is set to "completed", report body and token
+// counts are filled in.
+type CompletionCallback func(ctx context.Context, r model.AnalysisReport)
 
 // Runner is the analyzer surface the worker depends on. Model is the model
 // name to stamp onto pending rows so the UI can display it before the run
@@ -51,26 +65,30 @@ type Runner interface {
 
 // Analysis is the queued analysis worker.
 type Analysis struct {
-	store      ReportStore
-	runner     Runner
-	logger     *slog.Logger
-	work       chan int64
-	runTimeout time.Duration
+	store       ReportStore
+	runner      Runner
+	logger      *slog.Logger
+	work        chan int64
+	runTimeout  time.Duration
+	onCompleted CompletionCallback
 }
 
 // NewAnalysis constructs an analysis worker. Start must be called once before
 // Enqueue accepts work. runTimeout bounds a single run; pass 0 to use
-// DefaultRunTimeout.
-func NewAnalysis(store ReportStore, runner Runner, logger *slog.Logger, runTimeout time.Duration) *Analysis {
+// DefaultRunTimeout. onCompleted is invoked after a report is marked
+// completed and the notified_at CAS wins; pass nil to disable completion
+// notifications (used by tests and by deployments that have no SMTP wired).
+func NewAnalysis(store ReportStore, runner Runner, logger *slog.Logger, runTimeout time.Duration, onCompleted CompletionCallback) *Analysis {
 	if runTimeout <= 0 {
 		runTimeout = DefaultRunTimeout
 	}
 	return &Analysis{
-		store:      store,
-		runner:     runner,
-		logger:     logger.With("component", "analysis-worker"),
-		work:       make(chan int64, QueueDepth),
-		runTimeout: runTimeout,
+		store:       store,
+		runner:      runner,
+		logger:      logger.With("component", "analysis-worker"),
+		work:        make(chan int64, QueueDepth),
+		runTimeout:  runTimeout,
+		onCompleted: onCompleted,
 	}
 }
 
@@ -168,7 +186,44 @@ func (a *Analysis) process(parent context.Context, id int64) {
 
 	if err := a.store.MarkReportCompleted(parent, id, res.Report, res.PromptTokens, res.CompletionTokens); err != nil {
 		a.logger.Error("worker failed to mark completed", "report_id", id, "err", err)
+		return
 	}
+
+	a.fireCompletion(parent, id, report, res)
+}
+
+// fireCompletion is the idempotent completion-notification dispatch. It runs
+// the notified_at CAS first so a worker retry that re-enters MarkReportCompleted
+// cannot deliver a duplicate notification, then invokes the configured
+// callback (typically engine.SendAnalysisReport against a synthetic email
+// channel built from analysis.notify_emails). All errors are logged, never
+// returned — the report is durably persisted at this point and a failed
+// notification must not roll the run back.
+func (a *Analysis) fireCompletion(parent context.Context, id int64, report model.AnalysisReport, res analyzer.Result) {
+	if a.onCompleted == nil {
+		return
+	}
+	won, err := a.store.MarkReportNotified(parent, id)
+	if err != nil {
+		a.logger.Error("worker failed to CAS notified_at", "report_id", id, "err", err)
+		return
+	}
+	if !won {
+		// Another worker (or a retry of this one) already fired. Silent skip.
+		return
+	}
+
+	// Build the post-completion view of the report in memory rather than
+	// re-fetching: we already have every field the callback needs, and avoid
+	// an extra DB round-trip per completion.
+	now := time.Now().UTC()
+	report.Status = "completed"
+	report.Report = res.Report
+	report.PromptTokens = res.PromptTokens
+	report.CompletionTokens = res.CompletionTokens
+	report.CompletedAt = &now
+
+	a.onCompleted(parent, report)
 }
 
 func truncateErr(err error, n int) string {

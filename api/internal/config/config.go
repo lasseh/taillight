@@ -134,6 +134,13 @@ type AnalysisConfig struct {
 	PromptsDir    string        // Optional directory holding system.md and user.md; empty = use embedded defaults.
 	OllamaTimeout time.Duration // Per-request HTTP timeout for Ollama chat calls. Default 2h.
 	RunTimeout    time.Duration // Wall-clock bound for a full analysis run (gather + prompt + chat + persist, including any validator retry). Default 4h. Should comfortably exceed OllamaTimeout to leave room for a structure-validation retry.
+	// NotifyEmails is the tracer-scope recipient list for analysis-report
+	// completion emails. When non-empty, the worker dispatches each completed
+	// report to a synthetic email channel addressed to these recipients —
+	// bypasses the rule engine, no per-channel config, intentional for
+	// tracer-bullet rollout. A future slice replaces this with rule-based
+	// targeting and the frontend channel editor.
+	NotifyEmails []string
 }
 
 // Load reads configuration from config.yml with environment variable overrides.

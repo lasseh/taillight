@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"os"
 	"os/signal"
 	"slices"
@@ -162,7 +163,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Analysis (optional).
 	var analysis *analysisWiring
 	if cfg.Analysis.Enabled {
-		analysis = setupAnalysis(ctx, cfg, store, logger)
+		analysis = setupAnalysis(ctx, cfg, store, logger, notifEngine)
 	}
 
 	// LDAP authentication (optional).
@@ -411,7 +412,7 @@ type analysisWiring struct {
 // setupAnalysis initializes the LLM analysis subsystem: analyzer + queued
 // worker + DB-backed schedule scheduler + HTTP handlers. Returns nil when
 // analysis is disabled.
-func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store, logger *slog.Logger) *analysisWiring {
+func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store, logger *slog.Logger, notifEngine *notification.Engine) *analysisWiring {
 	ollamaClient := ollama.New(cfg.Analysis.OllamaURL, cfg.Analysis.OllamaTimeout)
 	a := analyzer.New(store, ollamaClient, analyzer.Config{
 		Model:       cfg.Analysis.Model,
@@ -428,7 +429,8 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 		logger.Info("reconciled orphaned analysis reports", "count", n)
 	}
 
-	w := worker.NewAnalysis(store, a, logger, cfg.Analysis.RunTimeout)
+	completionCB := buildAnalysisCompletionCallback(cfg.Analysis.NotifyEmails, notifEngine, logger)
+	w := worker.NewAnalysis(store, a, logger, cfg.Analysis.RunTimeout, completionCB)
 	go w.Start(ctx)
 
 	sched := scheduler.NewAnalysisScheduler(store, w, logger)
@@ -437,6 +439,51 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 	return &analysisWiring{
 		reports:   handler.NewAnalysisHandler(store, w, cfg.Features.Netlog),
 		schedules: handler.NewAnalysisScheduleHandler(store, sched, cfg.Features.Netlog),
+	}
+}
+
+// buildAnalysisCompletionCallback wires the tracer-scope email dispatch: when
+// cfg.Analysis.NotifyEmails is non-empty AND a notification engine is wired
+// AND the email backend has SMTP configured, every completed report is sent
+// to every configured recipient as a single synthetic email channel. Nil
+// recipients or nil engine returns a nil callback (the worker treats nil as
+// "no notification"), so this is fully opt-in.
+//
+// Tracer scope: no rule engine matching, no per-channel attach_pdf flag, no
+// frontend management UI. See .scratch/email-analysis-reports/PRD.md.
+func buildAnalysisCompletionCallback(recipients []string, engine *notification.Engine, logger *slog.Logger) worker.CompletionCallback {
+	if len(recipients) == 0 || engine == nil {
+		return nil
+	}
+	// Validate addresses up front so a typo in config surfaces at boot, not
+	// after the first report finishes hours later.
+	for _, addr := range recipients {
+		if _, err := mail.ParseAddress(addr); err != nil {
+			logger.Warn("invalid analysis.notify_emails recipient; will fail at send time",
+				"address", addr, "err", err)
+		}
+	}
+
+	// Build the synthetic channel once; the engine treats it as enabled and
+	// dispatches the payload to it directly.
+	cfgJSON, err := json.Marshal(map[string]any{"to": recipients})
+	if err != nil {
+		logger.Error("marshal analysis-report channel config", "err", err)
+		return nil
+	}
+	channel := notification.Channel{
+		ID:      -1, // Synthetic; not stored, will not produce a notification_log row that joins to channels.
+		Name:    "analysis-report-tracer",
+		Type:    notification.ChannelTypeEmail,
+		Config:  cfgJSON,
+		Enabled: true,
+	}
+
+	logger.Info("analysis-report email notifications enabled",
+		"recipients", len(recipients))
+
+	return func(ctx context.Context, r model.AnalysisReport) {
+		engine.SendAnalysisReport(ctx, r, []notification.Channel{channel})
 	}
 }
 

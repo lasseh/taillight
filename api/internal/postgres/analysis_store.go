@@ -1045,6 +1045,29 @@ func (s *Store) MarkReportCompleted(ctx context.Context, id int64, body string, 
 	return nil
 }
 
+// MarkReportNotified is the idempotency seam for completion emails. It runs
+// an atomic CAS that flips notified_at from NULL to now() exactly once per
+// row; subsequent calls find notified_at non-NULL and return won=false. The
+// worker uses this to gate engine.SendAnalysisReport so a worker retry on
+// MarkReportCompleted can't deliver duplicate emails. Returns won=false (no
+// error) when the row already had notified_at set or when no row matched
+// (deleted mid-flight).
+func (s *Store) MarkReportNotified(ctx context.Context, id int64) (bool, error) {
+	var got int64
+	err := s.pool.QueryRow(ctx,
+		`UPDATE analysis_reports
+		   SET notified_at = now()
+		 WHERE id = $1 AND notified_at IS NULL
+		 RETURNING id`, id).Scan(&got)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("mark report %d notified: %w", id, err)
+	}
+	return true, nil
+}
+
 // MarkReportFailed records a short error message and completion time.
 // Zero rows affected is benign for the same reason as MarkReportCompleted.
 func (s *Store) MarkReportFailed(ctx context.Context, id int64, msg string) error {
