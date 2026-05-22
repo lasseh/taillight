@@ -1,5 +1,8 @@
 # {{ .FeedTitle }} — {{ .PeriodLabel }} trend data block
 Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} → {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }}
+{{- if .IsScoped }}
+Scope: {{ .ScopeLabel }}
+{{- end }}
 
 Severity legend: 0=emerg 1=alert 2=crit 3=err 4=warn 5=notice 6=info 7=debug.
 Rates in the Severity Drift block are per-day; counts elsewhere are raw totals across the full period.
@@ -48,10 +51,12 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 - `{{ .Label }}` (facility {{ .Facility }}) — {{ .Count }} events ({{ .ErrorCount }} severity ≤ 3)
 {{ end }}
 {{- end }}
+{{- if not .IsScoped }}
 ## Hosts with Most Errors (severity ≤ 3, max 15)
 {{ range .TopErrorHosts -}}
 - `{{ .Hostname }}` — {{ .Count }} errors · top msgid: `{{ truncate .TopMsgID 80 }}`
 {{ end }}
+{{- end }}
 {{- if .NewMsgIDs }}
 ## New Event Signatures (not seen in the 7 days prior to this period)
 {{ range .NewMsgIDs -}}
@@ -64,6 +69,7 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 ## New Event Signatures
 _None._
 {{- end }}
+{{- if not .IsScoped }}
 {{ if .EventClusters }}
 ## Cross-Host Event Clusters (5-minute windows; ≥2 hosts firing the same msgid; max 8)
 {{ range .EventClusters -}}
@@ -72,6 +78,7 @@ _None._
 {{- else }}
 ## Cross-Host Event Clusters
 _None in this period._
+{{- end }}
 {{- end }}
 
 ---

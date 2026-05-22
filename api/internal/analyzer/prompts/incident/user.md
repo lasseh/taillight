@@ -1,5 +1,8 @@
 # {{ .FeedTitle }} — incident-window data block
 Window: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} → {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }} ({{ .PeriodLabel }})
+{{- if .IsScoped }}
+Scope: {{ .ScopeLabel }}
+{{- end }}
 
 Severity legend: 0=emerg 1=alert 2=crit 3=err 4=warn 5=notice 6=info 7=debug.
 The Severity Comparison block reports rates extrapolated to per-day so this window is comparable to the 7-day baseline; raw counts elsewhere are exact events within the window.
@@ -48,10 +51,12 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 - `{{ .Label }}` (facility {{ .Facility }}) — {{ .Count }} events ({{ .ErrorCount }} severity ≤ 3)
 {{ end }}
 {{- end }}
+{{- if not .IsScoped }}
 ## Hosts with Most Errors in this window (severity ≤ 3, max 15)
 {{ range .TopErrorHosts -}}
 - `{{ .Hostname }}` — {{ .Count }} errors · top msgid: `{{ truncate .TopMsgID 80 }}`
 {{ end }}
+{{- end }}
 {{- if .NewMsgIDs }}
 ## New Event Signatures (not seen in the 7 days prior to this window)
 {{ range .NewMsgIDs -}}
@@ -64,6 +69,7 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 ## New Event Signatures
 _None in this window._
 {{- end }}
+{{- if not .IsScoped }}
 {{ if .EventClusters }}
 ## Cross-Host Event Clusters (5-minute windows in this incident period; ≥2 hosts firing the same msgid; max 8)
 {{ range .EventClusters -}}
@@ -72,6 +78,7 @@ _None in this window._
 {{- else }}
 ## Cross-Host Event Clusters
 _None in this window._
+{{- end }}
 {{- end }}
 
 ---

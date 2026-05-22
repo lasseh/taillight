@@ -84,6 +84,22 @@ func truncatePromptStrings(ss []string, n int) []string {
 	return out
 }
 
+// formatScopeLabel renders the scope's host list as a single line for the
+// user prompt's `Scope:` header. Empty input returns "" so the template can
+// guard on `IsScoped` instead of empty-string checks. The count suffix lets
+// the model and a human reader confirm at a glance how many hosts the
+// report covers without counting commas.
+func formatScopeLabel(hosts []string) string {
+	if len(hosts) == 0 {
+		return ""
+	}
+	noun := "host"
+	if len(hosts) > 1 {
+		noun = "hosts"
+	}
+	return fmt.Sprintf("%s (%d %s)", strings.Join(hosts, ", "), len(hosts), noun)
+}
+
 // feedDescription returns a human-readable description of the feed for use in prompts.
 func feedDescription(feed string) string {
 	switch feed {
@@ -113,11 +129,35 @@ func feedTitle(feed string) string {
 }
 
 // promptData wraps analysisData with feed-specific template fields.
+//
+// IsScoped is true when the run was restricted to an explicit host list; it
+// gates the `Scope:` line in the user prompt and the section-suppression
+// {{if not .IsScoped}} blocks. Hosts is the sorted host set (already
+// normalized upstream) so the template can render the names verbatim
+// without a sort/dedup call in template land.
 type promptData struct {
 	analysisData
 	FeedDescription string
 	FeedTitle       string
+	IsScoped        bool
+	ScopeLabel      string // pre-formatted "edge01.lab, edge02.lab (2 hosts)".
 }
+
+// scopedGuardSystemPreamble is the invariant system-prompt block prepended
+// to every scoped run. It lives in code (not in the prompts/<mode>/system.md
+// files) so prompt authors cannot accidentally drop it on an edit, and so
+// hot-reload of the templates never loses the anti-hallucination guard.
+//
+// The wording is deliberately specific: "do not speculate about other
+// hosts" rather than "be careful," because vague guidance gets ignored.
+const scopedGuardSystemPreamble = "# Scope restriction\n\n" +
+	"This report is restricted to the specific hosts named in the user message's `Scope:` line. " +
+	"Do not claim or speculate about activity on hosts outside that scope. " +
+	"Do not use phrases like \"across the fleet\", \"the rest of the cluster\", or \"other hosts in the environment\" — " +
+	"there are no other hosts in this report. " +
+	"When a signal would normally compare these hosts to others, frame it as \"these hosts vs. their own 7-day baseline\" " +
+	"(the baseline in the data block has already been filtered to the same hosts). " +
+	"\"Top Error Hosts\" and \"Cross-Host Event Clusters\" sections are intentionally absent — do not invent them."
 
 // loadPromptSource returns the raw template text for the given prompt file and
 // mode. When dir is empty, the embedded default is read; otherwise the file is
@@ -165,6 +205,8 @@ func buildPrompt(data analysisData, promptsDir, mode string) (string, string, er
 		analysisData:    data,
 		FeedDescription: feedDescription(data.Feed),
 		FeedTitle:       feedTitle(data.Feed),
+		IsScoped:        len(data.Hosts) > 0,
+		ScopeLabel:      formatScopeLabel(data.Hosts),
 	}
 
 	sysSrc, err := loadPromptSource(promptsDir, mode, systemPromptFile)
@@ -194,5 +236,13 @@ func buildPrompt(data analysisData, promptsDir, mode string) (string, string, er
 	if err := userTmpl.Execute(&userBuf, pd); err != nil {
 		return "", "", fmt.Errorf("render user prompt: %w", err)
 	}
-	return sysBuf.String(), userBuf.String(), nil
+
+	sys := sysBuf.String()
+	if pd.IsScoped {
+		// Prepended in code, not in the template, so a prompt edit can't
+		// silently drop the anti-fleet-language guard. The two newlines
+		// separate the preamble from the existing system prompt cleanly.
+		sys = scopedGuardSystemPreamble + "\n\n" + sys
+	}
+	return sys, userBuf.String(), nil
 }

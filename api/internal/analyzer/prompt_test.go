@@ -242,6 +242,81 @@ func TestBuildPromptTruncatesLongMsgID(t *testing.T) {
 	}
 }
 
+// TestBuildPromptScopedAddsGuardAndScopeLine covers the scope-awareness
+// contract for slice 03: when the run carries a host scope, every mode's
+// system prompt is prefixed with the invariant guard block (so the model
+// can't drift into fleet-wide language) and the user prompt renders a
+// Scope: line near the period header. Conversely, an unscoped run must not
+// carry either signal.
+func TestBuildPromptScopedAddsGuardAndScopeLine(t *testing.T) {
+	for _, mode := range []string{modeDaily, modeWeekly, modeIncident} {
+		t.Run(mode+"/scoped", func(t *testing.T) {
+			data := fixtureData(t)
+			data.Hosts = []string{"edge1-syd", "edge2-syd"}
+
+			sys, usr, err := buildPrompt(data, "", mode)
+			if err != nil {
+				t.Fatalf("buildPrompt: %v", err)
+			}
+			if !strings.HasPrefix(sys, "# Scope restriction") {
+				t.Errorf("system prompt must start with the scope guard block; got first 80 chars: %q", sys[:min(80, len(sys))])
+			}
+			if !strings.Contains(sys, "do not invent them") {
+				t.Errorf("system prompt missing distinctive guard sentence")
+			}
+			if !strings.Contains(usr, "Scope: edge1-syd, edge2-syd (2 hosts)") {
+				t.Errorf("user prompt missing Scope: line; got:\n%s", usr)
+			}
+			// Suppressed sections must not appear in the data block.
+			if strings.Contains(usr, "## Hosts with Most Errors") {
+				t.Errorf("user prompt rendered Hosts with Most Errors despite scope; got:\n%s", usr)
+			}
+			if strings.Contains(usr, "## Cross-Host Event Clusters") {
+				t.Errorf("user prompt rendered Cross-Host Event Clusters despite scope; got:\n%s", usr)
+			}
+		})
+
+		t.Run(mode+"/unscoped", func(t *testing.T) {
+			data := fixtureData(t)
+			// data.Hosts is nil — the all-hosts path.
+
+			sys, usr, err := buildPrompt(data, "", mode)
+			if err != nil {
+				t.Fatalf("buildPrompt: %v", err)
+			}
+			if strings.HasPrefix(sys, "# Scope restriction") {
+				t.Errorf("unscoped run must not carry the scope guard; got first 80 chars: %q", sys[:min(80, len(sys))])
+			}
+			if strings.Contains(usr, "Scope:") {
+				t.Errorf("unscoped user prompt must not render a Scope: line; got:\n%s", usr)
+			}
+			if !strings.Contains(usr, "## Hosts with Most Errors") {
+				t.Errorf("unscoped user prompt missing Hosts with Most Errors section; got:\n%s", usr)
+			}
+		})
+	}
+}
+
+// TestFormatScopeLabel pins the single-host vs multi-host wording so the
+// rendered prompt always uses the right noun.
+func TestFormatScopeLabel(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{}, ""},
+		{[]string{"a"}, "a (1 host)"},
+		{[]string{"a", "b"}, "a, b (2 hosts)"},
+	}
+	for _, tc := range cases {
+		got := formatScopeLabel(tc.in)
+		if got != tc.want {
+			t.Errorf("formatScopeLabel(%v) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestBuildPromptEmptyData ensures the templates render cleanly when the
 // period is genuinely quiet (no msgids, no hosts, no clusters). The system
 // prompts instruct the model to handle this gracefully — make sure the
