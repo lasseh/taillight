@@ -229,25 +229,31 @@ func TestBuildEmailAnalysisReport(t *testing.T) {
 		Model:       "gpt-oss:20b",
 		PeriodStart: time.Date(2026, 5, 22, 10, 15, 0, 0, time.UTC),
 		PeriodEnd:   time.Date(2026, 5, 22, 13, 15, 0, 0, time.UTC),
-		Report:      "# Incident Briefing — 2026-05-22 → 2026-05-22\n_Period: ..._\n\nCONTAIN — RTPERF_CPU_THRESHOLD_EXCEEDED spike on s-vts-ep-1 at 12:05 and 12:35.\n",
+		Report: "# Incident Briefing — 2026-05-22 → 2026-05-22\n" +
+			"_Period: 2026-05-22 10:15 UTC – 2026-05-22 13:15 UTC_\n\n" +
+			"## Verdict\n\n" +
+			"CONTAIN — `RTPERF_CPU_THRESHOLD_EXCEEDED` spike on s-vts-ep-1 at 12:05 and 12:35.\n\n" +
+			"## Correlations\n\n" +
+			"| Signature | Count | Hosts |\n|---|---|---|\n| cpu_threshold | 37 | s-vts-ep-1 |\n",
 		CompletedAt: &completed,
 		CreatedAt:   time.Date(2026, 5, 22, 13, 15, 30, 0, time.UTC),
 	}
 	body := buildEmailAnalysisReport(r)
 
-	// Body must surface the title, period, scope, model, excerpt, and slug
-	// pointer so the recipient can act on the email even without the PDF.
+	// Metadata strip and slug pointer must be present.
 	checks := []string{
-		"Incident Briefing",
-		"2026-05-22 10:15 – 2026-05-22 13:15 UTC",
-		"s-vts-ep-1, s-vts-ep-2",
-		"gpt-oss:20b",
-		"CONTAIN — RTPERF_CPU_THRESHOLD_EXCEEDED",
 		"netlog-incident-2026-05-22-1315",
+		"gpt-oss:20b",
+		"s-vts-ep-1, s-vts-ep-2",
+		"taillight-report",                           // styled report container class
+		`<h1>Incident Briefing`,                      // goldmark rendered the analyzer-prepended title
+		`<h2>Verdict</h2>`,                           // section heading came through
+		`<code>RTPERF_CPU_THRESHOLD_EXCEEDED</code>`, // inline code chip
+		`<table>`, // pipe table rendered (GFM extension on)
 	}
 	for _, check := range checks {
 		if !strings.Contains(body, check) {
-			t.Errorf("expected body to contain %q\ngot: %s", check, body)
+			t.Errorf("expected body to contain %q", check)
 		}
 	}
 }
