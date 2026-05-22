@@ -18,7 +18,7 @@ func discardLogger() *slog.Logger {
 }
 
 func TestEmailValidate(t *testing.T) {
-	e := NewEmail(EmailGlobalConfig{}, discardLogger())
+	e := NewEmail(EmailGlobalConfig{}, nil, discardLogger())
 
 	tests := []struct {
 		name    string
@@ -79,7 +79,7 @@ func TestEmailValidate(t *testing.T) {
 }
 
 func TestEmailValidateInvalidJSON(t *testing.T) {
-	e := NewEmail(EmailGlobalConfig{}, discardLogger())
+	e := NewEmail(EmailGlobalConfig{}, nil, discardLogger())
 	ch := notification.Channel{Config: json.RawMessage(`{invalid`)}
 	err := e.Validate(ch)
 	if err == nil {
@@ -135,6 +135,17 @@ func TestBuildEmailSubject(t *testing.T) {
 			tmpl:     "",
 			payload:  notification.Payload{},
 			expected: "[Taillight] Notification",
+		},
+		{
+			name: "analysis report",
+			tmpl: "",
+			payload: notification.Payload{
+				AnalysisReport: &model.AnalysisReport{
+					PromptMode: "daily",
+					PeriodEnd:  time.Date(2026, 5, 22, 13, 15, 0, 0, time.UTC),
+				},
+			},
+			expected: "[Taillight] Daily Operations Briefing — 2026-05-22",
 		},
 	}
 
@@ -205,6 +216,96 @@ func TestBuildEmailBodyDigest(t *testing.T) {
 		if !strings.Contains(body, check) {
 			t.Errorf("expected body to contain %q", check)
 		}
+	}
+}
+
+func TestBuildEmailAnalysisReport(t *testing.T) {
+	completed := time.Date(2026, 5, 22, 13, 16, 0, 0, time.UTC)
+	r := &model.AnalysisReport{
+		Slug:        "netlog-incident-2026-05-22-1315",
+		Feed:        "netlog",
+		PromptMode:  "incident",
+		Hosts:       []string{"s-vts-ep-1", "s-vts-ep-2"},
+		Model:       "gpt-oss:20b",
+		PeriodStart: time.Date(2026, 5, 22, 10, 15, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2026, 5, 22, 13, 15, 0, 0, time.UTC),
+		Report:      "# Incident Briefing — 2026-05-22 → 2026-05-22\n_Period: ..._\n\nCONTAIN — RTPERF_CPU_THRESHOLD_EXCEEDED spike on s-vts-ep-1 at 12:05 and 12:35.\n",
+		CompletedAt: &completed,
+		CreatedAt:   time.Date(2026, 5, 22, 13, 15, 30, 0, time.UTC),
+	}
+	body := buildEmailAnalysisReport(r)
+
+	// Body must surface the title, period, scope, model, excerpt, and slug
+	// pointer so the recipient can act on the email even without the PDF.
+	checks := []string{
+		"Incident Briefing",
+		"2026-05-22 10:15 – 2026-05-22 13:15 UTC",
+		"s-vts-ep-1, s-vts-ep-2",
+		"gpt-oss:20b",
+		"CONTAIN — RTPERF_CPU_THRESHOLD_EXCEEDED",
+		"netlog-incident-2026-05-22-1315",
+	}
+	for _, check := range checks {
+		if !strings.Contains(body, check) {
+			t.Errorf("expected body to contain %q\ngot: %s", check, body)
+		}
+	}
+}
+
+func TestBuildMIMEMessageWithAttachment(t *testing.T) {
+	pdf := []byte("%PDF-1.4 fake pdf bytes for testing\n")
+	msg := buildMIMEMessageWithAttachment(
+		"from@example.com",
+		[]string{"to@example.com"},
+		"[Taillight] Daily — 2026-05-22",
+		"<p>body</p>",
+		pdf,
+		"netlog-daily-2026-05-22-1018.pdf",
+	)
+	s := string(msg)
+
+	checks := []string{
+		"From: from@example.com\r\n",
+		"To: to@example.com\r\n",
+		`Content-Type: multipart/mixed; boundary="taillight_`,
+		"Content-Type: text/html; charset=UTF-8\r\n",
+		"<p>body</p>",
+		`Content-Type: application/pdf; name="netlog-daily-2026-05-22-1018.pdf"`,
+		`Content-Disposition: attachment; filename="netlog-daily-2026-05-22-1018.pdf"`,
+		"Content-Transfer-Encoding: base64\r\n",
+	}
+	for _, check := range checks {
+		if !strings.Contains(s, check) {
+			t.Errorf("expected MIME message to contain %q", check)
+		}
+	}
+
+	// Final boundary marker must terminate the message.
+	if !strings.HasSuffix(s, "--\r\n") {
+		t.Errorf("expected message to end with terminating boundary, got tail %q", s[max(0, len(s)-40):])
+	}
+}
+
+func TestPDFFilename(t *testing.T) {
+	tests := []struct {
+		name string
+		in   *model.AnalysisReport
+		want string
+	}{
+		{name: "slug present", in: &model.AnalysisReport{Slug: "netlog-daily-2026-05-22"}, want: "netlog-daily-2026-05-22.pdf"},
+		{name: "nil falls back to timestamped", in: nil, want: "taillight-report-"},
+		{name: "empty slug falls back to timestamped", in: &model.AnalysisReport{}, want: "taillight-report-"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pdfFilename(tt.in)
+			if !strings.HasPrefix(got, tt.want) {
+				t.Errorf("expected filename to start with %q, got %q", tt.want, got)
+			}
+			if !strings.HasSuffix(got, ".pdf") {
+				t.Errorf("expected filename to end with .pdf, got %q", got)
+			}
+		})
 	}
 }
 

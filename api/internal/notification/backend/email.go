@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -23,6 +24,20 @@ import (
 type emailConfig struct {
 	To              []string `json:"to"`
 	SubjectTemplate string   `json:"subject_template,omitempty"`
+	// AttachPDF, when true on an analysis-report payload, renders the report
+	// to PDF via the configured PDFRenderer and ships it as a multipart/mixed
+	// attachment. Ignored on other payload kinds and silently skipped when
+	// the backend has no renderer wired (logs a warning).
+	AttachPDF bool `json:"attach_pdf,omitempty"`
+}
+
+// PDFRenderer is the interface the email backend uses to render an analysis
+// report to PDF bytes. Implemented by internal/pdfrender — but injected as an
+// interface so backend tests can substitute a fake. Nil renderer means
+// PDF attachment is disabled and AttachPDF channel configs degrade to a
+// plain text/html body with a warning logged.
+type PDFRenderer interface {
+	RenderAnalysisReport(ctx context.Context, r model.AnalysisReport) ([]byte, error)
 }
 
 // EmailGlobalConfig holds SMTP connection settings from the app config.
@@ -38,15 +53,19 @@ type EmailGlobalConfig struct {
 
 // Email implements the Notifier interface for SMTP email delivery.
 type Email struct {
-	cfg    EmailGlobalConfig
-	logger *slog.Logger
+	cfg      EmailGlobalConfig
+	renderer PDFRenderer
+	logger   *slog.Logger
 }
 
-// NewEmail creates a new Email backend.
-func NewEmail(cfg EmailGlobalConfig, logger *slog.Logger) *Email {
+// NewEmail creates a new Email backend. Pass nil for renderer to disable PDF
+// attachment support — channels with attach_pdf=true will still send, but
+// only the HTML body (a warning is logged).
+func NewEmail(cfg EmailGlobalConfig, renderer PDFRenderer, logger *slog.Logger) *Email {
 	return &Email{
-		cfg:    cfg,
-		logger: logger.With("backend", "email"),
+		cfg:      cfg,
+		renderer: renderer,
+		logger:   logger.With("backend", "email"),
 	}
 }
 
@@ -91,7 +110,36 @@ func (e *Email) Send(ctx context.Context, ch notification.Channel, payload notif
 	subject := buildEmailSubject(cfg.SubjectTemplate, payload)
 	body := buildEmailBody(payload)
 
-	msg := buildMIMEMessage(e.cfg.From, cfg.To, subject, body)
+	// PDF attachment path. Only kicks in for AnalysisReport payloads with
+	// attach_pdf=true on the channel and a renderer wired on the backend.
+	// Anything else falls through to the plain text/html message that the
+	// existing summary / event flows already use.
+	var pdf []byte
+	if cfg.AttachPDF && payload.AnalysisReport != nil {
+		if e.renderer == nil {
+			e.logger.Warn("attach_pdf requested but no PDF renderer configured; sending without attachment",
+				"slug", payload.AnalysisReport.Slug)
+		} else {
+			rendered, rerr := e.renderer.RenderAnalysisReport(ctx, *payload.AnalysisReport)
+			if rerr != nil {
+				// Failing the whole send because the PDF render failed would be
+				// worse than delivering the HTML body — the recipient can still
+				// open the report via the link in the body.
+				e.logger.Warn("PDF render failed; sending email without attachment",
+					"slug", payload.AnalysisReport.Slug, "err", rerr)
+			} else {
+				pdf = rendered
+			}
+		}
+	}
+
+	var msg []byte
+	if len(pdf) > 0 {
+		filename := pdfFilename(payload.AnalysisReport)
+		msg = buildMIMEMessageWithAttachment(e.cfg.From, cfg.To, subject, body, pdf, filename)
+	} else {
+		msg = buildMIMEMessage(e.cfg.From, cfg.To, subject, body)
+	}
 
 	if err := e.sendSMTP(ctx, cfg.To, msg); err != nil {
 		return notification.SendResult{Error: fmt.Errorf("send email: %w", err), Duration: time.Since(start)}
@@ -189,6 +237,64 @@ func buildMIMEMessage(from string, to []string, subject, htmlBody string) []byte
 	return []byte(b.String())
 }
 
+// buildMIMEMessageWithAttachment constructs a multipart/mixed email carrying
+// the HTML body plus a single binary attachment (the analysis-report PDF).
+// The boundary is derived from a fixed prefix + a nanosecond timestamp; that
+// combination is unique enough for one message and avoids pulling in
+// crypto/rand for what is effectively a delimiter.
+//
+// Attachment is base64-encoded with 76-char line wrapping per RFC 2045 §6.8.
+func buildMIMEMessageWithAttachment(from string, to []string, subject, htmlBody string, attachment []byte, filename string) []byte {
+	boundary := fmt.Sprintf("taillight_%d", time.Now().UnixNano())
+	filename = sanitizeHeaderValue(filename)
+
+	var b strings.Builder
+	b.WriteString("From: " + sanitizeHeaderValue(from) + "\r\n")
+	b.WriteString("To: " + sanitizeHeaderValue(strings.Join(to, ", ")) + "\r\n")
+	b.WriteString("Subject: " + sanitizeHeaderValue(subject) + "\r\n")
+	b.WriteString("MIME-Version: 1.0\r\n")
+	b.WriteString("Content-Type: multipart/mixed; boundary=\"" + boundary + "\"\r\n")
+	b.WriteString("\r\n")
+
+	// HTML body part.
+	b.WriteString("--" + boundary + "\r\n")
+	b.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: 7bit\r\n")
+	b.WriteString("\r\n")
+	b.WriteString(htmlBody)
+	b.WriteString("\r\n")
+
+	// PDF attachment part.
+	b.WriteString("--" + boundary + "\r\n")
+	b.WriteString("Content-Type: application/pdf; name=\"" + filename + "\"\r\n")
+	b.WriteString("Content-Disposition: attachment; filename=\"" + filename + "\"\r\n")
+	b.WriteString("Content-Transfer-Encoding: base64\r\n")
+	b.WriteString("\r\n")
+	encoded := base64.StdEncoding.EncodeToString(attachment)
+	// Wrap to 76 chars per RFC 2045 §6.8.
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		b.WriteString(encoded[i:end])
+		b.WriteString("\r\n")
+	}
+
+	// Final boundary.
+	b.WriteString("--" + boundary + "--\r\n")
+	return []byte(b.String())
+}
+
+// pdfFilename derives a safe filename for the report PDF. Falls back to a
+// timestamped default if the report has no slug (shouldn't happen post-store).
+func pdfFilename(r *model.AnalysisReport) string {
+	if r != nil && r.Slug != "" {
+		return r.Slug + ".pdf"
+	}
+	return fmt.Sprintf("taillight-report-%d.pdf", time.Now().Unix())
+}
+
 // sanitizeHeaderValue strips CR and LF characters to prevent header injection.
 func sanitizeHeaderValue(s string) string {
 	s = strings.ReplaceAll(s, "\r", "")
@@ -212,6 +318,14 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 	}
 
 	prefix := "[Taillight]"
+	if p.AnalysisReport != nil {
+		r := p.AnalysisReport
+		return fmt.Sprintf("%s %s — %s",
+			prefix,
+			analysisBriefingTitle(r.PromptMode),
+			r.PeriodEnd.UTC().Format("2006-01-02"),
+		)
+	}
 	if p.SummaryReport != nil {
 		r := p.SummaryReport
 		freq := r.Schedule.Frequency
@@ -237,8 +351,27 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 	return prefix + " Notification"
 }
 
+// analysisBriefingTitle is the email-subject mapper for prompt_mode. Mirrors
+// analyzer.briefingTitle (which is unexported and lives a layer below this
+// package, so duplicating the short switch is cheaper than reaching across).
+func analysisBriefingTitle(mode string) string {
+	switch mode {
+	case "daily":
+		return "Daily Operations Briefing"
+	case "weekly":
+		return "Weekly Operations Briefing"
+	case "incident":
+		return "Incident Briefing"
+	default:
+		return "Operations Briefing"
+	}
+}
+
 // buildEmailBody creates an HTML email body with severity color coding.
 func buildEmailBody(p notification.Payload) string {
+	if p.AnalysisReport != nil {
+		return buildEmailAnalysisReport(p.AnalysisReport)
+	}
 	if p.SummaryReport != nil {
 		return buildEmailSummary(p.SummaryReport)
 	}
@@ -454,6 +587,91 @@ func writeAppLogSection(b *strings.Builder, s *model.AppLogSummary) {
 		}
 		b.WriteString(`</div>`)
 	}
+}
+
+// buildEmailAnalysisReport renders a short HTML body for a completed analysis
+// report. The body is intentionally minimal — title, period, scope, a short
+// excerpt, and a "open in Taillight" pointer — because the full report
+// arrives as a PDF attachment when attach_pdf is configured. When no
+// attachment is sent (renderer down or attach_pdf=false), the recipient
+// still has enough context here to know what's in the report and where to
+// open it. The full markdown is not inlined: rendering 30 KB of nested
+// tables across mail clients is a known mess best left to the PDF path.
+func buildEmailAnalysisReport(r *model.AnalysisReport) string {
+	title := analysisBriefingTitle(r.PromptMode)
+	period := fmt.Sprintf("%s – %s UTC",
+		r.PeriodStart.UTC().Format("2006-01-02 15:04"),
+		r.PeriodEnd.UTC().Format("2006-01-02 15:04"),
+	)
+	scope := "all hosts"
+	if len(r.Hosts) > 0 {
+		scope = strings.Join(r.Hosts, ", ")
+	}
+	excerpt := analysisExcerpt(r.Report, 320)
+
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5;">
+  <div style="max-width: 640px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+    <div style="background: #1f2937; padding: 16px 20px; color: #fff;">
+      <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7;">Taillight — Analysis Report</div>
+      <div style="font-size: 18px; font-weight: bold; margin-top: 4px;">%s</div>
+      <div style="font-size: 13px; opacity: 0.8; margin-top: 4px;">%s</div>
+    </div>
+    <div style="padding: 20px;">
+      <table style="font-size: 13px; margin-bottom: 12px;">
+        <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Source</td><td style="font-weight: 600;">%s</td></tr>
+        <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Mode</td><td style="font-weight: 600;">%s</td></tr>
+        <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Scope</td><td style="font-weight: 600;">%s</td></tr>
+        <tr><td style="padding: 2px 12px 2px 0; color: #6b7280;">Model</td><td style="font-weight: 600;">%s</td></tr>
+      </table>
+      <div style="background: #f8f9fa; border-left: 3px solid #2563eb; padding: 10px 12px; font-size: 13px; color: #374151; white-space: pre-wrap;">%s</div>
+      <div style="margin-top: 16px; font-size: 12px; color: #6b7280;">The full report is attached as PDF. Open in Taillight: <code>/analysis/reports/%s</code></div>
+    </div>
+    <div style="padding: 12px 20px; background: #f8f9fa; color: #888; font-size: 12px;">
+      Generated %s
+    </div>
+  </div>
+</body>
+</html>`,
+		html.EscapeString(title),
+		html.EscapeString(period),
+		html.EscapeString(r.Feed),
+		html.EscapeString(r.PromptMode),
+		html.EscapeString(scope),
+		html.EscapeString(r.Model),
+		html.EscapeString(excerpt),
+		html.EscapeString(r.Slug),
+		analysisGeneratedAt(r),
+	)
+}
+
+// analysisExcerpt returns the first paragraph of the rendered markdown body,
+// truncated to n characters with an ellipsis. The analyzer prepends a level-1
+// title and a "_Period: ..._" line that aren't interesting in an excerpt, so
+// the helper skips lines starting with "#" or "_" until it finds prose.
+func analysisExcerpt(body string, n int) string {
+	if body == "" {
+		return "(report body empty)"
+	}
+	for _, line := range strings.Split(body, "\n") {
+		s := strings.TrimSpace(line)
+		if s == "" || strings.HasPrefix(s, "#") || strings.HasPrefix(s, "_") {
+			continue
+		}
+		return truncate(s, n)
+	}
+	return truncate(strings.TrimSpace(body), n)
+}
+
+// analysisGeneratedAt prefers completed_at over created_at so a finished
+// report stamps the actual finish time, not the queue time.
+func analysisGeneratedAt(r *model.AnalysisReport) string {
+	if r.CompletedAt != nil {
+		return r.CompletedAt.UTC().Format(time.RFC3339)
+	}
+	return r.CreatedAt.UTC().Format(time.RFC3339)
 }
 
 func issueSeverityColor(severity int) string {
