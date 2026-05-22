@@ -83,18 +83,36 @@ const feedLabel: Record<AnalysisFeed, string> = {
   all: 'Combined',
 }
 
-export function reportTitle(r: Pick<AnalysisReportSummary, 'feed' | 'prompt_mode'>): string {
+// formatScope renders the report's host scope as a count phrase ("3 hosts")
+// for the title-suffix path. Empty input returns "" so callers can spread it
+// after a separator without producing trailing whitespace. Single vs plural
+// noun matters — a one-host scope reads as "1 host", not "1 hosts".
+export function formatScope(hosts: string[] | undefined | null): string {
+  if (!hosts || hosts.length === 0) return ''
+  const noun = hosts.length === 1 ? 'host' : 'hosts'
+  return `${hosts.length} ${noun}`
+}
+
+export function reportTitle(
+  r: Pick<AnalysisReportSummary, 'feed' | 'prompt_mode'> & { hosts?: string[] },
+): string {
   const feed = feedLabel[r.feed] ?? r.feed
+  let base: string
   switch (r.prompt_mode) {
     case 'daily':
-      return `${feed} daily brief`
+      base = `${feed} daily brief`
+      break
     case 'weekly':
-      return `${feed} weekly review`
+      base = `${feed} weekly review`
+      break
     case 'incident':
-      return `${feed} incident triage`
+      base = `${feed} incident triage`
+      break
     default:
-      return `${feed} report`
+      base = `${feed} report`
   }
+  const scope = formatScope(r.hosts)
+  return scope === '' ? base : `${base} · ${scope}`
 }
 
 // The briefing title and period sub-line are rendered by the backend

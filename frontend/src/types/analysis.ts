@@ -12,6 +12,10 @@ export interface AnalysisReport {
   slug: string
   feed: AnalysisFeed
   prompt_mode: AnalysisPromptMode
+  // Host scope: empty array = "all hosts on the feed". Token-count contract
+  // (prompt_tokens=0 && status='completed') indicates the analyzer
+  // short-circuited because the window was empty; see backend docs.
+  hosts: string[]
   model: string
   period_start: string
   period_end: string
@@ -30,6 +34,7 @@ export interface AnalysisReportSummary {
   slug: string
   feed: AnalysisFeed
   prompt_mode: AnalysisPromptMode
+  hosts: string[]
   model: string
   period_start: string
   period_end: string
