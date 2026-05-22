@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"sort"
+	"strings"
+	"time"
+)
 
 // Analysis feed constants — the data sources an analysis run can target.
 const (
@@ -57,11 +61,18 @@ func AnalysisModeForFrequency(frequency string) string {
 }
 
 // AnalysisReport represents a stored AI analysis report.
+//
+// Hosts carries the report's host scope: an empty slice means "all hosts on
+// the feed"; a non-empty slice restricts every aggregation (and the baseline
+// comparison) to that exact set. The slice is normalized — sorted and deduped
+// — before persistence so two requests with the same set collide on the
+// active-report uniqueness constraint.
 type AnalysisReport struct {
 	ID               int64      `json:"id"`
 	Slug             string     `json:"slug"`
 	Feed             string     `json:"feed"`
 	PromptMode       string     `json:"prompt_mode"`
+	Hosts            []string   `json:"hosts"`
 	Model            string     `json:"model"`
 	PeriodStart      time.Time  `json:"period_start"`
 	PeriodEnd        time.Time  `json:"period_end"`
@@ -81,6 +92,7 @@ type AnalysisReportSummary struct {
 	Slug             string     `json:"slug"`
 	Feed             string     `json:"feed"`
 	PromptMode       string     `json:"prompt_mode"`
+	Hosts            []string   `json:"hosts"`
 	Model            string     `json:"model"`
 	PeriodStart      time.Time  `json:"period_start"`
 	PeriodEnd        time.Time  `json:"period_end"`
@@ -90,6 +102,59 @@ type AnalysisReportSummary struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	StartedAt        *time.Time `json:"started_at,omitempty"`
 	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+}
+
+// AnalysisScope is the (feed, hosts) pair that selects which events an
+// analyzer query reads from. Replacing a bare `feed string` parameter with
+// this struct keeps the analyzer Store interface stable as new dimensions
+// (today: hosts; later perhaps severity floor or program filter) get added.
+//
+// Hosts is canonical: empty means "all hosts on the feed," and non-empty
+// must already be sorted + deduped (use NormalizeHosts before constructing).
+type AnalysisScope struct {
+	Feed  string
+	Hosts []string
+}
+
+// IsAllHosts reports whether the scope applies to every host on the feed
+// (i.e. no host filter). Callers use this both to choose query shape (skip
+// `WHERE hostname = ANY(...)` clauses) and to decide whether to gather
+// host-comparison aggregations that are degenerate under a narrow scope.
+func (s AnalysisScope) IsAllHosts() bool {
+	return len(s.Hosts) == 0
+}
+
+// NormalizeHosts returns a sorted, deduped, trimmed copy of hosts so that
+// two requests with the same logical host set produce the same []string and
+// therefore the same Postgres text[] value. The active-report uniqueness
+// constraint relies on this — without it ["a","b"] and ["b","a"] would be
+// stored as distinct keys.
+//
+// Empty input and an input that normalizes to zero entries both return nil
+// (rather than an empty non-nil slice) so callers can use the zero value
+// interchangeably with "no scope".
+func NormalizeHosts(hosts []string) []string {
+	if len(hosts) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(hosts))
+	seen := make(map[string]struct{}, len(hosts))
+	for _, h := range hosts {
+		h = strings.TrimSpace(h)
+		if h == "" {
+			continue
+		}
+		if _, ok := seen[h]; ok {
+			continue
+		}
+		seen[h] = struct{}{}
+		out = append(out, h)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Strings(out)
+	return out
 }
 
 // AnalysisSchedule represents a configured recurring analysis run.

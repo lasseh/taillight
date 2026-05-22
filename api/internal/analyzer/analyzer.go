@@ -11,17 +11,18 @@ import (
 )
 
 // Store defines the data access methods needed by the analyzer.
-// Methods that query log events accept a feed parameter ("srvlog", "netlog", or "all").
+// Methods that query log events accept an AnalysisScope, which pairs the
+// feed ("srvlog", "netlog", or "all") with an optional explicit host filter.
 type Store interface {
-	GetTopMsgIDs(ctx context.Context, feed string, since time.Time, limit int) ([]model.MsgIDCount, error)
-	GetSeverityComparison(ctx context.Context, feed string, currentSince, baselineSince time.Time) (model.SeverityComparison, error)
-	GetTopErrorHosts(ctx context.Context, feed string, since time.Time, limit int) ([]model.HostErrorCount, error)
-	GetNewMsgIDs(ctx context.Context, feed string, since, baselineSince time.Time) ([]string, error)
-	GetEventClusters(ctx context.Context, feed string, since time.Time, windowMinutes int) ([]model.EventCluster, error)
-	GetMsgIDSamples(ctx context.Context, feed string, since time.Time, keys []string, perKeyLimit int) (map[string][]model.SampleMessage, error)
-	GetTopPrograms(ctx context.Context, feed string, since time.Time, limit int) ([]model.ProgramCount, error)
-	GetTopFacilities(ctx context.Context, feed string, since time.Time, limit int) ([]model.FacilityCount, error)
-	GetVolumeTimeline(ctx context.Context, feed string, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error)
+	GetTopMsgIDs(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.MsgIDCount, error)
+	GetSeverityComparison(ctx context.Context, scope model.AnalysisScope, currentSince, baselineSince time.Time) (model.SeverityComparison, error)
+	GetTopErrorHosts(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.HostErrorCount, error)
+	GetNewMsgIDs(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time) ([]string, error)
+	GetEventClusters(ctx context.Context, scope model.AnalysisScope, since time.Time, windowMinutes int) ([]model.EventCluster, error)
+	GetMsgIDSamples(ctx context.Context, scope model.AnalysisScope, since time.Time, keys []string, perKeyLimit int) (map[string][]model.SampleMessage, error)
+	GetTopPrograms(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.ProgramCount, error)
+	GetTopFacilities(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.FacilityCount, error)
+	GetVolumeTimeline(ctx context.Context, scope model.AnalysisScope, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error)
 	LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error)
 }
 
@@ -39,8 +40,15 @@ type Config struct {
 
 // RunParams carries the per-run inputs for Analyzer.Run. Grouping them keeps
 // the signature stable as new dimensions (mode, scope, host filter) get added.
+//
+// Hosts is the optional host scope for the run: empty means "all hosts on
+// the feed," and non-empty restricts every aggregation (and the baseline)
+// to that exact set. Hosts is expected to be already-normalized by the
+// caller (the handler/worker pass through the persisted report.Hosts which
+// is normalized at insert time); the analyzer itself does not re-normalize.
 type RunParams struct {
 	Feed   string
+	Hosts  []string
 	Period time.Duration
 	Mode   string // "" defaults to AnalysisModeDaily.
 }

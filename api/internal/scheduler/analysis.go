@@ -163,8 +163,13 @@ func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.Analysi
 	periodStart := periodEnd.Add(-period)
 
 	req := model.AnalysisReport{
-		Feed:        sched.Feed,
-		PromptMode:  model.AnalysisModeForFrequency(sched.Frequency),
+		Feed:       sched.Feed,
+		PromptMode: model.AnalysisModeForFrequency(sched.Frequency),
+		// Scheduled runs do not carry host scope — every schedule fires
+		// fleet-wide. When per-schedule host scope is added, this is the
+		// site to thread it through; the explicit nil makes that future
+		// diff visible and grep-able.
+		Hosts:       nil,
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 	}
@@ -204,8 +209,12 @@ func (s *AnalysisScheduler) RunNow(ctx context.Context, id int64) error {
 	periodStart := periodEnd.Add(-periodDuration(sched.Frequency))
 
 	_, err = s.enqueuer.Enqueue(ctx, model.AnalysisReport{
-		Feed:        sched.Feed,
-		PromptMode:  model.AnalysisModeForFrequency(sched.Frequency),
+		Feed:       sched.Feed,
+		PromptMode: model.AnalysisModeForFrequency(sched.Frequency),
+		// Schedule "run now" inherits the schedule's (fleet-wide) host
+		// scope — currently always nil. See runSchedule for the same
+		// pattern.
+		Hosts:       nil,
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 	})

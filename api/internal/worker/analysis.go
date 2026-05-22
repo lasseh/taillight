@@ -150,6 +150,7 @@ func (a *Analysis) process(parent context.Context, id int64) {
 	period := report.PeriodEnd.Sub(report.PeriodStart)
 	res, runErr := a.runner.Run(ctx, analyzer.RunParams{
 		Feed:   report.Feed,
+		Hosts:  report.Hosts,
 		Period: period,
 		Mode:   report.PromptMode,
 	})

@@ -62,6 +62,38 @@ func analysisSource(feed, cols string) string {
 	return analysisTableName(feed)
 }
 
+// scopedSource returns the SQL FROM expression for the analyzer's source,
+// pre-filtered by hostname when the scope carries a host filter. When the
+// scope is unrestricted the base source (single table or union) is returned
+// as-is; when it carries hostnames, the source is wrapped in a subquery that
+// applies `WHERE hostname = ANY($hostsParam)`.
+//
+// The caller is responsible for appending scope.Hosts to its query args at
+// position hostsParam — the helper only owns the SQL fragment, not the args
+// list. Param-number bookkeeping stays with each query so adding the host
+// filter never shifts any existing $N indices in WHERE/ORDER/LIMIT.
+//
+// cols must include "hostname" (the wrapping subquery references it) when
+// the scope is non-empty. Existing call sites already project hostname for
+// the scoped tables; nothing new is required of the schema.
+func scopedSource(scope model.AnalysisScope, cols string, hostsParam int) string {
+	base := analysisSource(scope.Feed, cols)
+	if scope.IsAllHosts() {
+		return base
+	}
+	return fmt.Sprintf("(SELECT %s FROM %s WHERE hostname = ANY($%d)) AS scoped", cols, base, hostsParam)
+}
+
+// appendHostsArg returns args extended with the scope's host list when the
+// scope is non-empty. Pairs with scopedSource so the WHERE-clause parameter
+// always lines up with what scopedSource embedded.
+func appendHostsArg(args []any, scope model.AnalysisScope) []any {
+	if scope.IsAllHosts() {
+		return args
+	}
+	return append(args, scope.Hosts)
+}
+
 // eventKeyExpr returns the SQL expression that produces a stable grouping
 // key for events.
 //
@@ -85,11 +117,14 @@ func eventKeyExpr(_ string) string {
 // GetTopMsgIDs returns the top event signatures by count since the given
 // time, with per-severity breakdowns. The "event signature" is msgid when
 // present and msg_pattern (a normalized message template) otherwise — see
-// eventKeyExpr for the rationale. The feed parameter selects which table(s)
-// to query: "srvlog", "netlog", or "all".
-func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, limit int) ([]model.MsgIDCount, error) {
-	source := analysisSource(feed, "received_at, msgid, msg_pattern, severity")
-	keyExpr := eventKeyExpr(feed)
+// eventKeyExpr for the rationale. The scope parameter selects which feed
+// and (optionally) which hosts to query.
+func (s *Store) GetTopMsgIDs(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.MsgIDCount, error) {
+	// Three sub-queries below: top, severity breakdown, host distribution.
+	// Each tracks its own param indices because host scope is wrapped at the
+	// source level (a subquery around the FROM), not added to each WHERE.
+	source := scopedSource(scope, "received_at, hostname, msgid, msg_pattern, severity", 3)
+	keyExpr := eventKeyExpr(scope.Feed)
 
 	// Top by total count. Filter out empty keys defensively — message is
 	// NOT NULL on both event tables so msg_pattern is almost always
@@ -102,7 +137,7 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, 
 		ORDER BY cnt DESC
 		LIMIT $2`, keyExpr, source, keyExpr)
 
-	rows, err := s.pool.Query(ctx, topQuery, since, limit)
+	rows, err := s.pool.Query(ctx, topQuery, appendHostsArg([]any{since, limit}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("top msgids query: %w", err)
 	}
@@ -141,7 +176,7 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, 
 		WHERE received_at >= $1 AND %s = ANY($2)
 		GROUP BY event_key, severity`, keyExpr, source, keyExpr)
 
-	sevRows, err := s.pool.Query(ctx, sevQuery, since, keys)
+	sevRows, err := s.pool.Query(ctx, sevQuery, appendHostsArg([]any{since, keys}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("severity breakdown query: %w", err)
 	}
@@ -165,7 +200,8 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, 
 	// Host distribution per key: distinct host count + the top
 	// topHostsPerMsgID contributors. The window function gives us both
 	// in one pass so we don't issue two more round trips per signature.
-	hostSource := analysisSource(feed, "received_at, hostname, msgid, msg_pattern")
+	// Hosts param is $4 here (existing args: since, keys, topHostsPerMsgID).
+	hostSource := scopedSource(scope, "received_at, hostname, msgid, msg_pattern", 4)
 	hostQuery := fmt.Sprintf(`
 		WITH per_host AS (
 			SELECT %s AS event_key, hostname, count(*) AS cnt
@@ -183,7 +219,7 @@ func (s *Store) GetTopMsgIDs(ctx context.Context, feed string, since time.Time, 
 		WHERE rn <= $3
 		ORDER BY event_key, rn`, keyExpr, hostSource, keyExpr)
 
-	hostRows, err := s.pool.Query(ctx, hostQuery, since, keys, topHostsPerMsgID)
+	hostRows, err := s.pool.Query(ctx, hostQuery, appendHostsArg([]any{since, keys, topHostsPerMsgID}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("msgid host distribution query: %w", err)
 	}
@@ -223,18 +259,25 @@ const topHostsPerMsgID = 3
 const eventClusterLimit = 8
 
 // GetSeverityComparison compares current period severity counts against baseline daily average.
-// The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
-func (s *Store) GetSeverityComparison(ctx context.Context, feed string, currentSince, baselineSince time.Time) (model.SeverityComparison, error) {
-	table := analysisSource(feed, "received_at, severity")
+// The scope parameter selects which feed and (optionally) which hosts to query.
+// The baseline is filtered by the same host scope as the current window so
+// percentage comparisons stay like-vs-like under a narrow scope.
+func (s *Store) GetSeverityComparison(ctx context.Context, scope model.AnalysisScope, currentSince, baselineSince time.Time) (model.SeverityComparison, error) {
+	// Project hostname into the source so the optional host filter below
+	// has a column to reference; harmless when there's no filter.
+	table := analysisSource(scope.Feed, "received_at, hostname, severity")
 
 	// Current period counts.
-	curQuery, curArgs, err := psq.
+	curBuilder := psq.
 		Select("severity", "count(*) AS cnt").
 		From(table).
 		Where(sq.GtOrEq{"received_at": currentSince}).
 		GroupBy("severity").
-		OrderBy("severity").
-		ToSql()
+		OrderBy("severity")
+	if !scope.IsAllHosts() {
+		curBuilder = curBuilder.Where(sq.Eq{"hostname": scope.Hosts})
+	}
+	curQuery, curArgs, err := curBuilder.ToSql()
 	if err != nil {
 		return model.SeverityComparison{}, fmt.Errorf("build current severity query: %w", err)
 	}
@@ -259,14 +302,17 @@ func (s *Store) GetSeverityComparison(ctx context.Context, feed string, currentS
 	}
 
 	// Baseline: daily average over 7 days before current period.
-	baseQuery, baseArgs, err := psq.
+	baseBuilder := psq.
 		Select("severity", "count(*) AS cnt").
 		From(table).
 		Where(sq.GtOrEq{"received_at": baselineSince}).
 		Where(sq.Lt{"received_at": currentSince}).
 		GroupBy("severity").
-		OrderBy("severity").
-		ToSql()
+		OrderBy("severity")
+	if !scope.IsAllHosts() {
+		baseBuilder = baseBuilder.Where(sq.Eq{"hostname": scope.Hosts})
+	}
+	baseQuery, baseArgs, err := baseBuilder.ToSql()
 	if err != nil {
 		return model.SeverityComparison{}, fmt.Errorf("build baseline severity query: %w", err)
 	}
@@ -327,12 +373,16 @@ func (s *Store) GetSeverityComparison(ctx context.Context, feed string, currentS
 }
 
 // GetTopErrorHosts returns hosts with the most errors (severity <= 3).
-// The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
+// The scope parameter selects which feed and (optionally) which hosts to
+// query. Note: the analyzer skips this query when the scope already
+// restricts to specific hosts (the aggregation is degenerate), but the
+// method honors the filter anyway for callers that invoke it directly.
 // The "top msgid" per host is the most common event signature (msgid when
 // present, otherwise msg_pattern) — see eventKeyExpr.
-func (s *Store) GetTopErrorHosts(ctx context.Context, feed string, since time.Time, limit int) ([]model.HostErrorCount, error) {
-	source := analysisSource(feed, "received_at, hostname, severity, msgid, msg_pattern")
-	keyExpr := eventKeyExpr(feed)
+func (s *Store) GetTopErrorHosts(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.HostErrorCount, error) {
+	// Hosts param is $3 (existing args: since, limit).
+	source := scopedSource(scope, "received_at, hostname, severity, msgid, msg_pattern", 3)
+	keyExpr := eventKeyExpr(scope.Feed)
 
 	query := fmt.Sprintf(`
 		WITH events AS (
@@ -357,7 +407,7 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, feed string, since time.Ti
 		) tm ON true
 		ORDER BY hc.cnt DESC`, source, keyExpr, keyExpr)
 
-	rows, err := s.pool.Query(ctx, query, since, limit)
+	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{since, limit}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("top error hosts query: %w", err)
 	}
@@ -379,12 +429,14 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, feed string, since time.Ti
 }
 
 // GetNewMsgIDs returns event signatures seen in the current period but not in
-// the baseline period. The feed parameter selects which table(s) to query:
-// "srvlog", "netlog", or "all". The signature is msgid when present and
-// msg_pattern otherwise — see eventKeyExpr.
-func (s *Store) GetNewMsgIDs(ctx context.Context, feed string, since, baselineSince time.Time) ([]string, error) {
-	source := analysisSource(feed, "received_at, msgid, msg_pattern")
-	keyExpr := eventKeyExpr(feed)
+// the baseline period. The scope parameter selects which feed and (optionally)
+// which hosts to query; both the current and baseline windows are filtered by
+// the same host scope. The signature is msgid when present and msg_pattern
+// otherwise — see eventKeyExpr.
+func (s *Store) GetNewMsgIDs(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time) ([]string, error) {
+	// Hosts param is $3 (existing args: since, baselineSince).
+	source := scopedSource(scope, "received_at, hostname, msgid, msg_pattern", 3)
+	keyExpr := eventKeyExpr(scope.Feed)
 
 	query := fmt.Sprintf(`
 		WITH events AS (
@@ -401,7 +453,7 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, feed string, since, baselineSi
 		  )
 		ORDER BY event_key`, keyExpr, source)
 
-	rows, err := s.pool.Query(ctx, query, since, baselineSince)
+	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{since, baselineSince}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("new msgids query: %w", err)
 	}
@@ -419,13 +471,17 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, feed string, since, baselineSi
 }
 
 // GetEventClusters returns time windows where events from multiple hosts overlap.
-// The feed parameter selects which table(s) to query: "srvlog", "netlog", or "all".
-// Cluster signatures use the same msgid-or-msg_pattern fallback as the rest of
-// the analyzer (see eventKeyExpr), so srvlog clusters surface even when the
-// underlying rows have no RFC 5424 MSGID.
-func (s *Store) GetEventClusters(ctx context.Context, feed string, since time.Time, windowMinutes int) ([]model.EventCluster, error) {
-	source := analysisSource(feed, "received_at, hostname, msgid, msg_pattern")
-	keyExpr := eventKeyExpr(feed)
+// The scope parameter selects which feed and (optionally) which hosts to
+// query. Note: the analyzer skips this query when the scope already restricts
+// to specific hosts ("clusters across hosts" is degenerate under a narrow
+// scope), but the method honors the filter for direct callers.
+// Cluster signatures use the same msgid-or-msg_pattern fallback as the rest
+// of the analyzer (see eventKeyExpr), so srvlog clusters surface even when
+// the underlying rows have no RFC 5424 MSGID.
+func (s *Store) GetEventClusters(ctx context.Context, scope model.AnalysisScope, since time.Time, windowMinutes int) ([]model.EventCluster, error) {
+	// Hosts param is $3 (existing args: since, interval).
+	source := scopedSource(scope, "received_at, hostname, msgid, msg_pattern", 3)
+	keyExpr := eventKeyExpr(scope.Feed)
 
 	query := fmt.Sprintf(`
 		SELECT time_bucket($2::interval, received_at) AS bucket,
@@ -440,7 +496,7 @@ func (s *Store) GetEventClusters(ctx context.Context, feed string, since time.Ti
 		LIMIT %d`, keyExpr, keyExpr, source, eventClusterLimit)
 
 	interval := fmt.Sprintf("%d minutes", windowMinutes)
-	rows, err := s.pool.Query(ctx, query, since, interval)
+	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{since, interval}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("event clusters query: %w", err)
 	}
@@ -471,14 +527,15 @@ const sampleMessageMaxLen = 300
 //
 // The returned map is keyed by event signature (same string the caller
 // passed in keys). Signatures with no rows in the window are simply absent.
-func (s *Store) GetMsgIDSamples(ctx context.Context, feed string, since time.Time, keys []string, perKeyLimit int) (map[string][]model.SampleMessage, error) {
+func (s *Store) GetMsgIDSamples(ctx context.Context, scope model.AnalysisScope, since time.Time, keys []string, perKeyLimit int) (map[string][]model.SampleMessage, error) {
 	out := make(map[string][]model.SampleMessage)
 	if len(keys) == 0 || perKeyLimit <= 0 {
 		return out, nil
 	}
 
-	source := analysisSource(feed, "received_at, hostname, severity, message, msgid, msg_pattern")
-	keyExpr := eventKeyExpr(feed)
+	// Hosts param is $4 (existing args: since, keys, perKeyLimit).
+	source := scopedSource(scope, "received_at, hostname, severity, message, msgid, msg_pattern", 4)
+	keyExpr := eventKeyExpr(scope.Feed)
 
 	query := fmt.Sprintf(`
 		WITH tagged AS (
@@ -497,7 +554,7 @@ func (s *Store) GetMsgIDSamples(ctx context.Context, feed string, since time.Tim
 		WHERE rn <= $3
 		ORDER BY event_key, rn`, keyExpr, sampleMessageMaxLen, source, keyExpr)
 
-	rows, err := s.pool.Query(ctx, query, since, keys, perKeyLimit)
+	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{since, keys, perKeyLimit}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("msgid samples query: %w", err)
 	}
@@ -519,13 +576,15 @@ func (s *Store) GetMsgIDSamples(ctx context.Context, feed string, since time.Tim
 // "all" if it contains srvlog rows); netlog rows have no programname so this
 // will return empty. The caller is expected to skip rendering when feed is
 // pure netlog.
-func (s *Store) GetTopPrograms(ctx context.Context, feed string, since time.Time, limit int) ([]model.ProgramCount, error) {
+func (s *Store) GetTopPrograms(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.ProgramCount, error) {
 	// netlog_events doesn't carry programname — skip the union and just
 	// return empty rather than emitting a no-op query.
-	if feed == feedNetlog {
+	if scope.Feed == feedNetlog {
 		return nil, nil
 	}
-	source := analysisSource(feed, "received_at, programname, severity")
+	// Hosts param is $3 (existing args: since, limit). hostname is projected
+	// so the optional host filter has a column to reference.
+	source := scopedSource(scope, "received_at, hostname, programname, severity", 3)
 
 	topQuery := fmt.Sprintf(`
 		SELECT programname,
@@ -537,7 +596,7 @@ func (s *Store) GetTopPrograms(ctx context.Context, feed string, since time.Time
 		ORDER BY cnt DESC
 		LIMIT $2`, source)
 
-	rows, err := s.pool.Query(ctx, topQuery, since, limit)
+	rows, err := s.pool.Query(ctx, topQuery, appendHostsArg([]any{since, limit}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("top programs query: %w", err)
 	}
@@ -573,7 +632,7 @@ func (s *Store) GetTopPrograms(ctx context.Context, feed string, since time.Time
 		WHERE received_at >= $1 AND programname = ANY($2)
 		GROUP BY programname, severity`, source)
 
-	sevRows, err := s.pool.Query(ctx, sevQuery, since, names)
+	sevRows, err := s.pool.Query(ctx, sevQuery, appendHostsArg([]any{since, names}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("program severity breakdown query: %w", err)
 	}
@@ -596,11 +655,13 @@ func (s *Store) GetTopPrograms(ctx context.Context, feed string, since time.Time
 // GetTopFacilities returns the top syslog facilities by total count with an
 // errors (severity ≤ 3) breakdown. Cheap (facility is indexed) and useful
 // for surfacing auth/authpriv activity as a first-class signal.
-func (s *Store) GetTopFacilities(ctx context.Context, feed string, since time.Time, limit int) ([]model.FacilityCount, error) {
-	if feed == feedNetlog {
+func (s *Store) GetTopFacilities(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.FacilityCount, error) {
+	if scope.Feed == feedNetlog {
 		return nil, nil
 	}
-	source := analysisSource(feed, "received_at, facility, severity")
+	// Hosts param is $3 (existing args: since, limit). hostname is projected
+	// so the optional host filter has a column to reference.
+	source := scopedSource(scope, "received_at, hostname, facility, severity", 3)
 
 	query := fmt.Sprintf(`
 		SELECT facility,
@@ -612,7 +673,7 @@ func (s *Store) GetTopFacilities(ctx context.Context, feed string, since time.Ti
 		ORDER BY cnt DESC
 		LIMIT $2`, source)
 
-	rows, err := s.pool.Query(ctx, query, since, limit)
+	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{since, limit}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("top facilities query: %w", err)
 	}
@@ -638,7 +699,7 @@ func (s *Store) GetTopFacilities(ctx context.Context, feed string, since time.Ti
 // (srvlog_summary_hourly / netlog_summary_hourly) since those views are
 // already pre-rolled per (bucket, hostname, severity); for finer buckets
 // the function falls back to the raw event tables.
-func (s *Store) GetVolumeTimeline(ctx context.Context, feed string, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error) {
+func (s *Store) GetVolumeTimeline(ctx context.Context, scope model.AnalysisScope, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error) {
 	if bucketMinutes <= 0 {
 		return nil, nil
 	}
@@ -646,8 +707,11 @@ func (s *Store) GetVolumeTimeline(ctx context.Context, feed string, since, until
 
 	var query string
 	switch {
-	case bucketMinutes >= 60:
-		caSource := analysisAggregateSource(feed)
+	case bucketMinutes >= 60 && scope.IsAllHosts():
+		// Hourly continuous aggregates are pre-rolled per (bucket, severity)
+		// and do NOT carry hostname; only safe to use when the report has
+		// no host filter. Scoped reports fall through to the raw path.
+		caSource := analysisAggregateSource(scope.Feed)
 		query = fmt.Sprintf(`
 			SELECT time_bucket($1::interval, bucket) AS b,
 			       SUM(cnt) AS total,
@@ -657,7 +721,8 @@ func (s *Store) GetVolumeTimeline(ctx context.Context, feed string, since, until
 			GROUP BY b
 			ORDER BY b`, caSource)
 	default:
-		source := analysisSource(feed, "received_at, severity")
+		// Hosts param is $4 (existing args: interval, since, until).
+		source := scopedSource(scope, "received_at, hostname, severity", 4)
 		query = fmt.Sprintf(`
 			SELECT time_bucket($1::interval, received_at) AS b,
 			       count(*) AS total,
@@ -668,7 +733,7 @@ func (s *Store) GetVolumeTimeline(ctx context.Context, feed string, since, until
 			ORDER BY b`, source)
 	}
 
-	rows, err := s.pool.Query(ctx, query, interval, since, until)
+	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{interval, since, until}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("volume timeline query: %w", err)
 	}
@@ -698,6 +763,51 @@ func analysisAggregateSource(feed string) string {
 	default:
 		return "srvlog_summary_hourly"
 	}
+}
+
+// ListAnalysisHosts returns distinct hostnames from the meta caches for the
+// given feed, sorted alphabetically. Used by the analysis handler to validate
+// caller-supplied host scopes before enqueueing a report (and, in a sibling
+// endpoint, to populate the picker on the frontend).
+//
+// "all" returns the deduped union of srvlog and netlog hostnames; "srvlog"
+// and "netlog" return their respective meta caches; anything else returns an
+// empty slice without error so callers don't need to special-case feed
+// validation that already happened upstream.
+func (s *Store) ListAnalysisHosts(ctx context.Context, feed string) ([]string, error) {
+	var query string
+	switch feed {
+	case feedSrvlog:
+		query = `SELECT hostname FROM srvlog_meta_cache ORDER BY hostname`
+	case feedNetlog:
+		query = `SELECT hostname FROM netlog_meta_cache ORDER BY hostname`
+	case feedAll:
+		// Union + DISTINCT so a hostname appearing in both caches surfaces
+		// once. ORDER BY in the outer query keeps the alphabetical contract.
+		query = `SELECT DISTINCT hostname FROM (
+			SELECT hostname FROM srvlog_meta_cache
+			UNION ALL
+			SELECT hostname FROM netlog_meta_cache
+		) AS combined ORDER BY hostname`
+	default:
+		return nil, nil
+	}
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list analysis hosts (%s): %w", feed, err)
+	}
+	defer rows.Close()
+
+	var hosts []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("scan analysis host: %w", err)
+		}
+		hosts = append(hosts, h)
+	}
+	return hosts, rows.Err()
 }
 
 // LookupJuniperRefs returns Juniper reference data for the given msgid names.
@@ -736,12 +846,12 @@ func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[stri
 }
 
 // analysisReportColumns lists the columns selected for full report reads.
-const analysisReportColumns = "id, slug, feed, prompt_mode, model, period_start, period_end, " +
+const analysisReportColumns = "id, slug, feed, prompt_mode, hosts, model, period_start, period_end, " +
 	"report, prompt_tokens, completion_tokens, status, error, " +
 	"created_at, started_at, completed_at"
 
 // analysisReportSummaryColumns lists the columns selected for list reads.
-const analysisReportSummaryColumns = "id, slug, feed, prompt_mode, model, period_start, period_end, " +
+const analysisReportSummaryColumns = "id, slug, feed, prompt_mode, hosts, model, period_start, period_end, " +
 	"prompt_tokens, completion_tokens, status, " +
 	"created_at, started_at, completed_at"
 
@@ -773,6 +883,15 @@ func (s *Store) InsertPendingReport(ctx context.Context, r model.AnalysisReport)
 		r.Slug = BuildAnalysisSlug(r.Feed, r.PromptMode, r.PeriodEnd)
 	}
 	r.Status = model.AnalysisStatusPending
+	// Normalize hosts at the persistence boundary so the active-report unique
+	// index treats ["a","b"] and ["b","a","a"] as the same key. Empty/nil
+	// hosts are written to Postgres as '{}' — the canonical "all hosts" value
+	// — by the explicit []string{} fallback below.
+	r.Hosts = model.NormalizeHosts(r.Hosts)
+	hostsArg := r.Hosts
+	if hostsArg == nil {
+		hostsArg = []string{}
+	}
 
 	// Try the natural slug first, then -2, -3, ... if another completed report
 	// happens to share the same minute. Capped to avoid runaway loops.
@@ -786,8 +905,8 @@ func (s *Store) InsertPendingReport(ctx context.Context, r model.AnalysisReport)
 
 		query, args, err := psq.
 			Insert("analysis_reports").
-			Columns("slug", "feed", "prompt_mode", "model", "period_start", "period_end", "status").
-			Values(r.Slug, r.Feed, r.PromptMode, r.Model, r.PeriodStart, r.PeriodEnd, r.Status).
+			Columns("slug", "feed", "prompt_mode", "hosts", "model", "period_start", "period_end", "status").
+			Values(r.Slug, r.Feed, r.PromptMode, hostsArg, r.Model, r.PeriodStart, r.PeriodEnd, r.Status).
 			Suffix("RETURNING id, created_at").
 			ToSql()
 		if err != nil {
@@ -927,7 +1046,7 @@ func (s *Store) ListReports(ctx context.Context, limit int) ([]model.AnalysisRep
 	for rows.Next() {
 		var r model.AnalysisReportSummary
 		if err := rows.Scan(
-			&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Model, &r.PeriodStart, &r.PeriodEnd,
+			&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Hosts, &r.Model, &r.PeriodStart, &r.PeriodEnd,
 			&r.PromptTokens, &r.CompletionTokens, &r.Status,
 			&r.CreatedAt, &r.StartedAt, &r.CompletedAt,
 		); err != nil {
@@ -943,7 +1062,7 @@ func scanAnalysisReport(row pgx.Row) (model.AnalysisReport, error) {
 	var r model.AnalysisReport
 	var body, errMsg *string
 	if err := row.Scan(
-		&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Model, &r.PeriodStart, &r.PeriodEnd,
+		&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Hosts, &r.Model, &r.PeriodStart, &r.PeriodEnd,
 		&body, &r.PromptTokens, &r.CompletionTokens, &r.Status, &errMsg,
 		&r.CreatedAt, &r.StartedAt, &r.CompletedAt,
 	); err != nil {

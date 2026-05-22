@@ -12,7 +12,8 @@ import (
 
 // analysisData holds all aggregated data for prompt building.
 type analysisData struct {
-	Feed               string // "srvlog", "netlog", or "all".
+	Feed               string   // "srvlog", "netlog", or "all".
+	Hosts              []string // empty when the run covers all hosts on the feed.
 	Period             time.Duration
 	PeriodLabel        string // e.g. "24 hours", "7 days".
 	PeriodStart        time.Time
@@ -187,13 +188,15 @@ func periodLabel(d time.Duration) string {
 }
 
 // gather collects all aggregated data for the analysis period ending at periodEnd.
-func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration, periodEnd time.Time) (analysisData, error) {
+func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period time.Duration, periodEnd time.Time) (analysisData, error) {
 	periodStart := periodEnd.Add(-period)
 	// Baseline = 7 days immediately preceding the current period.
 	baselineStart := periodStart.Add(-7 * 24 * time.Hour)
 
+	feed := scope.Feed
 	data := analysisData{
 		Feed:        feed,
+		Hosts:       scope.Hosts,
 		Period:      period,
 		PeriodLabel: periodLabel(period),
 		PeriodStart: periodStart,
@@ -202,14 +205,14 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 
 	var err error
 
-	a.logger.Info("gathering top msgids", "feed", feed)
-	data.TopMsgIDs, err = a.store.GetTopMsgIDs(ctx, feed, periodStart, topMsgIDLimit)
+	a.logger.Info("gathering top msgids", "feed", feed, "scoped", !scope.IsAllHosts())
+	data.TopMsgIDs, err = a.store.GetTopMsgIDs(ctx, scope, periodStart, topMsgIDLimit)
 	if err != nil {
 		return data, err
 	}
 
-	a.logger.Info("gathering severity comparison", "feed", feed)
-	data.SeverityComparison, err = a.store.GetSeverityComparison(ctx, feed, periodStart, baselineStart)
+	a.logger.Info("gathering severity comparison", "feed", feed, "scoped", !scope.IsAllHosts())
+	data.SeverityComparison, err = a.store.GetSeverityComparison(ctx, scope, periodStart, baselineStart)
 	if err != nil {
 		return data, err
 	}
@@ -234,20 +237,31 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 		}
 	}
 
-	a.logger.Info("gathering top error hosts", "feed", feed)
-	data.TopErrorHosts, err = a.store.GetTopErrorHosts(ctx, feed, periodStart, topHostLimit)
-	if err != nil {
-		return data, err
+	// Top error hosts and event clusters are skipped when the run is scoped
+	// to specific hosts: the user already told us which hosts to look at, so
+	// "which hosts have the most errors" is tautological, and "events
+	// correlated across hosts" is degraded to "correlated across the small
+	// set you picked." Skipping saves DB roundtrips and avoids feeding the
+	// prompt with sections the model would either skip or narrate emptily.
+	if scope.IsAllHosts() {
+		a.logger.Info("gathering top error hosts", "feed", feed)
+		data.TopErrorHosts, err = a.store.GetTopErrorHosts(ctx, scope, periodStart, topHostLimit)
+		if err != nil {
+			return data, err
+		}
+
+		a.logger.Info("gathering event clusters", "feed", feed)
+		data.EventClusters, err = a.store.GetEventClusters(ctx, scope, periodStart, clusterWindowMin)
+		if err != nil {
+			return data, err
+		}
+	} else {
+		a.logger.Info("skipping top error hosts and event clusters under host scope",
+			"feed", feed, "hosts", len(scope.Hosts))
 	}
 
 	a.logger.Info("gathering new msgids", "feed", feed)
-	data.NewMsgIDs, err = a.store.GetNewMsgIDs(ctx, feed, periodStart, baselineStart)
-	if err != nil {
-		return data, err
-	}
-
-	a.logger.Info("gathering event clusters", "feed", feed)
-	data.EventClusters, err = a.store.GetEventClusters(ctx, feed, periodStart, clusterWindowMin)
+	data.NewMsgIDs, err = a.store.GetNewMsgIDs(ctx, scope, periodStart, baselineStart)
 	if err != nil {
 		return data, err
 	}
@@ -262,7 +276,7 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 			topKeys[i] = mc.MsgID
 		}
 		a.logger.Info("gathering samples for top msgids", "feed", feed, "keys", len(topKeys))
-		samples, sampErr := a.store.GetMsgIDSamples(ctx, feed, periodStart, topKeys, topMsgIDSampleCount)
+		samples, sampErr := a.store.GetMsgIDSamples(ctx, scope, periodStart, topKeys, topMsgIDSampleCount)
 		if sampErr != nil {
 			// Best-effort — warn and continue without samples.
 			a.logger.Warn("top msgid sample lookup failed, continuing without", "err", sampErr)
@@ -281,7 +295,7 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 	bucketMinutes := pickBucketMinutes(period)
 	data.VolumeBucketLabel = bucketLabel(bucketMinutes)
 	a.logger.Info("gathering volume timeline", "feed", feed, "bucket_minutes", bucketMinutes)
-	timeline, volErr := a.store.GetVolumeTimeline(ctx, feed, periodStart, periodEnd, bucketMinutes)
+	timeline, volErr := a.store.GetVolumeTimeline(ctx, scope, periodStart, periodEnd, bucketMinutes)
 	if volErr != nil {
 		// Best-effort — the sparkline is a nice-to-have, not load-bearing
 		// for the rest of the analysis.
@@ -309,7 +323,7 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 	// shouldn't kill the whole run.
 	if feed != feedNetlog {
 		a.logger.Info("gathering top programs", "feed", feed)
-		programs, progErr := a.store.GetTopPrograms(ctx, feed, periodStart, topProgramLimit)
+		programs, progErr := a.store.GetTopPrograms(ctx, scope, periodStart, topProgramLimit)
 		if progErr != nil {
 			a.logger.Warn("top programs lookup failed, continuing without", "err", progErr)
 		} else {
@@ -317,7 +331,7 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 		}
 
 		a.logger.Info("gathering top facilities", "feed", feed)
-		facilities, facErr := a.store.GetTopFacilities(ctx, feed, periodStart, topFacilityLimit)
+		facilities, facErr := a.store.GetTopFacilities(ctx, scope, periodStart, topFacilityLimit)
 		if facErr != nil {
 			a.logger.Warn("top facilities lookup failed, continuing without", "err", facErr)
 		} else {
@@ -330,7 +344,7 @@ func (a *Analyzer) gather(ctx context.Context, feed string, period time.Duration
 	data.NewMsgIDSamples = make(map[string]model.SampleMessage)
 	if len(data.NewMsgIDs) > 0 {
 		a.logger.Info("gathering samples for new msgids", "feed", feed, "keys", len(data.NewMsgIDs))
-		newSamples, sampErr := a.store.GetMsgIDSamples(ctx, feed, periodStart, data.NewMsgIDs, 1)
+		newSamples, sampErr := a.store.GetMsgIDSamples(ctx, scope, periodStart, data.NewMsgIDs, 1)
 		if sampErr != nil {
 			a.logger.Warn("new msgid sample lookup failed, continuing without", "err", sampErr)
 		} else {

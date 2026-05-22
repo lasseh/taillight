@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -23,6 +24,7 @@ type AnalysisReportStore interface {
 	ListReports(ctx context.Context, limit int) ([]model.AnalysisReportSummary, error)
 	GetReportBySlug(ctx context.Context, slug string) (model.AnalysisReport, error)
 	DeleteReport(ctx context.Context, id int64) error
+	ListAnalysisHosts(ctx context.Context, feed string) ([]string, error)
 }
 
 // AnalysisEnqueuer accepts new report runs.
@@ -92,11 +94,22 @@ func (h *AnalysisHandler) Get(w http.ResponseWriter, r *http.Request) {
 // "incident"). Empty defaults to "daily". PeriodMinutes overrides the analysis
 // window; empty/zero picks a mode-aware default (24h for daily/weekly, 60min
 // for incident). Bounds: 5 ≤ period_minutes ≤ 43200 (5min..30d).
+//
+// Hosts optionally restricts the report to an explicit set of hostnames.
+// Empty/missing means "all hosts on the feed." Names that don't exist for
+// the selected feed are rejected up-front rather than producing a thin
+// report at worker time.
 type createReportRequest struct {
-	Feed          string `json:"feed"`
-	PromptMode    string `json:"prompt_mode,omitempty"`
-	PeriodMinutes int    `json:"period_minutes,omitempty"`
+	Feed          string   `json:"feed"`
+	PromptMode    string   `json:"prompt_mode,omitempty"`
+	PeriodMinutes int      `json:"period_minutes,omitempty"`
+	Hosts         []string `json:"hosts,omitempty"`
 }
+
+// requestBodyLimit caps the JSON request body. Picked to comfortably hold a
+// large host list (a few hundred FQDNs) without becoming an attack surface
+// for oversized payloads.
+const requestBodyLimit = 64 * 1024
 
 // Period bounds for manual triggers. The general upper bound matches monthly
 // schedules so manual runs can never exceed what a recurring schedule could
@@ -131,7 +144,7 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, requestBodyLimit))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "read_error", "failed to read request body")
 		return
@@ -176,6 +189,24 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Normalize hosts (sort + dedup + trim) before validation so the response
+	// error message — and the persisted row — both reflect the canonical set
+	// the caller actually meant.
+	hosts := model.NormalizeHosts(req.Hosts)
+	if len(hosts) > 0 {
+		unknown, validateErr := h.validateHostsForFeed(r.Context(), req.Feed, hosts)
+		if validateErr != nil {
+			LoggerFromContext(r.Context()).Error("validate hosts failed", "feed", req.Feed, "err", validateErr)
+			writeError(w, http.StatusInternalServerError, "validate_failed", "failed to validate host scope")
+			return
+		}
+		if len(unknown) > 0 {
+			writeError(w, http.StatusBadRequest, "unknown_hosts",
+				fmt.Sprintf("hosts not found for feed %s: %v", req.Feed, unknown))
+			return
+		}
+	}
+
 	// period_end is minute-truncated so rapid clicks resolve to the same window
 	// and hit the duplicate-active guard (which now includes prompt_mode, so
 	// different modes for the same window don't collide).
@@ -185,6 +216,7 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 	report, err := h.enqueuer.Enqueue(r.Context(), model.AnalysisReport{
 		Feed:        req.Feed,
 		PromptMode:  mode,
+		Hosts:       hosts,
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 	})
@@ -203,6 +235,31 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONStatus(w, http.StatusCreated, itemResponse{Data: report})
+}
+
+// validateHostsForFeed returns the subset of candidates that are not present
+// in the feed's host metadata. An empty result means every candidate is
+// known; a non-empty result is the list to surface back to the caller as
+// the "unknown_hosts" error.
+//
+// For feed=all the union of srvlog and netlog hosts is used: a hostname only
+// has to appear in at least one source to be considered known.
+func (h *AnalysisHandler) validateHostsForFeed(ctx context.Context, feed string, candidates []string) ([]string, error) {
+	known, err := h.store.ListAnalysisHosts(ctx, feed)
+	if err != nil {
+		return nil, err
+	}
+	knownSet := make(map[string]struct{}, len(known))
+	for _, k := range known {
+		knownSet[k] = struct{}{}
+	}
+	var unknown []string
+	for _, c := range candidates {
+		if _, ok := knownSet[c]; !ok {
+			unknown = append(unknown, c)
+		}
+	}
+	return unknown, nil
 }
 
 // Delete handles DELETE /api/v1/analysis/reports/{slug}.

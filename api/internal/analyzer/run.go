@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lasseh/taillight/internal/metrics"
+	"github.com/lasseh/taillight/internal/model"
 	"github.com/lasseh/taillight/internal/ollama"
 )
 
@@ -20,9 +21,12 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 	start := time.Now()
 	periodEnd := start.UTC().Truncate(time.Minute)
 
+	scope := model.AnalysisScope{Feed: params.Feed, Hosts: params.Hosts}
+
 	a.logger.Info("starting analysis run",
 		"model", a.cfg.Model,
 		"feed", params.Feed,
+		"hosts", len(scope.Hosts),
 		"period", params.Period,
 		"prompt_mode", mode,
 	)
@@ -32,7 +36,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		return Result{}, fmt.Errorf("ollama not available: %w", err)
 	}
 
-	data, err := a.gather(ctx, params.Feed, params.Period, periodEnd)
+	data, err := a.gather(ctx, scope, params.Period, periodEnd)
 	if err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
 		return Result{}, fmt.Errorf("gather data: %w", err)

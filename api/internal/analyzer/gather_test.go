@@ -18,11 +18,11 @@ type stubStore struct {
 	sevComparison model.SeverityComparison
 }
 
-func (s stubStore) GetTopMsgIDs(context.Context, string, time.Time, int) ([]model.MsgIDCount, error) {
+func (s stubStore) GetTopMsgIDs(context.Context, model.AnalysisScope, time.Time, int) ([]model.MsgIDCount, error) {
 	return nil, nil
 }
 
-func (s stubStore) GetSeverityComparison(context.Context, string, time.Time, time.Time) (model.SeverityComparison, error) {
+func (s stubStore) GetSeverityComparison(context.Context, model.AnalysisScope, time.Time, time.Time) (model.SeverityComparison, error) {
 	// Return a deep-enough copy that the analyzer can mutate without
 	// affecting the next call.
 	out := model.SeverityComparison{Levels: make([]model.SeverityLevelComparison, len(s.sevComparison.Levels))}
@@ -30,31 +30,31 @@ func (s stubStore) GetSeverityComparison(context.Context, string, time.Time, tim
 	return out, nil
 }
 
-func (s stubStore) GetTopErrorHosts(context.Context, string, time.Time, int) ([]model.HostErrorCount, error) {
+func (s stubStore) GetTopErrorHosts(context.Context, model.AnalysisScope, time.Time, int) ([]model.HostErrorCount, error) {
 	return nil, nil
 }
 
-func (s stubStore) GetNewMsgIDs(context.Context, string, time.Time, time.Time) ([]string, error) {
+func (s stubStore) GetNewMsgIDs(context.Context, model.AnalysisScope, time.Time, time.Time) ([]string, error) {
 	return nil, nil
 }
 
-func (s stubStore) GetEventClusters(context.Context, string, time.Time, int) ([]model.EventCluster, error) {
+func (s stubStore) GetEventClusters(context.Context, model.AnalysisScope, time.Time, int) ([]model.EventCluster, error) {
 	return nil, nil
 }
 
-func (s stubStore) GetMsgIDSamples(context.Context, string, time.Time, []string, int) (map[string][]model.SampleMessage, error) {
+func (s stubStore) GetMsgIDSamples(context.Context, model.AnalysisScope, time.Time, []string, int) (map[string][]model.SampleMessage, error) {
 	return nil, nil
 }
 
-func (s stubStore) GetTopPrograms(context.Context, string, time.Time, int) ([]model.ProgramCount, error) {
+func (s stubStore) GetTopPrograms(context.Context, model.AnalysisScope, time.Time, int) ([]model.ProgramCount, error) {
 	return nil, nil
 }
 
-func (s stubStore) GetTopFacilities(context.Context, string, time.Time, int) ([]model.FacilityCount, error) {
+func (s stubStore) GetTopFacilities(context.Context, model.AnalysisScope, time.Time, int) ([]model.FacilityCount, error) {
 	return nil, nil
 }
 
-func (s stubStore) GetVolumeTimeline(context.Context, string, time.Time, time.Time, int) ([]model.AnalysisVolumeBucket, error) {
+func (s stubStore) GetVolumeTimeline(context.Context, model.AnalysisScope, time.Time, time.Time, int) ([]model.AnalysisVolumeBucket, error) {
 	return nil, nil
 }
 
@@ -164,7 +164,7 @@ func TestGatherSeverityNormalization(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			a := New(makeStore(), ollama.New("", 0), Config{}, logger)
-			data, err := a.gather(context.Background(), feedNetlog, tc.period, time.Now().UTC())
+			data, err := a.gather(context.Background(), model.AnalysisScope{Feed: feedNetlog}, tc.period, time.Now().UTC())
 			if err != nil {
 				t.Fatalf("gather: %v", err)
 			}
