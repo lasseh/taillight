@@ -52,6 +52,8 @@ func (h *AppLogHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	events = previewAppLogAttrs(events)
+
 	resp := listResponse{
 		Data:    emptySlice(events),
 		HasMore: nextCursor != nil,
@@ -88,4 +90,14 @@ func (h *AppLogHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, itemResponse{Data: event})
+}
+
+// previewAppLogAttrs strips oversized attrs from each event in place and
+// returns the slice for chaining. Applied to list and SSE responses so the
+// browser buffer stays bounded; detail GET keeps full attrs.
+func previewAppLogAttrs(events []model.AppLogEvent) []model.AppLogEvent {
+	for i := range events {
+		events[i] = events[i].WithAttrsPreview(model.AttrsPreviewLimit)
+	}
+	return events
 }

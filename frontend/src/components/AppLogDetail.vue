@@ -1,15 +1,45 @@
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
 import type { AppLogEvent } from '@/types/applog'
 import { levelBorderClass, levelColorClass } from '@/lib/applog-constants'
 import { formatDateTime, highlightAttrs } from '@/lib/format'
 import { selectedRowsText } from '@/lib/copy'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
+import { api } from '@/lib/api'
 
 const props = defineProps<{
   event: AppLogEvent
 }>()
 
 const filterStore = useAppLogFilterStore()
+
+// When the row arrived with attrs stripped (oversized blob held back by the
+// list/SSE preview), fetch the full event so the detail panel can show it.
+const fullAttrs = ref<Record<string, unknown> | null>(null)
+const attrsLoading = ref(false)
+
+const displayAttrs = computed<Record<string, unknown> | null>(() =>
+  props.event.attrs_truncated ? fullAttrs.value : props.event.attrs,
+)
+
+watch(
+  () => [props.event.id, props.event.attrs_truncated] as const,
+  ([id, truncated]) => {
+    fullAttrs.value = null
+    if (!truncated) return
+    attrsLoading.value = true
+    api
+      .getAppLog(id)
+      .then((res) => {
+        if (props.event.id === id) fullAttrs.value = res.data.attrs
+      })
+      .catch(() => {})
+      .finally(() => {
+        attrsLoading.value = false
+      })
+  },
+  { immediate: true },
+)
 
 interface Field {
   label: string
@@ -44,7 +74,7 @@ function rowCopyText(field: Field): string {
 }
 
 function attrsCopyText(): string {
-  return `attrs: ${JSON.stringify(props.event.attrs, null, 2)}`
+  return `attrs: ${JSON.stringify(displayAttrs.value, null, 2)}`
 }
 
 function fieldValue(field: Field): string {
@@ -135,12 +165,19 @@ function applyFilter(field: Field) {
 
     <!-- attrs -->
     <div
-      v-if="event.attrs && Object.keys(event.attrs).length > 0"
+      v-if="attrsLoading"
+      class="flex gap-2 py-0.5 text-sm"
+    >
+      <span class="text-t-fg-dark w-24 shrink-0 text-right">attrs</span>
+      <span class="text-t-fg-dark min-w-0 font-mono text-xs italic">loading…</span>
+    </div>
+    <div
+      v-else-if="displayAttrs && Object.keys(displayAttrs).length > 0"
       class="flex gap-2 py-0.5 text-sm"
       :data-copytext="attrsCopyText()"
     >
       <span class="text-t-fg-dark w-24 shrink-0 text-right">attrs</span>
-      <pre class="language-json text-t-fg min-w-0 break-all font-mono text-xs" v-html="highlightAttrs(event.attrs)"></pre>
+      <pre class="language-json text-t-fg min-w-0 break-all font-mono text-xs" v-html="highlightAttrs(displayAttrs)"></pre>
     </div>
   </div>
 </template>

@@ -42,5 +42,7 @@ func (h *AppLogDeviceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	summary.ErrorLogs = previewAppLogAttrs(summary.ErrorLogs)
+
 	writeJSON(w, itemResponse{Data: summary})
 }

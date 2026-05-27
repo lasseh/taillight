@@ -21,12 +21,32 @@ type AppLogEvent struct {
 	Msg        string          `json:"msg"`
 	Source     string          `json:"source"`
 	Attrs      json.RawMessage `json:"attrs"`
+	// AttrsTruncated is true when Attrs has been elided to control payload size
+	// on list / SSE responses. Clients should fetch the event by ID to retrieve
+	// the full attrs blob. Detail endpoints never set this.
+	AttrsTruncated bool `json:"attrs_truncated,omitempty"`
 	// SourceIP is the resolved client IP captured by the ingest handler.
 	// NULL on rows ingested before this field was added.
 	SourceIP *string `json:"source_ip,omitempty"`
 	// APIKeyID identifies the API key that ingested this row. Invalid (NULL)
 	// when inserted via session auth or before this field was added.
 	APIKeyID pgtype.UUID `json:"api_key_id"`
+}
+
+// AttrsPreviewLimit caps the inline size of AppLogEvent.Attrs in list and SSE
+// responses. Attrs blobs above this size are stripped and AttrsTruncated set;
+// the full payload remains available via GET /api/v1/applog/{id}.
+const AttrsPreviewLimit = 1024
+
+// WithAttrsPreview returns a copy of e with Attrs stripped if it exceeds
+// maxBytes. The detail endpoint should always use the original event.
+func (e AppLogEvent) WithAttrsPreview(maxBytes int) AppLogEvent {
+	if len(e.Attrs) <= maxBytes {
+		return e
+	}
+	e.Attrs = nil
+	e.AttrsTruncated = true
+	return e
 }
 
 // ValidAppLogLevels is the set of canonical log levels and their ranks.

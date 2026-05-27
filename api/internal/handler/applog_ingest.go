@@ -176,9 +176,11 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	metrics.AppLogIngestBatchesTotal.Inc()
 	metrics.AppLogIngestTotal.Add(float64(len(inserted)))
 
-	// Broadcast to SSE clients and notification engine.
+	// Broadcast to SSE clients and notification engine. SSE clients get the
+	// attrs-truncated preview to keep the in-browser buffer bounded; the
+	// notification engine sees the full event so rules can match on attrs.
 	for i := range inserted {
-		h.broker.Broadcast(inserted[i])
+		h.broker.Broadcast(inserted[i].WithAttrsPreview(model.AttrsPreviewLimit))
 		if h.notifEngine != nil {
 			h.notifEngine.HandleAppLogEvent(inserted[i])
 		}

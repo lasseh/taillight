@@ -63,15 +63,20 @@ func (h *AppLogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		)
 	}()
 
+	// SSE backfill goes through the same attrs-preview transform as the list
+	// endpoint, so the browser buffer stays bounded even on resume / fresh load.
 	streamer := sseStreamer[model.AppLogEvent, model.AppLogFilter]{
 		broker:  h.broker,
 		label:   "applog",
 		eventID: func(e model.AppLogEvent) int64 { return e.ID },
 		logger:  logger,
-		since:   h.store.ListAppLogsSince,
+		since: func(ctx context.Context, f model.AppLogFilter, sinceID int64, limit int) ([]model.AppLogEvent, error) {
+			events, err := h.store.ListAppLogsSince(ctx, f, sinceID, limit)
+			return previewAppLogAttrs(events), err
+		},
 		recent: func(ctx context.Context, f model.AppLogFilter, limit int) ([]model.AppLogEvent, error) {
 			events, _, err := h.store.ListAppLogs(ctx, f, nil, limit)
-			return events, err
+			return previewAppLogAttrs(events), err
 		},
 	}
 	if err := streamer.run(r.Context(), sink, filter, parseLastEventID(r)); err != nil {

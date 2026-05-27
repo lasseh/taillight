@@ -9,6 +9,9 @@ export interface AppLogEvent {
   msg: string
   source: string
   attrs: Record<string, unknown> | null
+  // attrs_truncated is true when the server stripped a large attrs blob from
+  // a list / SSE response. Detail panels should fetch the full event by id.
+  attrs_truncated?: boolean
 }
 
 export interface AppLogListResponse {
