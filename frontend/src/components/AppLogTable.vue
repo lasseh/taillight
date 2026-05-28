@@ -30,7 +30,9 @@ const colWidths = computed(() => {
     :loading="events.loading"
     :error="events.error"
     :has-more="events.hasMore"
+    :at-cap="events.atCap"
     :load-history="events.loadHistory"
+    :reattach="events.reattach"
     :style="colWidths"
   >
     <template #default="{ item }">

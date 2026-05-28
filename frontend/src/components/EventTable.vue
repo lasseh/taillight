@@ -12,7 +12,9 @@ const props = defineProps<{
   loading: boolean
   error: string | null
   hasMore: boolean
+  atCap: boolean
   loadHistory: (reset: boolean, wrapMerge?: (mutate: () => void) => void) => void
+  reattach: () => void
 }>()
 
 const scrollStore = useScrollStore()
@@ -71,12 +73,17 @@ function maybeFillViewport() {
   props.loadHistory(false, preserveScrollForPrepend)
 }
 
+function jumpToLive() {
+  // Trim the scrollback buffer back to MAX_EVENTS before scrolling so the
+  // scroll animation doesn't animate over a 20k-row buffer mid-mutation.
+  props.reattach()
+  nextTick(() => scrollToBottom('instant'))
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (e.code !== 'Escape') return
   collapseSignal.value++
-  // Use instant scroll to reliably reach the bottom even during high-volume
-  // event ingestion where smooth scroll can't keep up with DOM changes.
-  scrollToBottom('instant')
+  jumpToLive()
 }
 
 onMounted(() => {
@@ -158,7 +165,7 @@ onDeactivated(() => {
 // Watch for jump-to-latest triggered from the status bar.
 watch(
   () => scrollStore.getJumpSignal(props.routeName),
-  () => scrollToBottom(),
+  () => jumpToLive(),
 )
 
 // Snap to the newest entry and re-pin on both fullscreen edges so the user
@@ -174,59 +181,45 @@ watch(
 
 // Handle scroll behavior when events change.
 // - Pinned: auto-scroll to bottom.
-// - Not pinned: preserve scroll position so the user's view stays stable
-//   even when items are trimmed from the top of the buffer.
-// Track the newest event ID so we can count new arrivals even when the
-// buffer trims and the array length stays at MAX_EVENTS.
+// - Not pinned: count new arrivals for the jump-to-latest counter. No
+//   scroll adjustment needed — under sliding-window scrollback the buffer
+//   only grows (SSE appends and loadHistory prepends), and pure appends
+//   below the viewport don't move scrollTop. Top trimming happens only on
+//   reattach(), which intentionally clamps the user to the bottom.
 let _lastTailId = 0
-let _lastHeadId = 0
 watch(
   () => props.events,
-  (evts, oldEvts) => {
-    const el = scrollEl.value
-    const first = evts[0]
+  (evts) => {
     const last = evts[evts.length - 1]
     const tailId = last ? last.id : 0
-    const headId = first ? first.id : 0
 
     if (isPinned.value) {
       _lastTailId = tailId
-      _lastHeadId = headId
       nextTick(() => {
+        const el = scrollEl.value
         if (el) el.scrollTop = el.scrollHeight
       })
       return
     }
 
-    // Count new arrivals while paused.
     if (tailId > _lastTailId && _lastTailId > 0) {
       scrollStore.addNewEvents(props.routeName, 1)
     }
-
-    // Detect items trimmed from the top of the buffer.
-    const wasTrimmed = _lastHeadId > 0 && headId > _lastHeadId
-
     _lastTailId = tailId
-    _lastHeadId = headId
-
-    // Only adjust scroll when items were trimmed from the top.
-    // For pure appends, the browser preserves scrollTop naturally.
-    if (el && wasTrimmed && oldEvts && oldEvts.length > 0) {
-      const trimCount = oldEvts.findIndex(e => e.id >= headId)
-      if (trimCount > 0) {
-        let removedHeight = 0
-        for (let i = 0; i < Math.min(trimCount, el.children.length); i++) {
-          removedHeight += (el.children[i] as HTMLElement).offsetHeight
-        }
-        const prevTop = el.scrollTop
-        nextTick(() => {
-          el.scrollTop = Math.max(0, prevTop - removedHeight)
-        })
-      }
-    }
   },
   { flush: 'sync' },
 )
+
+// Rising-edge re-attach: when isPinned transitions false → true (organic
+// scroll-to-bottom), trim the scrollback buffer back to MAX_EVENTS. For
+// explicit triggers (jump pill, Esc) we reattach before scrolling so the
+// scroll animation runs over the trimmed buffer; this watcher is the safety
+// net for organic returns and is a no-op when the buffer is already trim.
+watch(isPinned, (now, prev) => {
+  if (now && !prev) {
+    props.reattach()
+  }
+})
 
 // Intercept copy to produce clean log lines from selected rows. Bails if a
 // nested handler (e.g. an inline-expanded detail panel) already handled it,
@@ -268,6 +261,12 @@ function onCopy(e: ClipboardEvent) {
         @scroll="onScroll"
         @copy="onCopy"
       >
+        <div
+          v-if="atCap"
+          class="text-t-yellow border-t-yellow/30 bg-t-yellow/5 mx-2 my-1 rounded border px-3 py-2 text-center text-xs"
+        >
+          scrollback buffer full ({{ events.length.toLocaleString() }} events) — jump to live to investigate further, or use a date filter for older logs
+        </div>
         <div v-for="item in events" :key="item.id">
           <slot :item="item" />
         </div>

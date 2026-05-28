@@ -1,8 +1,20 @@
 import { ref, shallowRef, computed, watch, onScopeDispose, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useRoute } from 'vue-router'
+import { useScrollStore } from '@/stores/scroll'
 
+// Buffer cap while pinned (live-tail mode). The browser holds ~MAX_EVENTS
+// rows during normal operation, keeping the DOM cheap and scroll snappy.
 const MAX_EVENTS = 2000
+
+// Buffer cap while unpinned (deliberate scrollback / investigation mode).
+// The buffer is allowed to grow beyond MAX_EVENTS so paging back preserves
+// both the historical context AND the live tail accumulating below. Hitting
+// this ceiling parks hasMore at false; the user can scroll up to read what's
+// loaded but cannot fetch more older pages without first re-attaching to
+// live (Esc / jump-to-latest / organic scroll-to-bottom), which trims the
+// buffer back to MAX_EVENTS.
+const MAX_EVENTS_DETACHED = 20_000
 
 interface EventStoreConfig<TEvent extends { id: number }> {
   /** Pinia store identifier. */
@@ -40,6 +52,10 @@ export function createEventStore<TEvent extends { id: number }>(
     // History pagination.
     const cursor = ref<string | null>(null)
     const hasMore = ref(false)
+    // True when the buffer is at MAX_EVENTS_DETACHED during scrollback and we
+    // refuse to fetch more older pages. The user must re-attach to live to
+    // reset. Distinct from hasMore=false-because-server-has-no-more.
+    const atCap = ref(false)
 
     // SSE deduplication.
     const _knownIds = new Set<number>()
@@ -49,6 +65,7 @@ export function createEventStore<TEvent extends { id: number }>(
     const stream = config.useStream()
 
     const filterStore = config.useFilterStore()
+    const scrollStore = useScrollStore()
 
     // Wrap the Pinia-unwrapped activeFilters in a computed for reactivity.
     const activeFilters = computed(() => filterStore.activeFilters)
@@ -66,8 +83,25 @@ export function createEventStore<TEvent extends { id: number }>(
           _knownIds.delete(iter.next().value!)
         }
       }
-      const next = [...events.value, event]
-      events.value = next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
+      if (scrollStore.isPinned(config.routeName)) {
+        // Live-tail: append with cap, oldest trimmed.
+        const next = [...events.value, event]
+        events.value = next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
+      } else if (!atCap.value) {
+        // Scrollback mode: append without trimming so the user keeps both
+        // their historical context and the live tail accumulating below.
+        events.value = [...events.value, event]
+        if (events.value.length >= MAX_EVENTS_DETACHED) {
+          atCap.value = true
+          hasMore.value = false
+        }
+      } else {
+        // Cap reached and unpinned: drop the event from the buffer but keep
+        // the counter ticking so the user knows how many they've missed.
+        // EventTable's watch on events.value can't see this since we don't
+        // mutate, so increment directly.
+        scrollStore.addNewEvents(config.routeName, 1)
+      }
     })
 
     let _abortController: AbortController | null = null
@@ -88,6 +122,7 @@ export function createEventStore<TEvent extends { id: number }>(
       if (reset) {
         events.value = []
         cursor.value = null
+        atCap.value = false
         _knownIds.clear()
       }
 
@@ -110,12 +145,11 @@ export function createEventStore<TEvent extends { id: number }>(
           events.value = reversed.length > MAX_EVENTS ? reversed.slice(-MAX_EVENTS) : reversed
         } else {
           const merge = () => {
-            // Cap the prepended buffer at MAX_EVENTS, same as the SSE append
-            // path. Without this, infinite scroll-up (or maybeFillViewport
-            // chaining on a tall viewport) can grow the array unboundedly and
-            // eat gigabytes of RAM on high-volume feeds.
-            const next = [...reversed, ...events.value]
-            events.value = next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next
+            // Scrollback mode: prepend without trimming. The buffer holds the
+            // complete chronological window from the oldest paged-back event
+            // through the live tail. Re-attach to live (reattach()) trims it
+            // back to MAX_EVENTS.
+            events.value = [...reversed, ...events.value]
           }
           // wrapMerge lets the caller preserve scroll position when prepending
           // older events (see EventTable.preserveScrollForPrepend).
@@ -127,10 +161,15 @@ export function createEventStore<TEvent extends { id: number }>(
         }
 
         cursor.value = res.cursor ?? null
-        // Once the in-memory buffer is full, stop chasing older pages even if
-        // the API still has more — the user would have to scroll the buffer
-        // off-screen before another page could fit.
-        hasMore.value = res.has_more && events.value.length < MAX_EVENTS
+        // Park hasMore at false once the scrollback buffer reaches its
+        // ceiling; the user must re-attach to live (which trims) before
+        // fetching more older pages.
+        if (events.value.length >= MAX_EVENTS_DETACHED) {
+          atCap.value = true
+          hasMore.value = false
+        } else {
+          hasMore.value = res.has_more
+        }
       } catch (e) {
         if (signal.aborted) return
         error.value = e instanceof Error ? e.message : 'failed to load events'
@@ -144,11 +183,32 @@ export function createEventStore<TEvent extends { id: number }>(
       events.value = []
       cursor.value = null
       hasMore.value = false
+      atCap.value = false
       _knownIds.clear()
       _initialLoadComplete.value = false
 
       await loadHistory(true)
       _initialLoadComplete.value = true
+    }
+
+    /**
+     * Trim the scrollback buffer back to MAX_EVENTS and reset pagination
+     * state. Called on the rising edge of isPinned (Esc, jump-to-latest,
+     * organic scroll-to-bottom). The cursor is nulled because it points to
+     * events older than the buffer's previous top, which after trimming is
+     * no longer adjacent to anything in the buffer — the next paginate-back
+     * will fetch the latest 100 with no cursor and use the response's fresh
+     * cursor for subsequent pages.
+     */
+    function reattach() {
+      if (events.value.length > MAX_EVENTS) {
+        events.value = events.value.slice(-MAX_EVENTS)
+      }
+      cursor.value = null
+      hasMore.value = true
+      atCap.value = false
+      _knownIds.clear()
+      for (const e of events.value) _knownIds.add(e.id)
     }
 
     // Reconnect / refetch when filters change.
@@ -188,9 +248,11 @@ export function createEventStore<TEvent extends { id: number }>(
       loading,
       error,
       hasMore,
+      atCap,
       connected: stream.connected,
       enter,
       loadHistory,
+      reattach,
     }
   })
 }
