@@ -118,7 +118,7 @@ work waiting for a release.
 - Scope analysis reports to specific hosts: `GET /api/v1/analysis/hosts` endpoint, host picker in the create-report panel, host scope surfaced in the report list and detail
 - Make analysis prompts scope-aware so host-scoped runs focus on the selected hosts
 - Email delivery of completed analysis reports: the email backend renders the report markdown inline in the message body (goldmark), fired via a worker hook with CAS idempotency, recipients set by `analysis.notify_emails`; dormant `attach_pdf` plumbing committed but off by default
-- Print-friendly analysis report export in the frontend
+- Print-friendly analysis report export: "Export PDF" prints a server-rendered standalone document (`GET /api/v1/analysis/reports/{slug}/print`) via a hidden iframe, so the full report paginates across multiple A4 pages instead of clipping to one. Mail and print share one renderer (`internal/report`) — a paper-light masthead for print, the dark-bar card for email — so the two formats never drift
 - Short-circuit empty-window analysis runs without calling the LLM
 - Show report created date/time as an inline pill, human-readable titles in the report list, and an ops-briefing header on report detail
 

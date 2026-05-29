@@ -381,6 +381,14 @@ export const api = {
     return fetchAPI(`/api/v1/analysis/reports/${encodeURIComponent(slug)}`)
   },
 
+  // Full URL of the standalone print-ready HTML document for a report. Loaded
+  // into a hidden iframe and printed to PDF; not fetched through fetchAPI since
+  // it returns an HTML page, not the JSON envelope. Same-origin so the session
+  // cookie rides along.
+  analysisReportPrintUrl(slug: string): string {
+    return `${config.apiUrl}/api/v1/analysis/reports/${encodeURIComponent(slug)}/print`
+  },
+
   createAnalysisReport(req: CreateAnalysisReportRequest): Promise<AnalysisReportResponse> {
     return postAPI('/api/v1/analysis/reports', req)
   },

@@ -14,6 +14,7 @@ import (
 
 	"github.com/lasseh/taillight/internal/model"
 	"github.com/lasseh/taillight/internal/postgres"
+	reporthtml "github.com/lasseh/taillight/internal/report"
 	"github.com/lasseh/taillight/internal/worker"
 )
 
@@ -87,6 +88,46 @@ func (h *AnalysisHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, itemResponse{Data: report})
+}
+
+// Print handles GET /api/v1/analysis/reports/{slug}/print. It returns a
+// complete standalone HTML document (not the JSON envelope) styled for
+// browser print-to-PDF. The frontend loads this into a hidden iframe and
+// calls print() on it, so the printed PDF and the notification email share
+// one renderer (internal/report) and never drift. Only completed reports are
+// printable — there is nothing to render for a pending/running/failed run.
+func (h *AnalysisHandler) Print(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid_slug", "slug is required")
+		return
+	}
+
+	rep, err := h.store.GetReportBySlug(r.Context(), slug)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not_found", "report not found")
+		return
+	}
+	if err != nil {
+		if isClientGone(r) {
+			return
+		}
+		LoggerFromContext(r.Context()).Error("print analysis report failed", "slug", slug, "err", err)
+		writeError(w, http.StatusInternalServerError, "query_failed", "failed to get report")
+		return
+	}
+	if rep.Status != "completed" {
+		writeError(w, http.StatusConflict, "not_completed", "report is not completed yet")
+		return
+	}
+
+	// Content-Type must be set before WriteHeader — it is locked once the
+	// status is written.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.WriteString(w, reporthtml.RenderHTML(&rep, reporthtml.VariantPrint)); err != nil {
+		LoggerFromContext(r.Context()).Warn("write print report response failed", "slug", slug, "err", err)
+	}
 }
 
 // createReportRequest is the JSON body for POST /api/v1/analysis/reports.
