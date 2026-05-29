@@ -197,10 +197,10 @@ func renderPrint(r *model.AnalysisReport) string {
   <div style="max-width: 820px; margin: 0 auto;">
     <div class="taillight-report">%s</div>
     <div style="border-top: 1px solid #999; margin-top: 24px; padding-top: 10px;">
-      <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #444;">generated %s</div>
-      <table style="font-size: 12px; margin-top: 10px; border: none;">
+      <table style="font-size: 12px; border: none;">
         <tr><td style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Source</td><td style="font-weight: 600; border: none;">%s</td><td style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Mode</td><td style="font-weight: 600; border: none;">%s</td></tr>
         <tr><td style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Scope</td><td style="font-weight: 600; border: none;">%s</td><td style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Model</td><td style="font-weight: 600; border: none;">%s</td></tr>
+        <tr><td style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Generated</td><td style="font-weight: 600; border: none;" colspan="3">%s</td></tr>
       </table>
     </div>
   </div>
@@ -210,10 +210,10 @@ func renderPrint(r *model.AnalysisReport) string {
 		bodyCSS,
 		printCSS,
 		renderMarkdown(r.Report),
-		html.EscapeString(generatedAtHuman(r)),
 		html.EscapeString(r.Feed),
 		html.EscapeString(r.PromptMode),
 		html.EscapeString(scopeLabel(r)),
 		html.EscapeString(r.Model),
+		html.EscapeString(generatedAtHuman(r)),
 	)
 }

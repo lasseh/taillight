@@ -40,7 +40,7 @@ func TestRenderPrint(t *testing.T) {
 		"@page",                                      // page geometry for multi-page A4
 		"@media print",                               // pagination block present
 		"page-break-after: avoid",                    // headings stay with their content
-		"generated May 22, 2026",                     // colophon timestamp (no brand/slug line)
+		"May 22, 2026 13:16 UTC",                     // Generated row in colophon table
 		"netlog-incident-2026-05-22-1315",            // slug in document <title>
 		"gpt-oss:20b",                                // metadata strip
 		"s-vts-ep-1, s-vts-ep-2",                     // host scope
