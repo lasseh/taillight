@@ -179,10 +179,12 @@ func renderEmail(r *model.AnalysisReport) string {
 }
 
 // renderPrint renders the paper-friendly document the frontend loads into a
-// hidden iframe and prints. Same metadata strip + report body as the email, but
-// an ink-light masthead (browsers drop background colors when printing, so the
-// email's dark bar would print as invisible white-on-white) and printCSS for
-// clean multi-page A4 pagination.
+// hidden iframe and prints. The report's own H1 title (prepended by the
+// analyzer) leads the document; the Taillight masthead + provenance metadata
+// (source / mode / scope / model / generated) sits at the bottom as a colophon.
+// Uses an ink-light palette (browsers drop background colors when printing, so
+// the email's dark bar would print as invisible white-on-white) and printCSS
+// for clean multi-page A4 pagination.
 func renderPrint(r *model.AnalysisReport) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -193,27 +195,27 @@ func renderPrint(r *model.AnalysisReport) string {
 </head>
 <body style="margin: 0; padding: 24px; background: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
   <div style="max-width: 820px; margin: 0 auto;">
-    <div style="border-bottom: 1px solid #999; padding-bottom: 8px; margin-bottom: 18px;">
+    <div class="taillight-report">%s</div>
+    <div style="border-top: 1px solid #999; margin-top: 24px; padding-top: 10px;">
       <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #555; font-weight: 600;">Taillight — Analysis Report</div>
       <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #444; margin-top: 3px;">%s · generated %s</div>
+      <table style="font-size: 12px; margin-top: 10px; border: none;">
+        <tr><td style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Source</td><td style="font-weight: 600; border: none;">%s</td><td style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Mode</td><td style="font-weight: 600; border: none;">%s</td></tr>
+        <tr><td style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Scope</td><td style="font-weight: 600; border: none;">%s</td><td style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Model</td><td style="font-weight: 600; border: none;">%s</td></tr>
+      </table>
     </div>
-    <table style="font-size: 12px; margin-bottom: 14px; border: none;">
-      <tr><td style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Source</td><td style="font-weight: 600; border: none;">%s</td><td style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Mode</td><td style="font-weight: 600; border: none;">%s</td></tr>
-      <tr><td style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Scope</td><td style="font-weight: 600; border: none;">%s</td><td style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Model</td><td style="font-weight: 600; border: none;">%s</td></tr>
-    </table>
-    <div class="taillight-report">%s</div>
   </div>
 </body>
 </html>`,
 		html.EscapeString(r.Slug),
 		bodyCSS,
 		printCSS,
+		renderMarkdown(r.Report),
 		html.EscapeString(r.Slug),
 		html.EscapeString(generatedAtHuman(r)),
 		html.EscapeString(r.Feed),
 		html.EscapeString(r.PromptMode),
 		html.EscapeString(scopeLabel(r)),
 		html.EscapeString(r.Model),
-		renderMarkdown(r.Report),
 	)
 }
