@@ -114,6 +114,17 @@ work waiting for a release.
 - Make detail fields clickable to apply as filters
 - Add focus mode to hide header and filters on log views
 
+#### Analysis reports
+- Scope analysis reports to specific hosts: `GET /api/v1/analysis/hosts` endpoint, host picker in the create-report panel, host scope surfaced in the report list and detail
+- Make analysis prompts scope-aware so host-scoped runs focus on the selected hosts
+- Email delivery of completed analysis reports: the email backend renders the report markdown inline in the message body (goldmark), fired via a worker hook with CAS idempotency, recipients set by `analysis.notify_emails`; dormant `attach_pdf` plumbing committed but off by default
+- Print-friendly analysis report export in the frontend
+- Short-circuit empty-window analysis runs without calling the LLM
+- Show report created date/time as an inline pill, human-readable titles in the report list, and an ops-briefing header on report detail
+
+#### Log feeds
+- Sliding-window scrollback keeps web log feeds bounded in memory while paging back through history
+
 #### Export
 - Add CSV export for filtered log results
 
@@ -166,6 +177,10 @@ work waiting for a release.
 - Share the syslog filter→SQL builder and meta-string queries between srvlog and netlog stores
 - Make rate-limiter and circuit-breaker eviction testable via an internal seam
 - Extract the LISTEN/NOTIFY dispatch into a testable `ingestbridge` module
+- Calibrate the analyzer's hardware/CPU urgency: ban threshold/catastrophe vocab, make the hardware-escalation rule three-clause-mandatory, auto-escalate hardware faults, group new-signature families, and render CPU/correlation data as badges and tables
+- Sharpen the daily prompt for senior Juniper/network engineers; require a status line in the TL;DR; pin report sections and retry on structural drift; cap clusters, truncate signatures, and force host backticks
+- Make analyzer timeouts configurable and raise defaults (`ollama_timeout` 2h, `run_timeout` 4h)
+- Strip oversized applog attrs from list and SSE responses to keep payloads bounded
 
 ### Fixed
 
@@ -190,6 +205,9 @@ work waiting for a release.
 - Treat 502-504 gateway errors as connection failures on home page
 - Show friendly connection error on home page when API is down
 - Update nginx SSE paths to srvlog/netlog/applog
+- Query analysis meta caches by `(column_name, value)` instead of bare hostname
+- Treat msgid `-` as RFC 5424 NIL so events fall through to `msg_pattern`
+- Stop annotating hostnames with "(inferred from hostname)" in analysis reports
 
 ### Security
 
@@ -199,6 +217,7 @@ work waiting for a release.
 - Fix bcrypt init safety and CreateKey encoding
 - Fix ntfy header injection
 - Update npm deps to resolve security vulnerabilities
+- Bump `golang.org/x/crypto` to v0.52.0 for CVE fixes
 
 ## [0.1.0] - 2026-03-11
 
