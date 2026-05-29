@@ -111,7 +111,7 @@ func TestSSEStreamer_BackfillThenLive(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 0) }()
+	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 0, "test") }()
 	waitForSubscriber(t, b)
 	waitForIDs(t, sink, 3) // backfill drained
 
@@ -139,7 +139,7 @@ func TestSSEStreamer_DedupBackfilledLive(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 0) }()
+	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 0, "test") }()
 	waitForSubscriber(t, b)
 	waitForIDs(t, sink, 3)
 
@@ -175,7 +175,7 @@ func TestSSEStreamer_NoLossDuringBackfill(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 0) }()
+	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 0, "test") }()
 	waitForSubscriber(t, b) // subscribed, but backfill is blocked
 
 	b.Broadcast(model.SrvlogEvent{ID: 10}) // arrives during backfill
@@ -202,7 +202,7 @@ func TestSSEStreamer_SinceMode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 5) }()
+	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 5, "test") }()
 	waitForSubscriber(t, b)
 	waitForIDs(t, sink, 2)
 
@@ -234,7 +234,7 @@ func TestSSEStreamer_Heartbeat(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 0) }()
+	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 0, "test") }()
 	waitForSubscriber(t, b)
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -260,7 +260,7 @@ func TestSSEStreamer_ContextCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		_ = s.run(ctx, sink, model.SrvlogFilter{}, 0)
+		_ = s.run(ctx, sink, model.SrvlogFilter{}, 0, "test")
 		close(done)
 	}()
 	waitForSubscriber(t, b)

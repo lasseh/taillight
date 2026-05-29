@@ -85,6 +85,74 @@ func (m *mockNotificationStore) ListNotificationLog(_ context.Context, _ notific
 
 // --- Channel Tests ---
 
+func TestRedactChannelConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		typ        notification.ChannelType
+		config     string
+		wantSecret bool // true if a masked value must be present
+		wantKept   []string
+	}{
+		{
+			name:       "slack webhook url masked",
+			typ:        notification.ChannelTypeSlack,
+			config:     `{"webhook_url":"https://hooks.slack.com/services/T/B/secret"}`,
+			wantSecret: true,
+		},
+		{
+			name:       "webhook url and headers masked, method kept",
+			typ:        notification.ChannelTypeWebhook,
+			config:     `{"url":"https://x/hook?token=abc","method":"POST","headers":{"Authorization":"Bearer s"}}`,
+			wantSecret: true,
+			wantKept:   []string{"POST"},
+		},
+		{
+			name:       "ntfy token masked, topic kept",
+			typ:        notification.ChannelTypeNtfy,
+			config:     `{"server_url":"https://ntfy.sh","topic":"alerts","token":"tk_secret"}`,
+			wantSecret: true,
+			wantKept:   []string{"alerts", "ntfy.sh"},
+		},
+		{
+			name:       "email has no secrets",
+			typ:        notification.ChannelTypeEmail,
+			config:     `{"to":["ops@example.com"]}`,
+			wantSecret: false,
+			wantKept:   []string{"ops@example.com"},
+		},
+		{
+			name:       "empty secret not masked",
+			typ:        notification.ChannelTypeNtfy,
+			config:     `{"topic":"alerts","token":""}`,
+			wantSecret: false,
+			wantKept:   []string{"alerts"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := redactChannelConfig(notification.Channel{Type: tt.typ, Config: json.RawMessage(tt.config)})
+			got := string(out.Config)
+
+			hasMask := bytes.Contains(out.Config, []byte(redactedSecret))
+			if hasMask != tt.wantSecret {
+				t.Errorf("masked=%v, want %v; config=%s", hasMask, tt.wantSecret, got)
+			}
+			// The original secret values must never appear in the output.
+			for _, leaked := range []string{"secret", "token=abc", "Bearer s", "tk_secret"} {
+				if bytes.Contains(out.Config, []byte(leaked)) {
+					t.Errorf("secret %q leaked in %s", leaked, got)
+				}
+			}
+			for _, keep := range tt.wantKept {
+				if !bytes.Contains(out.Config, []byte(keep)) {
+					t.Errorf("expected %q kept in %s", keep, got)
+				}
+			}
+		})
+	}
+}
+
 func TestListChannels(t *testing.T) {
 	tests := []struct {
 		name       string

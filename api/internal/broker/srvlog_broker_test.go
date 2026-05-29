@@ -17,7 +17,7 @@ func newTestBroker() *SrvlogBroker {
 
 func mustSubscribe(t *testing.T, b *SrvlogBroker, filter model.SrvlogFilter) *SrvlogSubscription {
 	t.Helper()
-	sub, err := b.Subscribe(filter)
+	sub, err := b.Subscribe(filter, "")
 	if err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
@@ -178,6 +178,43 @@ func TestUnsubscribe_ClosesChannel(t *testing.T) {
 	}
 }
 
+func TestSubscribe_MaxSubscribersPerClient(t *testing.T) {
+	b := newTestBroker()
+
+	// One client key fills its per-client quota.
+	subs := make([]*SrvlogSubscription, 0, maxSubscribersPerClient)
+	for range maxSubscribersPerClient {
+		sub, err := b.Subscribe(model.SrvlogFilter{}, "ip:1.2.3.4")
+		if err != nil {
+			t.Fatalf("Subscribe() error = %v", err)
+		}
+		subs = append(subs, sub)
+	}
+
+	// The next connection from the same client is refused...
+	if _, err := b.Subscribe(model.SrvlogFilter{}, "ip:1.2.3.4"); !errors.Is(err, ErrTooManyClientSubscribers) {
+		t.Fatalf("Subscribe() error = %v, want ErrTooManyClientSubscribers", err)
+	}
+
+	// ...but a different client is unaffected.
+	other, err := b.Subscribe(model.SrvlogFilter{}, "ip:5.6.7.8")
+	if err != nil {
+		t.Fatalf("Subscribe() other client error = %v", err)
+	}
+	b.Unsubscribe(other)
+
+	// Freeing one slot lets the original client reconnect.
+	b.Unsubscribe(subs[0])
+	sub, err := b.Subscribe(model.SrvlogFilter{}, "ip:1.2.3.4")
+	if err != nil {
+		t.Fatalf("Subscribe() after unsubscribe error = %v", err)
+	}
+	b.Unsubscribe(sub)
+	for _, s := range subs[1:] {
+		b.Unsubscribe(s)
+	}
+}
+
 func TestSubscribe_MaxSubscribers(t *testing.T) {
 	b := newTestBroker()
 
@@ -189,14 +226,14 @@ func TestSubscribe_MaxSubscribers(t *testing.T) {
 	}
 
 	// Next subscribe should fail.
-	_, err := b.Subscribe(model.SrvlogFilter{})
+	_, err := b.Subscribe(model.SrvlogFilter{}, "")
 	if !errors.Is(err, ErrTooManySubscribers) {
 		t.Fatalf("Subscribe() error = %v, want ErrTooManySubscribers", err)
 	}
 
 	// After unsubscribing one, subscribe should work again.
 	b.Unsubscribe(subs[0])
-	sub, err := b.Subscribe(model.SrvlogFilter{})
+	sub, err := b.Subscribe(model.SrvlogFilter{}, "")
 	if err != nil {
 		t.Fatalf("Subscribe() after unsubscribe error = %v", err)
 	}

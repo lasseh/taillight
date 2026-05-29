@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/broker"
 )
 
@@ -111,14 +112,25 @@ func (s sseStreamer[E, F]) writeDeadline() time.Duration {
 	return sseWriteTimeout
 }
 
+// sseClientKey derives the per-client throttle key for an SSE request. It
+// prefers the authenticated user ID (so a logged-in user is capped regardless
+// of source IP) and falls back to the source IP, which chi's RealIP middleware
+// has already resolved into r.RemoteAddr.
+func sseClientKey(r *http.Request) string {
+	if u := auth.UserFromContext(r.Context()); u != nil && u.ID.Valid {
+		return "user:" + formatUUID(u.ID.Bytes)
+	}
+	return "ip:" + stripPort(r.RemoteAddr)
+}
+
 // run subscribes, backfills, then streams live events until ctx is done or the
 // sink errors. Subscribe happens BEFORE backfill so events arriving during the
 // backfill query are buffered on the subscription rather than lost.
 //
 // A non-nil error is returned only when the subscription is refused before any
 // bytes are written, so the caller can still emit an HTTP error response.
-func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, lastEventID int64) error {
-	sub, err := s.broker.Subscribe(filter)
+func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, lastEventID int64, clientKey string) error {
+	sub, err := s.broker.Subscribe(filter, clientKey)
 	if err != nil {
 		return err
 	}

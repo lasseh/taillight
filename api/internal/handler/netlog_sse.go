@@ -75,7 +75,7 @@ func (h *NetlogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			return events, err
 		},
 	}
-	if err := streamer.run(r.Context(), sink, filter, parseLastEventID(r)); err != nil {
+	if err := streamer.run(r.Context(), sink, filter, parseLastEventID(r), sseClientKey(r)); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "too_many_connections", "too many active connections, try again later")
 		return
 	}

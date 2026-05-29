@@ -16,10 +16,20 @@ const (
 	// maxSubscribers is the maximum number of concurrent SSE clients per broker.
 	// Prevents memory exhaustion from too many open connections.
 	maxSubscribers = 1000
+
+	// maxSubscribersPerClient caps concurrent connections from a single client
+	// key (typically the source IP). Prevents one client from exhausting the
+	// global pool and denying SSE to everyone else.
+	maxSubscribersPerClient = 20
 )
 
-// ErrTooManySubscribers is returned when the broker has reached its connection limit.
+// ErrTooManySubscribers is returned when the broker has reached its global
+// connection limit.
 var ErrTooManySubscribers = fmt.Errorf("too many SSE subscribers (max %d)", maxSubscribers)
+
+// ErrTooManyClientSubscribers is returned when a single client key has reached
+// its per-client connection limit.
+var ErrTooManyClientSubscribers = fmt.Errorf("too many SSE subscribers for client (max %d)", maxSubscribersPerClient)
 
 // Message carries a pre-marshaled event with its ID for SSE id: field support.
 type Message struct {
@@ -38,8 +48,9 @@ type BrokerMetrics struct {
 
 // Subscription holds a client's event channel and filter criteria.
 type Subscription[F any] struct {
-	ch     chan Message
-	filter F
+	ch        chan Message
+	filter    F
+	clientKey string
 }
 
 // Chan returns the event channel for reading.
@@ -54,6 +65,7 @@ func (s *Subscription[F]) Chan() <-chan Message {
 type Broker[E any, F interface{ Matches(E) bool }] struct {
 	mu          sync.RWMutex
 	subscribers map[*Subscription[F]]struct{}
+	byClient    map[string]int // per-client-key connection counts
 	logger      *slog.Logger
 	getID       func(E) int64
 	label       string
@@ -72,6 +84,7 @@ func New[E any, F interface{ Matches(E) bool }](
 ) *Broker[E, F] {
 	return &Broker[E, F]{
 		subscribers: make(map[*Subscription[F]]struct{}),
+		byClient:    make(map[string]int),
 		logger:      logger,
 		getID:       getID,
 		label:       label,
@@ -79,19 +92,30 @@ func New[E any, F interface{ Matches(E) bool }](
 	}
 }
 
-// Subscribe registers a new client with the given filter and returns its subscription.
-// Returns ErrTooManySubscribers if the broker has reached its connection limit.
-func (b *Broker[E, F]) Subscribe(filter F) (*Subscription[F], error) {
+// Subscribe registers a new client with the given filter and returns its
+// subscription. clientKey identifies the originating client (typically the
+// source IP); an empty key disables the per-client cap (used in tests).
+// Returns ErrTooManySubscribers if the broker has reached its global limit, or
+// ErrTooManyClientSubscribers if the client key has reached its per-client limit.
+func (b *Broker[E, F]) Subscribe(filter F, clientKey string) (*Subscription[F], error) {
 	sub := &Subscription[F]{
-		ch:     make(chan Message, subscriptionBufferSize),
-		filter: filter,
+		ch:        make(chan Message, subscriptionBufferSize),
+		filter:    filter,
+		clientKey: clientKey,
 	}
 	b.mu.Lock()
 	if len(b.subscribers) >= maxSubscribers {
 		b.mu.Unlock()
 		return nil, ErrTooManySubscribers
 	}
+	if clientKey != "" && b.byClient[clientKey] >= maxSubscribersPerClient {
+		b.mu.Unlock()
+		return nil, ErrTooManyClientSubscribers
+	}
 	b.subscribers[sub] = struct{}{}
+	if clientKey != "" {
+		b.byClient[clientKey]++
+	}
 	b.mu.Unlock()
 	b.metrics.OnSubscribe()
 	b.logger.Debug(b.label+" client subscribed", "total", b.Len())
@@ -108,9 +132,23 @@ func (b *Broker[E, F]) Unsubscribe(sub *Subscription[F]) {
 	}
 	delete(b.subscribers, sub)
 	close(sub.ch)
+	b.decClientLocked(sub.clientKey)
 	b.mu.Unlock()
 	b.metrics.OnUnsubscribe()
 	b.logger.Debug(b.label+" client unsubscribed", "total", b.Len())
+}
+
+// decClientLocked decrements the per-client connection count, removing the key
+// when it reaches zero. Caller must hold b.mu.
+func (b *Broker[E, F]) decClientLocked(clientKey string) {
+	if clientKey == "" {
+		return
+	}
+	if n := b.byClient[clientKey]; n <= 1 {
+		delete(b.byClient, clientKey)
+	} else {
+		b.byClient[clientKey] = n - 1
+	}
 }
 
 // Len returns the number of connected subscribers.
@@ -128,6 +166,7 @@ func (b *Broker[E, F]) Shutdown() {
 		close(sub.ch)
 		delete(b.subscribers, sub)
 	}
+	clear(b.byClient)
 	b.logger.Info(b.label + " broker shut down")
 }
 

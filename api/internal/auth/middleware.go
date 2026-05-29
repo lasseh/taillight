@@ -109,10 +109,30 @@ func SessionOrAPIKey(sessions SessionLookup, apiKeys APIKeyLookup) func(http.Han
 	}
 }
 
-// RequireScope returns a middleware that checks whether the request has the
-// required scope. Session-based auth (user present but nil scopes) is always
-// allowed. The "admin" scope grants access to everything. If no user is in the
-// context (i.e. no auth middleware ran), the request is rejected.
+// ScopeAdmin is the privileged scope that grants access to write/admin routes.
+const ScopeAdmin = "admin"
+
+// HasGrant reports whether a principal is authorized for the given scope.
+//
+// For API-key auth (non-nil scopes) the principal holds a scope if it is listed
+// or it holds "admin". For session auth (nil scopes) the principal holds every
+// non-admin scope, but the "admin" scope additionally requires the user's admin
+// flag — session auth is NOT a blanket grant for admin routes.
+func HasGrant(scopes []string, user *model.User, scope string) bool {
+	if scopes == nil {
+		if scope == ScopeAdmin {
+			return user != nil && user.IsAdmin
+		}
+		return user != nil
+	}
+	return hasScope(scopes, scope)
+}
+
+// RequireScope returns a middleware that checks whether the request is
+// authorized for the required scope. Session users are authorized for non-admin
+// scopes, but the "admin" scope requires the user's admin flag (see HasGrant).
+// If no user is in the context (i.e. no auth middleware ran), the request is
+// rejected.
 func RequireScope(scope string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,18 +141,12 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 				httputil.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 				return
 			}
-			scopes := ScopesFromContext(r.Context())
-			if scopes == nil {
-				// Session-based auth — full access.
-				next.ServeHTTP(w, r)
-				return
-			}
-			if hasScope(scopes, scope) {
+			if HasGrant(ScopesFromContext(r.Context()), user, scope) {
 				next.ServeHTTP(w, r)
 				return
 			}
 			httputil.WriteError(w, http.StatusForbidden, "forbidden",
-				fmt.Sprintf("api key missing required scope: %s", scope))
+				fmt.Sprintf("missing required scope: %s", scope))
 		})
 	}
 }

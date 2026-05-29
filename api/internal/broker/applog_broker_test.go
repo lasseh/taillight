@@ -17,7 +17,7 @@ func newTestAppLogBroker() *AppLogBroker {
 
 func mustAppLogSubscribe(t *testing.T, b *AppLogBroker, filter model.AppLogFilter) *AppLogSubscription {
 	t.Helper()
-	sub, err := b.Subscribe(filter)
+	sub, err := b.Subscribe(filter, "")
 	if err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
@@ -219,14 +219,14 @@ func TestAppLogSubscribe_MaxSubscribers(t *testing.T) {
 	}
 
 	// Next subscribe should fail.
-	_, err := b.Subscribe(model.AppLogFilter{})
+	_, err := b.Subscribe(model.AppLogFilter{}, "")
 	if !errors.Is(err, ErrTooManySubscribers) {
 		t.Fatalf("Subscribe() error = %v, want ErrTooManySubscribers", err)
 	}
 
 	// After unsubscribing one, subscribe should work again.
 	b.Unsubscribe(subs[0])
-	sub, err := b.Subscribe(model.AppLogFilter{})
+	sub, err := b.Subscribe(model.AppLogFilter{}, "")
 	if err != nil {
 		t.Fatalf("Subscribe() after unsubscribe error = %v", err)
 	}

@@ -473,6 +473,7 @@ func TestMe(t *testing.T) {
 
 func TestCreateKey(t *testing.T) {
 	user := &model.User{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, Username: "testuser", IsActive: true}
+	admin := &model.User{ID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}, Username: "admin", IsActive: true, IsAdmin: true}
 
 	tests := []struct {
 		name       string
@@ -526,9 +527,23 @@ func TestCreateKey(t *testing.T) {
 		{
 			name:       "store error",
 			user:       user,
-			body:       `{"name":"my-key","scopes":["admin"]}`,
+			body:       `{"name":"my-key","scopes":["read"]}`,
 			store:      &mockAuthStore{createErr: errors.New("db error")},
 			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "non-admin cannot grant admin scope",
+			user:       user,
+			body:       `{"name":"my-key","scopes":["admin"]}`,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "admin can grant admin scope",
+			user:       admin,
+			body:       `{"name":"my-key","scopes":["admin"]}`,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusCreated,
 		},
 		{
 			name:       "with expires_at",

@@ -517,9 +517,16 @@ func (h *AuthHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "at least one scope is required (ingest, read, admin)")
 		return
 	}
+	callerScopes := auth.ScopesFromContext(r.Context())
 	for _, s := range req.Scopes {
 		if !validScopes[s] {
 			writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid scope: %s", s))
+			return
+		}
+		// Prevent privilege escalation: a caller may only grant scopes it
+		// already holds (an admin or admin-scoped key may grant anything).
+		if !auth.HasGrant(callerScopes, user, s) {
+			writeError(w, http.StatusForbidden, "forbidden", fmt.Sprintf("cannot grant scope you do not hold: %s", s))
 			return
 		}
 	}

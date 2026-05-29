@@ -43,6 +43,89 @@ func NewNotificationHandler(store NotificationStore, engine *notification.Engine
 
 // --- Channels ---
 
+// redactedSecretKeys lists the config JSON keys, per channel type, that carry
+// delivery credentials and must never be echoed back on read endpoints.
+var redactedSecretKeys = map[notification.ChannelType][]string{
+	notification.ChannelTypeSlack:   {"webhook_url"},
+	notification.ChannelTypeWebhook: {"url", "headers"},
+	notification.ChannelTypeNtfy:    {"token"},
+}
+
+// redactedSecret is the placeholder substituted for a configured secret value so
+// the client can tell a secret is set without learning its value.
+const redactedSecret = "********"
+
+// redactChannelConfig returns a copy of ch with any secret config fields masked.
+// It is applied to all read responses so low-privilege (or anonymous, when read
+// endpoints are unauthenticated) callers cannot exfiltrate webhook URLs, bearer
+// tokens, or custom Authorization headers.
+func redactChannelConfig(ch notification.Channel) notification.Channel {
+	keys, ok := redactedSecretKeys[ch.Type]
+	if !ok || len(ch.Config) == 0 {
+		return ch
+	}
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal(ch.Config, &cfg); err != nil {
+		// Malformed config — fail closed by dropping it entirely.
+		ch.Config = json.RawMessage(`{}`)
+		return ch
+	}
+	for _, k := range keys {
+		raw, present := cfg[k]
+		if !present || isEmptyJSON(raw) {
+			continue
+		}
+		cfg[k] = maskJSONValue(raw)
+	}
+	redacted, err := json.Marshal(cfg)
+	if err != nil {
+		ch.Config = json.RawMessage(`{}`)
+		return ch
+	}
+	ch.Config = redacted
+	return ch
+}
+
+// maskJSONValue replaces a secret JSON value with a placeholder. For a JSON
+// object (e.g. webhook headers) it masks each member value while preserving the
+// object shape and key names, which keeps the response schema stable for the
+// frontend without leaking the secret values.
+func maskJSONValue(raw json.RawMessage) json.RawMessage {
+	masked, _ := json.Marshal(redactedSecret)
+	if len(raw) == 0 || raw[0] != '{' {
+		return masked
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return masked
+	}
+	for k := range obj {
+		obj[k] = masked
+	}
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return masked
+	}
+	return out
+}
+
+// isEmptyJSON reports whether a raw JSON value is null, "", {}, or [].
+func isEmptyJSON(raw json.RawMessage) bool {
+	switch s := string(raw); s {
+	case "", "null", `""`, "{}", "[]":
+		return true
+	default:
+		return false
+	}
+}
+
+func redactChannels(channels []notification.Channel) []notification.Channel {
+	for i := range channels {
+		channels[i] = redactChannelConfig(channels[i])
+	}
+	return channels
+}
+
 // ListChannels handles GET /api/v1/notifications/channels.
 func (h *NotificationHandler) ListChannels(w http.ResponseWriter, r *http.Request) {
 	channels, err := h.store.ListNotificationChannels(r.Context())
@@ -51,7 +134,7 @@ func (h *NotificationHandler) ListChannels(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list channels")
 		return
 	}
-	writeJSON(w, itemResponse{Data: emptySlice(channels)})
+	writeJSON(w, itemResponse{Data: emptySlice(redactChannels(channels))})
 }
 
 // GetChannel handles GET /api/v1/notifications/channels/{id}.
@@ -72,7 +155,7 @@ func (h *NotificationHandler) GetChannel(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get channel")
 		return
 	}
-	writeJSON(w, itemResponse{Data: ch})
+	writeJSON(w, itemResponse{Data: redactChannelConfig(ch)})
 }
 
 // CreateChannel handles POST /api/v1/notifications/channels.
