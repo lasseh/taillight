@@ -8,7 +8,7 @@ Severity legend: 0=emerg 1=alert 2=crit 3=err 4=warn 5=notice 6=info 7=debug.
 Rates in the Severity Drift block are per-day; counts elsewhere are raw totals across the full period.
 
 ## Top Event Signatures (by volume, max 25)
-Each signature is the RFC 5424 MSGID when present, otherwise a normalized message template. Long templates are truncated with `…` for readability; the full text is in the sample messages below. Sample messages are verbatim log text — use them to ground your interpretation; do not invent details that aren't in them.
+Each signature is the RFC 5424 MSGID when present, otherwise a normalized message template. Long templates are truncated with `…` for readability; the full text is in the sample messages below. Sample messages are verbatim log text — use them to ground your interpretation; do not invent details that aren't in them. Each sample is bound to the host on its line; the per-signature host distribution is the authoritative list of which hosts fired the signature, and the samples may only cover a subset of those hosts.
 {{ range .TopMsgIDs -}}
 - `{{ truncate .MsgID 80 }}` — {{ .Count }} events{{ if .HostCount }} · {{ .HostCount }} host{{ if gt .HostCount 1 }}s{{ end }}{{ if .TopHosts }} (top: {{ range $i, $h := .TopHosts }}{{ if $i }}, {{ end }}`{{ $h.Hostname }}` ({{ $h.Count }}){{ end }}){{ end }}{{ end }} · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
 {{- if index $.JuniperRefs .MsgID }}
