@@ -50,6 +50,7 @@ export interface AppLogDeviceSummary {
   level_breakdown: LevelCount[]
   top_messages: AppLogTopMessage[]
   error_logs: AppLogEvent[]
+  activity: ActivityBucket[]
 }
 
 export interface AppLogDeviceSummaryResponse {

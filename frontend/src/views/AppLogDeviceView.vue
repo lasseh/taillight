@@ -10,6 +10,7 @@ import { useAppLogDeviceLogs } from '@/composables/useAppLogDeviceLogs'
 import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import LevelDistribution from '@/components/LevelDistribution.vue'
+import DeviceActivityChart from '@/components/DeviceActivityChart.vue'
 import AppLogRow from '@/components/AppLogRow.vue'
 
 const props = defineProps<{
@@ -334,7 +335,9 @@ function currentEvents(): AppLogEvent[] {
             title="Level Breakdown"
             collapsible
             @collapse="summaryCollapsed = true"
-          />
+          >
+            <DeviceActivityChart :items="summary.activity" />
+          </LevelDistribution>
         </div>
         <button
           v-else

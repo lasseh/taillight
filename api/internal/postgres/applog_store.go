@@ -293,6 +293,7 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		LevelBreakdown: make([]model.LevelCount, 0),
 		TopMessages:    make([]model.AppLogTopMessage, 0),
 		ErrorLogs:      make([]model.AppLogEvent, 0),
+		Activity:       make([]model.ActivityBucket, 0),
 	}
 
 	since := time.Now().UTC().Add(-7 * 24 * time.Hour)
@@ -360,6 +361,18 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 
 	// Q4: recent error logs.
 	batch.Queue(errQuery, errArgs...)
+
+	// Q5: log activity time series (24h, 15-minute buckets). Powers the activity
+	// chart in the device detail Level Breakdown box. time_bucket only emits
+	// buckets that have rows, so sparse hosts render gaps (matches /volume).
+	batch.Queue(
+		`SELECT time_bucket('15 minutes', received_at) AS bucket, count(*) AS cnt
+		 FROM applog_events
+		 WHERE host = $1 AND received_at >= $2
+		 GROUP BY bucket
+		 ORDER BY bucket ASC`,
+		host, msgSince,
+	)
 
 	results := s.pool.SendBatch(ctx, batch)
 	defer results.Close() //nolint:errcheck // best-effort close
@@ -436,6 +449,24 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 	}
 	if errEvents != nil {
 		summary.ErrorLogs = errEvents
+	}
+
+	// R5: log activity time series.
+	actRows, err := results.Query()
+	if err != nil {
+		return summary, fmt.Errorf("applog device activity: %w", err)
+	}
+
+	for actRows.Next() {
+		var ab model.ActivityBucket
+		if err := actRows.Scan(&ab.Time, &ab.Count); err != nil {
+			return summary, fmt.Errorf("scan applog activity bucket: %w", err)
+		}
+		summary.Activity = append(summary.Activity, ab)
+	}
+	actRows.Close()
+	if err := actRows.Err(); err != nil {
+		return summary, fmt.Errorf("applog device activity rows: %w", err)
 	}
 
 	return summary, nil

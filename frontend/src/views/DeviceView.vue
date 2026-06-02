@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, watch, provide, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute, RouterLink } from 'vue-router'
-import { VisXYContainer, VisStackedBar, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 import type { DeviceSummary } from '@/types/device'
 import type { SrvlogEvent } from '@/types/srvlog'
 import { api, ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
 import { severityLabels, severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
-import { useTheme } from '@/composables/useTheme'
 import { useDeviceLogs } from '@/composables/useDeviceLogs'
 import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
+import DeviceActivityChart from '@/components/DeviceActivityChart.vue'
 import SrvlogRow from '@/components/SrvlogRow.vue'
 
 const props = defineProps<{
@@ -57,27 +56,6 @@ const alertCount = computed(() => sevCount(1))
 const emergAlertCount = computed(() => emergCount.value + alertCount.value)
 const critCount = computed(() => sevCount(2))
 const errCount = computed(() => sevCount(3))
-
-// Log activity chart (24h, 15-minute buckets) — mirrors the per-host charts on /volume.
-const { current: theme } = useTheme()
-const accentColors = computed(() => theme.value.chartColors)
-
-interface ActivityRecord {
-  x: number
-  count: number
-}
-const activityData = computed<ActivityRecord[]>(() =>
-  (summary.value?.activity ?? []).map(b => ({ x: new Date(b.time).getTime(), count: b.count })),
-)
-const activityX = (d: ActivityRecord) => d.x
-const activityY = [(d: ActivityRecord) => d.count]
-const hoveredActivity = ref<ActivityRecord | null>(null)
-function activityTracker(d: ActivityRecord) {
-  hoveredActivity.value = d
-  return ''
-}
-const activityTickFormat = (v: number) =>
-  new Date(v).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
 
 // Compute dynamic column widths for SrvlogRow.
 const colWidths = computed(() => {
@@ -356,35 +334,7 @@ function currentEvents(): SrvlogEvent[] {
             collapsible
             @collapse="summaryCollapsed = true"
           >
-            <div v-if="activityData.length > 0" class="border-t-border mt-3 border-t pt-3">
-              <h4 class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
-                Log Activity
-                <span class="text-t-fg-dark/70 font-normal normal-case">(24h)</span>
-                <span
-                  v-if="hoveredActivity"
-                  class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
-                >
-                  <span class="text-t-fg-dark">{{ activityTickFormat(hoveredActivity.x) }} - </span>
-                  <span class="font-bold" :style="{ color: accentColors[0] }">{{ formatNumber(hoveredActivity.count) }}</span>
-                </span>
-              </h4>
-              <div class="hide-tooltip" @mouseleave="hoveredActivity = null">
-                <VisXYContainer :data="activityData" :height="120" :duration="0" :padding="{ top: 4, right: 4 }">
-                  <VisStackedBar
-                    :x="activityX"
-                    :y="activityY"
-                    :color="() => accentColors[0]"
-                    :barPadding="0.6"
-                    :roundedCorners="2"
-                    :dataStep="900_000"
-                  />
-                  <VisAxis type="x" :tickFormat="activityTickFormat" :numTicks="3" :gridLine="false" :tickLine="false" />
-                  <VisAxis type="y" :gridLine="true" :tickLine="false" />
-                  <VisCrosshair :template="activityTracker" />
-                  <VisTooltip />
-                </VisXYContainer>
-              </div>
-            </div>
+            <DeviceActivityChart :items="summary.activity" />
           </SeverityDistribution>
         </div>
         <button
@@ -457,22 +407,3 @@ function currentEvents(): SrvlogEvent[] {
     </template>
   </div>
 </template>
-
-<style scoped>
-:deep(.unovis-xy-container) svg text {
-  fill: var(--color-t-fg-dark);
-}
-
-:deep(.unovis-xy-container) path[class*="-bar"] {
-  opacity: 0.55;
-}
-
-:deep(.unovis-xy-container) .tick line {
-  stroke: var(--color-t-border);
-  opacity: 0.4;
-}
-
-.hide-tooltip :deep(.unovis-tooltip) {
-  display: none !important;
-}
-</style>

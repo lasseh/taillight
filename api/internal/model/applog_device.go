@@ -11,6 +11,7 @@ type AppLogDeviceSummary struct {
 	LevelBreakdown []LevelCount       `json:"level_breakdown"`
 	TopMessages    []AppLogTopMessage `json:"top_messages"`
 	ErrorLogs      []AppLogEvent      `json:"error_logs"`
+	Activity       []ActivityBucket   `json:"activity"`
 }
 
 // AppLogTopMessage holds a normalized message pattern with its count and a sample.

@@ -11,6 +11,7 @@ import { useNetlogDeviceLogs } from '@/composables/useNetlogDeviceLogs'
 import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
+import DeviceActivityChart from '@/components/DeviceActivityChart.vue'
 import NetlogRow from '@/components/NetlogRow.vue'
 
 const props = defineProps<{
@@ -332,7 +333,9 @@ function currentEvents(): NetlogEvent[] {
             title="Severity Breakdown"
             collapsible
             @collapse="summaryCollapsed = true"
-          />
+          >
+            <DeviceActivityChart :items="summary.activity" />
+          </SeverityDistribution>
         </div>
         <button
           v-else
