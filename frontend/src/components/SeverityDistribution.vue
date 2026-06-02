@@ -44,5 +44,6 @@ const emit = defineEmits<{ collapse: [] }>()
         <span class="text-t-fg w-10 text-right text-xs">{{ formatNumber(item.count) }}</span>
       </div>
     </div>
+    <slot />
   </div>
 </template>

@@ -683,6 +683,7 @@ func (s *Store) GetSrvlogDeviceSummary(ctx context.Context, hostname string) (mo
 		SeverityBreakdown: make([]model.SeverityCount, 0),
 		TopMessages:       make([]model.TopMessage, 0),
 		CriticalLogs:      make([]model.SrvlogEvent, 0),
+		Activity:          make([]model.ActivityBucket, 0),
 	}
 
 	since := time.Now().UTC().Add(-7 * 24 * time.Hour)
@@ -753,6 +754,18 @@ func (s *Store) GetSrvlogDeviceSummary(ctx context.Context, hostname string) (mo
 	batch.Queue(
 		"SELECT fromhost_ip FROM srvlog_events WHERE hostname = $1 ORDER BY received_at DESC, id DESC LIMIT 1",
 		hostname,
+	)
+
+	// Q6: log activity time series (24h, 15-minute buckets). Powers the activity
+	// chart in the device detail Severity Breakdown box. time_bucket only emits
+	// buckets that have rows, so sparse hosts render gaps (matches /volume).
+	batch.Queue(
+		`SELECT time_bucket('15 minutes', received_at) AS bucket, count(*) AS cnt
+		 FROM srvlog_events
+		 WHERE hostname = $1 AND received_at >= $2
+		 GROUP BY bucket
+		 ORDER BY bucket ASC`,
+		hostname, msgSince,
 	)
 
 	results := s.pool.SendBatch(ctx, batch)
@@ -841,6 +854,24 @@ func (s *Store) GetSrvlogDeviceSummary(ctx context.Context, hostname string) (mo
 		return summary, fmt.Errorf("device latest ip: %w", err)
 	}
 	summary.FromhostIP = ip.String()
+
+	// R6: log activity time series.
+	actRows, err := results.Query()
+	if err != nil {
+		return summary, fmt.Errorf("device activity: %w", err)
+	}
+
+	for actRows.Next() {
+		var ab model.ActivityBucket
+		if err := actRows.Scan(&ab.Time, &ab.Count); err != nil {
+			return summary, fmt.Errorf("scan activity bucket: %w", err)
+		}
+		summary.Activity = append(summary.Activity, ab)
+	}
+	actRows.Close()
+	if err := actRows.Err(); err != nil {
+		return summary, fmt.Errorf("device activity rows: %w", err)
+	}
 
 	return summary, nil
 }

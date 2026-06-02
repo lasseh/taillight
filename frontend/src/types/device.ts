@@ -12,6 +12,11 @@ export interface TopMessage {
   severity_label: string
 }
 
+export interface ActivityBucket {
+  time: string
+  count: number
+}
+
 export interface DeviceSummary {
   hostname: string
   fromhost_ip: string
@@ -21,6 +26,7 @@ export interface DeviceSummary {
   severity_breakdown: SeverityCount[]
   top_messages: TopMessage[]
   critical_logs: SrvlogEvent[]
+  activity: ActivityBucket[]
 }
 
 export interface DeviceSummaryResponse {

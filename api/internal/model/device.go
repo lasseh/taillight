@@ -4,14 +4,22 @@ import "time"
 
 // SrvlogDeviceSummary holds aggregated information for a single device (hostname).
 type SrvlogDeviceSummary struct {
-	Hostname          string          `json:"hostname"`
-	FromhostIP        string          `json:"fromhost_ip"`
-	LastSeenAt        *time.Time      `json:"last_seen_at"`
-	TotalCount        int64           `json:"total_count"`
-	CriticalCount     int64           `json:"critical_count"`
-	SeverityBreakdown []SeverityCount `json:"severity_breakdown"`
-	TopMessages       []TopMessage    `json:"top_messages"`
-	CriticalLogs      []SrvlogEvent   `json:"critical_logs"`
+	Hostname          string           `json:"hostname"`
+	FromhostIP        string           `json:"fromhost_ip"`
+	LastSeenAt        *time.Time       `json:"last_seen_at"`
+	TotalCount        int64            `json:"total_count"`
+	CriticalCount     int64            `json:"critical_count"`
+	SeverityBreakdown []SeverityCount  `json:"severity_breakdown"`
+	TopMessages       []TopMessage     `json:"top_messages"`
+	CriticalLogs      []SrvlogEvent    `json:"critical_logs"`
+	Activity          []ActivityBucket `json:"activity"`
+}
+
+// ActivityBucket is a single time-bucketed event count for a device's log
+// activity chart. The window is 24h at 15-minute intervals.
+type ActivityBucket struct {
+	Time  time.Time `json:"time"`
+	Count int64     `json:"count"`
 }
 
 // TopMessage holds a normalized message pattern with its count and a sample.
