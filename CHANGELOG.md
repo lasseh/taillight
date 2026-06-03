@@ -152,6 +152,14 @@ work waiting for a release.
 - Add subtle pulse animation to paused banner
 - Add severity level details to empty state messages
 
+#### Observability & operations
+- Per-operation database query metrics (`taillight_db_query_duration_seconds`, `taillight_db_query_errors_total`) via a pgx `QueryTracer`
+- Per-channel circuit-breaker state gauge (`taillight_notification_breaker_state`) and transition counter, so operators can alert on a channel's breaker opening
+- Truncation signal (warn log + `taillight_listener_gap_fill_truncated_total`) when a listener gap-fill pass hits its row cap and recovery is incomplete
+- Server-wide HTTP `ReadTimeout` to bound slow-drip request bodies; panic-induced 500s are now recorded in request metrics
+- Standalone `idx_applog_id` index backing SSE Last-Event-ID backfill and single-event lookups, built per-chunk to avoid blocking ingest
+- Gated database integration test harness (`make test-integration`, ephemeral TimescaleDB) plus a CI job, covering keyset pagination, batch-insert ordering, and the API-key/user join
+
 ### Changed
 
 - Overhaul the analyzer data block sent to Ollama: srvlog rows now group by `COALESCE(NULLIF(msgid,''), msg_pattern)` so RFC 3164 events (sshd/systemd/kernel/cron) reach the prompt instead of being dropped; each top signature ships with 1-2 verbatim sample messages, a 12-48 cell volume sparkline with peak timestamps, top programs/facilities for srvlog, and per-signature host distribution; system prompts updated across daily/weekly/incident with anti-hallucination rules around quoting samples
@@ -184,6 +192,15 @@ work waiting for a release.
 
 ### Fixed
 
+- **Keyset pagination dropped one event per page boundary** in the srvlog/netlog/applog list endpoints — the next cursor was set to the look-ahead "peek" row, which the strict `<` next-page query then excluded; now uses the last returned row (caught by a new DB integration test)
+- Digest notifications rendered "in the last 0 seconds" — the digest window is now set on flush
+- Notification rate limiter consumed a token on every retry attempt, abandoning alerts on low-burst channels (e.g. email) after two failures and preventing the circuit breaker from tripping; now gated once per notification with retries bypassing it
+- Send-on-closed-channel panic in the auth touch worker during graceful shutdown (shutdown reordered + touch path made structurally panic-safe)
+- Notification rule level/severity/facility are validated up front (clear 400) instead of surfacing an opaque 500 from the DB constraint; the applog level filter now fails closed on an unrecognised level
+- Docker entrypoint now fails fast when all migration attempts fail, instead of booting against a half-migrated schema
+- Nested config secrets (`smtp.password`, `netbox.token`, `ldap.bind_password`, `logshipper.api_key`) are now overridable via environment variables as documented
+- Final notification audit-log row now survives shutdown (recorded on a detached context)
+- SSE handlers flush headers on connect, so `EventSource` `onopen` fires immediately on a quiet stream instead of after the first heartbeat
 - Reduce disconnect banner flicker on wake from sleep (visibility-aware reconnect, 5s grace period)
 - Register export routes before `/{id}` to prevent param capture
 - Cursor pagination off-by-one, missing `rows.Err()`, health timeout
@@ -211,6 +228,8 @@ work waiting for a release.
 
 ### Security
 
+- Block the IPv4 "this host" range (`0.0.0.0/8`) and unspecified addresses (`0.0.0.0`, `::`) in the SSRF webhook guard, with a stdlib classification catch-all that also normalises IPv4-mapped IPv6 (e.g. `::ffff:127.0.0.1`)
+- Redact secret webhook/Slack/ntfy URLs from transport errors before they are persisted to the notification audit log or shipped via application logs
 - Block IPv6 ULA in SSRF check
 - Fix email subject templating injection
 - Fix rate limiter race condition
