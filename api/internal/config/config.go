@@ -233,8 +233,26 @@ func Load(configFile ...string) (Config, error) {
 		// Config file not found is OK — use defaults and env vars.
 	}
 
-	// Environment variable overrides.
+	// Environment variable overrides. The replacer maps dotted config keys to
+	// underscore env names (netbox.token -> NETBOX_TOKEN).
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+
+	// AutomaticEnv alone does not resolve nested keys that have no default, so
+	// explicitly bind the secret keys the docs promise are env-overridable.
+	// Without this, smtp.password/netbox.token/etc. silently fall back to the
+	// plaintext config file even when the env var is set (audit S4).
+	for _, key := range []string{
+		"logshipper.api_key",
+		"ldap.bind_password",
+		"smtp.username",
+		"smtp.password",
+		"netbox.token",
+	} {
+		if err := v.BindEnv(key); err != nil {
+			return Config{}, fmt.Errorf("bind env for %q: %w", key, err)
+		}
+	}
 
 	return Config{
 		DatabaseURL:            v.GetString("database_url"),

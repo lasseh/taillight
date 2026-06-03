@@ -136,3 +136,35 @@ func TestLoadEnvOverride(t *testing.T) {
 		t.Error("AuthEnabled should be false after env override")
 	}
 }
+
+// TestLoadNestedSecretEnvOverride verifies dotted secret keys are overridable
+// via their flat env vars, as the docs/config example promise (audit S4).
+func TestLoadNestedSecretEnvOverride(t *testing.T) {
+	t.Setenv("SMTP_PASSWORD", "smtp-secret")
+	t.Setenv("NETBOX_TOKEN", "netbox-secret")
+	t.Setenv("LDAP_BIND_PASSWORD", "ldap-secret")
+	t.Setenv("LOGSHIPPER_API_KEY", "shipper-secret")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	cases := map[string]string{
+		"smtp.password":      cfg.SMTP.Password,
+		"netbox.token":       cfg.Netbox.Token,
+		"ldap.bind_password": cfg.LDAP.BindPassword,
+		"logshipper.api_key": cfg.LogShipper.APIKey,
+	}
+	want := map[string]string{
+		"smtp.password":      "smtp-secret",
+		"netbox.token":       "netbox-secret",
+		"ldap.bind_password": "ldap-secret",
+		"logshipper.api_key": "shipper-secret",
+	}
+	for key, got := range cases {
+		if got != want[key] {
+			t.Errorf("%s = %q, want %q (env override not applied)", key, got, want[key])
+		}
+	}
+}
