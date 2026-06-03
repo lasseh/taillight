@@ -21,7 +21,6 @@ import (
 	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/ldap"
 	"github.com/lasseh/taillight/internal/model"
-	"github.com/lasseh/taillight/internal/postgres"
 )
 
 const (
@@ -105,13 +104,13 @@ type AuthStore interface {
 	SetUserActive(ctx context.Context, id [16]byte, active bool) error
 	UpdatePassword(ctx context.Context, id [16]byte, passwordHash string) error
 	CreateSession(ctx context.Context, tokenHash string, userID [16]byte, expiresAt time.Time, ip, userAgent string) error
-	GetSession(ctx context.Context, tokenHash string) (postgres.SessionWithUser, error)
+	GetSession(ctx context.Context, tokenHash string) (model.SessionWithUser, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteUserSessions(ctx context.Context, userID [16]byte) error
 	PruneUserSessions(ctx context.Context, userID [16]byte, keep int) error
 	CleanExpiredSessions(ctx context.Context) (int64, error)
 	CreateAPIKey(ctx context.Context, userID [16]byte, name, keyHash, keyPrefix string, scopes []string, expiresAt *time.Time) (model.APIKeyRow, error)
-	GetAPIKeyByHash(ctx context.Context, keyHash string) (postgres.APIKeyWithUser, error)
+	GetAPIKeyByHash(ctx context.Context, keyHash string) (model.APIKeyWithUser, error)
 	ListAPIKeysByUser(ctx context.Context, userID [16]byte) ([]model.APIKeyRow, error)
 	RevokeAPIKey(ctx context.Context, id [16]byte) error
 	GetAPIKeyByID(ctx context.Context, id [16]byte) (model.APIKeyRow, error)

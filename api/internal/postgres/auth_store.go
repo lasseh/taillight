@@ -240,16 +240,10 @@ func (s *AuthStore) CreateSession(ctx context.Context, tokenHash string, userID 
 	return nil
 }
 
-// SessionWithUser holds a session joined with its owning user.
-type SessionWithUser struct {
-	Session model.Session
-	User    model.User
-}
-
 // GetSession looks up a session by token hash, joining the user.
 // Returns pgx.ErrNoRows if the session is expired or the user is inactive.
-func (s *AuthStore) GetSession(ctx context.Context, tokenHash string) (SessionWithUser, error) {
-	var sw SessionWithUser
+func (s *AuthStore) GetSession(ctx context.Context, tokenHash string) (model.SessionWithUser, error) {
+	var sw model.SessionWithUser
 	err := s.pool.QueryRow(ctx,
 		`SELECT s.token_hash, s.user_id, s.created_at, s.expires_at, s.last_seen_at,
 		        s.ip_address::text, s.user_agent,
@@ -267,7 +261,7 @@ func (s *AuthStore) GetSession(ctx context.Context, tokenHash string) (SessionWi
 		&sw.User.CreatedAt, &sw.User.UpdatedAt, &sw.User.LastLoginAt,
 	)
 	if err != nil {
-		return SessionWithUser{}, fmt.Errorf("get session: %w", err)
+		return model.SessionWithUser{}, fmt.Errorf("get session: %w", err)
 	}
 
 	// Touch last_seen asynchronously via bounded worker.
@@ -343,16 +337,10 @@ func (s *AuthStore) CreateAPIKey(ctx context.Context, userID [16]byte, name, key
 	return k, nil
 }
 
-// APIKeyWithUser holds an API key joined with its owning user.
-type APIKeyWithUser struct {
-	Key  model.APIKeyRow
-	User model.User
-}
-
 // GetAPIKeyByHash looks up an active API key by its SHA-256 hash.
 // Returns pgx.ErrNoRows if the key is revoked, expired, or the user is inactive.
-func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKeyWithUser, error) {
-	var kw APIKeyWithUser
+func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (model.APIKeyWithUser, error) {
+	var kw model.APIKeyWithUser
 	err := s.pool.QueryRow(ctx,
 		`SELECT k.id, k.user_id, k.name, k.key_hash, k.key_prefix, k.scopes,
 		        k.expires_at, k.revoked_at, k.last_used_at, k.created_at,
@@ -371,7 +359,7 @@ func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey
 		&kw.User.CreatedAt, &kw.User.UpdatedAt, &kw.User.LastLoginAt,
 	)
 	if err != nil {
-		return APIKeyWithUser{}, fmt.Errorf("get api key by hash: %w", err)
+		return model.APIKeyWithUser{}, fmt.Errorf("get api key by hash: %w", err)
 	}
 
 	// Touch last_used asynchronously via bounded worker.

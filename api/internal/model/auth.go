@@ -46,3 +46,17 @@ type APIKeyRow struct {
 	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
 	CreatedAt  time.Time          `json:"created_at"`
 }
+
+// SessionWithUser holds a session joined with its owning user. Lives in model
+// (not postgres) so the auth store's consumer interface stays free of
+// persistence-layer types.
+type SessionWithUser struct {
+	Session Session
+	User    User
+}
+
+// APIKeyWithUser holds an API key joined with its owning user.
+type APIKeyWithUser struct {
+	Key  APIKeyRow
+	User User
+}

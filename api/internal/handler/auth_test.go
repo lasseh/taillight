@@ -16,7 +16,6 @@ import (
 
 	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/model"
-	"github.com/lasseh/taillight/internal/postgres"
 )
 
 // mockAuthStore implements AuthStore for testing.
@@ -83,8 +82,8 @@ func (m *mockAuthStore) CreateSession(_ context.Context, _ string, _ [16]byte, _
 	return m.sessionErr
 }
 
-func (m *mockAuthStore) GetSession(_ context.Context, _ string) (postgres.SessionWithUser, error) {
-	return postgres.SessionWithUser{}, nil
+func (m *mockAuthStore) GetSession(_ context.Context, _ string) (model.SessionWithUser, error) {
+	return model.SessionWithUser{}, nil
 }
 
 func (m *mockAuthStore) DeleteSession(_ context.Context, _ string) error {
@@ -107,8 +106,8 @@ func (m *mockAuthStore) CreateAPIKey(_ context.Context, _ [16]byte, _, _, _ stri
 	return m.createKey, m.createErr
 }
 
-func (m *mockAuthStore) GetAPIKeyByHash(_ context.Context, _ string) (postgres.APIKeyWithUser, error) {
-	return postgres.APIKeyWithUser{}, nil
+func (m *mockAuthStore) GetAPIKeyByHash(_ context.Context, _ string) (model.APIKeyWithUser, error) {
+	return model.APIKeyWithUser{}, nil
 }
 
 func (m *mockAuthStore) ListAPIKeysByUser(_ context.Context, _ [16]byte) ([]model.APIKeyRow, error) {
