@@ -72,7 +72,7 @@ func TestRedactURLError(t *testing.T) {
 
 func TestRedactURLError_NonURLErrorUnchanged(t *testing.T) {
 	plain := errors.New("marshal payload: boom")
-	if got := redactURLError(plain); got != plain {
+	if got := redactURLError(plain); !errors.Is(got, plain) {
 		t.Errorf("non-url.Error should pass through unchanged, got %v", got)
 	}
 }
