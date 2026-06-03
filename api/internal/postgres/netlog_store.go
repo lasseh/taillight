@@ -79,8 +79,12 @@ func (s *Store) ListNetlogs(ctx context.Context, f model.NetlogFilter, cursor *m
 	}
 
 	var nextCursor *model.Cursor
-	if len(events) > limit {
-		last := events[limit]
+	if limit > 0 && len(events) > limit {
+		// Cursor is the LAST RETURNED row; the next page queries strictly before
+		// it. events[limit] is the peek row used only to detect a next page —
+		// using it as the cursor would exclude it from the next query without
+		// ever returning it, dropping one event per page boundary.
+		last := events[limit-1]
 		nextCursor = &model.Cursor{
 			ReceivedAt: last.ReceivedAt,
 			ID:         last.ID,

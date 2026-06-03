@@ -12,7 +12,7 @@ else
   TEST_CMD := $(GO) test
 endif
 
-.PHONY: build build-linux build-shipper build-tui build-tui-linux build-wish build-wish-linux test lint fix tidy vulncheck generate coverage clean help migrate-up migrate-down migrate-version
+.PHONY: test-integration build build-linux build-shipper build-tui build-tui-linux build-wish build-wish-linux test lint fix tidy vulncheck generate coverage clean help migrate-up migrate-down migrate-version
 
 ##@ General
 help: ## Show this help
@@ -41,8 +41,27 @@ build-wish-linux: ## Build taillight-wish for Linux amd64
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o taillight-wish-linux-amd64 ./cmd/taillight-wish
 
 ##@ Quality
-test: ## Run tests
+test: ## Run tests (DB integration tests skip unless TEST_DATABASE_URL is set)
 	$(TEST_CMD) -race ./...
+
+INTEGRATION_IMAGE ?= timescale/timescaledb:latest-pg18
+INTEGRATION_PORT  ?= 55432
+
+test-integration: ## Run DB integration tests in an ephemeral TimescaleDB (or against $$TEST_DATABASE_URL)
+ifdef TEST_DATABASE_URL
+	$(TEST_CMD) -race -run Integration ./internal/postgres/...
+else
+	@echo "starting ephemeral $(INTEGRATION_IMAGE) on port $(INTEGRATION_PORT)..."
+	@cid=$$(docker run -d --rm -e POSTGRES_USER=taillight -e POSTGRES_PASSWORD=taillight \
+		-e POSTGRES_DB=taillight_test -p $(INTEGRATION_PORT):5432 $(INTEGRATION_IMAGE)); \
+	trap 'docker stop $$cid >/dev/null 2>&1 || true' EXIT; \
+	echo "waiting for postgres to accept connections..."; \
+	for i in $$(seq 1 60); do \
+		docker exec $$cid pg_isready -U taillight -d taillight_test >/dev/null 2>&1 && break; sleep 1; \
+	done; \
+	TEST_DATABASE_URL="postgres://taillight:taillight@127.0.0.1:$(INTEGRATION_PORT)/taillight_test?sslmode=disable" \
+		$(TEST_CMD) -race -run Integration ./internal/postgres/...
+endif
 
 lint: ## Run linter (includes vet, fmt, imports via golangci-lint)
 	golangci-lint run ./...
