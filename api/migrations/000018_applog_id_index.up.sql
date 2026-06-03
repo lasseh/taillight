@@ -1,0 +1,16 @@
+-- Add a standalone id index on applog_events, mirroring idx_srvlog_id /
+-- idx_netlog_id on the sibling hypertables.
+--
+-- The SSE Last-Event-ID backfill (ListAppLogsSince: WHERE id > $1 ORDER BY id
+-- ASC) and single-event lookup (GetAppLog: WHERE id = $1) filter/order by id
+-- alone. The existing composite indexes all lead with received_at, so none can
+-- serve an id-only range scan — these queries fall back to a scan.
+--
+-- applog_events is a populated production hypertable, so a plain CREATE INDEX
+-- would hold a write lock for the whole build and stall ingest. The
+-- timescaledb.transaction_per_chunk storage option builds the index one chunk
+-- at a time in separate transactions, so only the chunk currently being
+-- indexed is briefly locked. Like CREATE INDEX CONCURRENTLY, it cannot run
+-- inside a transaction block — golang-migrate sends each migration file to the
+-- database as a single Exec, so this MUST remain the only statement in the file.
+CREATE INDEX IF NOT EXISTS idx_applog_id ON applog_events (id) WITH (timescaledb.transaction_per_chunk);
