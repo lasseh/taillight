@@ -366,9 +366,8 @@ onMounted(fetchData)
           @click.self="closeModal"
         >
           <div ref="modalEl" class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl">
-            <div class="border-t-border flex items-center justify-between border-b px-5 py-3">
+            <div class="border-t-border border-b px-5 py-3">
               <h3 class="text-t-fg text-sm font-semibold">{{ editing ? 'Edit Schedule' : 'Add Schedule' }}</h3>
-              <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="closeModal">close</button>
             </div>
 
             <div class="space-y-4 px-5 py-4">
