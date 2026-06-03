@@ -136,6 +136,13 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 	}
 	defer s.broker.Unsubscribe(sub)
 
+	// Flush the response headers on connect so the client's EventSource fires
+	// onopen immediately, rather than waiting up to one heartbeat interval when
+	// the stream is quiet and the backfill returns nothing. Subscribe already
+	// succeeded, so committing the 200 here doesn't conflict with the
+	// before-bytes error contract above (audit N4).
+	sink.flush()
+
 	lastBackfilledID := s.backfill(ctx, sink, filter, lastEventID)
 
 	heartbeat := time.NewTicker(s.heartbeatPeriod())
