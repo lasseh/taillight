@@ -240,22 +240,30 @@ func runServe(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Drain auth touch worker before closing the pool.
-	authStore.Stop()
-
 	// Shutdown listener to close the LISTEN connection.
 	if err := listener.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("listener shutdown error", "err", err)
 	}
 
-	// Flush remaining logs while the HTTP server is still accepting.
+	// Flush remaining logs while the HTTP server is still accepting. With
+	// self-log-shipping enabled this POSTs to the local ingest route, whose
+	// auth middleware touches the API key — so both the HTTP server and the
+	// auth touch worker must still be running at this point.
 	if shipper != nil {
 		if err := shipper.Shutdown(shutdownCtx); err != nil {
 			logger.Warn("logshipper shutdown error", "err", err)
 		}
 	}
 
-	return srv.Shutdown(shutdownCtx)
+	// Drain the HTTP server (stop accepting, wait for in-flight requests) before
+	// stopping the auth touch worker, so no in-flight authenticated request can
+	// race the touch worker during shutdown (audit M5).
+	srvErr := srv.Shutdown(shutdownCtx)
+
+	// No requests are in flight now — drain the auth touch worker.
+	authStore.Stop()
+
+	return srvErr
 }
 
 // setupLogger creates the application logger with optional log shipping.

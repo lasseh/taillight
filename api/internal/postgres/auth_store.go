@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -23,8 +24,10 @@ type touchOp struct {
 
 // AuthStore provides query methods for auth-related tables.
 type AuthStore struct {
-	pool    *pgxpool.Pool
-	touchCh chan touchOp
+	pool     *pgxpool.Pool
+	touchCh  chan touchOp
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 // NewAuthStore creates a new AuthStore and starts the background touch worker.
@@ -32,24 +35,56 @@ func NewAuthStore(pool *pgxpool.Pool) *AuthStore {
 	s := &AuthStore{
 		pool:    pool,
 		touchCh: make(chan touchOp, touchBufferSize),
+		stopCh:  make(chan struct{}),
 	}
 	go s.touchWorker()
 	return s
 }
 
-// Stop drains the touch channel and stops the background worker.
+// Stop signals the background touch worker to drain and exit. It is idempotent
+// and safe to call concurrently with in-flight touch sends: touchCh is never
+// closed, so a request that touches a session mid-shutdown cannot panic on a
+// closed channel — it observes stopCh and skips instead (audit M5).
 func (s *AuthStore) Stop() {
-	close(s.touchCh)
+	s.stopOnce.Do(func() { close(s.stopCh) })
 }
 
-// touchWorker drains the touch channel and executes last-seen/last-used updates.
+// enqueueTouch best-effort schedules a last-seen/last-used update. It never
+// blocks (drops when the buffer is full) and never panics after Stop.
+func (s *AuthStore) enqueueTouch(op touchOp) {
+	select {
+	case <-s.stopCh:
+	case s.touchCh <- op:
+	default:
+	}
+}
+
+// touchWorker drains the touch channel and executes last-seen/last-used updates
+// until Stop is called, then drains any buffered ops and exits.
 func (s *AuthStore) touchWorker() {
-	for op := range s.touchCh {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if _, err := s.pool.Exec(ctx, op.query, op.arg); err != nil {
-			slog.Warn("touch update failed", "query", op.query, "err", err)
+	for {
+		select {
+		case <-s.stopCh:
+			for {
+				select {
+				case op := <-s.touchCh:
+					s.execTouch(op)
+				default:
+					return
+				}
+			}
+		case op := <-s.touchCh:
+			s.execTouch(op)
 		}
-		cancel()
+	}
+}
+
+// execTouch runs a single touch update with a bounded timeout.
+func (s *AuthStore) execTouch(op touchOp) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := s.pool.Exec(ctx, op.query, op.arg); err != nil {
+		slog.Warn("touch update failed", "query", op.query, "err", err)
 	}
 }
 
@@ -236,13 +271,10 @@ func (s *AuthStore) GetSession(ctx context.Context, tokenHash string) (SessionWi
 	}
 
 	// Touch last_seen asynchronously via bounded worker.
-	select {
-	case s.touchCh <- touchOp{
+	s.enqueueTouch(touchOp{
 		query: `UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`,
 		arg:   tokenHash,
-	}:
-	default:
-	}
+	})
 
 	return sw, nil
 }
@@ -343,13 +375,10 @@ func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey
 	}
 
 	// Touch last_used asynchronously via bounded worker.
-	select {
-	case s.touchCh <- touchOp{
+	s.enqueueTouch(touchOp{
 		query: `UPDATE api_keys SET last_used_at = now() WHERE id = $1`,
 		arg:   kw.Key.ID,
-	}:
-	default:
-	}
+	})
 
 	return kw, nil
 }
