@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -572,7 +573,14 @@ func (e *Engine) recordLog(
 		eventID = payload.AnalysisReport.ID
 	}
 
-	if err := e.store.InsertNotificationLog(ctx, LogEntry{
+	// The audit row must survive shutdown: a send that completes after the
+	// engine context is cancelled (e.g. an SMTP conversation that ignores ctx
+	// post-dial) would otherwise lose its log row to context.Canceled. Detach
+	// from cancellation with a short bounded timeout, mirroring the durability
+	// pattern in worker/analysis.go (audit N7).
+	logCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := e.store.InsertNotificationLog(logCtx, LogEntry{
 		RuleID:     rule.ID,
 		ChannelID:  ch.ID,
 		EventKind:  string(payload.Kind),
@@ -637,6 +645,7 @@ func (e *Engine) getOrCreateBreaker(channelID int64, channelName string) *gobrea
 		return entry.cb
 	}
 
+	idLabel := strconv.FormatInt(channelID, 10)
 	cb := gobreaker.NewCircuitBreaker[SendResult](gobreaker.Settings{
 		Name:        fmt.Sprintf("notif-channel-%d-%s", channelID, channelName),
 		MaxRequests: 2,
@@ -644,6 +653,10 @@ func (e *Engine) getOrCreateBreaker(channelID int64, channelName string) *gobrea
 		Timeout:     60 * time.Second,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			return counts.ConsecutiveFailures >= 5
+		},
+		OnStateChange: func(_ string, _, to gobreaker.State) {
+			metrics.NotifBreakerState.WithLabelValues(idLabel, channelName).Set(breakerStateValue(to))
+			metrics.NotifBreakerTransitionsTotal.WithLabelValues(idLabel, channelName, to.String()).Inc()
 		},
 	})
 	e.breakers[channelID] = &breakerEntry{cb: cb, lastUsed: now}
@@ -672,4 +685,18 @@ func optionalInt(v int) *int {
 		return nil
 	}
 	return &v
+}
+
+// breakerStateValue maps a circuit-breaker state to its gauge value.
+func breakerStateValue(s gobreaker.State) float64 {
+	switch s {
+	case gobreaker.StateHalfOpen:
+		return 1
+	case gobreaker.StateOpen:
+		return 2
+	case gobreaker.StateClosed:
+		return 0
+	default:
+		return 0
+	}
 }

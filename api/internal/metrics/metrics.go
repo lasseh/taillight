@@ -266,4 +266,21 @@ var (
 		Name:      "notification_send_attempts_total",
 		Help:      "Individual notification send attempts labelled by outcome.",
 	}, []string{"outcome"})
+
+	// NotifBreakerState reports each channel's circuit-breaker state
+	// (0=closed, 1=half-open, 2=open). Labels are bounded to operator-configured
+	// channels, so cardinality is controlled.
+	NotifBreakerState = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "taillight",
+		Name:      "notification_breaker_state",
+		Help:      "Per-channel circuit-breaker state (0=closed, 1=half-open, 2=open).",
+	}, []string{"channel_id", "channel_name"})
+
+	// NotifBreakerTransitionsTotal counts circuit-breaker state transitions,
+	// so operators can alert on a channel's breaker opening.
+	NotifBreakerTransitionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "notification_breaker_transitions_total",
+		Help:      "Circuit-breaker state transitions per channel and target state.",
+	}, []string{"channel_id", "channel_name", "to"})
 )
