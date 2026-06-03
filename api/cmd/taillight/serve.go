@@ -69,6 +69,8 @@ func runServe(_ *cobra.Command, _ []string) error {
 	poolCfg.MaxConns = cfg.DBMaxConns
 	poolCfg.MinConns = cfg.DBMinConns
 	poolCfg.ConnConfig.RuntimeParams["statement_timeout"] = "60000"
+	// Instrument every pooled query with per-operation latency/error metrics.
+	poolCfg.ConnConfig.Tracer = postgres.QueryTracer{}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {

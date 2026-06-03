@@ -50,6 +50,24 @@ var (
 		Help:      "Total number of listener reconnection attempts.",
 	})
 
+	// DBQueryDuration tracks pooled query latency by SQL operation (SELECT,
+	// INSERT, ...). The operation label is bounded to a fixed verb set, so it
+	// gives per-query-class attribution without per-statement cardinality.
+	DBQueryDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "taillight",
+		Name:      "db_query_duration_seconds",
+		Help:      "Pooled database query duration in seconds by SQL operation.",
+		Buckets:   []float64{0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10},
+	}, []string{"operation"})
+
+	// DBQueryErrorsTotal counts failed pooled queries by SQL operation,
+	// excluding the expected no-rows sentinel.
+	DBQueryErrorsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "db_query_errors_total",
+		Help:      "Pooled database query errors by SQL operation (excluding no-rows).",
+	}, []string{"operation"})
+
 	// ListenerGapFillEventsTotal counts events recovered by gap fill per channel.
 	ListenerGapFillEventsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "taillight",
