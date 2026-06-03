@@ -152,7 +152,7 @@ func (w *Webhook) Send(ctx context.Context, ch notification.Channel, payload not
 
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return notification.SendResult{Error: fmt.Errorf("send webhook: %w", err), Duration: time.Since(start)}
+		return notification.SendResult{Error: fmt.Errorf("send webhook: %w", redactURLError(err)), Duration: time.Since(start)}
 	}
 	defer resp.Body.Close()               //nolint:errcheck // Response body close error is not actionable.
 	_, _ = io.Copy(io.Discard, resp.Body) // Drain body to allow connection reuse.

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ var blockedIPNets []*net.IPNet
 
 func init() {
 	cidrs := []string{
+		"0.0.0.0/8",      // IPv4 "this host" — 0.0.0.0 routes to localhost on Linux
 		"127.0.0.0/8",    // IPv4 loopback
 		"10.0.0.0/8",     // RFC1918 private
 		"172.16.0.0/12",  // RFC1918 private
@@ -32,8 +34,16 @@ func init() {
 	}
 }
 
-// isBlockedIP returns true if the IP falls within a blocked CIDR range.
+// isBlockedIP returns true if the IP is internal/private and must not be
+// reached by an outbound webhook. It combines stdlib address classification
+// (which also normalises IPv4-mapped IPv6 such as ::ffff:127.0.0.1) with the
+// explicit CIDR list above as defence in depth.
 func isBlockedIP(ip net.IP) bool {
+	if ip.IsUnspecified() || ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsPrivate() {
+		return true
+	}
 	for _, blocked := range blockedIPNets {
 		if blocked.Contains(ip) {
 			return true
@@ -107,6 +117,24 @@ func ssrfSafeTransport() *http.Transport {
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
 		},
 	}
+}
+
+// redactURLError strips the request URL from a *url.Error, keeping only
+// scheme://host. Transport errors from http.Client.Do embed the full target
+// URL, which for Slack/webhook channels can carry a secret token in the path,
+// userinfo, or query. That error string is persisted to notification_log and
+// shipped via slog, so redacting at the source keeps every downstream copy safe
+// while leaving the failure diagnosable (host + underlying network error).
+func redactURLError(err error) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	safe := ue.URL
+	if u, perr := url.Parse(ue.URL); perr == nil && u.Host != "" {
+		safe = u.Scheme + "://" + u.Host
+	}
+	return &url.Error{Op: ue.Op, URL: safe, Err: ue.Err}
 }
 
 // newSSRFSafeClient returns an http.Client that blocks connections to
