@@ -17,8 +17,8 @@ func TestRuleValidate_Bounds(t *testing.T) {
 		wantErr string // substring; "" means expect success
 	}{
 		{
-			name: "applog alias level rejected",
-			rule: Rule{Name: "r", EventKind: EventKindAppLog, Level: "warning"},
+			name:    "applog alias level rejected",
+			rule:    Rule{Name: "r", EventKind: EventKindAppLog, Level: "warning"},
 			wantErr: "level must be one of",
 		},
 		{
