@@ -3,7 +3,6 @@ package notification
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -414,6 +413,20 @@ func (e *Engine) safeSendToChannel(ctx context.Context, rule Rule, ch Channel, p
 // Every attempt is logged to notification_log so operators can see the full
 // retry chain. The final outcome is counted in NotifSendAttemptsTotal.
 func (e *Engine) sendWithRetry(ctx context.Context, rule Rule, ch Channel, payload Payload) {
+	// Gate the rate limiter once per notification — not per retry attempt — so a
+	// transient backend outage keeps its full retry budget and the circuit
+	// breaker can accumulate the consecutive failures it needs to trip. Charging
+	// a token per attempt would abandon alerts on low-burst channels (e.g. email,
+	// burst 2) after only two real failures (audit M3).
+	if !e.rateLimiter.Allow(ch.ID, ch.Type) {
+		metrics.NotifSuppressedTotal.WithLabelValues("rate_limit").Inc()
+		metrics.NotifSendAttemptsTotal.WithLabelValues("suppressed").Inc()
+		e.logger.Debug("notification rate limited", "channel_id", ch.ID, "rule_id", rule.ID)
+		reason := "rate limited"
+		e.recordLog(ctx, rule, ch, payload, "suppressed", &reason, SendResult{}, 1)
+		return
+	}
+
 	maxAttempts := len(retrySchedule) + 1
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -494,12 +507,6 @@ const (
 // attemptSend does one delivery attempt through the rate limiter + circuit
 // breaker + backend. The caller decides whether to retry.
 func (e *Engine) attemptSend(ctx context.Context, rule Rule, ch Channel, payload Payload) (attemptStatus, SendResult) {
-	if !e.rateLimiter.Allow(ch.ID, ch.Type) {
-		metrics.NotifSuppressedTotal.WithLabelValues("rate_limit").Inc()
-		e.logger.Debug("notification rate limited", "channel_id", ch.ID, "rule_id", rule.ID)
-		return attemptSuppressed, SendResult{Error: errors.New("rate limited")}
-	}
-
 	backend, ok := e.backends[ch.Type]
 	if !ok {
 		e.logger.Error("no backend for channel type", "type", ch.Type)
