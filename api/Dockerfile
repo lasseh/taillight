@@ -15,6 +15,10 @@ USER nonroot
 COPY --from=build /app /app
 COPY --from=build /src/api/migrations /migrations
 COPY --from=build /src/api/reference /reference
-# Run pending migrations (with retry for slow postgres startup) then start the server.
+# Run pending migrations (with retry for slow postgres startup) then start the
+# server. serve is exec'd only on a successful migrate; if all attempts fail the
+# container exits non-zero (fail-fast) rather than booting on a half-migrated
+# schema. A for-loop's exit status is its last command's (sleep, always 0), so
+# the success path must be inside the loop, not gated on the loop's status.
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["for i in 1 2 3 4 5; do /app migrate up --path /migrations && break; echo \"Migration attempt $i failed, retrying in 3s...\"; sleep 3; done && exec /app serve"]
+CMD ["for i in 1 2 3 4 5; do /app migrate up --path /migrations && exec /app serve; echo \"Migration attempt $i failed, retrying in 3s...\"; sleep 3; done; echo 'migrations failed after 5 attempts, aborting'; exit 1"]
