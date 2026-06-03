@@ -195,8 +195,13 @@ func runServe(_ *cobra.Command, _ []string) error {
 		Addr:              cfg.ListenAddr,
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// ReadTimeout bounds slow-drip request bodies (e.g. the unauthenticated
+		// login endpoint and applog ingest), which ReadHeaderTimeout and chi's
+		// context-only Timeout middleware do not. SSE routes are bodyless GETs,
+		// so a whole-request read timeout does not affect streaming (audit S2).
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	go func() {
@@ -518,8 +523,13 @@ func setupRouter(
 	} else {
 		r.Use(handler.SkipPath(middleware.Logger, "/health"))
 	}
-	r.Use(middleware.Recoverer)
+	// HTTPMetrics must be OUTER to Recoverer: a handler panic is caught by
+	// Recoverer (which writes 500 into the wrapped writer), and HTTPMetrics —
+	// recording after next.ServeHTTP — then observes status 500. Registered the
+	// other way round, the panic unwinds past HTTPMetrics before it can record,
+	// so panic-500s never reach Prometheus (audit S3).
 	r.Use(metrics.HTTPMetrics)
+	r.Use(middleware.Recoverer)
 
 	// CORS — configurable allowed origins.
 	corsOrigins := cfg.CORSAllowedOrigins
