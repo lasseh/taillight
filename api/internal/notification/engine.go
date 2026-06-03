@@ -383,14 +383,22 @@ func (e *Engine) onFlush(ruleID int64, groupKey string, payload Payload) {
 	}
 }
 
-// dispatchWorker processes jobs from the dispatch channel.
+// dispatchWorker processes jobs from the dispatch channel. Each channel's
+// delivery (including its multi-minute retry backoff) runs on its own tracked
+// goroutine rather than inline, so a slow or failing channel cannot occupy the
+// worker, delay sibling channels in the same job, or — by holding the worker —
+// cause onFlush to drop new alerts at the queue-full arm. The number of these
+// goroutines is bounded by the per-notification rate limiter; on shutdown
+// e.cancel() aborts their backoff and Shutdown's wg.Wait() drains them.
 func (e *Engine) dispatchWorker(ctx context.Context) {
 	for job := range e.dispatchCh {
 		for _, ch := range job.channels {
 			if !ch.Enabled {
 				continue
 			}
-			e.safeSendToChannel(ctx, job.rule, ch, job.payload)
+			e.wg.Go(func() {
+				e.safeSendToChannel(ctx, job.rule, ch, job.payload)
+			})
 		}
 	}
 }
