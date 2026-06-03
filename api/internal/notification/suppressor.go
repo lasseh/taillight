@@ -213,6 +213,11 @@ func (s *Suppressor) flushSilence(ruleID int64, groupKey, key string) {
 	digest.EventCount = fp.count
 	digest.GroupKey = groupKey
 	digest.IsDigest = true
+	// currentSilence is exactly the interval over which these events accumulated;
+	// the digest formatters render it as "N more events in the last <Window>".
+	// Set it here (before the bump below) so production digests stop reporting
+	// "in the last 0 seconds".
+	digest.Window = fp.currentSilence
 
 	// Linear bump of the silence window, capped at maxSilence.
 	next := fp.currentSilence + fp.baseSilence

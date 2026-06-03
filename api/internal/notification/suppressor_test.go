@@ -97,6 +97,11 @@ func TestSuppressor_SilenceSuppresses(t *testing.T) {
 	if digest.payload.EventCount != 5 {
 		t.Errorf("digest count = %d, want 5", digest.payload.EventCount)
 	}
+	// The digest must carry the window over which events accumulated, so
+	// formatters don't render "in the last 0 seconds" (audit M4).
+	if digest.payload.Window != silence {
+		t.Errorf("digest window = %v, want %v", digest.payload.Window, silence)
+	}
 }
 
 // TestSuppressor_QuietWindowResets verifies a fingerprint with no activity
