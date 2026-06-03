@@ -133,9 +133,16 @@ func (c *Client) dial() (*ldaplib.Conn, error) {
 	return ldaplib.DialURL(c.cfg.URL, ldaplib.DialWithTLSConfig(tlsCfg))
 }
 
+// buildUserFilter renders the configured user filter for a username, escaping
+// the username to prevent LDAP filter injection. Extracted so the escaping is
+// regression-tested independently of a live directory (audit N5).
+func buildUserFilter(filterTemplate, username string) string {
+	return fmt.Sprintf(filterTemplate, ldaplib.EscapeFilter(username))
+}
+
 // searchUser looks up a single user entry by username.
 func (c *Client) searchUser(conn *ldaplib.Conn, username string) (*ldaplib.Entry, error) {
-	filter := fmt.Sprintf(c.cfg.UserFilter, ldaplib.EscapeFilter(username))
+	filter := buildUserFilter(c.cfg.UserFilter, username)
 
 	result, err := conn.Search(ldaplib.NewSearchRequest(
 		c.cfg.UserSearchBase,
