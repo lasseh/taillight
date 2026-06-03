@@ -30,6 +30,10 @@ const (
 
 	// reconnectMaxBackoff is the maximum delay between reconnection attempts.
 	reconnectMaxBackoff = 30 * time.Second
+
+	// gapFillLimit caps how many rows a single gap-fill pass recovers per
+	// channel. Hitting it means recovery was incomplete (see fillGapForChannel).
+	gapFillLimit = 10000
 )
 
 // channelTable maps a NOTIFY channel name to its source table for gap fill queries.
@@ -276,7 +280,7 @@ func (l *Listener) fillGapForChannel(ctx context.Context, ch chan<- Notification
 	}()
 
 	//nolint:gosec // table name comes from a hardcoded map, not user input
-	query := fmt.Sprintf("SELECT id FROM %s WHERE id > $1 ORDER BY id ASC LIMIT 10000", table)
+	query := fmt.Sprintf("SELECT id FROM %s WHERE id > $1 ORDER BY id ASC LIMIT %d", table, gapFillLimit)
 	rows, err := l.pool.Query(ctx, query, lastID)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -315,5 +319,13 @@ func (l *Listener) fillGapForChannel(ctx context.Context, ch chan<- Notification
 	if count > 0 {
 		metrics.ListenerGapFillEventsTotal.WithLabelValues(notifyCh).Add(float64(count))
 		l.logger.Info("gap fill complete", "channel", notifyCh, "events", count, "from_id", lastID)
+	}
+	// A full page means the outage exceeded the cap: only the oldest gapFillLimit
+	// rows were recovered and lastSeenID has advanced past the rest, so the gap
+	// is silently incomplete. Surface it distinctly (audit N10).
+	if count == gapFillLimit {
+		metrics.ListenerGapFillTruncatedTotal.WithLabelValues(notifyCh).Inc()
+		l.logger.Warn("gap fill truncated at cap, events may be missing",
+			"channel", notifyCh, "cap", gapFillLimit, "from_id", lastID)
 	}
 }

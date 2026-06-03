@@ -72,6 +72,14 @@ var (
 		Help:      "Total number of notification payloads that failed to parse.",
 	}, []string{"channel"})
 
+	// ListenerGapFillTruncatedTotal counts gap-fill passes that hit the row cap,
+	// meaning recovery was incomplete and events were likely lost.
+	ListenerGapFillTruncatedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "listener_gap_fill_truncated_total",
+		Help:      "Gap-fill passes that hit the row cap (recovery incomplete, events likely missing).",
+	}, []string{"channel"})
+
 	// Netlog metrics.
 
 	// NetlogSSEClientsActive tracks the current number of connected netlog SSE clients.
