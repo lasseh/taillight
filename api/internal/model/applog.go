@@ -125,10 +125,14 @@ func (f AppLogFilter) Matches(e AppLogEvent) bool {
 		if f.levelMinRank != nil {
 			minRank = *f.levelMinRank
 		}
-		if minRank >= 0 {
-			if eventRank := AppLogLevelRank(e.Level); eventRank < minRank {
-				return false
-			}
+		// Fail closed: a level filter was requested but the level is
+		// unrecognised (e.g. an un-normalised alias from a notification rule).
+		// Skipping the predicate would silently match everything (audit N6).
+		if minRank < 0 {
+			return false
+		}
+		if eventRank := AppLogLevelRank(e.Level); eventRank < minRank {
+			return false
 		}
 	}
 	if f.Search != "" {

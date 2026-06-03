@@ -123,15 +123,42 @@ func (r Rule) Validate() error {
 		if r.Service != "" || r.Component != "" || r.Host != "" || r.Level != "" {
 			return fmt.Errorf("event_kind %q does not support applog filter fields (service/component/host/level)", r.EventKind)
 		}
+		// Mirror the DB CHECK bounds so an out-of-range value is a clear 400
+		// here, not an opaque 500 from the constraint at insert time (audit N6).
+		if err := validSeverityBound("severity", r.Severity); err != nil {
+			return err
+		}
+		if err := validSeverityBound("severity_max", r.SeverityMax); err != nil {
+			return err
+		}
+		if r.Facility != nil && (*r.Facility < 0 || *r.Facility > 23) {
+			return fmt.Errorf("facility must be between 0 and 23, got %d", *r.Facility)
+		}
 	case EventKindAppLog:
 		if r.Hostname != "" || r.Programname != "" || r.Severity != nil || r.SeverityMax != nil ||
 			r.Facility != nil || r.SyslogTag != "" || r.MsgID != "" {
 			return fmt.Errorf("event_kind %q does not support syslog filter fields (hostname/programname/severity/severity_max/facility/syslogtag/msgid)", r.EventKind)
 		}
+		// Reject non-canonical levels (including aliases like "warning") that the
+		// DB CHECK would reject and that Matches cannot rank — see N6.
+		if r.Level != "" {
+			if _, ok := model.ValidAppLogLevels[r.Level]; !ok {
+				return fmt.Errorf("level must be one of DEBUG, INFO, WARN, ERROR, FATAL, got %q", r.Level)
+			}
+		}
 	case "":
 		return errors.New("event_kind is required (srvlog, netlog, or applog)")
 	default:
 		return fmt.Errorf("event_kind must be srvlog, netlog, or applog, got %q", r.EventKind)
+	}
+	return nil
+}
+
+// validSeverityBound checks a syslog severity pointer against the 0–7 range the
+// DB CHECK enforces; nil (unset) passes.
+func validSeverityBound(label string, v *int) error {
+	if v != nil && (*v < 0 || *v > 7) {
+		return fmt.Errorf("%s must be between 0 and 7, got %d", label, *v)
 	}
 	return nil
 }
