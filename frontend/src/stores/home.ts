@@ -75,26 +75,41 @@ export const useHomeStore = defineStore('home', () => {
   const netlogSeenIds = new Set<number>()
   const applogSeenIds = new Set<number>()
 
+  // Cap each dedup Set so a long-lived dashboard tab doesn't accumulate one id
+  // per high-severity event forever. The displayed window is tiny
+  // (MAX_RECENT_EVENTS); a few hundred remembered ids is far more than enough to
+  // dedup SSE re-delivery (incl. the ~100-event reconnect backfill) while staying
+  // bounded. Batch-evicts the oldest insertions, mirroring event-store-factory.
+  const SEEN_IDS_HIGH = 600
+  const SEEN_IDS_TRIM = 200
+  function rememberSeen(seen: Set<number>, id: number) {
+    seen.add(id)
+    if (seen.size > SEEN_IDS_HIGH) {
+      const iter = seen.values()
+      for (let i = 0; i < SEEN_IDS_TRIM; i++) seen.delete(iter.next().value!)
+    }
+  }
+
   // ── SSE handlers: prepend matching live events ──
 
   function onSrvlogEvent(event: SrvlogEvent) {
     if (event.severity > HIGH_SEVERITY_MAX) return
     if (srvlogSeenIds.has(event.id)) return
-    srvlogSeenIds.add(event.id)
+    rememberSeen(srvlogSeenIds, event.id)
     recentSrvlogEvents.value = [event, ...recentSrvlogEvents.value].slice(0, MAX_RECENT_EVENTS)
   }
 
   function onNetlogEvent(event: NetlogEvent) {
     if (event.severity > HIGH_SEVERITY_MAX) return
     if (netlogSeenIds.has(event.id)) return
-    netlogSeenIds.add(event.id)
+    rememberSeen(netlogSeenIds, event.id)
     recentNetlogEvents.value = [event, ...recentNetlogEvents.value].slice(0, MAX_RECENT_EVENTS)
   }
 
   function onApplogEvent(event: AppLogEvent) {
     if (!HIGH_APPLOG_LEVELS.has(event.level)) return
     if (applogSeenIds.has(event.id)) return
-    applogSeenIds.add(event.id)
+    rememberSeen(applogSeenIds, event.id)
     recentApplogEvents.value = [event, ...recentApplogEvents.value].slice(0, MAX_RECENT_EVENTS)
   }
 
