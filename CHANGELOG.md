@@ -228,6 +228,7 @@ work waiting for a release.
 
 ### Security
 
+- Require Go 1.26.4, resolving the `net/textproto` standard-library advisory GO-2026-5039 (`govulncheck` now reports no vulnerabilities in called code)
 - Block the IPv4 "this host" range (`0.0.0.0/8`) and unspecified addresses (`0.0.0.0`, `::`) in the SSRF webhook guard, with a stdlib classification catch-all that also normalises IPv4-mapped IPv6 (e.g. `::ffff:127.0.0.1`)
 - Redact secret webhook/Slack/ntfy URLs from transport errors before they are persisted to the notification audit log or shipped via application logs
 - Block IPv6 ULA in SSRF check

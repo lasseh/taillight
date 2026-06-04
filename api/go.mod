@@ -1,6 +1,6 @@
 module github.com/lasseh/taillight
 
-go 1.26.0
+go 1.26.4
 
 require github.com/lasseh/taillight/pkg/logshipper v0.0.0-00010101000000-000000000000
 
