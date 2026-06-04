@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, ApiError } from '@/lib/api'
 import { features as getFeatures } from '@/lib/features'
 import { useAuthStore } from '@/stores/auth'
@@ -49,6 +49,9 @@ watch(showModal, (open) => {
     window.removeEventListener('keydown', handleEscape)
   }
 })
+// Ensure the window listener is torn down if the component unmounts while the
+// modal is still open (AnalysisView is not KeepAlive-cached, so this fires).
+onUnmounted(() => window.removeEventListener('keydown', handleEscape))
 
 const confirmDelete = ref<number | null>(null)
 const deleteError = ref('')
