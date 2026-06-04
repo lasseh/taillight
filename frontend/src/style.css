@@ -679,3 +679,17 @@ select {
   --vis-crosshair-line-stroke-color: var(--color-t-fg-dark);
   --vis-crosshair-circle-stroke-color: var(--color-t-blue);
 }
+
+/* Respect the user's reduced-motion preference: near-instant animations and
+   transitions, no infinite pulsing/looping, instant scroll. Additive — only
+   applies when the OS-level "reduce motion" setting is enabled. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
