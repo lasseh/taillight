@@ -195,6 +195,7 @@ work waiting for a release.
 - **Keyset pagination dropped one event per page boundary** in the srvlog/netlog/applog list endpoints — the next cursor was set to the look-ahead "peek" row, which the strict `<` next-page query then excluded; now uses the last returned row (caught by a new DB integration test)
 - Digest notifications rendered "in the last 0 seconds" — the digest window is now set on flush
 - Notification rate limiter consumed a token on every retry attempt, abandoning alerts on low-burst channels (e.g. email) after two failures and preventing the circuit breaker from tripping; now gated once per notification with retries bypassing it
+- A failing notification channel's multi-minute retry backoff no longer blocks the dispatch worker or delays sibling channels in the same job (delivery runs off the worker)
 - Send-on-closed-channel panic in the auth touch worker during graceful shutdown (shutdown reordered + touch path made structurally panic-safe)
 - Notification rule level/severity/facility are validated up front (clear 400) instead of surfacing an opaque 500 from the DB constraint; the applog level filter now fails closed on an unrecognised level
 - Docker entrypoint now fails fast when all migration attempts fail, instead of booting against a half-migrated schema
