@@ -39,7 +39,7 @@ const sevBgClass = computed(() => severityBgClass[event.value.severity] ?? '')
 const sevBarClass = computed(() => severityBgClassByLabel[event.value.severity_label] ?? 'bg-sev-info')
 
 const highlightedMessage = computed(() =>
-  highlightMessage(event.value.id, event.value.message),
+  highlightMessage(`srvlog:${event.value.id}`, event.value.message),
 )
 
 const copyText = computed(() => {

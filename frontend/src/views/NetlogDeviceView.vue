@@ -308,7 +308,7 @@ function currentEvents(): NetlogEvent[] {
                 <div class="w-[3px] shrink-0 rounded-r" :class="severityBgClassByLabel[msg.severity_label] ?? 'bg-sev-info'" />
                 <div class="min-w-0 flex-1">
                   <div class="text-t-purple text-[10px] leading-tight">{{ formatNumber(msg.count) }}x &middot; {{ msg.severity_label }}</div>
-                  <div class="min-w-0 truncate text-xs leading-snug" v-html="highlightMessage(msg.latest_id, msg.sample)" />
+                  <div class="min-w-0 truncate text-xs leading-snug" v-html="highlightMessage(`netlog:${msg.latest_id}`, msg.sample)" />
                 </div>
               </RouterLink>
               <!-- Desktop: full row -->
@@ -322,7 +322,7 @@ function currentEvents(): NetlogEvent[] {
                 <span class="text-t-fg-dark w-[10ch] shrink-0 text-right text-xs whitespace-nowrap">{{ formatRelativeTime(msg.latest_at) }}</span>
                 <span class="text-t-purple w-[6ch] shrink-0 text-right text-xs">{{ formatNumber(msg.count) }}</span>
                 <span class="w-[6ch] shrink-0 text-xs uppercase" :class="severityColorClassByLabel[msg.severity_label] ?? 'text-t-fg'">{{ msg.severity_label }}</span>
-                <span class="min-w-0 flex-1 truncate" :title="msg.sample" v-html="highlightMessage(msg.latest_id, msg.sample)" />
+                <span class="min-w-0 flex-1 truncate" :title="msg.sample" v-html="highlightMessage(`netlog:${msg.latest_id}`, msg.sample)" />
               </RouterLink>
             </div>
           </div>
