@@ -15,7 +15,16 @@ export default defineConfig(({ mode }) => {
       },
     },
     test: {
+      // Global env stays 'node' (fast for pure-logic tests). DOM-dependent tests
+      // (e.g. highlighter/DOMPurify) opt in per-file with `// @vitest-environment jsdom`.
       environment: 'node',
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'html'],
+        include: ['src/**'],
+        exclude: ['src/**/*.d.ts', 'src/**/__tests__/**', 'src/types/**'],
+        // No thresholds on purpose — coverage is reported, not gated.
+      },
     },
     server: {
       proxy: {

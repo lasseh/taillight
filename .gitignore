@@ -18,6 +18,7 @@ api/config.yml
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
 frontend/*.tsbuildinfo
 
 # Playwright MCP screenshots
