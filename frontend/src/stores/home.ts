@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { api, ApiError } from '@/lib/api'
 import { features as getFeatures } from '@/lib/features'
@@ -54,6 +54,26 @@ export const useHomeStore = defineStore('home', () => {
   const recentSrvlogEvents = ref<SrvlogEvent[]>([])
   const recentNetlogEvents = ref<NetlogEvent[]>([])
   const recentApplogEvents = ref<AppLogEvent[]>([])
+
+  // Cross-feed shaping: merge the srvlog + netlog recent feeds into one
+  // newest-first list tagged with a feed badge + detail route, capped at
+  // MAX_RECENT_EVENTS. Lives in the store (not the view) so the shaping is
+  // testable and reusable.
+  const combinedRecentEvents = computed(() => {
+    const s = recentSrvlogEvents.value.map((e) => ({
+      ...e,
+      _feed: 'srvlog' as const,
+      _routeName: 'srvlog-detail',
+    }))
+    const n = recentNetlogEvents.value.map((e) => ({
+      ...e,
+      _feed: 'netlog' as const,
+      _routeName: 'netlog-detail',
+    }))
+    return [...s, ...n]
+      .sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime())
+      .slice(0, MAX_RECENT_EVENTS)
+  })
   const srvlogHeatmap = ref<Record<string, number>>({})
   const netlogHeatmap = ref<Record<string, number>>({})
   const applogHeatmap = ref<Record<string, number>>({})
@@ -402,6 +422,7 @@ export const useHomeStore = defineStore('home', () => {
     recentSrvlogEvents,
     recentNetlogEvents,
     recentApplogEvents,
+    combinedRecentEvents,
     srvlogHeatmap,
     netlogHeatmap,
     applogHeatmap,

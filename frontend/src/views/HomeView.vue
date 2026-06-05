@@ -147,14 +147,8 @@ const syslogTopHosts = computed(() => {
     .sort((a, b) => b.count - a.count)
 })
 
-// Syslog: combined recent events with feed badge
-const combinedRecentEvents = computed(() => {
-  const s = home.recentSrvlogEvents.map(e => ({ ...e, _feed: 'srvlog' as const, _routeName: 'srvlog-detail' }))
-  const n = home.recentNetlogEvents.map(e => ({ ...e, _feed: 'netlog' as const, _routeName: 'netlog-detail' }))
-  return [...s, ...n]
-    .sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime())
-    .slice(0, 10)
-})
+// Syslog: combined recent events with feed badge — shaping moved to the home
+// store (home.combinedRecentEvents); see stores/home.ts.
 
 // Syslog: combined heatmap
 const syslogHeatmap = computed(() => {
@@ -356,7 +350,7 @@ function getSeverityBgClass(level: string): string {
           <!-- Recent High-Severity Events -->
           <div v-if="isVisible('syslog-recent')" class="relative">
             <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-recent')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
-            <RecentCriticalLogs :events="combinedRecentEvents" show-hostname show-feed :flash-ids="newSyslogIds" />
+            <RecentCriticalLogs :events="home.combinedRecentEvents" show-hostname show-feed :flash-ids="newSyslogIds" />
           </div>
         </template>
       </section>
