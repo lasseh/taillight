@@ -71,7 +71,6 @@ func (s *Store) ListNetlogs(ctx context.Context, f model.NetlogFilter, cursor *m
 	if err != nil {
 		return nil, nil, fmt.Errorf("list netlog events: %w", err)
 	}
-	defer rows.Close()
 
 	events, err := collectNetlogs(rows)
 	if err != nil {
@@ -112,7 +111,6 @@ func (s *Store) ListNetlogsSince(ctx context.Context, f model.NetlogFilter, sinc
 	if err != nil {
 		return nil, fmt.Errorf("list netlog events since %d: %w", sinceID, err)
 	}
-	defer rows.Close()
 
 	return collectNetlogs(rows)
 }
@@ -138,17 +136,12 @@ func (s *Store) ListNetlogFacilities(ctx context.Context) ([]int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list netlog facilities: %w", err)
 	}
-	defer rows.Close()
 
-	facilities := make([]int, 0, 24)
-	for rows.Next() {
-		var f int
-		if err := rows.Scan(&f); err != nil {
-			return nil, fmt.Errorf("scan netlog facility: %w", err)
-		}
-		facilities = append(facilities, f)
+	facilities, err := pgx.CollectRows(rows, pgx.RowTo[int])
+	if err != nil {
+		return nil, fmt.Errorf("scan netlog facility: %w", err)
 	}
-	return facilities, rows.Err()
+	return facilities, nil
 }
 
 func (s *Store) listNetlogDistinctStrings(ctx context.Context, column string) ([]string, error) {
@@ -284,22 +277,17 @@ func (s *Store) GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (m
 	if err != nil {
 		return model.SrvlogSummary{}, fmt.Errorf("netlog top hosts query: %w", err)
 	}
-	defer hostRows.Close()
 
-	for hostRows.Next() {
+	hosts, err := pgx.CollectRows(hostRows, func(row pgx.CollectableRow) (model.TopSource, error) {
 		var name string
 		var cnt int64
-		if err := hostRows.Scan(&name, &cnt); err != nil {
-			return model.SrvlogSummary{}, fmt.Errorf("scan netlog host: %w", err)
-		}
-		summary.TopHosts = append(summary.TopHosts, model.TopSource{
-			Name:  name,
-			Count: cnt,
-		})
+		err := row.Scan(&name, &cnt)
+		return model.TopSource{Name: name, Count: cnt}, err
+	})
+	if err != nil {
+		return model.SrvlogSummary{}, fmt.Errorf("scan netlog host: %w", err)
 	}
-	if err := hostRows.Err(); err != nil {
-		return model.SrvlogSummary{}, fmt.Errorf("netlog host rows: %w", err)
-	}
+	summary.TopHosts = append(summary.TopHosts, hosts...)
 
 	// Calculate percentages for top hosts.
 	for i := range summary.TopHosts {
@@ -462,18 +450,18 @@ func (s *Store) GetNetlogDeviceSummary(ctx context.Context, hostname string) (mo
 		return summary, fmt.Errorf("netlog device top messages: %w", err)
 	}
 
-	for msgRows.Next() {
+	msgs, err := pgx.CollectRows(msgRows, func(row pgx.CollectableRow) (model.TopMessage, error) {
 		var tm model.TopMessage
-		if err := msgRows.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID, &tm.LatestAt, &tm.Severity); err != nil {
-			return summary, fmt.Errorf("scan netlog top message: %w", err)
+		if err := row.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID, &tm.LatestAt, &tm.Severity); err != nil {
+			return tm, err
 		}
 		tm.SeverityLabel = model.SeverityLabel(tm.Severity)
-		summary.TopMessages = append(summary.TopMessages, tm)
+		return tm, nil
+	})
+	if err != nil {
+		return summary, fmt.Errorf("scan netlog top message: %w", err)
 	}
-	msgRows.Close()
-	if err := msgRows.Err(); err != nil {
-		return summary, fmt.Errorf("netlog device msg rows: %w", err)
-	}
+	summary.TopMessages = append(summary.TopMessages, msgs...)
 
 	// R4: critical logs.
 	critRows, err := results.Query()
@@ -502,32 +490,27 @@ func (s *Store) GetNetlogDeviceSummary(ctx context.Context, hostname string) (mo
 		return summary, fmt.Errorf("netlog device activity: %w", err)
 	}
 
-	for actRows.Next() {
+	activity, err := pgx.CollectRows(actRows, func(row pgx.CollectableRow) (model.ActivityBucket, error) {
 		var ab model.ActivityBucket
-		if err := actRows.Scan(&ab.Time, &ab.Count); err != nil {
-			return summary, fmt.Errorf("scan netlog activity bucket: %w", err)
-		}
-		summary.Activity = append(summary.Activity, ab)
+		err := row.Scan(&ab.Time, &ab.Count)
+		return ab, err
+	})
+	if err != nil {
+		return summary, fmt.Errorf("scan netlog activity bucket: %w", err)
 	}
-	actRows.Close()
-	if err := actRows.Err(); err != nil {
-		return summary, fmt.Errorf("netlog device activity rows: %w", err)
-	}
+	summary.Activity = append(summary.Activity, activity...)
 
 	return summary, nil
 }
 
 func collectNetlogs(rows pgx.Rows) ([]model.NetlogEvent, error) {
-	events := make([]model.NetlogEvent, 0, 64)
-	for rows.Next() {
+	events, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.NetlogEvent, error) {
 		var e model.NetlogEvent
-		if err := scanNetlog(rows, &e); err != nil {
-			return nil, fmt.Errorf("scan netlog event: %w", err)
-		}
-		events = append(events, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("netlog rows iteration: %w", err)
+		err := scanNetlog(row, &e)
+		return e, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan netlog event: %w", err)
 	}
 	return events, nil
 }

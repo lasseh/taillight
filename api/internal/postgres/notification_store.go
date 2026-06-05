@@ -29,17 +29,16 @@ func (s *Store) ListNotificationChannels(ctx context.Context) ([]notification.Ch
 	if err != nil {
 		return nil, fmt.Errorf("list notification channels: %w", err)
 	}
-	defer rows.Close()
 
-	var channels []notification.Channel
-	for rows.Next() {
+	channels, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (notification.Channel, error) {
 		var ch notification.Channel
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.Config, &ch.Enabled, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan notification channel: %w", err)
-		}
-		channels = append(channels, ch)
+		err := row.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.Config, &ch.Enabled, &ch.CreatedAt, &ch.UpdatedAt)
+		return ch, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan notification channel: %w", err)
 	}
-	return channels, rows.Err()
+	return channels, nil
 }
 
 // GetNotificationChannel returns a single notification channel by ID.
@@ -155,14 +154,12 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 	if err != nil {
 		return nil, fmt.Errorf("list notification rules: %w", err)
 	}
-	defer rows.Close()
 
-	var rules []notification.Rule
-	for rows.Next() {
+	rules, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (notification.Rule, error) {
 		var r notification.Rule
 		var hostname, programname, syslogtag, msgid *string
 		var service, component, host, level, search *string
-		if err := rows.Scan(
+		if err := row.Scan(
 			&r.ID, &r.Name, &r.Enabled, &r.EventKind,
 			&hostname, &programname, &r.Severity, &r.SeverityMax,
 			&r.Facility, &syslogtag, &msgid,
@@ -171,7 +168,7 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 			&r.CreatedAt, &r.UpdatedAt,
 			&r.ChannelIDs,
 		); err != nil {
-			return nil, fmt.Errorf("scan notification rule: %w", err)
+			return r, err
 		}
 		r.Hostname = deref(hostname)
 		r.Programname = deref(programname)
@@ -182,10 +179,10 @@ func (s *Store) ListNotificationRules(ctx context.Context) ([]notification.Rule,
 		r.Host = deref(host)
 		r.Level = deref(level)
 		r.Search = deref(search)
-		rules = append(rules, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+		return r, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan notification rule: %w", err)
 	}
 
 	return rules, nil
@@ -433,21 +430,20 @@ func (s *Store) ListNotificationLog(ctx context.Context, f notification.LogFilte
 	if err != nil {
 		return nil, fmt.Errorf("list notification log: %w", err)
 	}
-	defer rows.Close()
 
-	var entries []notification.LogEntry
-	for rows.Next() {
+	entries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (notification.LogEntry, error) {
 		var e notification.LogEntry
-		if err := rows.Scan(
+		err := row.Scan(
 			&e.ID, &e.CreatedAt, &e.RuleID, &e.ChannelID,
 			&e.EventKind, &e.EventID, &e.Status, &e.Reason,
 			&e.EventCount, &e.StatusCode, &e.DurationMS, &e.Payload,
-		); err != nil {
-			return nil, fmt.Errorf("scan notification log: %w", err)
-		}
-		entries = append(entries, e)
+		)
+		return e, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan notification log: %w", err)
 	}
-	return entries, rows.Err()
+	return entries, nil
 }
 
 // --- Helpers ---

@@ -133,7 +133,6 @@ func (s *Store) ListSrvlogs(ctx context.Context, f model.SrvlogFilter, cursor *m
 	if err != nil {
 		return nil, nil, fmt.Errorf("list events: %w", err)
 	}
-	defer rows.Close()
 
 	events, err := collectSrvlogs(rows)
 	if err != nil {
@@ -174,7 +173,6 @@ func (s *Store) ListSrvlogsSince(ctx context.Context, f model.SrvlogFilter, sinc
 	if err != nil {
 		return nil, fmt.Errorf("list events since %d: %w", sinceID, err)
 	}
-	defer rows.Close()
 
 	return collectSrvlogs(rows)
 }
@@ -200,17 +198,12 @@ func (s *Store) ListSrvlogFacilities(ctx context.Context) ([]int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list facilities: %w", err)
 	}
-	defer rows.Close()
 
-	facilities := make([]int, 0, 24)
-	for rows.Next() {
-		var f int
-		if err := rows.Scan(&f); err != nil {
-			return nil, fmt.Errorf("scan facility: %w", err)
-		}
-		facilities = append(facilities, f)
+	facilities, err := pgx.CollectRows(rows, pgx.RowTo[int])
+	if err != nil {
+		return nil, fmt.Errorf("scan facility: %w", err)
 	}
-	return facilities, rows.Err()
+	return facilities, nil
 }
 
 func (s *Store) listDistinctStrings(ctx context.Context, column string) ([]string, error) {
@@ -231,17 +224,12 @@ func (s *Store) listMetaStrings(ctx context.Context, cacheTable, column string, 
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", column, err)
 	}
-	defer rows.Close()
 
-	values := make([]string, 0, 64)
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			return nil, fmt.Errorf("scan %s: %w", column, err)
-		}
-		values = append(values, v)
+	values, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: %w", column, err)
 	}
-	return values, rows.Err()
+	return values, nil
 }
 
 // escapeLike escapes LIKE/ILIKE metacharacters so they are treated as literals.
@@ -253,16 +241,13 @@ func escapeLike(s string) string {
 }
 
 func collectSrvlogs(rows pgx.Rows) ([]model.SrvlogEvent, error) {
-	events := make([]model.SrvlogEvent, 0, 64)
-	for rows.Next() {
+	events, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.SrvlogEvent, error) {
 		var e model.SrvlogEvent
-		if err := scanSrvlog(rows, &e); err != nil {
-			return nil, fmt.Errorf("scan event: %w", err)
-		}
-		events = append(events, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows iteration: %w", err)
+		err := scanSrvlog(row, &e)
+		return e, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan event: %w", err)
 	}
 	return events, nil
 }
@@ -539,22 +524,16 @@ func (s *Store) GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (m
 	if err != nil {
 		return model.SrvlogSummary{}, fmt.Errorf("top hosts query: %w", err)
 	}
-	defer hostRows.Close()
 
-	for hostRows.Next() {
-		var name string
-		var cnt int64
-		if err := hostRows.Scan(&name, &cnt); err != nil {
-			return model.SrvlogSummary{}, fmt.Errorf("scan host: %w", err)
-		}
-		summary.TopHosts = append(summary.TopHosts, model.TopSource{
-			Name:  name,
-			Count: cnt,
-		})
+	hosts, err := pgx.CollectRows(hostRows, func(row pgx.CollectableRow) (model.TopSource, error) {
+		var ts model.TopSource
+		err := row.Scan(&ts.Name, &ts.Count)
+		return ts, err
+	})
+	if err != nil {
+		return model.SrvlogSummary{}, fmt.Errorf("scan host: %w", err)
 	}
-	if err := hostRows.Err(); err != nil {
-		return model.SrvlogSummary{}, fmt.Errorf("host rows: %w", err)
-	}
+	summary.TopHosts = append(summary.TopHosts, hosts...)
 
 	// Calculate percentages for top hosts.
 	for i := range summary.TopHosts {
@@ -644,22 +623,16 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 	if err != nil {
 		return model.AppLogSummary{}, fmt.Errorf("top services query: %w", err)
 	}
-	defer svcRows.Close()
 
-	for svcRows.Next() {
-		var name string
-		var cnt int64
-		if err := svcRows.Scan(&name, &cnt); err != nil {
-			return model.AppLogSummary{}, fmt.Errorf("scan service: %w", err)
-		}
-		summary.TopServices = append(summary.TopServices, model.TopSource{
-			Name:  name,
-			Count: cnt,
-		})
+	services, err := pgx.CollectRows(svcRows, func(row pgx.CollectableRow) (model.TopSource, error) {
+		var ts model.TopSource
+		err := row.Scan(&ts.Name, &ts.Count)
+		return ts, err
+	})
+	if err != nil {
+		return model.AppLogSummary{}, fmt.Errorf("scan service: %w", err)
 	}
-	if err := svcRows.Err(); err != nil {
-		return model.AppLogSummary{}, fmt.Errorf("service rows: %w", err)
-	}
+	summary.TopServices = append(summary.TopServices, services...)
 
 	// Calculate percentages for top services.
 	for i := range summary.TopServices {
@@ -825,18 +798,18 @@ func (s *Store) GetSrvlogDeviceSummary(ctx context.Context, hostname string) (mo
 		return summary, fmt.Errorf("device top messages: %w", err)
 	}
 
-	for msgRows.Next() {
+	messages, err := pgx.CollectRows(msgRows, func(row pgx.CollectableRow) (model.TopMessage, error) {
 		var tm model.TopMessage
-		if err := msgRows.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID, &tm.LatestAt, &tm.Severity); err != nil {
-			return summary, fmt.Errorf("scan top message: %w", err)
+		if err := row.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID, &tm.LatestAt, &tm.Severity); err != nil {
+			return tm, err
 		}
 		tm.SeverityLabel = model.SeverityLabel(tm.Severity)
-		summary.TopMessages = append(summary.TopMessages, tm)
+		return tm, nil
+	})
+	if err != nil {
+		return summary, fmt.Errorf("scan top message: %w", err)
 	}
-	msgRows.Close()
-	if err := msgRows.Err(); err != nil {
-		return summary, fmt.Errorf("device msg rows: %w", err)
-	}
+	summary.TopMessages = append(summary.TopMessages, messages...)
 
 	// R4: critical logs.
 	critRows, err := results.Query()
@@ -865,17 +838,15 @@ func (s *Store) GetSrvlogDeviceSummary(ctx context.Context, hostname string) (mo
 		return summary, fmt.Errorf("device activity: %w", err)
 	}
 
-	for actRows.Next() {
+	activity, err := pgx.CollectRows(actRows, func(row pgx.CollectableRow) (model.ActivityBucket, error) {
 		var ab model.ActivityBucket
-		if err := actRows.Scan(&ab.Time, &ab.Count); err != nil {
-			return summary, fmt.Errorf("scan activity bucket: %w", err)
-		}
-		summary.Activity = append(summary.Activity, ab)
+		err := row.Scan(&ab.Time, &ab.Count)
+		return ab, err
+	})
+	if err != nil {
+		return summary, fmt.Errorf("scan activity bucket: %w", err)
 	}
-	actRows.Close()
-	if err := actRows.Err(); err != nil {
-		return summary, fmt.Errorf("device activity rows: %w", err)
-	}
+	summary.Activity = append(summary.Activity, activity...)
 
 	return summary, nil
 }
@@ -896,21 +867,20 @@ func (s *Store) LookupJuniperRef(ctx context.Context, name string) ([]model.Juni
 	if err != nil {
 		return nil, fmt.Errorf("lookup juniper ref %q: %w", name, err)
 	}
-	defer rows.Close()
 
-	refs := make([]model.JuniperNetlogRef, 0, 8)
-	for rows.Next() {
+	refs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.JuniperNetlogRef, error) {
 		var r model.JuniperNetlogRef
-		if err := rows.Scan(
+		err := row.Scan(
 			&r.ID, &r.Name, &r.Message, &r.Description,
 			&r.Type, &r.Severity, &r.Cause, &r.Action,
 			&r.OS, &r.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan juniper ref: %w", err)
-		}
-		refs = append(refs, r)
+		)
+		return r, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan juniper ref: %w", err)
 	}
-	return refs, rows.Err()
+	return refs, nil
 }
 
 // CountJuniperRefsByOS returns the number of juniper_netlog_ref rows for the given OS.

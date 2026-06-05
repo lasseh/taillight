@@ -236,18 +236,14 @@ func (s *Store) GetRsyslogStatsTimeSeries(ctx context.Context, field string, int
 	if err != nil {
 		return nil, fmt.Errorf("rsyslog stats time series query: %w", err)
 	}
-	defer rows.Close()
 
-	var series []model.RsyslogStatsTimeSeries
-	for rows.Next() {
+	series, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.RsyslogStatsTimeSeries, error) {
 		var ts model.RsyslogStatsTimeSeries
-		if err := rows.Scan(&ts.Time, &ts.Name, &ts.Value); err != nil {
-			return nil, fmt.Errorf("scan rsyslog stats time series: %w", err)
-		}
-		series = append(series, ts)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rsyslog stats time series rows: %w", err)
+		err := row.Scan(&ts.Time, &ts.Name, &ts.Value)
+		return ts, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan rsyslog stats time series: %w", err)
 	}
 
 	return series, nil

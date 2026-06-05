@@ -150,7 +150,6 @@ func (s *AuthStore) ListUsers(ctx context.Context) ([]model.User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
-	defer rows.Close()
 
 	return collectUsers(rows)
 }
@@ -380,18 +379,17 @@ func (s *AuthStore) ListAPIKeysByUser(ctx context.Context, userID [16]byte) ([]m
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
 	}
-	defer rows.Close()
 
-	var keys []model.APIKeyRow
-	for rows.Next() {
+	keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.APIKeyRow, error) {
 		var k model.APIKeyRow
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Scopes,
-			&k.ExpiresAt, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan api key: %w", err)
-		}
-		keys = append(keys, k)
+		err := row.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Scopes,
+			&k.ExpiresAt, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt)
+		return k, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan api key: %w", err)
 	}
-	return keys, rows.Err()
+	return keys, nil
 }
 
 // RevokeAPIKey marks an API key as revoked.
@@ -438,14 +436,14 @@ func (s *AuthStore) GetAPIKeyUser(ctx context.Context, keyHash string) (*model.U
 }
 
 func collectUsers(rows pgx.Rows) ([]model.User, error) {
-	var users []model.User
-	for rows.Next() {
+	users, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.User, error) {
 		var u model.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.AuthSource, &u.Preferences,
-			&u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt); err != nil {
-			return nil, fmt.Errorf("scan user: %w", err)
-		}
-		users = append(users, u)
+		err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.AuthSource, &u.Preferences,
+			&u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
+		return u, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan user: %w", err)
 	}
-	return users, rows.Err()
+	return users, nil
 }

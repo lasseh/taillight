@@ -24,17 +24,14 @@ func (s *Store) ListAnalysisSchedules(ctx context.Context) ([]model.AnalysisSche
 	if err != nil {
 		return nil, fmt.Errorf("list analysis schedules: %w", err)
 	}
-	defer rows.Close()
 
-	var schedules []model.AnalysisSchedule
-	for rows.Next() {
-		sched, err := scanAnalysisSchedule(rows)
-		if err != nil {
-			return nil, err
-		}
-		schedules = append(schedules, sched)
+	schedules, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.AnalysisSchedule, error) {
+		return scanAnalysisSchedule(row)
+	})
+	if err != nil {
+		return nil, err
 	}
-	return schedules, rows.Err()
+	return schedules, nil
 }
 
 // GetAnalysisSchedule returns a single analysis schedule by ID.

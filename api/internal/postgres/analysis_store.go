@@ -412,21 +412,22 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, scope model.AnalysisScope,
 	if err != nil {
 		return nil, fmt.Errorf("top error hosts query: %w", err)
 	}
-	defer rows.Close()
 
-	var results []model.HostErrorCount
-	for rows.Next() {
+	results, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.HostErrorCount, error) {
 		var h model.HostErrorCount
 		var topMsgID *string
-		if err := rows.Scan(&h.Hostname, &h.Count, &topMsgID); err != nil {
-			return nil, fmt.Errorf("scan error host: %w", err)
+		if err := row.Scan(&h.Hostname, &h.Count, &topMsgID); err != nil {
+			return h, err
 		}
 		if topMsgID != nil {
 			h.TopMsgID = *topMsgID
 		}
-		results = append(results, h)
+		return h, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan error host: %w", err)
 	}
-	return results, rows.Err()
+	return results, nil
 }
 
 // GetNewMsgIDs returns event signatures seen in the current period but not in
@@ -458,17 +459,12 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, scope model.AnalysisScope, sin
 	if err != nil {
 		return nil, fmt.Errorf("new msgids query: %w", err)
 	}
-	defer rows.Close()
 
-	var msgids []string
-	for rows.Next() {
-		var m string
-		if err := rows.Scan(&m); err != nil {
-			return nil, fmt.Errorf("scan new msgid: %w", err)
-		}
-		msgids = append(msgids, m)
+	msgids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("scan new msgid: %w", err)
 	}
-	return msgids, rows.Err()
+	return msgids, nil
 }
 
 // GetEventClusters returns time windows where events from multiple hosts overlap.
@@ -501,17 +497,16 @@ func (s *Store) GetEventClusters(ctx context.Context, scope model.AnalysisScope,
 	if err != nil {
 		return nil, fmt.Errorf("event clusters query: %w", err)
 	}
-	defer rows.Close()
 
-	var clusters []model.EventCluster
-	for rows.Next() {
+	clusters, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.EventCluster, error) {
 		var c model.EventCluster
-		if err := rows.Scan(&c.Bucket, &c.Hosts, &c.MsgIDs, &c.Total); err != nil {
-			return nil, fmt.Errorf("scan event cluster: %w", err)
-		}
-		clusters = append(clusters, c)
+		err := row.Scan(&c.Bucket, &c.Hosts, &c.MsgIDs, &c.Total)
+		return c, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan event cluster: %w", err)
 	}
-	return clusters, rows.Err()
+	return clusters, nil
 }
 
 // sampleMessageMaxLen caps the message text stored per sample. Picked to
@@ -678,18 +673,19 @@ func (s *Store) GetTopFacilities(ctx context.Context, scope model.AnalysisScope,
 	if err != nil {
 		return nil, fmt.Errorf("top facilities query: %w", err)
 	}
-	defer rows.Close()
 
-	var results []model.FacilityCount
-	for rows.Next() {
+	results, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.FacilityCount, error) {
 		var fc model.FacilityCount
-		if err := rows.Scan(&fc.Facility, &fc.Count, &fc.ErrorCount); err != nil {
-			return nil, fmt.Errorf("scan top facility: %w", err)
+		if err := row.Scan(&fc.Facility, &fc.Count, &fc.ErrorCount); err != nil {
+			return fc, err
 		}
 		fc.Label = model.FacilityLabel(fc.Facility)
-		results = append(results, fc)
+		return fc, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan top facility: %w", err)
 	}
-	return results, rows.Err()
+	return results, nil
 }
 
 // GetVolumeTimeline returns event counts bucketed across the analysis
@@ -738,17 +734,16 @@ func (s *Store) GetVolumeTimeline(ctx context.Context, scope model.AnalysisScope
 	if err != nil {
 		return nil, fmt.Errorf("volume timeline query: %w", err)
 	}
-	defer rows.Close()
 
-	var results []model.AnalysisVolumeBucket
-	for rows.Next() {
+	results, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.AnalysisVolumeBucket, error) {
 		var b model.AnalysisVolumeBucket
-		if err := rows.Scan(&b.Bucket, &b.Total, &b.ErrorCount); err != nil {
-			return nil, fmt.Errorf("scan volume bucket: %w", err)
-		}
-		results = append(results, b)
+		err := row.Scan(&b.Bucket, &b.Total, &b.ErrorCount)
+		return b, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan volume bucket: %w", err)
 	}
-	return results, rows.Err()
+	return results, nil
 }
 
 // analysisAggregateSource returns the hourly continuous-aggregate source
@@ -880,17 +875,16 @@ func (s *Store) ListAnalysisHostEntries(ctx context.Context, feed string) ([]mod
 	if err != nil {
 		return nil, fmt.Errorf("list analysis host entries (%s): %w", feed, err)
 	}
-	defer rows.Close()
 
-	var entries []model.AnalysisHostEntry
-	for rows.Next() {
+	entries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.AnalysisHostEntry, error) {
 		var e model.AnalysisHostEntry
-		if err := rows.Scan(&e.Hostname, &e.LastSeen); err != nil {
-			return nil, fmt.Errorf("scan analysis host entry: %w", err)
-		}
-		entries = append(entries, e)
+		err := row.Scan(&e.Hostname, &e.LastSeen)
+		return e, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan analysis host entry: %w", err)
 	}
-	return entries, rows.Err()
+	return entries, nil
 }
 
 // LookupJuniperRefs returns Juniper reference data for the given msgid names.
@@ -1146,21 +1140,20 @@ func (s *Store) ListReports(ctx context.Context, limit int) ([]model.AnalysisRep
 	if err != nil {
 		return nil, fmt.Errorf("list reports: %w", err)
 	}
-	defer rows.Close()
 
-	var reports []model.AnalysisReportSummary
-	for rows.Next() {
+	reports, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.AnalysisReportSummary, error) {
 		var r model.AnalysisReportSummary
-		if err := rows.Scan(
+		err := row.Scan(
 			&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Hosts, &r.Model, &r.PeriodStart, &r.PeriodEnd,
 			&r.PromptTokens, &r.CompletionTokens, &r.Status,
 			&r.CreatedAt, &r.StartedAt, &r.CompletedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan report summary: %w", err)
-		}
-		reports = append(reports, r)
+		)
+		return r, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan report summary: %w", err)
 	}
-	return reports, rows.Err()
+	return reports, nil
 }
 
 // scanAnalysisReport scans a full analysis report row, handling nullable fields.

@@ -126,7 +126,6 @@ func (s *Store) ListAppLogs(ctx context.Context, f model.AppLogFilter, cursor *m
 	if err != nil {
 		return nil, nil, fmt.Errorf("list log events: %w", err)
 	}
-	defer rows.Close()
 
 	events, err := collectAppLogs(rows)
 	if err != nil {
@@ -167,7 +166,6 @@ func (s *Store) ListAppLogsSince(ctx context.Context, f model.AppLogFilter, sinc
 	if err != nil {
 		return nil, fmt.Errorf("list log events since %d: %w", sinceID, err)
 	}
-	defer rows.Close()
 
 	return collectAppLogs(rows)
 }
@@ -195,17 +193,12 @@ func (s *Store) listAppLogDistinctStrings(ctx context.Context, column string) ([
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", column, err)
 	}
-	defer rows.Close()
 
-	values := make([]string, 0, 64)
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			return nil, fmt.Errorf("scan %s: %w", column, err)
-		}
-		values = append(values, v)
+	values, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: %w", column, err)
 	}
-	return values, rows.Err()
+	return values, nil
 }
 
 func applyAppLogFilter(qb sq.SelectBuilder, f model.AppLogFilter) sq.SelectBuilder {
@@ -258,16 +251,13 @@ func appLogLevelsAtOrAbove(minRank int) []string {
 }
 
 func collectAppLogs(rows pgx.Rows) ([]model.AppLogEvent, error) {
-	events := make([]model.AppLogEvent, 0, 64)
-	for rows.Next() {
+	events, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.AppLogEvent, error) {
 		var e model.AppLogEvent
-		if err := scanAppLog(rows, &e); err != nil {
-			return nil, fmt.Errorf("scan log event: %w", err)
-		}
-		events = append(events, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows iteration: %w", err)
+		err := scanAppLog(row, &e)
+		return e, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan log event: %w", err)
 	}
 	return events, nil
 }
@@ -429,17 +419,15 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		return summary, fmt.Errorf("applog device top messages: %w", err)
 	}
 
-	for msgRows.Next() {
+	messages, err := pgx.CollectRows(msgRows, func(row pgx.CollectableRow) (model.AppLogTopMessage, error) {
 		var tm model.AppLogTopMessage
-		if err := msgRows.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID, &tm.LatestAt, &tm.Level); err != nil {
-			return summary, fmt.Errorf("scan top message: %w", err)
-		}
-		summary.TopMessages = append(summary.TopMessages, tm)
+		err := row.Scan(&tm.Pattern, &tm.Sample, &tm.Count, &tm.LatestID, &tm.LatestAt, &tm.Level)
+		return tm, err
+	})
+	if err != nil {
+		return summary, fmt.Errorf("scan top message: %w", err)
 	}
-	msgRows.Close()
-	if err := msgRows.Err(); err != nil {
-		return summary, fmt.Errorf("applog device msg rows: %w", err)
-	}
+	summary.TopMessages = append(summary.TopMessages, messages...)
 
 	// R4: error logs.
 	errRows, err := results.Query()
@@ -461,17 +449,15 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 		return summary, fmt.Errorf("applog device activity: %w", err)
 	}
 
-	for actRows.Next() {
+	activity, err := pgx.CollectRows(actRows, func(row pgx.CollectableRow) (model.ActivityBucket, error) {
 		var ab model.ActivityBucket
-		if err := actRows.Scan(&ab.Time, &ab.Count); err != nil {
-			return summary, fmt.Errorf("scan applog activity bucket: %w", err)
-		}
-		summary.Activity = append(summary.Activity, ab)
+		err := row.Scan(&ab.Time, &ab.Count)
+		return ab, err
+	})
+	if err != nil {
+		return summary, fmt.Errorf("scan applog activity bucket: %w", err)
 	}
-	actRows.Close()
-	if err := actRows.Err(); err != nil {
-		return summary, fmt.Errorf("applog device activity rows: %w", err)
-	}
+	summary.Activity = append(summary.Activity, activity...)
 
 	return summary, nil
 }

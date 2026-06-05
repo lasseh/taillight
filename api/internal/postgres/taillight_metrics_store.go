@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/lasseh/taillight/internal/model"
 )
 
@@ -161,18 +163,14 @@ func (s *Store) GetMetricsTimeSeries(ctx context.Context, field string, interval
 	if err != nil {
 		return nil, fmt.Errorf("metrics time series query: %w", err)
 	}
-	defer rows.Close()
 
-	var series []model.MetricsTimeSeries
-	for rows.Next() {
+	series, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.MetricsTimeSeries, error) {
 		var ts model.MetricsTimeSeries
-		if err := rows.Scan(&ts.Time, &ts.Value); err != nil {
-			return nil, fmt.Errorf("scan metrics time series: %w", err)
-		}
-		series = append(series, ts)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("metrics time series rows: %w", err)
+		err := row.Scan(&ts.Time, &ts.Value)
+		return ts, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan metrics time series: %w", err)
 	}
 
 	return series, nil

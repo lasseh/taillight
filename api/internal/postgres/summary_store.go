@@ -48,17 +48,18 @@ func (s *Store) ListSummarySchedules(ctx context.Context) ([]notification.Summar
 	if err != nil {
 		return nil, fmt.Errorf("list summary schedules: %w", err)
 	}
-	defer rows.Close()
 
-	var schedules []notification.SummarySchedule
-	for rows.Next() {
-		ss, err := scanSummarySchedule(rows)
+	schedules, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (notification.SummarySchedule, error) {
+		ss, err := scanSummaryScheduleRow(row)
 		if err != nil {
-			return nil, err
+			return notification.SummarySchedule{}, fmt.Errorf("scan summary schedule: %w", err)
 		}
-		schedules = append(schedules, ss)
+		return ss, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return schedules, rows.Err()
+	return schedules, nil
 }
 
 // GetSummarySchedule returns a single summary schedule by ID.
@@ -298,19 +299,20 @@ func (s *Store) getTopSyslogIssues(ctx context.Context, table, kind string, sinc
 	if err != nil {
 		return nil, fmt.Errorf("query %s: %w", table, err)
 	}
-	defer rows.Close()
 
-	var issues []notification.TopIssue
-	for rows.Next() {
+	issues, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (notification.TopIssue, error) {
 		var ti notification.TopIssue
-		if err := rows.Scan(&ti.Severity, &ti.Source, &ti.Program, &ti.Message, &ti.Count); err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
+		if err := row.Scan(&ti.Severity, &ti.Source, &ti.Program, &ti.Message, &ti.Count); err != nil {
+			return notification.TopIssue{}, fmt.Errorf("scan: %w", err)
 		}
 		ti.Kind = kind
 		ti.Label = model.SeverityLabel(ti.Severity)
-		issues = append(issues, ti)
+		return ti, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return issues, rows.Err()
+	return issues, nil
 }
 
 func (s *Store) getTopAppLogIssues(ctx context.Context, since time.Time, hostname string, topN int) ([]notification.TopIssue, error) {
@@ -337,19 +339,20 @@ func (s *Store) getTopAppLogIssues(ctx context.Context, since time.Time, hostnam
 	if err != nil {
 		return nil, fmt.Errorf("query applog_events: %w", err)
 	}
-	defer rows.Close()
 
-	var issues []notification.TopIssue
-	for rows.Next() {
+	issues, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (notification.TopIssue, error) {
 		var ti notification.TopIssue
-		if err := rows.Scan(&ti.Label, &ti.Source, &ti.Program, &ti.Message, &ti.Count); err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
+		if err := row.Scan(&ti.Label, &ti.Source, &ti.Program, &ti.Message, &ti.Count); err != nil {
+			return notification.TopIssue{}, fmt.Errorf("scan: %w", err)
 		}
 		ti.Kind = "applog"
 		ti.Severity = appLogLevelToSeverity(ti.Label)
-		issues = append(issues, ti)
+		return ti, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return issues, rows.Err()
+	return issues, nil
 }
 
 // appLogLevelToSeverity maps applog text levels to numeric severity for sorting.
@@ -367,29 +370,6 @@ func appLogLevelToSeverity(level string) int {
 }
 
 // --- Scan helpers ---
-
-func scanSummarySchedule(rows pgx.Rows) (notification.SummarySchedule, error) {
-	var ss notification.SummarySchedule
-	var timeOfDay time.Time
-	if err := rows.Scan(
-		&ss.ID, &ss.Name, &ss.Enabled, &ss.Frequency,
-		&ss.DayOfWeek, &ss.DayOfMonth,
-		&timeOfDay, &ss.Timezone,
-		&ss.EventKinds, &ss.SeverityMax, &ss.Hostname, &ss.TopN,
-		&ss.LastRunAt, &ss.CreatedAt, &ss.UpdatedAt,
-		&ss.ChannelIDs,
-	); err != nil {
-		return notification.SummarySchedule{}, fmt.Errorf("scan summary schedule: %w", err)
-	}
-	ss.TimeOfDay = timeOfDay.Format("15:04")
-	if ss.EventKinds == nil {
-		ss.EventKinds = []string{}
-	}
-	if ss.ChannelIDs == nil {
-		ss.ChannelIDs = []int64{}
-	}
-	return ss, nil
-}
 
 func scanSummaryScheduleRow(row pgx.Row) (notification.SummarySchedule, error) {
 	var ss notification.SummarySchedule
