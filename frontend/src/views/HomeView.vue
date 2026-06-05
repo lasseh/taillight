@@ -13,6 +13,8 @@ import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
 import ActivityHeatmap from '@/components/ActivityHeatmap.vue'
 import WidgetCloseButton from '@/components/WidgetCloseButton.vue'
+import RangePresets from '@/components/RangePresets.vue'
+import { rangePresets } from '@/lib/ranges'
 
 defineOptions({ name: 'HomeView' })
 
@@ -37,14 +39,6 @@ const anyActivityVisible = computed(() =>
 // in the product. The home store prepends new events, so the source list is
 // newest-first; we flip only for display.
 const chronologicalApplogEvents = computed(() => [...home.recentApplogEvents].reverse())
-
-const rangePresets = [
-  { label: '1h', value: '1h' },
-  { label: '6h', value: '6h' },
-  { label: '24h', value: '24h' },
-  { label: '7d', value: '7d' },
-  { label: '30d', value: '30d' },
-]
 
 const rangeLabel = computed(() => {
   const p = rangePresets.find(p => p.value === home.range)
@@ -253,15 +247,7 @@ function getSeverityBgClass(level: string): string {
           <span v-if="features.netlog && features.srvlog" class="text-t-fg-dark">&amp;</span>
           <RouterLink v-if="features.srvlog" to="/srvlog" class="text-t-teal bg-t-teal/20 rounded px-2 py-0.5 hover:bg-t-teal/30 transition-colors">Srvlog</RouterLink>
           <span class="bg-t-border h-px flex-1"></span>
-          <span class="flex items-center gap-1">
-            <button
-              v-for="p in rangePresets"
-              :key="p.value"
-              class="rounded px-1.5 py-0.5 text-xs transition-colors"
-              :class="home.range === p.value ? 'bg-t-bg-highlight text-t-purple' : 'text-t-fg-dark hover:text-t-fg'"
-              @click="home.setRange(p.value)"
-            >{{ p.label }}</button>
-          </span>
+          <RangePresets :range="home.range" @select="home.setRange" />
         </h2>
 
         <!-- Empty state -->
@@ -361,15 +347,7 @@ function getSeverityBgClass(level: string): string {
         <h2 class="text-t-magenta mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
           <RouterLink to="/applog" class="bg-t-magenta/20 rounded px-2 py-0.5 hover:bg-t-magenta/30 transition-colors">Applog</RouterLink>
           <span class="bg-t-border h-px flex-1"></span>
-          <span class="flex items-center gap-1">
-            <button
-              v-for="p in rangePresets"
-              :key="p.value"
-              class="rounded px-1.5 py-0.5 text-xs transition-colors"
-              :class="home.range === p.value ? 'bg-t-bg-highlight text-t-purple' : 'text-t-fg-dark hover:text-t-fg'"
-              @click="home.setRange(p.value)"
-            >{{ p.label }}</button>
-          </span>
+          <RangePresets :range="home.range" @select="home.setRange" />
         </h2>
 
         <!-- Empty state -->
