@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="TEvent extends SrvlogEvent">
-import { ref, computed, watch, provide, nextTick, onMounted, onUnmounted, type Ref, type Component } from 'vue'
+import { ref, computed, watch, onUnmounted, type Ref, type Component } from 'vue'
 import { useRouter, useRoute, RouterLink } from 'vue-router'
 import type { DeviceSummary, DeviceSummaryResponse } from '@/types/device'
 import type { SrvlogEvent } from '@/types/srvlog'
@@ -8,6 +8,8 @@ import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/form
 import { severityLabels, severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
 import { highlightMessage } from '@/lib/highlighter'
 import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
+import { useDeviceLogScroll } from '@/composables/useDeviceLogScroll'
+import { useCollapseOnEscape } from '@/composables/useCollapseOnEscape'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import DeviceActivityChart from '@/components/DeviceActivityChart.vue'
@@ -46,8 +48,7 @@ const error = ref<string | null>(null)
 const errorStatus = ref<number | null>(null)
 
 // Provide collapseSignal for the row component's expand/collapse on Escape.
-const collapseSignal = ref(0)
-provide('collapseSignal', collapseSignal)
+useCollapseOnEscape()
 
 // Recent logs reversed to chronological order (oldest first, newest at bottom).
 const chronologicalLogs = computed(() => [...deviceLogs.value].reverse())
@@ -83,45 +84,7 @@ const colWidths = computed(() => {
 
 // Auto-scroll the log container to bottom when pinned.
 const logScrollEl = ref<HTMLElement | null>(null)
-const isPinned = ref(true)
-
-function scrollToBottom(behavior: ScrollBehavior = 'instant') {
-  const el = logScrollEl.value
-  if (!el) return
-  el.scrollTo({ top: el.scrollHeight, behavior })
-  isPinned.value = true
-}
-
-function onLogScroll() {
-  const el = logScrollEl.value
-  if (!el) return
-  isPinned.value = el.scrollHeight - el.scrollTop - el.clientHeight < 30
-}
-
-// Auto-scroll to bottom when new events arrive (if pinned).
-watch(chronologicalLogs, () => {
-  if (isPinned.value) {
-    nextTick(() => scrollToBottom())
-  }
-})
-
-// Scroll to bottom on tab switch.
-watch(activeTab, () => {
-  isPinned.value = true
-  nextTick(() => scrollToBottom())
-})
-
-function onKeydown(e: KeyboardEvent) {
-  if (e.code !== 'Escape') return
-  collapseSignal.value++
-}
-
-onMounted(() => {
-  document.addEventListener('keydown', onKeydown)
-})
-onUnmounted(() => {
-  document.removeEventListener('keydown', onKeydown)
-})
+const { isPinned, scrollToBottom, onLogScroll } = useDeviceLogScroll(logScrollEl, chronologicalLogs, activeTab)
 
 async function fetchData() {
   try {
