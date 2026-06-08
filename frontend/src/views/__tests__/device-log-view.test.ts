@@ -99,6 +99,25 @@ describe('DeviceLogView (smoke)', () => {
     wrapper.unmount()
   })
 
+  it('updates summary stats live when a new event is unshifted into the stream', async () => {
+    // Seed newest id is 11, so fetchData baselines the cursor there; a newer
+    // critical event must tick the summary up. Before the reactivity fix the
+    // in-place unshift never fired the watcher and the stats stayed frozen.
+    const events = ref<SrvlogEvent[]>([ev(11)])
+    const { wrapper } = mountView(events)
+    await flushPromises()
+    // Critical tab default renders the one seeded critical log (id 1).
+    expect(wrapper.findAll('.row-stub').map((r) => r.text())).toEqual(['1'])
+
+    const crit = { id: 12, programname: 'prog', severity: 2, received_at: '2026-06-05T10:01:00Z' } as unknown as SrvlogEvent
+    events.value.unshift(crit) // in-place, exactly like createDeviceLogStream
+    await flushPromises()
+
+    // critical_logs grew (newest-first -> chronological reverse -> [1, 12]).
+    expect(wrapper.findAll('.row-stub').map((r) => r.text())).toEqual(['1', '12'])
+    wrapper.unmount()
+  })
+
   it('switches to the recent tab and renders the live event stream', async () => {
     const { wrapper } = mountView()
     await flushPromises()

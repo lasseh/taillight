@@ -9,6 +9,7 @@ import { severityLabels, severityColorClassByLabel, severityBgClass, severityBgC
 import { highlightMessage } from '@/lib/highlighter'
 import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import { useDeviceLogScroll } from '@/composables/useDeviceLogScroll'
+import { useDeviceSummaryLive } from '@/composables/useDeviceSummaryLive'
 import { useCollapseOnEscape } from '@/composables/useCollapseOnEscape'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
@@ -90,6 +91,8 @@ async function fetchData() {
   try {
     const res = await props.fetchSummary(props.hostname)
     summary.value = res.data
+    // Fresh DB truth already counts the current buffer; only newer events tick.
+    baseline()
     error.value = null
     errorStatus.value = null
   } catch (e) {
@@ -107,42 +110,32 @@ async function fetchData() {
 }
 
 // Update summary stats in real-time from SSE events.
-let lastSeenEventId = 0
-watch(deviceLogs, (logs) => {
-  if (!summary.value || logs.length === 0) return
-  // deviceLogs is newest-first; only process events we haven't seen.
-  for (const event of logs) {
-    if (event.id <= lastSeenEventId) break
-    summary.value.total_count++
+const { baseline } = useDeviceSummaryLive(deviceLogs, (event) => {
+  const s = summary.value
+  if (!s) return
+  s.total_count++
+  s.last_seen_at = event.received_at
 
-    // Update last_seen_at.
-    summary.value.last_seen_at = event.received_at
-
-    // Update severity breakdown counts + percentages.
-    const label = severityLabels[event.severity] ?? 'unknown'
-    const existing = summary.value.severity_breakdown.find(s => s.severity === event.severity)
-    if (existing) {
-      existing.count++
-    } else {
-      summary.value.severity_breakdown.push({ severity: event.severity, label, count: 1, pct: 0 })
-      summary.value.severity_breakdown.sort((a, b) => a.severity - b.severity)
-    }
-    // Recompute percentages.
-    for (const s of summary.value.severity_breakdown) {
-      s.pct = (s.count / summary.value.total_count) * 100
-    }
-
-    // Critical events (emerg=0, alert=1, crit=2).
-    if (event.severity <= 2) {
-      summary.value.critical_count++
-      summary.value.critical_logs.unshift(event)
-      if (summary.value.critical_logs.length > 100) {
-        summary.value.critical_logs.splice(100)
-      }
-    }
+  // Update severity breakdown counts + percentages.
+  const label = severityLabels[event.severity] ?? 'unknown'
+  const existing = s.severity_breakdown.find(b => b.severity === event.severity)
+  if (existing) {
+    existing.count++
+  } else {
+    s.severity_breakdown.push({ severity: event.severity, label, count: 1, pct: 0 })
+    s.severity_breakdown.sort((a, b) => a.severity - b.severity)
   }
-  lastSeenEventId = logs[0]!.id
-}, { deep: false })
+  for (const b of s.severity_breakdown) {
+    b.pct = (b.count / s.total_count) * 100
+  }
+
+  // Critical events (emerg=0, alert=1, crit=2).
+  if (event.severity <= 2) {
+    s.critical_count++
+    s.critical_logs.unshift(event)
+    if (s.critical_logs.length > 100) s.critical_logs.splice(100)
+  }
+})
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
@@ -152,7 +145,6 @@ watch(() => props.hostname, () => {
   loading.value = true
   error.value = null
   errorStatus.value = null
-  lastSeenEventId = 0
   fetchData()
   // Slow poll for top_messages accuracy and drift correction.
   refreshTimer = setInterval(fetchData, 30_000)

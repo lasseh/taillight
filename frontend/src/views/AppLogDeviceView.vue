@@ -9,6 +9,7 @@ import { LEVEL_RANK, levelColorClass, levelBgClass, levelBgColorClass } from '@/
 import { useAppLogDeviceLogs } from '@/composables/useAppLogDeviceLogs'
 import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import { useDeviceLogScroll } from '@/composables/useDeviceLogScroll'
+import { useDeviceSummaryLive } from '@/composables/useDeviceSummaryLive'
 import { useCollapseOnEscape } from '@/composables/useCollapseOnEscape'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import LevelDistribution from '@/components/LevelDistribution.vue'
@@ -85,6 +86,8 @@ async function fetchData() {
   try {
     const res = await api.getAppLogDeviceSummary(props.hostname)
     summary.value = res.data
+    // Fresh DB truth already counts the current buffer; only newer events tick.
+    baseline()
     error.value = null
     errorStatus.value = null
   } catch (e) {
@@ -102,42 +105,31 @@ async function fetchData() {
 }
 
 // Update summary stats in real-time from SSE events.
-let lastSeenEventId = 0
-watch(deviceLogs, (logs) => {
-  if (!summary.value || logs.length === 0) return
-  for (const event of logs) {
-    if (event.id <= lastSeenEventId) break
-    summary.value.total_count++
+const { baseline } = useDeviceSummaryLive(deviceLogs, (event) => {
+  const s = summary.value
+  if (!s) return
+  s.total_count++
+  s.last_seen_at = event.received_at
 
-    // Update last_seen_at.
-    summary.value.last_seen_at = event.received_at
-
-    // Update level breakdown counts + percentages.
-    const existing = summary.value.level_breakdown.find(l => l.level === event.level)
-    if (existing) {
-      existing.count++
-    } else {
-      summary.value.level_breakdown.push({ level: event.level, count: 1, pct: 0 })
-      summary.value.level_breakdown.sort(
-        (a, b) => (LEVEL_RANK[a.level] ?? 99) - (LEVEL_RANK[b.level] ?? 99),
-      )
-    }
-    // Recompute percentages.
-    for (const l of summary.value.level_breakdown) {
-      l.pct = (l.count / summary.value.total_count) * 100
-    }
-
-    // Error-level events (FATAL, ERROR).
-    if (event.level === 'FATAL' || event.level === 'ERROR') {
-      summary.value.error_count++
-      summary.value.error_logs.unshift(event)
-      if (summary.value.error_logs.length > 100) {
-        summary.value.error_logs.splice(100)
-      }
-    }
+  // Update level breakdown counts + percentages.
+  const existing = s.level_breakdown.find(l => l.level === event.level)
+  if (existing) {
+    existing.count++
+  } else {
+    s.level_breakdown.push({ level: event.level, count: 1, pct: 0 })
+    s.level_breakdown.sort((a, b) => (LEVEL_RANK[a.level] ?? 99) - (LEVEL_RANK[b.level] ?? 99))
   }
-  lastSeenEventId = logs[0]!.id
-}, { deep: false })
+  for (const l of s.level_breakdown) {
+    l.pct = (l.count / s.total_count) * 100
+  }
+
+  // Error-level events (FATAL, ERROR).
+  if (event.level === 'FATAL' || event.level === 'ERROR') {
+    s.error_count++
+    s.error_logs.unshift(event)
+    if (s.error_logs.length > 100) s.error_logs.splice(100)
+  }
+})
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
@@ -147,7 +139,6 @@ watch(() => props.hostname, () => {
   loading.value = true
   error.value = null
   errorStatus.value = null
-  lastSeenEventId = 0
   fetchData()
   // Slow poll for top_messages accuracy and drift correction.
   refreshTimer = setInterval(fetchData, 30_000)
