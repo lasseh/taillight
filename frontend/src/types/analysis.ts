@@ -66,6 +66,8 @@ export interface AnalysisSchedule {
   day_of_month?: number
   time_of_day: string
   timezone: string
+  // Email notification channel ids the completed report is mailed to.
+  notify_channel_ids: number[]
   last_run_at?: string
   created_at: string
   updated_at: string

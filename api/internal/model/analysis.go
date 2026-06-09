@@ -90,6 +90,10 @@ type AnalysisReport struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	StartedAt        *time.Time `json:"started_at,omitempty"`
 	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	// NotifyChannelIDs are the email notification channel ids snapshotted from
+	// the originating schedule at enqueue time; the worker mails the completed
+	// report to them. Internal dispatch field — not exposed in API responses.
+	NotifyChannelIDs []int64 `json:"-"`
 }
 
 // AnalysisReportSummary is a lightweight variant for listing reports.
@@ -165,18 +169,23 @@ func NormalizeHosts(hosts []string) []string {
 
 // AnalysisSchedule represents a configured recurring analysis run.
 type AnalysisSchedule struct {
-	ID         int64      `json:"id"`
-	Name       string     `json:"name"`
-	Enabled    bool       `json:"enabled"`
-	Feed       string     `json:"feed"`
-	Frequency  string     `json:"frequency"`              // "daily", "weekly", "monthly".
-	DayOfWeek  *int       `json:"day_of_week,omitempty"`  // 0=Sun..6=Sat, nil for daily.
-	DayOfMonth *int       `json:"day_of_month,omitempty"` // 1-28, nil for daily/weekly.
-	TimeOfDay  string     `json:"time_of_day"`            // "HH:MM".
-	Timezone   string     `json:"timezone"`               // IANA timezone.
-	LastRunAt  *time.Time `json:"last_run_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Enabled    bool   `json:"enabled"`
+	Feed       string `json:"feed"`
+	Frequency  string `json:"frequency"`              // "daily", "weekly", "monthly".
+	DayOfWeek  *int   `json:"day_of_week,omitempty"`  // 0=Sun..6=Sat, nil for daily.
+	DayOfMonth *int   `json:"day_of_month,omitempty"` // 1-28, nil for daily/weekly.
+	TimeOfDay  string `json:"time_of_day"`            // "HH:MM".
+	Timezone   string `json:"timezone"`               // IANA timezone.
+	// NotifyChannelIDs references the email notification channels the completed
+	// report is mailed to. Empty = no email. Snapshotted onto each enqueued
+	// report so later schedule edits/deletes don't retarget a pending run; the
+	// channel contents are resolved live at send time.
+	NotifyChannelIDs []int64    `json:"notify_channel_ids"`
+	LastRunAt        *time.Time `json:"last_run_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 // AnalysisHostEntry is one row returned by the analysis hosts endpoint

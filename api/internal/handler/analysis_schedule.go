@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/lasseh/taillight/internal/model"
+	"github.com/lasseh/taillight/internal/notification"
 	"github.com/lasseh/taillight/internal/postgres"
 	"github.com/lasseh/taillight/internal/scheduler"
 	"github.com/lasseh/taillight/internal/worker"
@@ -25,6 +26,9 @@ type AnalysisScheduleStore interface {
 	CreateAnalysisSchedule(ctx context.Context, s model.AnalysisSchedule) (model.AnalysisSchedule, error)
 	UpdateAnalysisSchedule(ctx context.Context, id int64, s model.AnalysisSchedule) (model.AnalysisSchedule, error)
 	DeleteAnalysisSchedule(ctx context.Context, id int64) error
+	// ListNotificationChannels backs validation of notify_channel_ids: a
+	// schedule may only target existing, email-type channels.
+	ListNotificationChannels(ctx context.Context) ([]notification.Channel, error)
 }
 
 // AnalysisScheduleHandler exposes CRUD + run-now for recurring analysis schedules.
@@ -73,7 +77,7 @@ func (h *AnalysisScheduleHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Create handles POST /api/v1/analysis/schedules.
 func (h *AnalysisScheduleHandler) Create(w http.ResponseWriter, r *http.Request) {
-	sched, ok := decodeAndValidateSchedule(w, r, h.netlogEnabled)
+	sched, ok := h.decodeAndValidateSchedule(w, r)
 	if !ok {
 		return
 	}
@@ -95,7 +99,7 @@ func (h *AnalysisScheduleHandler) Update(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	sched, ok := decodeAndValidateSchedule(w, r, h.netlogEnabled)
+	sched, ok := h.decodeAndValidateSchedule(w, r)
 	if !ok {
 		return
 	}
@@ -166,7 +170,8 @@ func (h *AnalysisScheduleHandler) Run(w http.ResponseWriter, r *http.Request) {
 
 // decodeAndValidateSchedule reads and validates a schedule from the request
 // body. On validation failure it writes the error response and returns ok=false.
-func decodeAndValidateSchedule(w http.ResponseWriter, r *http.Request, netlogEnabled bool) (model.AnalysisSchedule, bool) {
+func (h *AnalysisScheduleHandler) decodeAndValidateSchedule(w http.ResponseWriter, r *http.Request) (model.AnalysisSchedule, bool) {
+	netlogEnabled := h.netlogEnabled
 	body, err := io.ReadAll(io.LimitReader(r.Body, 8*1024))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "read_error", "failed to read request body")
@@ -218,7 +223,39 @@ func decodeAndValidateSchedule(w http.ResponseWriter, r *http.Request, netlogEna
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid timezone")
 		return model.AnalysisSchedule{}, false
 	}
+	if !h.validateNotifyChannels(w, r, sched.NotifyChannelIDs) {
+		return model.AnalysisSchedule{}, false
+	}
 	return sched, true
+}
+
+// validateNotifyChannels confirms every requested channel id exists and is an
+// email-type channel — the only backend that renders an analysis report. On
+// failure it writes the error response and returns false.
+func (h *AnalysisScheduleHandler) validateNotifyChannels(w http.ResponseWriter, r *http.Request, ids []int64) bool {
+	if len(ids) == 0 {
+		return true
+	}
+	channels, err := h.store.ListNotificationChannels(r.Context())
+	if err != nil {
+		LoggerFromContext(r.Context()).Error("list notification channels for schedule validation", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to validate notification channels")
+		return false
+	}
+	emailChannels := make(map[int64]bool, len(channels))
+	for _, ch := range channels {
+		if ch.Type == notification.ChannelTypeEmail {
+			emailChannels[ch.ID] = true
+		}
+	}
+	for _, id := range ids {
+		if !emailChannels[id] {
+			writeError(w, http.StatusBadRequest, "validation_failed",
+				"notify_channel_ids must reference existing email notification channels")
+			return false
+		}
+	}
+	return true
 }
 
 // splitTimeOfDay parses HH:MM into hour, minute components.

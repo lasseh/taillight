@@ -17,6 +17,9 @@ work waiting for a release.
 
 ### Added
 
+#### Analysis
+- Email completed analysis reports by selecting email notification channels on a schedule (`notify_channel_ids`); channel ids are validated as existing email-type channels and snapshotted onto each report at enqueue time
+
 #### Terminal UI (taillight-tui)
 - Add standalone TUI binary using Charmbracelet bubbletea v2, bubbles v2, lipgloss v2
 - Real-time SSE streaming for srvlog, applog, and netlog with per-tab lazy connections

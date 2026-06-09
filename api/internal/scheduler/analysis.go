@@ -169,9 +169,10 @@ func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.Analysi
 		// fleet-wide. When per-schedule host scope is added, this is the
 		// site to thread it through; the explicit nil makes that future
 		// diff visible and grep-able.
-		Hosts:       nil,
-		PeriodStart: periodStart,
-		PeriodEnd:   periodEnd,
+		Hosts:            nil,
+		PeriodStart:      periodStart,
+		PeriodEnd:        periodEnd,
+		NotifyChannelIDs: sched.NotifyChannelIDs,
 	}
 
 	s.logger.Info("firing analysis schedule",
@@ -214,9 +215,10 @@ func (s *AnalysisScheduler) RunNow(ctx context.Context, id int64) error {
 		// Schedule "run now" inherits the schedule's (fleet-wide) host
 		// scope — currently always nil. See runSchedule for the same
 		// pattern.
-		Hosts:       nil,
-		PeriodStart: periodStart,
-		PeriodEnd:   periodEnd,
+		Hosts:            nil,
+		PeriodStart:      periodStart,
+		PeriodEnd:        periodEnd,
+		NotifyChannelIDs: sched.NotifyChannelIDs,
 	})
 	return err
 }

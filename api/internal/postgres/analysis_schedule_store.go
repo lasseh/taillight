@@ -14,8 +14,18 @@ import (
 
 // analysisScheduleColumns lists the columns selected for schedule reads.
 const analysisScheduleColumns = "id, name, enabled, feed, frequency, " +
-	"day_of_week, day_of_month, time_of_day, timezone, " +
+	"day_of_week, day_of_month, time_of_day, timezone, notify_channel_ids, " +
 	"last_run_at, created_at, updated_at"
+
+// channelIDsOrEmpty coerces a nil slice to an empty (non-nil) slice so pgx
+// writes it as Postgres '{}' rather than NULL — the notify_channel_ids columns
+// are NOT NULL with a '{}' default and the canonical "no targets" value.
+func channelIDsOrEmpty(ids []int64) []int64 {
+	if ids == nil {
+		return []int64{}
+	}
+	return ids
+}
 
 // ListAnalysisSchedules returns all analysis schedules ordered by id.
 func (s *Store) ListAnalysisSchedules(ctx context.Context) ([]model.AnalysisSchedule, error) {
@@ -53,9 +63,10 @@ func (s *Store) CreateAnalysisSchedule(ctx context.Context, sched model.Analysis
 	query, args, err := psq.
 		Insert("analysis_schedules").
 		Columns("name", "enabled", "feed", "frequency",
-			"day_of_week", "day_of_month", "time_of_day", "timezone").
+			"day_of_week", "day_of_month", "time_of_day", "timezone", "notify_channel_ids").
 		Values(sched.Name, sched.Enabled, sched.Feed, sched.Frequency,
-			sched.DayOfWeek, sched.DayOfMonth, sched.TimeOfDay, sched.Timezone).
+			sched.DayOfWeek, sched.DayOfMonth, sched.TimeOfDay, sched.Timezone,
+			channelIDsOrEmpty(sched.NotifyChannelIDs)).
 		Suffix("RETURNING id, created_at, updated_at").
 		ToSql()
 	if err != nil {
@@ -81,6 +92,7 @@ func (s *Store) UpdateAnalysisSchedule(ctx context.Context, id int64, sched mode
 		Set("day_of_month", sched.DayOfMonth).
 		Set("time_of_day", sched.TimeOfDay).
 		Set("timezone", sched.Timezone).
+		Set("notify_channel_ids", channelIDsOrEmpty(sched.NotifyChannelIDs)).
 		Set("updated_at", time.Now()).
 		Where(sq.Eq{"id": id}).
 		Suffix("RETURNING " + analysisScheduleColumns).
@@ -129,7 +141,7 @@ func scanAnalysisSchedule(row pgx.Row) (model.AnalysisSchedule, error) {
 	var timeOfDay time.Time
 	if err := row.Scan(
 		&sched.ID, &sched.Name, &sched.Enabled, &sched.Feed, &sched.Frequency,
-		&sched.DayOfWeek, &sched.DayOfMonth, &timeOfDay, &sched.Timezone,
+		&sched.DayOfWeek, &sched.DayOfMonth, &timeOfDay, &sched.Timezone, &sched.NotifyChannelIDs,
 		&sched.LastRunAt, &sched.CreatedAt, &sched.UpdatedAt,
 	); err != nil {
 		return model.AnalysisSchedule{}, err

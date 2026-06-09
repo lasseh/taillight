@@ -251,3 +251,68 @@ func TestIntegration_GetAPIKeyByHash(t *testing.T) {
 		t.Errorf("key.Scopes = %v, want [ingest]", kw.Key.Scopes)
 	}
 }
+
+// TestIntegration_AnalysisScheduleNotifyChannels verifies the notify_channel_ids
+// BIGINT[] column round-trips through pgx as []int64 on both the schedule and
+// the report — the encode/scan path that compiles but can only be proven
+// against a real Postgres. It also confirms an empty list persists as '{}'
+// (not NULL) and reads back as an empty slice.
+func TestIntegration_AnalysisScheduleNotifyChannels(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "analysis_schedules", "analysis_reports")
+	store := NewStore(pool)
+	ctx := context.Background()
+
+	created, err := store.CreateAnalysisSchedule(ctx, model.AnalysisSchedule{
+		Name:             "nightly-srvlog",
+		Enabled:          true,
+		Feed:             "srvlog",
+		Frequency:        "daily",
+		TimeOfDay:        "03:00",
+		Timezone:         "Europe/Oslo",
+		NotifyChannelIDs: []int64{7, 42},
+	})
+	if err != nil {
+		t.Fatalf("create schedule: %v", err)
+	}
+	if got := created.NotifyChannelIDs; len(got) != 2 || got[0] != 7 || got[1] != 42 {
+		t.Fatalf("create returned NotifyChannelIDs = %v, want [7 42]", got)
+	}
+
+	got, err := store.GetAnalysisSchedule(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("get schedule: %v", err)
+	}
+	if len(got.NotifyChannelIDs) != 2 || got.NotifyChannelIDs[0] != 7 || got.NotifyChannelIDs[1] != 42 {
+		t.Fatalf("get returned NotifyChannelIDs = %v, want [7 42]", got.NotifyChannelIDs)
+	}
+
+	// Clearing the list must persist as an empty slice, never NULL.
+	got.NotifyChannelIDs = nil
+	updated, err := store.UpdateAnalysisSchedule(ctx, created.ID, got)
+	if err != nil {
+		t.Fatalf("update schedule: %v", err)
+	}
+	if len(updated.NotifyChannelIDs) != 0 {
+		t.Fatalf("after clearing, NotifyChannelIDs = %v, want empty", updated.NotifyChannelIDs)
+	}
+
+	// The report snapshot column round-trips the same way.
+	rep, err := store.InsertPendingReport(ctx, model.AnalysisReport{
+		Feed:             "srvlog",
+		PromptMode:       model.AnalysisModeDaily,
+		PeriodStart:      time.Now().Add(-24 * time.Hour),
+		PeriodEnd:        time.Now(),
+		NotifyChannelIDs: []int64{7, 42},
+	})
+	if err != nil {
+		t.Fatalf("insert pending report: %v", err)
+	}
+	readBack, err := store.GetReport(ctx, rep.ID)
+	if err != nil {
+		t.Fatalf("get report: %v", err)
+	}
+	if len(readBack.NotifyChannelIDs) != 2 || readBack.NotifyChannelIDs[0] != 7 || readBack.NotifyChannelIDs[1] != 42 {
+		t.Fatalf("report NotifyChannelIDs = %v, want [7 42]", readBack.NotifyChannelIDs)
+	}
+}

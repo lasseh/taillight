@@ -925,7 +925,7 @@ func (s *Store) LookupJuniperRefs(ctx context.Context, names []string) (map[stri
 // analysisReportColumns lists the columns selected for full report reads.
 const analysisReportColumns = "id, slug, feed, prompt_mode, hosts, model, period_start, period_end, " +
 	"report, prompt_tokens, completion_tokens, status, error, " +
-	"created_at, started_at, completed_at"
+	"created_at, started_at, completed_at, notify_channel_ids"
 
 // analysisReportSummaryColumns lists the columns selected for list reads.
 const analysisReportSummaryColumns = "id, slug, feed, prompt_mode, hosts, model, period_start, period_end, " +
@@ -982,8 +982,8 @@ func (s *Store) InsertPendingReport(ctx context.Context, r model.AnalysisReport)
 
 		query, args, err := psq.
 			Insert("analysis_reports").
-			Columns("slug", "feed", "prompt_mode", "hosts", "model", "period_start", "period_end", "status").
-			Values(r.Slug, r.Feed, r.PromptMode, hostsArg, r.Model, r.PeriodStart, r.PeriodEnd, r.Status).
+			Columns("slug", "feed", "prompt_mode", "hosts", "model", "period_start", "period_end", "status", "notify_channel_ids").
+			Values(r.Slug, r.Feed, r.PromptMode, hostsArg, r.Model, r.PeriodStart, r.PeriodEnd, r.Status, channelIDsOrEmpty(r.NotifyChannelIDs)).
 			Suffix("RETURNING id, created_at").
 			ToSql()
 		if err != nil {
@@ -1163,7 +1163,7 @@ func scanAnalysisReport(row pgx.Row) (model.AnalysisReport, error) {
 	if err := row.Scan(
 		&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Hosts, &r.Model, &r.PeriodStart, &r.PeriodEnd,
 		&body, &r.PromptTokens, &r.CompletionTokens, &r.Status, &errMsg,
-		&r.CreatedAt, &r.StartedAt, &r.CompletedAt,
+		&r.CreatedAt, &r.StartedAt, &r.CompletedAt, &r.NotifyChannelIDs,
 	); err != nil {
 		return model.AnalysisReport{}, err
 	}

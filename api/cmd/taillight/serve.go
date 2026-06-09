@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/mail"
 	"os"
 	"os/signal"
 	"slices"
@@ -444,7 +443,7 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 		logger.Info("reconciled orphaned analysis reports", "count", n)
 	}
 
-	completionCB := buildAnalysisCompletionCallback(cfg.Analysis.NotifyEmails, notifEngine, logger)
+	completionCB := buildAnalysisCompletionCallback(notifEngine, store, logger)
 	w := worker.NewAnalysis(store, a, logger, cfg.Analysis.RunTimeout, completionCB)
 	go w.Start(ctx)
 
@@ -457,48 +456,46 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 	}
 }
 
-// buildAnalysisCompletionCallback wires the tracer-scope email dispatch: when
-// cfg.Analysis.NotifyEmails is non-empty AND a notification engine is wired
-// AND the email backend has SMTP configured, every completed report is sent
-// to every configured recipient as a single synthetic email channel. Nil
-// recipients or nil engine returns a nil callback (the worker treats nil as
-// "no notification"), so this is fully opt-in.
+// channelResolver loads a notification channel by id for completion dispatch.
+type channelResolver interface {
+	GetNotificationChannel(ctx context.Context, id int64) (notification.Channel, error)
+}
+
+// buildAnalysisCompletionCallback wires per-schedule email dispatch: each
+// completed report carries the notification channel ids it was enqueued with
+// (report.NotifyChannelIDs, snapshotted from the owning schedule). The worker
+// resolves those channels live and mails the report through them.
 //
-// Tracer scope: no rule engine matching, no per-channel attach_pdf flag, no
-// frontend management UI. See .scratch/email-analysis-reports/PRD.md.
-func buildAnalysisCompletionCallback(recipients []string, engine *notification.Engine, logger *slog.Logger) worker.CompletionCallback {
-	if len(recipients) == 0 || engine == nil {
+// The callback is always wired when a notification engine exists — the
+// per-report empty check lives inside the closure, NOT at boot. Gating on a
+// global list here would leave the callback nil and silently kill every
+// schedule's email, since targets no longer come from config.
+//
+// Channel ids are validated as existing email channels at schedule
+// create/update time (handler). Resolving live (rather than snapshotting the
+// channel config) means a channel edited after enqueue uses its current
+// recipients; a channel deleted before completion is simply skipped.
+func buildAnalysisCompletionCallback(engine *notification.Engine, store channelResolver, logger *slog.Logger) worker.CompletionCallback {
+	if engine == nil {
 		return nil
 	}
-	// Validate addresses up front so a typo in config surfaces at boot, not
-	// after the first report finishes hours later.
-	for _, addr := range recipients {
-		if _, err := mail.ParseAddress(addr); err != nil {
-			logger.Warn("invalid analysis.notify_emails recipient; will fail at send time",
-				"address", addr, "err", err)
-		}
-	}
-
-	// Build the synthetic channel once; the engine treats it as enabled and
-	// dispatches the payload to it directly.
-	cfgJSON, err := json.Marshal(map[string]any{"to": recipients})
-	if err != nil {
-		logger.Error("marshal analysis-report channel config", "err", err)
-		return nil
-	}
-	channel := notification.Channel{
-		ID:      -1, // Synthetic; not stored, will not produce a notification_log row that joins to channels.
-		Name:    "analysis-report-tracer",
-		Type:    notification.ChannelTypeEmail,
-		Config:  cfgJSON,
-		Enabled: true,
-	}
-
-	logger.Info("analysis-report email notifications enabled",
-		"recipients", len(recipients))
-
 	return func(ctx context.Context, r model.AnalysisReport) {
-		engine.SendAnalysisReport(ctx, r, []notification.Channel{channel})
+		if len(r.NotifyChannelIDs) == 0 {
+			return
+		}
+		channels := make([]notification.Channel, 0, len(r.NotifyChannelIDs))
+		for _, id := range r.NotifyChannelIDs {
+			ch, err := store.GetNotificationChannel(ctx, id)
+			if err != nil {
+				// Channel deleted (or unreadable) since enqueue — skip it
+				// rather than failing the whole dispatch.
+				logger.Warn("analysis-report notify channel unavailable, skipping",
+					"report_id", r.ID, "channel_id", id, "err", err)
+				continue
+			}
+			channels = append(channels, ch)
+		}
+		engine.SendAnalysisReport(ctx, r, channels)
 	}
 }
 

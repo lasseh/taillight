@@ -11,6 +11,7 @@ import type {
   AnalysisSchedule,
   CreateAnalysisScheduleRequest,
 } from '@/types/analysis'
+import type { NotificationChannel } from '@/types/notification'
 
 const auth = useAuthStore()
 const features = getFeatures()
@@ -33,6 +34,11 @@ const formDayOfWeek = ref(1)
 const formDayOfMonth = ref(1)
 const formTimeOfDay = ref('03:00')
 const formTimezone = ref('UTC')
+const formNotifyChannelIds = ref<number[]>([])
+
+// Email notification channels available as report recipients. Only email-type
+// channels render an analysis report, so the picker is restricted to them.
+const emailChannels = ref<NotificationChannel[]>([])
 
 const modalEl = ref<HTMLElement | null>(null)
 useFocusTrap(modalEl)
@@ -100,6 +106,16 @@ async function fetchData() {
   }
 }
 
+async function fetchChannels() {
+  try {
+    const res = await api.listChannels()
+    emailChannels.value = res.data.filter((c) => c.type === 'email')
+  } catch {
+    // Non-fatal: the recipient picker just shows the "no channels" hint.
+    emailChannels.value = []
+  }
+}
+
 function openCreate() {
   editing.value = null
   formName.value = ''
@@ -110,6 +126,7 @@ function openCreate() {
   formDayOfMonth.value = 1
   formTimeOfDay.value = '03:00'
   formTimezone.value = 'UTC'
+  formNotifyChannelIds.value = []
   saveError.value = ''
   showModal.value = true
 }
@@ -124,6 +141,7 @@ function openEdit(s: AnalysisSchedule) {
   formDayOfMonth.value = s.day_of_month ?? 1
   formTimeOfDay.value = s.time_of_day
   formTimezone.value = s.timezone
+  formNotifyChannelIds.value = [...(s.notify_channel_ids ?? [])]
   saveError.value = ''
   showModal.value = true
 }
@@ -142,6 +160,7 @@ function buildPayload(): CreateAnalysisScheduleRequest {
     frequency: formFrequency.value,
     time_of_day: formTimeOfDay.value,
     timezone: formTimezone.value,
+    notify_channel_ids: [...formNotifyChannelIds.value],
   }
   if (formFrequency.value === 'weekly') payload.day_of_week = formDayOfWeek.value
   if (formFrequency.value === 'monthly') payload.day_of_month = formDayOfMonth.value
@@ -228,7 +247,16 @@ function formatLastRun(ts?: string | null): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-onMounted(fetchData)
+function toggleChannel(id: number) {
+  const idx = formNotifyChannelIds.value.indexOf(id)
+  if (idx >= 0) formNotifyChannelIds.value.splice(idx, 1)
+  else formNotifyChannelIds.value.push(id)
+}
+
+onMounted(() => {
+  fetchData()
+  fetchChannels()
+})
 </script>
 
 <template>
@@ -481,6 +509,32 @@ onMounted(fetchData)
                     </select>
                   </label>
                 </div>
+              </div>
+
+              <div class="border-t-border space-y-3 border-t pt-3">
+                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Email report to</span>
+                <p v-if="emailChannels.length === 0" class="text-t-fg-gutter text-xs">
+                  no email notification channels configured — add one under Notifications to email this report.
+                </p>
+                <div v-else class="flex flex-wrap gap-2">
+                  <button
+                    v-for="ch in emailChannels"
+                    :key="ch.id"
+                    type="button"
+                    class="border px-3 py-1.5 text-sm transition-all"
+                    :class="
+                      formNotifyChannelIds.includes(ch.id)
+                        ? 'border-t-orange text-t-orange'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
+                    @click="toggleChannel(ch.id)"
+                  >
+                    {{ ch.name }}
+                  </button>
+                </div>
+                <p v-if="emailChannels.length > 0" class="text-t-fg-gutter text-xs">
+                  the completed report is mailed to the selected channels; none selected = no email.
+                </p>
               </div>
 
               <div v-if="saveError" class="text-t-red text-sm">{{ saveError }}</div>

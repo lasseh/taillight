@@ -139,11 +139,6 @@ analysis:
   run_timeout: "4h"             # Wall-clock bound for a full analysis run (gather + prompt + chat + persist,
                                 # including any structure-validation retry). Should comfortably exceed
                                 # ollama_timeout — 2× is a safe floor since a retry can double the chat time.
-  # notify_emails:              # Recipients for completed-report emails. Empty/unset = feature off.
-  #   - ops@example.com         # Every completed report goes to every address in the list. SMTP must be
-  #   - oncall@example.com      # configured above; otherwise sends fail with "email backend is not configured".
-                                # Idempotent: a notified_at CAS guarantees one email per report row, so a
-                                # worker retry on MarkReportCompleted can't deliver duplicates. No rule-engine
-                                # filtering in this slice — every report fires; per-feed/per-mode targeting is
-                                # a follow-up.
+                                # Completed-report emails are configured per schedule: pick one or more email
+                                # notification channels on the schedule (/analysis UI). SMTP must be set above.
 
