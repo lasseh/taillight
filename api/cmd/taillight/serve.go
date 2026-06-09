@@ -620,7 +620,7 @@ func setupRouter(
 	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
 	exportHandler := handler.NewExportHandler(store, store, store)
 	juniperRefHandler := handler.NewJuniperRefHandler(store)
-	configHandler := handler.NewConfigHandler(cfg.Features)
+	configHandler := handler.NewConfigHandler(cfg.Features, cfg.Analysis.Enabled)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Runtime config — unauthenticated so the frontend can fetch feature

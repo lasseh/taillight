@@ -4,9 +4,13 @@ export interface Features {
   netlog: boolean
   srvlog: boolean
   applog: boolean
+  analysis: boolean
 }
 
-let cached: Features = { netlog: true, srvlog: true, applog: true }
+// Feeds default on (fail-open) since they're enabled by default; analysis
+// defaults off (fail-closed) since it's opt-in — on a fetch failure we'd
+// rather briefly hide a working link than show a dead one on most deploys.
+let cached: Features = { netlog: true, srvlog: true, applog: true, analysis: false }
 
 export async function loadFeatures(): Promise<void> {
   try {

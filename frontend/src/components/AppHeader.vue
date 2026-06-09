@@ -281,6 +281,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
                 <span>Alerts</span>
               </button>
               <button
+                v-if="features.analysis"
                 class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
                 @click="goToAnalysis"
               >
@@ -508,6 +509,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             <span>Alerts</span>
           </button>
           <button
+            v-if="features.analysis"
             class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
             @click="goToAnalysis"
           >
