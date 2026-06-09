@@ -82,6 +82,7 @@ Lightweight, real-time log viewer for network operations teams. Stream netlog (n
 - Scheduled daily reports via local Ollama LLM
 - Anomaly detection and trend summaries
 - On-demand analysis trigger via API
+- Postgres aggregates the logs first, so the model narrates a compact summary rather than raw lines — see [`api/internal/analyzer/README.md`](api/internal/analyzer/README.md) for how the pipeline works
 
 ### Netbox Enrichment
 
