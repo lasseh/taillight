@@ -8,6 +8,7 @@
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",
+    "verbatimModuleSyntax": true,
     "noEmit": true,
     "types": ["node"],
     "strict": true,

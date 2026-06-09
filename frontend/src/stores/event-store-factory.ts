@@ -237,6 +237,12 @@ export function createEventStore<TEvent extends { id: number }>(
       },
     )
 
+    // These event stores are app-lifetime Pinia singletons (single createApp +
+    // createPinia, no SSR). onScopeDispose therefore runs only on Pinia/app
+    // teardown (HMR, tests, app unmount) — never on route leave — so the stream
+    // subscription and watchers are intentionally process-lifetime, matching the
+    // "SSE stays connected across route changes" design. This is teardown for
+    // disposal, not per-route cleanup.
     onScopeDispose(() => {
       _unsubscribe()
       _stopFilterWatch()

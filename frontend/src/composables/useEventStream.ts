@@ -40,11 +40,15 @@ export function createEventStream<T>(path: string, eventName: string) {
       open()
     }
   }
-  document.addEventListener('visibilitychange', onVisibilityChange)
 
   function open() {
     const baseUrl = `${config.apiUrl}${path}`
-    const connectUrl = lastEventId ? `${baseUrl}?lastEventId=${lastEventId}` : baseUrl
+    // Device-scoped streams pass a path that already has a query string
+    // (e.g. ?hostname=...), so the lastEventId param must be joined with & in
+    // that case, not a second ?. Bare-path global streams use ?.
+    const connectUrl = lastEventId
+      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}lastEventId=${encodeURIComponent(lastEventId)}`
+      : baseUrl
     es = new EventSource(connectUrl)
 
     es.addEventListener(eventName, (e: MessageEvent) => {
@@ -130,6 +134,11 @@ export function createEventStream<T>(path: string, eventName: string) {
   function start() {
     if (es || retryTimer) return
     started = true
+    // Register the wake-from-sleep reconnect listener on each start (paired with
+    // removeEventListener in stop()). addEventListener dedupes identical
+    // registrations, so this is safe across stop()/start() cycles (e.g.
+    // logout -> login) where a once-at-module-load registration would be lost.
+    document.addEventListener('visibilitychange', onVisibilityChange)
     backoff = INITIAL_BACKOFF
     disconnectedSince = null
     open()

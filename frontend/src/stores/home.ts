@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { api, ApiError } from '@/lib/api'
 import { features as getFeatures } from '@/lib/features'
@@ -54,6 +54,26 @@ export const useHomeStore = defineStore('home', () => {
   const recentSrvlogEvents = ref<SrvlogEvent[]>([])
   const recentNetlogEvents = ref<NetlogEvent[]>([])
   const recentApplogEvents = ref<AppLogEvent[]>([])
+
+  // Cross-feed shaping: merge the srvlog + netlog recent feeds into one
+  // newest-first list tagged with a feed badge + detail route, capped at
+  // MAX_RECENT_EVENTS. Lives in the store (not the view) so the shaping is
+  // testable and reusable.
+  const combinedRecentEvents = computed(() => {
+    const s = recentSrvlogEvents.value.map((e) => ({
+      ...e,
+      _feed: 'srvlog' as const,
+      _routeName: 'srvlog-detail',
+    }))
+    const n = recentNetlogEvents.value.map((e) => ({
+      ...e,
+      _feed: 'netlog' as const,
+      _routeName: 'netlog-detail',
+    }))
+    return [...s, ...n]
+      .sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime())
+      .slice(0, MAX_RECENT_EVENTS)
+  })
   const srvlogHeatmap = ref<Record<string, number>>({})
   const netlogHeatmap = ref<Record<string, number>>({})
   const applogHeatmap = ref<Record<string, number>>({})
@@ -75,26 +95,41 @@ export const useHomeStore = defineStore('home', () => {
   const netlogSeenIds = new Set<number>()
   const applogSeenIds = new Set<number>()
 
+  // Cap each dedup Set so a long-lived dashboard tab doesn't accumulate one id
+  // per high-severity event forever. The displayed window is tiny
+  // (MAX_RECENT_EVENTS); a few hundred remembered ids is far more than enough to
+  // dedup SSE re-delivery (incl. the ~100-event reconnect backfill) while staying
+  // bounded. Batch-evicts the oldest insertions, mirroring event-store-factory.
+  const SEEN_IDS_HIGH = 600
+  const SEEN_IDS_TRIM = 200
+  function rememberSeen(seen: Set<number>, id: number) {
+    seen.add(id)
+    if (seen.size > SEEN_IDS_HIGH) {
+      const iter = seen.values()
+      for (let i = 0; i < SEEN_IDS_TRIM; i++) seen.delete(iter.next().value!)
+    }
+  }
+
   // ── SSE handlers: prepend matching live events ──
 
   function onSrvlogEvent(event: SrvlogEvent) {
     if (event.severity > HIGH_SEVERITY_MAX) return
     if (srvlogSeenIds.has(event.id)) return
-    srvlogSeenIds.add(event.id)
+    rememberSeen(srvlogSeenIds, event.id)
     recentSrvlogEvents.value = [event, ...recentSrvlogEvents.value].slice(0, MAX_RECENT_EVENTS)
   }
 
   function onNetlogEvent(event: NetlogEvent) {
     if (event.severity > HIGH_SEVERITY_MAX) return
     if (netlogSeenIds.has(event.id)) return
-    netlogSeenIds.add(event.id)
+    rememberSeen(netlogSeenIds, event.id)
     recentNetlogEvents.value = [event, ...recentNetlogEvents.value].slice(0, MAX_RECENT_EVENTS)
   }
 
   function onApplogEvent(event: AppLogEvent) {
     if (!HIGH_APPLOG_LEVELS.has(event.level)) return
     if (applogSeenIds.has(event.id)) return
-    applogSeenIds.add(event.id)
+    rememberSeen(applogSeenIds, event.id)
     recentApplogEvents.value = [event, ...recentApplogEvents.value].slice(0, MAX_RECENT_EVENTS)
   }
 
@@ -387,6 +422,7 @@ export const useHomeStore = defineStore('home', () => {
     recentSrvlogEvents,
     recentNetlogEvents,
     recentApplogEvents,
+    combinedRecentEvents,
     srvlogHeatmap,
     netlogHeatmap,
     applogHeatmap,

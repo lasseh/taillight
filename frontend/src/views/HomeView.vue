@@ -12,6 +12,9 @@ import { LEVEL_RANK, levelColorClass, levelBgColorClass } from '@/lib/applog-con
 import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import RecentCriticalLogs from '@/components/RecentCriticalLogs.vue'
 import ActivityHeatmap from '@/components/ActivityHeatmap.vue'
+import WidgetCloseButton from '@/components/WidgetCloseButton.vue'
+import RangePresets from '@/components/RangePresets.vue'
+import { rangePresets } from '@/lib/ranges'
 
 defineOptions({ name: 'HomeView' })
 
@@ -36,14 +39,6 @@ const anyActivityVisible = computed(() =>
 // in the product. The home store prepends new events, so the source list is
 // newest-first; we flip only for display.
 const chronologicalApplogEvents = computed(() => [...home.recentApplogEvents].reverse())
-
-const rangePresets = [
-  { label: '1h', value: '1h' },
-  { label: '6h', value: '6h' },
-  { label: '24h', value: '24h' },
-  { label: '7d', value: '7d' },
-  { label: '30d', value: '30d' },
-]
 
 const rangeLabel = computed(() => {
   const p = rangePresets.find(p => p.value === home.range)
@@ -147,14 +142,8 @@ const syslogTopHosts = computed(() => {
     .sort((a, b) => b.count - a.count)
 })
 
-// Syslog: combined recent events with feed badge
-const combinedRecentEvents = computed(() => {
-  const s = home.recentSrvlogEvents.map(e => ({ ...e, _feed: 'srvlog' as const, _routeName: 'srvlog-detail' }))
-  const n = home.recentNetlogEvents.map(e => ({ ...e, _feed: 'netlog' as const, _routeName: 'netlog-detail' }))
-  return [...s, ...n]
-    .sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime())
-    .slice(0, 10)
-})
+// Syslog: combined recent events with feed badge — shaping moved to the home
+// store (home.combinedRecentEvents); see stores/home.ts.
 
 // Syslog: combined heatmap
 const syslogHeatmap = computed(() => {
@@ -258,15 +247,7 @@ function getSeverityBgClass(level: string): string {
           <span v-if="features.netlog && features.srvlog" class="text-t-fg-dark">&amp;</span>
           <RouterLink v-if="features.srvlog" to="/srvlog" class="text-t-teal bg-t-teal/20 rounded px-2 py-0.5 hover:bg-t-teal/30 transition-colors">Srvlog</RouterLink>
           <span class="bg-t-border h-px flex-1"></span>
-          <span class="flex items-center gap-1">
-            <button
-              v-for="p in rangePresets"
-              :key="p.value"
-              class="rounded px-1.5 py-0.5 text-xs transition-colors"
-              :class="home.range === p.value ? 'bg-t-bg-highlight text-t-purple' : 'text-t-fg-dark hover:text-t-fg'"
-              @click="home.setRange(p.value)"
-            >{{ p.label }}</button>
-          </span>
+          <RangePresets :range="home.range" @select="home.setRange" />
         </h2>
 
         <!-- Empty state -->
@@ -277,7 +258,7 @@ function getSeverityBgClass(level: string): string {
         <template v-else>
           <!-- Summary Cards -->
           <div v-if="isVisible('syslog-summary')" class="relative mb-4">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-summary')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <WidgetCloseButton v-if="editing" @close="hideWidget('syslog-summary')" />
             <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
               <!-- Total -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
@@ -322,7 +303,7 @@ function getSeverityBgClass(level: string): string {
 
           <!-- Two Column Layout -->
           <div v-if="isVisible('syslog-distribution')" class="relative mb-4">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-distribution')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <WidgetCloseButton v-if="editing" @close="hideWidget('syslog-distribution')" />
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <!-- Severity Distribution -->
               <SeverityDistribution :items="syslogSeverityBreakdown" />
@@ -355,8 +336,8 @@ function getSeverityBgClass(level: string): string {
 
           <!-- Recent High-Severity Events -->
           <div v-if="isVisible('syslog-recent')" class="relative">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-recent')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
-            <RecentCriticalLogs :events="combinedRecentEvents" show-hostname show-feed :flash-ids="newSyslogIds" />
+            <WidgetCloseButton v-if="editing" @close="hideWidget('syslog-recent')" />
+            <RecentCriticalLogs :events="home.combinedRecentEvents" show-hostname show-feed :flash-ids="newSyslogIds" />
           </div>
         </template>
       </section>
@@ -366,15 +347,7 @@ function getSeverityBgClass(level: string): string {
         <h2 class="text-t-magenta mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
           <RouterLink to="/applog" class="bg-t-magenta/20 rounded px-2 py-0.5 hover:bg-t-magenta/30 transition-colors">Applog</RouterLink>
           <span class="bg-t-border h-px flex-1"></span>
-          <span class="flex items-center gap-1">
-            <button
-              v-for="p in rangePresets"
-              :key="p.value"
-              class="rounded px-1.5 py-0.5 text-xs transition-colors"
-              :class="home.range === p.value ? 'bg-t-bg-highlight text-t-purple' : 'text-t-fg-dark hover:text-t-fg'"
-              @click="home.setRange(p.value)"
-            >{{ p.label }}</button>
-          </span>
+          <RangePresets :range="home.range" @select="home.setRange" />
         </h2>
 
         <!-- Empty state -->
@@ -385,7 +358,7 @@ function getSeverityBgClass(level: string): string {
         <template v-else>
           <!-- Summary Cards -->
           <div v-if="isVisible('applog-summary')" class="relative mb-4">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('applog-summary')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <WidgetCloseButton v-if="editing" @close="hideWidget('applog-summary')" />
             <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
               <!-- Total -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
@@ -430,7 +403,7 @@ function getSeverityBgClass(level: string): string {
 
           <!-- Two Column Layout -->
           <div v-if="isVisible('applog-distribution')" class="relative mb-4">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('applog-distribution')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <WidgetCloseButton v-if="editing" @close="hideWidget('applog-distribution')" />
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <!-- Level Distribution -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
@@ -483,7 +456,7 @@ function getSeverityBgClass(level: string): string {
 
           <!-- Recent Errors -->
           <div v-if="isVisible('applog-recent')" class="relative">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('applog-recent')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <WidgetCloseButton v-if="editing" @close="hideWidget('applog-recent')" />
             <div class="bg-t-bg-dark border-t-border rounded border">
               <h3 class="text-t-fg-dark border-t-border border-b px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">Recent Errors</h3>
               <div>
@@ -534,7 +507,7 @@ function getSeverityBgClass(level: string): string {
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <!-- Syslog Heatmap (combined srvlog + netlog) -->
           <div v-if="(features.srvlog || features.netlog) && isVisible('syslog-heatmap')" class="relative">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('syslog-heatmap')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <WidgetCloseButton v-if="editing" @close="hideWidget('syslog-heatmap')" />
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">Syslog Volume</h3>
               <ActivityHeatmap :data="syslogHeatmap" color-var="--color-t-teal" label="syslog events" />
@@ -543,7 +516,7 @@ function getSeverityBgClass(level: string): string {
 
           <!-- Applog Heatmap -->
           <div v-if="features.applog && isVisible('applog-heatmap')" class="relative">
-            <button v-if="editing" class="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-t-border bg-t-bg-dark text-t-fg-dark transition-colors hover:border-t-red hover:text-t-red" @click="hideWidget('applog-heatmap')"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+            <WidgetCloseButton v-if="editing" @close="hideWidget('applog-heatmap')" />
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <h3 class="text-t-magenta mb-3 text-xs font-semibold uppercase tracking-wide">Applog Volume</h3>
               <ActivityHeatmap :data="home.applogHeatmap" color-var="--color-t-magenta" label="applog events" />

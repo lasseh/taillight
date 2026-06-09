@@ -59,7 +59,7 @@ const chronological = computed(() => [...props.events].reverse())
           <div v-if="showHostname" class="text-t-teal/60 truncate text-[10px] leading-tight">
             <span v-if="showFeed && event._feed && feedBadge[event._feed]" :class="feedBadge[event._feed]!.cls" class="mr-1 font-bold">{{ feedBadge[event._feed]!.label }}</span>{{ event.hostname }}
           </div>
-          <div class="min-w-0 truncate text-xs leading-snug" v-html="highlightMessage(event.id, event.message)" />
+          <div class="min-w-0 truncate text-xs leading-snug" v-html="highlightMessage(`${event._feed ?? routeName}:${event.id}`, event.message)" />
         </div>
       </RouterLink>
       <!-- Desktop: single-line layout -->
@@ -78,7 +78,7 @@ const chronological = computed(() => [...props.events].reverse())
         <span class="w-[8ch] shrink-0 uppercase" :class="severityColorClassByLabel[event.severity_label] ?? 'text-t-fg'">{{ event.severity_label }}</span>
         <span v-if="showHostname" class="text-t-teal w-[20ch] shrink-0 truncate">{{ event.hostname }}</span>
         <span class="text-t-purple w-[10ch] shrink-0 truncate">{{ event.programname }}</span>
-        <span class="min-w-0 flex-1 truncate" v-html="highlightMessage(event.id, event.message)" />
+        <span class="min-w-0 flex-1 truncate" v-html="highlightMessage(`${event._feed ?? routeName}:${event.id}`, event.message)" />
       </RouterLink>
     </div>
   </div>

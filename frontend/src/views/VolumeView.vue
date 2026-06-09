@@ -28,8 +28,20 @@ function escapeHtml(s: string): string {
 }
 
 type Tab = 'netlog' | 'srvlog' | 'applog' | 'rsyslog' | 'taillight'
+const TABS: readonly Tab[] = ['netlog', 'srvlog', 'applog', 'rsyslog', 'taillight']
 const defaultTab = features.netlog ? 'netlog' : features.srvlog ? 'srvlog' : 'applog'
-const activeTab = ref<Tab>((route.query.tab as Tab) || defaultTab)
+
+// Resolve the initial tab from the URL. Must be a known tab; the three
+// feature-flagged feeds also require their flag (rsyslog/taillight have no flag
+// and are honored whenever valid). Unknown values or an array (?tab=a&tab=b)
+// fall back to defaultTab instead of rendering a blank content area.
+function resolveTab(value: unknown): Tab {
+  if (typeof value !== 'string' || !(TABS as readonly string[]).includes(value)) return defaultTab
+  const tab = value as Tab
+  if ((tab === 'netlog' || tab === 'srvlog' || tab === 'applog') && !features[tab]) return defaultTab
+  return tab
+}
+const activeTab = ref<Tab>(resolveTab(route.query.tab))
 
 const accentColors = computed(() => theme.value.chartColors)
 
@@ -566,7 +578,7 @@ onUnmounted(() => {
               <span
                 class="font-bold"
                 :style="{ color: accentColors[idx % accentColors.length] }"
-              >{{ (hoveredHost[host]![host] as number) ?? 0 }}</span>
+              >{{ (hoveredHost[host]![host]) ?? 0 }}</span>
             </span>
           </h3>
           <div
@@ -653,7 +665,7 @@ onUnmounted(() => {
               <span
                 class="font-bold"
                 :style="{ color: accentColors[i % accentColors.length] }"
-              >{{ (hoveredHost[host]![host] as number) ?? 0 }}</span>
+              >{{ (hoveredHost[host]![host]) ?? 0 }}</span>
             </span>
           </h3>
           <div
@@ -740,7 +752,7 @@ onUnmounted(() => {
               <span
                 class="font-bold"
                 :style="{ color: accentColors[i % accentColors.length] }"
-              >{{ (hoveredService[service]![service] as number) ?? 0 }}</span>
+              >{{ (hoveredService[service]![service]) ?? 0 }}</span>
             </span>
           </h3>
           <div

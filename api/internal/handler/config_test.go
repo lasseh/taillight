@@ -11,14 +11,16 @@ import (
 
 func TestConfigHandler_Features(t *testing.T) {
 	tests := []struct {
-		name string
-		cfg  config.FeaturesConfig
-		want FeaturesResponse
+		name     string
+		cfg      config.FeaturesConfig
+		analysis bool
+		want     FeaturesResponse
 	}{
 		{
-			name: "all enabled",
-			cfg:  config.FeaturesConfig{Srvlog: true, Netlog: true, AppLog: true},
-			want: FeaturesResponse{Srvlog: true, Netlog: true, Applog: true},
+			name:     "all enabled",
+			cfg:      config.FeaturesConfig{Srvlog: true, Netlog: true, AppLog: true},
+			analysis: true,
+			want:     FeaturesResponse{Srvlog: true, Netlog: true, Applog: true, Analysis: true},
 		},
 		{
 			name: "all disabled",
@@ -26,15 +28,22 @@ func TestConfigHandler_Features(t *testing.T) {
 			want: FeaturesResponse{},
 		},
 		{
-			name: "mixed",
-			cfg:  config.FeaturesConfig{Srvlog: true, Netlog: false, AppLog: true},
-			want: FeaturesResponse{Srvlog: true, Netlog: false, Applog: true},
+			name:     "mixed",
+			cfg:      config.FeaturesConfig{Srvlog: true, Netlog: false, AppLog: true},
+			analysis: false,
+			want:     FeaturesResponse{Srvlog: true, Netlog: false, Applog: true, Analysis: false},
+		},
+		{
+			name:     "analysis on, feeds off",
+			cfg:      config.FeaturesConfig{},
+			analysis: true,
+			want:     FeaturesResponse{Analysis: true},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewConfigHandler(tt.cfg)
+			h := NewConfigHandler(tt.cfg, tt.analysis)
 
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/config/features", nil)
 			w := httptest.NewRecorder()

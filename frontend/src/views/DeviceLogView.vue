@@ -1,80 +1,85 @@
-<script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+<script setup lang="ts" generic="TEvent extends SrvlogEvent">
+import { ref, computed, watch, onUnmounted, type Ref, type Component } from 'vue'
 import { useRouter, useRoute, RouterLink } from 'vue-router'
-import type { AppLogDeviceSummary } from '@/types/device'
-import type { AppLogEvent } from '@/types/applog'
-import { api, ApiError } from '@/lib/api'
+import type { DeviceSummary, DeviceSummaryResponse } from '@/types/device'
+import type { SrvlogEvent } from '@/types/srvlog'
+import { ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
-import { LEVEL_RANK, levelColorClass, levelBgClass, levelBgColorClass } from '@/lib/applog-constants'
-import { useAppLogDeviceLogs } from '@/composables/useAppLogDeviceLogs'
+import { severityLabels, severityColorClassByLabel, severityBgClass, severityBgClassByLabel } from '@/lib/constants'
+import { highlightMessage } from '@/lib/highlighter'
 import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import { useDeviceLogScroll } from '@/composables/useDeviceLogScroll'
 import { useDeviceSummaryLive } from '@/composables/useDeviceSummaryLive'
 import { useCollapseOnEscape } from '@/composables/useCollapseOnEscape'
 import ErrorDisplay from '@/components/ErrorDisplay.vue'
-import LevelDistribution from '@/components/LevelDistribution.vue'
+import SeverityDistribution from '@/components/SeverityDistribution.vue'
 import DeviceActivityChart from '@/components/DeviceActivityChart.vue'
-import AppLogRow from '@/components/AppLogRow.vue'
 
+// Shared srvlog/netlog device view. The two feeds are byte-identical except for
+// the data sources and route/highlight identifiers, which arrive as props from
+// the thin per-feed wrappers (DeviceView, NetlogDeviceView).
 const props = defineProps<{
   hostname: string
+  useLogs: (h: Ref<string>) => { events: Ref<TEvent[]> }
+  fetchSummary: (host: string) => Promise<DeviceSummaryResponse>
+  row: Component
+  listRoute: string
+  listLabel: string
+  detailRoute: string
+  highlightPrefix: string
 }>()
 
 const hostnameRef = computed(() => props.hostname)
-const { events: deviceLogs } = useAppLogDeviceLogs(hostnameRef)
+const { events: deviceLogs } = props.useLogs(hostnameRef)
 
 const summaryCollapsed = useDeviceSummaryCollapsed()
 
 const router = useRouter()
 const route = useRoute()
-const initialTab = route.query.tab === 'recent' ? 'recent' : 'error'
-const activeTab = ref<'error' | 'recent'>(initialTab)
+const initialTab = route.query.tab === 'recent' ? 'recent' : 'critical'
+const activeTab = ref<'critical' | 'recent'>(initialTab)
 
 // Persist tab selection in the URL query string.
 watch(activeTab, (tab) => {
-  router.replace({ query: { ...route.query, tab: tab === 'error' ? undefined : tab } })
+  router.replace({ query: { ...route.query, tab: tab === 'critical' ? undefined : tab } })
 })
-
-const summary = ref<AppLogDeviceSummary | null>(null)
+const summary = ref<DeviceSummary | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const errorStatus = ref<number | null>(null)
 
-// Provide collapseSignal for AppLogRow expand/collapse on Escape.
+// Provide collapseSignal for the row component's expand/collapse on Escape.
 useCollapseOnEscape()
 
 // Recent logs reversed to chronological order (oldest first, newest at bottom).
 const chronologicalLogs = computed(() => [...deviceLogs.value].reverse())
 
-// Error logs reversed to match chronological order (newest at bottom).
-const chronologicalErrorLogs = computed(() => [...(summary.value?.error_logs ?? [])].reverse())
+// Critical logs reversed to match chronological order (newest at bottom).
+const chronologicalCriticalLogs = computed(() => [...(summary.value?.critical_logs ?? [])].reverse())
 
-// Derive individual level counts from breakdown (matches dashboard pattern).
-function lvlCount(level: string): number {
-  return summary.value?.level_breakdown.find(l => l.level === level)?.count ?? 0
+// Derive individual severity counts from breakdown (matches dashboard pattern).
+function sevCount(severity: number): number {
+  return summary.value?.severity_breakdown.find(s => s.severity === severity)?.count ?? 0
 }
-const fatalCount = computed(() => lvlCount('FATAL'))
-const errorCount = computed(() => lvlCount('ERROR'))
-const fatalErrorCount = computed(() => fatalCount.value + errorCount.value)
-const warnCount = computed(() => lvlCount('WARN'))
-const infoCount = computed(() => lvlCount('INFO'))
+const emergCount = computed(() => sevCount(0))
+const alertCount = computed(() => sevCount(1))
+const emergAlertCount = computed(() => emergCount.value + alertCount.value)
+const critCount = computed(() => sevCount(2))
+const errCount = computed(() => sevCount(3))
 
-// Compute dynamic column widths for AppLogRow.
+// Compute dynamic column widths for the row component.
 const colWidths = computed(() => {
-  const events = activeTab.value === 'error'
-    ? chronologicalErrorLogs.value
+  const events = activeTab.value === 'critical'
+    ? chronologicalCriticalLogs.value
     : chronologicalLogs.value
   const hostLen = props.hostname.length
-  let maxSvc = 0
-  let maxComp = 0
+  let maxProg = 0
   for (const e of events) {
-    if (e.service.length > maxSvc) maxSvc = e.service.length
-    if (e.component.length > maxComp) maxComp = e.component.length
+    if (e.programname.length > maxProg) maxProg = e.programname.length
   }
   return {
     '--col-host': `${Math.min(20, Math.max(8, hostLen + 1))}ch`,
-    '--col-svc': `${Math.min(16, Math.max(6, maxSvc + 1))}ch`,
-    '--col-comp': `${Math.min(16, Math.max(6, maxComp + 1))}ch`,
+    '--col-prog': `${Math.min(16, Math.max(6, maxProg + 1))}ch`,
   }
 })
 
@@ -84,7 +89,7 @@ const { isPinned, scrollToBottom, onLogScroll } = useDeviceLogScroll(logScrollEl
 
 async function fetchData() {
   try {
-    const res = await api.getAppLogDeviceSummary(props.hostname)
+    const res = await props.fetchSummary(props.hostname)
     summary.value = res.data
     // Fresh DB truth already counts the current buffer; only newer events tick.
     baseline()
@@ -111,23 +116,24 @@ const { baseline } = useDeviceSummaryLive(deviceLogs, (event) => {
   s.total_count++
   s.last_seen_at = event.received_at
 
-  // Update level breakdown counts + percentages.
-  const existing = s.level_breakdown.find(l => l.level === event.level)
+  // Update severity breakdown counts + percentages.
+  const label = severityLabels[event.severity] ?? 'unknown'
+  const existing = s.severity_breakdown.find(b => b.severity === event.severity)
   if (existing) {
     existing.count++
   } else {
-    s.level_breakdown.push({ level: event.level, count: 1, pct: 0 })
-    s.level_breakdown.sort((a, b) => (LEVEL_RANK[a.level] ?? 99) - (LEVEL_RANK[b.level] ?? 99))
+    s.severity_breakdown.push({ severity: event.severity, label, count: 1, pct: 0 })
+    s.severity_breakdown.sort((a, b) => a.severity - b.severity)
   }
-  for (const l of s.level_breakdown) {
-    l.pct = (l.count / s.total_count) * 100
+  for (const b of s.severity_breakdown) {
+    b.pct = (b.count / s.total_count) * 100
   }
 
-  // Error-level events (FATAL, ERROR).
-  if (event.level === 'FATAL' || event.level === 'ERROR') {
-    s.error_count++
-    s.error_logs.unshift(event)
-    if (s.error_logs.length > 100) s.error_logs.splice(100)
+  // Critical events (emerg=0, alert=1, crit=2).
+  if (event.severity <= 2) {
+    s.critical_count++
+    s.critical_logs.unshift(event)
+    if (s.critical_logs.length > 100) s.critical_logs.splice(100)
   }
 })
 
@@ -148,8 +154,8 @@ onUnmounted(() => {
   clearInterval(refreshTimer)
 })
 
-function currentEvents(): AppLogEvent[] {
-  if (activeTab.value === 'error') return chronologicalErrorLogs.value
+function currentEvents() {
+  if (activeTab.value === 'critical') return chronologicalCriticalLogs.value
   return chronologicalLogs.value
 }
 </script>
@@ -167,16 +173,16 @@ function currentEvents(): AppLogEvent[] {
         title="failed to load device"
         :message="error"
         :show-back="true"
-        list-route="applog"
-        list-label="go to applog"
+        :list-route="listRoute"
+        :list-label="listLabel"
       />
       <ErrorDisplay
         v-else
         title="nobody's home"
         message="the api isn't responding — it's probably down, restarting, or out getting coffee"
         :show-back="true"
-        list-route="applog"
-        list-label="go to applog"
+        :list-route="listRoute"
+        :list-label="listLabel"
       />
     </div>
 
@@ -193,7 +199,7 @@ function currentEvents(): AppLogEvent[] {
             &larr; back
           </button>
           <RouterLink
-            :to="{ name: 'applog', query: { host: summary.host } }"
+            :to="{ name: listRoute, query: { hostname: summary.hostname } }"
             class="text-t-teal text-xs hover:underline"
           >
             view all logs &rarr;
@@ -204,50 +210,51 @@ function currentEvents(): AppLogEvent[] {
         <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
           <!-- Hostname -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
-            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Host</div>
-            <div class="text-t-teal truncate font-mono text-lg font-bold" :title="summary.host">{{ summary.host }}</div>
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Hostname</div>
+            <div class="text-t-teal truncate font-mono text-lg font-bold" :title="summary.hostname">{{ summary.hostname }}</div>
+            <div v-if="summary.fromhost_ip" class="text-t-fg-dark font-mono text-xs">{{ summary.fromhost_ip }}</div>
             <div class="mt-1 font-mono text-xs" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
               {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never seen' }}
             </div>
           </div>
 
-          <!-- Fatal & Errors -->
+          <!-- Emerg & Alert -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
-            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Fatal & Errors</div>
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Emerg & Alert</div>
             <div class="text-2xl font-bold">
-              <RouterLink :to="{ name: 'applog', query: { host: summary.host, level_exact: 'FATAL' } }" class="text-sev-emerg hover:underline">{{ formatNumber(fatalCount) }}</RouterLink>
+              <RouterLink :to="{ name: listRoute, query: { hostname: summary.hostname, severity: '0' } }" class="text-sev-emerg hover:underline">{{ formatNumber(emergCount) }}</RouterLink>
               <span class="text-t-fg-dark"> / </span>
-              <RouterLink :to="{ name: 'applog', query: { host: summary.host, level_exact: 'ERROR' } }" class="text-sev-alert hover:underline">{{ formatNumber(errorCount) }}</RouterLink>
+              <RouterLink :to="{ name: listRoute, query: { hostname: summary.hostname, severity: '1' } }" class="text-sev-alert hover:underline">{{ formatNumber(alertCount) }}</RouterLink>
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
-              {{ ((fatalErrorCount / summary.total_count) * 100).toFixed(1) }}% of total
+              {{ ((emergAlertCount / summary.total_count) * 100).toFixed(1) }}% of total
             </div>
           </div>
 
-          <!-- Warnings -->
+          <!-- Criticals -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
-            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Warnings</div>
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Criticals</div>
             <div class="text-2xl font-bold">
-              <RouterLink :to="{ name: 'applog', query: { host: summary.host, level_exact: 'WARN' } }" class="text-sev-crit hover:underline">{{ formatNumber(warnCount) }}</RouterLink>
+              <RouterLink :to="{ name: listRoute, query: { hostname: summary.hostname, severity: '2' } }" class="text-sev-crit hover:underline">{{ formatNumber(critCount) }}</RouterLink>
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
-              {{ ((warnCount / summary.total_count) * 100).toFixed(1) }}% of total
+              {{ ((critCount / summary.total_count) * 100).toFixed(1) }}% of total
             </div>
           </div>
 
-          <!-- Info -->
+          <!-- Errors -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
-            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Info</div>
+            <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Errors</div>
             <div class="text-2xl font-bold">
-              <RouterLink :to="{ name: 'applog', query: { host: summary.host, level_exact: 'INFO' } }" class="text-sev-notice hover:underline">{{ formatNumber(infoCount) }}</RouterLink>
+              <RouterLink :to="{ name: listRoute, query: { hostname: summary.hostname, severity: '3' } }" class="text-sev-err hover:underline">{{ formatNumber(errCount) }}</RouterLink>
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
-              {{ ((infoCount / summary.total_count) * 100).toFixed(1) }}% of total
+              {{ ((errCount / summary.total_count) * 100).toFixed(1) }}% of total
             </div>
           </div>
         </div>
 
-        <!-- Top Messages + Level Distribution -->
+        <!-- Top Messages + Severity Distribution -->
         <div v-if="!summaryCollapsed" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <!-- Top Messages -->
           <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border p-4">
@@ -257,41 +264,41 @@ function currentEvents(): AppLogEvent[] {
               <RouterLink
                 v-for="(msg, i) in summary.top_messages.slice(0, 8)"
                 :key="'m-' + i"
-                :to="{ name: 'applog-detail', params: { id: msg.latest_id } }"
+                :to="{ name: detailRoute, params: { id: msg.latest_id } }"
                 class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 md:hidden"
-                :class="levelBgClass[msg.level] ?? ''"
+                :class="severityBgClass[msg.severity] ?? ''"
               >
-                <div class="w-[3px] shrink-0 rounded-r" :class="levelBgColorClass[msg.level] ?? 'bg-sev-notice'" />
+                <div class="w-[3px] shrink-0 rounded-r" :class="severityBgClassByLabel[msg.severity_label] ?? 'bg-sev-info'" />
                 <div class="min-w-0 flex-1">
-                  <div class="text-t-purple text-[10px] leading-tight">{{ formatNumber(msg.count) }}x &middot; {{ msg.level }}</div>
-                  <div class="min-w-0 truncate text-xs leading-snug">{{ msg.sample }}</div>
+                  <div class="text-t-purple text-[10px] leading-tight">{{ formatNumber(msg.count) }}x &middot; {{ msg.severity_label }}</div>
+                  <div class="min-w-0 truncate text-xs leading-snug" v-html="highlightMessage(`${highlightPrefix}:${msg.latest_id}`, msg.sample)" />
                 </div>
               </RouterLink>
               <!-- Desktop: full row -->
               <RouterLink
                 v-for="(msg, i) in summary.top_messages.slice(0, 8)"
                 :key="'d-' + i"
-                :to="{ name: 'applog-detail', params: { id: msg.latest_id } }"
+                :to="{ name: detailRoute, params: { id: msg.latest_id } }"
                 class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors md:flex"
-                :class="levelBgClass[msg.level] ?? ''"
+                :class="severityBgClass[msg.severity] ?? ''"
               >
                 <span class="text-t-fg-dark w-[10ch] shrink-0 text-right text-xs whitespace-nowrap">{{ formatRelativeTime(msg.latest_at) }}</span>
                 <span class="text-t-purple w-[6ch] shrink-0 text-right text-xs">{{ formatNumber(msg.count) }}</span>
-                <span class="w-[6ch] shrink-0 text-xs uppercase" :class="levelColorClass[msg.level] ?? 'text-t-fg'">{{ msg.level }}</span>
-                <span class="min-w-0 flex-1 truncate" :title="msg.sample">{{ msg.sample }}</span>
+                <span class="w-[6ch] shrink-0 text-xs uppercase" :class="severityColorClassByLabel[msg.severity_label] ?? 'text-t-fg'">{{ msg.severity_label }}</span>
+                <span class="min-w-0 flex-1 truncate" :title="msg.sample" v-html="highlightMessage(`${highlightPrefix}:${msg.latest_id}`, msg.sample)" />
               </RouterLink>
             </div>
           </div>
 
-          <LevelDistribution
-            v-if="summary.level_breakdown.length > 0"
-            :items="summary.level_breakdown"
-            title="Level Breakdown"
+          <SeverityDistribution
+            v-if="summary.severity_breakdown.length > 0"
+            :items="summary.severity_breakdown"
+            title="Severity Breakdown"
             collapsible
             @collapse="summaryCollapsed = true"
           >
             <DeviceActivityChart :items="summary.activity" />
-          </LevelDistribution>
+          </SeverityDistribution>
         </div>
         <button
           v-else
@@ -310,10 +317,10 @@ function currentEvents(): AppLogEvent[] {
         <div class="bg-t-bg-dark border-t-border mx-4 flex rounded-t border border-b-0">
           <button
             class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors"
-            :class="activeTab === 'error' ? 'text-t-teal' : 'text-t-fg-dark hover:text-t-fg'"
-            @click="activeTab = 'error'"
+            :class="activeTab === 'critical' ? 'text-t-teal' : 'text-t-fg-dark hover:text-t-fg'"
+            @click="activeTab = 'critical'"
           >
-            Error Logs
+            Critical Logs
           </button>
           <button
             class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors"
@@ -330,7 +337,7 @@ function currentEvents(): AppLogEvent[] {
             v-if="currentEvents().length === 0"
             class="text-t-fg-dark flex flex-1 items-center justify-center text-xs"
           >
-            {{ activeTab === 'error' ? 'no error events' : 'waiting for events...' }}
+            {{ activeTab === 'critical' ? 'no critical events' : 'waiting for events...' }}
           </div>
 
           <div
@@ -338,12 +345,13 @@ function currentEvents(): AppLogEvent[] {
             ref="logScrollEl"
             role="log"
             aria-live="polite"
-            :aria-label="activeTab === 'error' ? 'Error log events' : 'Live event stream'"
+            :aria-label="activeTab === 'critical' ? 'Critical log events' : 'Live event stream'"
             class="flex-1 overflow-y-auto [overflow-anchor:none]"
             :style="colWidths"
             @scroll="onLogScroll"
           >
-            <AppLogRow
+            <component
+              :is="row"
               v-for="event in currentEvents()"
               :key="event.id"
               :event="event"

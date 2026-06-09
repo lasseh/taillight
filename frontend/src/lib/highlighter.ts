@@ -104,22 +104,26 @@ export function highlightJson(obj: Record<string, unknown> | null): string {
   return DOMPurify.sanitize(Prism.highlight(json, Prism.languages['json']!, 'json'), PRISM_SANITIZE)
 }
 
-const cache = new Map<number, string>()
+// Keyed by a feed-namespaced string (e.g. "srvlog:42" / "netlog:42"), not the
+// bare event id: srvlog and netlog are separate hypertables with independent
+// id sequences, so id N exists in both feeds. Keying by id alone would serve
+// one feed's cached HTML for the other feed's event of the same id.
+const cache = new Map<string, string>()
 
-export function highlightMessage(id: number, msg: string): string {
-  let result = cache.get(id)
+export function highlightMessage(key: string, msg: string): string {
+  let result = cache.get(key)
   if (result !== undefined) return result
 
   result = DOMPurify.sanitize(Prism.highlight(msg, Prism.languages['log']!, 'log'), PRISM_SANITIZE)
-  cache.set(id, result)
+  cache.set(key, result)
 
   // Batch-evict oldest 500 entries when cache exceeds 3000 to avoid
   // running eviction on every subsequent insert.
   if (cache.size > 3000) {
     const iter = cache.keys()
     for (let i = 0; i < 500; i++) {
-      const key = iter.next().value
-      if (key !== undefined) cache.delete(key)
+      const oldest = iter.next().value
+      if (oldest !== undefined) cache.delete(oldest)
     }
   }
 

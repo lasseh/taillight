@@ -1,4 +1,4 @@
-.PHONY: install dev build preview lint test clean help
+.PHONY: install dev build preview lint check format test clean help
 
 ##@ General
 help: ## Show this help
@@ -22,8 +22,15 @@ build: ## Build for production
 test: ## Run unit tests
 	npm test
 
-lint: ## Lint (type-check)
+lint: ## Lint (type-check) — the blocking gate
 	npm run type-check
+
+check: ## Advisory ESLint + Prettier check (not part of the gate)
+	npm run lint:js
+	npm run format:check
+
+format: ## Auto-format with Prettier
+	npm run format
 
 ##@ Utility
 clean: ## Clean build artifacts

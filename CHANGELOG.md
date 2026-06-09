@@ -121,6 +121,7 @@ work waiting for a release.
 - Print-friendly analysis report export: "Export PDF" prints a server-rendered standalone document (`GET /api/v1/analysis/reports/{slug}/print`) via a hidden iframe, so the full report paginates across multiple A4 pages instead of clipping to one. Mail and print share one renderer (`internal/report`) — a paper-light masthead for print, the dark-bar card for email — so the two formats never drift
 - Short-circuit empty-window analysis runs without calling the LLM
 - Show report created date/time as an inline pill, human-readable titles in the report list, and an ops-briefing header on report detail
+- Gate the "Analysis Reports" nav link on an `analysis` feature flag (served from `GET /api/v1/config/features`, sourced from `analysis.enabled`) so the link is hidden on deployments without analysis
 
 #### Log feeds
 - Sliding-window scrollback keeps web log feeds bounded in memory while paging back through history
