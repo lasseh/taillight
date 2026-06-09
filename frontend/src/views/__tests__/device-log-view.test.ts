@@ -21,7 +21,7 @@ vi.hoisted(() => {
 })
 
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, defineComponent, h } from 'vue'
+import { ref, defineComponent, h, markRaw } from 'vue'
 import DeviceLogView from '../DeviceLogView.vue'
 import type { SrvlogEvent } from '@/types/srvlog'
 import type { DeviceSummaryResponse } from '@/types/device'
@@ -40,11 +40,16 @@ vi.mock('vue-router', () => ({
 // jsdom doesn't implement Element.scrollTo; the view calls it on tab switch.
 window.HTMLElement.prototype.scrollTo = vi.fn()
 
-const RowStub = defineComponent({
-  name: 'RowStub',
-  props: { event: { type: Object, required: true } },
-  setup: (p) => () => h('div', { class: 'row-stub' }, String((p.event as SrvlogEvent).id)),
-})
+// markRaw so VTU's reactive props don't proxy the component — passing a
+// component through reactive state triggers a Vue "made reactive" warning.
+// Production callers bind :row statically, so this only bites under test.
+const RowStub = markRaw(
+  defineComponent({
+    name: 'RowStub',
+    props: { event: { type: Object, required: true } },
+    setup: (p) => () => h('div', { class: 'row-stub' }, String((p.event as SrvlogEvent).id)),
+  }),
+)
 
 function ev(id: number): SrvlogEvent {
   return { id, programname: 'prog', severity: 6, received_at: '2026-06-05T10:00:00Z' } as unknown as SrvlogEvent
