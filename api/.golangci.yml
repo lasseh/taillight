@@ -32,6 +32,10 @@ linters:
     - unconvert
     - unparam
     - wastedassign
+    - bodyclose
+    - nilerr
+    - sqlclosecheck
+    - rowserrcheck
   settings:
     revive:
       rules:
