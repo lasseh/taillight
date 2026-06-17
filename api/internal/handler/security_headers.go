@@ -22,7 +22,7 @@ func SecurityHeaders(corsOrigins []string) func(http.Handler) http.Handler {
 		}
 	}
 
-	csp := "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.gravatar.com; connect-src " + connectSrc
+	csp := "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.gravatar.com; base-uri 'self'; form-action 'self'; connect-src " + connectSrc
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
