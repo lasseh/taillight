@@ -568,7 +568,7 @@ func setupRouter(
 	hasWildcard := slices.Contains(corsOrigins, "*")
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   corsOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Last-Event-ID"},
 		AllowCredentials: len(corsOrigins) > 0 && !hasWildcard,
 		MaxAge:           300,
