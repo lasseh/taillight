@@ -17,7 +17,7 @@ func Spec() []byte { return spec }
 func SpecHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
-		w.Write(spec) //nolint:errcheck
+		w.Write(spec) //nolint:errcheck // best-effort write; error not actionable.
 	}
 }
 
@@ -34,7 +34,7 @@ func ScalarHandler() http.HandlerFunc {
 				"connect-src 'self'; "+
 				"worker-src blob:")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(scalarHTML)) //nolint:errcheck
+		w.Write([]byte(scalarHTML)) //nolint:errcheck // best-effort write; error not actionable.
 	}
 }
 

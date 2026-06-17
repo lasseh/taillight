@@ -68,7 +68,7 @@ func (s *Store) InsertLogBatch(ctx context.Context, events []model.AppLogEvent) 
 			&e.SourceIP, &e.APIKeyID,
 		)
 		if err != nil {
-			results.Close() //nolint:errcheck
+			results.Close() //nolint:errcheck // error-path cleanup; scan error already returned.
 			return nil, fmt.Errorf("insert log event: %w", err)
 		}
 		if attrs != nil {
