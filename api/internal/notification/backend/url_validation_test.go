@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -74,5 +75,19 @@ func TestRedactURLError_NonURLErrorUnchanged(t *testing.T) {
 	plain := errors.New("marshal payload: boom")
 	if got := redactURLError(plain); !errors.Is(got, plain) {
 		t.Errorf("non-url.Error should pass through unchanged, got %v", got)
+	}
+}
+
+func TestValidateExternalURL_ParseErrorRedacted(t *testing.T) {
+	// A control character makes url.Parse fail; the wrapped parse error would
+	// otherwise embed the full secret URL verbatim into notification_log/slog.
+	secret := "SUPERSECRETTOKEN"
+	raw := "https://hooks.slack.com/services/T0/B0/" + secret + "\x7f"
+	err := validateExternalURL(context.Background(), raw)
+	if err == nil {
+		t.Fatal("expected validateExternalURL to reject a malformed URL")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("parse error leaks secret URL: %s", err)
 	}
 }

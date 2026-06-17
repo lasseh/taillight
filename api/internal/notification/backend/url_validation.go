@@ -57,7 +57,9 @@ func isBlockedIP(ip net.IP) bool {
 func validateExternalURL(ctx context.Context, rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
+		// Do not wrap the parse error: url.Parse embeds rawURL verbatim, which
+		// would leak a secret webhook/Slack URL into notification_log and slog.
+		return errors.New("invalid URL: malformed")
 	}
 
 	if u.Scheme != "http" && u.Scheme != "https" {
