@@ -14,51 +14,14 @@ work waiting for a release.
 <!-- Continuous deploy: add entries here under Added/Changed/Fixed/Security.
      Do not rename this section to a version or create release tags. -->
 
+> The terminal UI (`taillight-tui`) and the SSH server that hosts it
+> (`taillight-wish`) were extracted into a separate repository —
+> https://github.com/lasseh/taillight-tui. Their changelog now lives there.
 
 ### Added
 
 #### Analysis
 - Email completed analysis reports by selecting email notification channels on a schedule (`notify_channel_ids`); channel ids are validated as existing email-type channels and snapshotted onto each report at enqueue time
-
-#### Terminal UI (taillight-tui)
-- Add standalone TUI binary using Charmbracelet bubbletea v2, bubbles v2, lipgloss v2
-- Real-time SSE streaming for srvlog, applog, and netlog with per-tab lazy connections
-- Dashboard view with summary cards, recent high-severity events, and recent applog errors
-- Hosts inventory view with status dots, feed badges, trend arrows, and vim navigation
-- Notification rules and channels read-only view with sub-tabs
-- Settings view with connection info and keyboard reference
-- Detail sidebar with thin border, auto-updates on cursor navigation
-- Filter bar with search input, hostname/program/service pickers
-- Ring buffer (10k events) with virtual-scrolling table for high-throughput streams
-- Tokyo Night theme matching web GUI colors exactly (severity, applog levels, accents)
-- Syntax highlighting for log messages using jink lexer (IPs, numbers, states, protocols)
-- Applog rows show component column and inline attrs as key=value pairs
-- Multi-segment status bar pinned to bottom (LIVE/OFFLINE, filter pills, help)
-- Toast notification overlays for critical events on any SSE stream using lipgloss Canvas/Layer compositor
-- Tab bar with logo, primary tabs left, secondary tabs right, thin separator line
-- Vim-style navigation (j/k, g/G, ctrl+d/u) with Enter for detail, Esc to close
-- Config file support (~/.config/taillight/tui.yml) with CLI flag overrides
-- Generic `logview` package with `Model[T]` and `Adapter[T]` unifies srvlog/applog/netlog view code (~550 lines of duplication removed)
-- `ErrUnauthorized` sentinel on 401/403 stops SSE retry loops and surfaces a persistent "Authentication failed — check API key" message
-- Empty-state messages distinguish "Waiting for events..." from "No events match the current filter"
-- Narrow-terminal fallback renders a centered "Terminal too small" message below 60x10
-- Parse-error counter in status bar surfaces malformed SSE events instead of silently dropping them
-- Filter dirty-flag only fires on actual value changes to avoid unnecessary rebuilds
-- Split `app.go` (760 lines) into focused files: `app.go`, `app_streams.go`, `app_keys.go`, `app_toast.go`
-
-#### SSH server (taillight-wish)
-- Add wish-based SSH server for hosting TUI over SSH
-- Each SSH session gets independent app instance with own SSE streams and state
-- TrueColor forced via WithColorProfile and COLORTERM=truecolor environment injection
-- PTY slave fallback to session I/O for compatibility across SSH configurations
-- activeterm middleware rejects non-PTY sessions (blocks SSH scanners)
-- Graceful shutdown with 10s timeout on SIGINT/SIGTERM
-- Health check on startup validates API connectivity before accepting connections
-- Public-key auth required via `--authorized-keys` file (default `~/.ssh/taillight_authorized_keys`); server fails fast if missing rather than silently accepting all connections
-- `--allow-any-key` demo mode for public deployments, prints a loud warning banner on startup
-- Per-session key fingerprint logging (SHA256) for audit
-- Ship wish logs to the Taillight applog ingest endpoint via logshipper (service `taillight-wish`, component `ssh-server`), controllable with `--logshipper-enabled`
-- Custom session middleware defers `app.Cleanup()` so SSE goroutines and TCP connections are released when a session ends (fixes unbounded leak per SSH disconnect)
 
 #### Netlog feed
 - Add netlog feed backend: model, store, broker, handlers, LISTEN/NOTIFY

@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Taillight is a real-time srvlog and application log viewer built for network operations teams. It streams filtered log events from a TimescaleDB database to three types of clients — a Vue 3 browser SPA, a `taillight-tui` terminal client, and a `taillight-wish` SSH server hosting the same TUI — all over Server-Sent Events (SSE).
+Taillight is a real-time srvlog and application log viewer built for network operations teams. It streams filtered log events from a TimescaleDB database to its clients — a Vue 3 browser SPA, plus a terminal client and an SSH server in the companion [taillight-tui](https://github.com/lasseh/taillight-tui) repo — all over Server-Sent Events (SSE).
 
 The primary use case is monitoring syslog output from network devices (Juniper, Cisco, Arista, and others) as srvlog events, but taillight also supports application logs ingested over HTTP. Events flow from rsyslog into PostgreSQL, through a Go backend that fans them out to connected clients, and into either a browser with live filtering, dashboards, and search, or a terminal UI with vim-style navigation.
 
@@ -66,22 +66,9 @@ The primary use case is monitoring syslog output from network devices (Juniper, 
 - JSON line parsing with automatic field extraction
 - File rotation support and graceful shutdown
 
-### Terminal UI
+### Terminal UI & SSH server
 
-- Standalone `taillight-tui` binary built on Charmbracelet's bubbletea v2 stack
-- Four tabs: dashboard, netlog, srvlog, applog — each with live SSE streaming and a ring buffer (10k events default)
-- Vim-style navigation, `/` search, `?` help overlay, filter bar, detail sidebar
-- Toast notifications for critical events (severity ≤ 3) within the last 30 seconds
-- Tokyo Night color theme with TrueColor detection
-- YAML config at `~/.config/taillight/tui.yml` (or `$XDG_CONFIG_HOME/taillight/tui.yml`), overridable via `-s`/`-k`/`-c` flags
-
-### SSH server
-
-- `taillight-wish` hosts the same TUI over SSH via charm's wish framework
-- Each SSH session spawns an isolated bubbletea program instance connected to the API
-- Public-key authentication via `authorized_keys` file (production default) or `--allow-any-key` demo mode
-- Per-session cleanup releases SSE goroutines and API connections on disconnect
-- Session lifecycle (start/end, user, remote addr, key fingerprint, duration) shipped to the applog ingest endpoint
+- A terminal UI client (`taillight-tui`) and an SSH server that hosts it (`taillight-wish`) live in the companion repo [taillight-tui](https://github.com/lasseh/taillight-tui) — both consume this API over HTTP/SSE
 
 ### AI analysis (experimental)
 
@@ -117,9 +104,7 @@ taillight/
 ├── api/                           # Go backend
 │   ├── cmd/
 │   │   ├── taillight/             # Main CLI binary (serve, migrate, loadgen, etc.)
-│   │   ├── taillight-shipper/     # Standalone log file shipper
-│   │   ├── taillight-tui/         # Terminal UI client (bubbletea v2)
-│   │   └── taillight-wish/        # SSH server hosting the TUI (charm/wish)
+│   │   └── taillight-shipper/     # Standalone log file shipper
 │   ├── internal/
 │   │   ├── analyzer/              # AI-powered srvlog analysis
 │   │   ├── auth/                  # Session + API key middleware, password hashing
@@ -132,8 +117,7 @@ taillight/
 │   │   ├── notification/          # Rule engine, burst detection, cooldown, backends
 │   │   ├── ollama/                # Ollama LLM client
 │   │   ├── postgres/              # Store (pgx queries), Listener (LISTEN/NOTIFY)
-│   │   ├── scheduler/             # Cron-like scheduler for analysis runs
-│   │   └── tui/                   # Shared TUI package: app, views, client, components
+│   │   └── scheduler/             # Cron-like scheduler for analysis runs
 │   ├── migrations/                # SQL migration files (golang-migrate)
 │   ├── pkg/
 │   │   └── logshipper/            # slog handler that ships logs to the ingest API
@@ -611,118 +595,12 @@ For JSON lines, the following fields are extracted:
 taillight-shipper -c config.yml
 ```
 
-## The Terminal UI
+## Terminal UI & SSH access
 
-`taillight-tui` is a standalone terminal client that connects to any running Taillight API over HTTP and SSE. It renders the same data the browser sees — dashboards, netlog, srvlog, applog — in a terminal with vim-style navigation, live streaming, search, and detail sidebars.
-
-### Build
-
-```sh
-cd api && make build-tui              # native binary
-cd api && make build-tui-linux         # cross-compile to linux/amd64
-```
-
-### Usage
-
-```sh
-taillight-tui -s https://taillight.example.com -k tl_xxxxx
-taillight-tui -c ~/.config/taillight/tui.yml
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-s`, `--server` | *(required)* | Taillight API URL |
-| `-k`, `--key` | `""` | API key |
-| `-c`, `--config` | `~/.config/taillight/tui.yml` | Config file path |
-
-CLI flags override config file values.
-
-### Config file
-
-```yaml
-server:
-  url: https://taillight.example.com
-  api_key: tl_xxxxx
-  tls_skip_verify: false
-display:
-  fps: 30
-  buffer_size: 10000
-  batch_interval_ms: 50
-  auto_scroll: true
-  time_format: "15:04:05"
-```
-
-### Keybindings
-
-| Key | Action |
-|-----|--------|
-| `1`/`2`/`3`/`4`, `tab`, `shift+tab` | Switch tabs (dashboard, netlog, srvlog, applog) |
-| `j`/`k`, `↑`/`↓` | Move cursor |
-| `g`/`G` | Jump to start/end |
-| `ctrl+d`/`ctrl+u` | Half-page down/up |
-| `/` | Search / filter |
-| `enter` | Open detail sidebar |
-| `esc` | Close detail / clear filter |
-| `ctrl+f` | Toggle focus (table ↔ filter) |
-| `?` | Help overlay |
-
-## The SSH Server
-
-`taillight-wish` hosts the TUI over SSH. Each SSH session spawns an isolated bubbletea program instance connected to the Taillight API. Useful for shared deployments where operators connect from their laptops without installing the binary locally.
-
-### Build
-
-```sh
-cd api && make build-wish              # native binary
-cd api && make build-wish-linux        # cross-compile to linux/amd64
-```
-
-### Usage
-
-```sh
-# Production: public-key auth from authorized_keys
-taillight-wish \
-  -s https://taillight.example.com -k tl_xxxxx \
-  --listen :2222 \
-  --host-key ~/.ssh/id_ed25519 \
-  --authorized-keys ~/.ssh/taillight_authorized_keys
-
-# Public demo (INSECURE — accepts any public key)
-taillight-wish -s https://demo.taillight.example.com --allow-any-key
-```
-
-Clients connect with `ssh -t -p 2222 user@host`. A PTY is required — sessions without a PTY are rejected with a helpful message.
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--listen` | `:2222` | SSH listen address |
-| `--host-key` | `.ssh/id_ed25519` | SSH host key path |
-| `--authorized-keys` | `~/.ssh/taillight_authorized_keys` | Public-key auth file |
-| `--allow-any-key` | `false` | **Demo only.** Accept any public key, print loud warning |
-| `-s`, `--server` | *(required)* | Taillight API URL |
-| `-k`, `--key` | `""` | API key |
-| `--fps` | `30` | Render frame rate per session (1–60) |
-| `--logshipper-enabled` | `true` | Ship session logs to the applog ingest endpoint |
-
-### Authentication
-
-The server fails fast on startup if the `authorized_keys` file is missing — it never silently accepts all connections. Password auth is intentionally not supported. The demo mode (`--allow-any-key`) prints a multi-line warning banner to stderr and logs a warning at startup so it cannot be accidentally used in production.
-
-### Session lifecycle
-
-1. On startup, the server runs a health check against the API and refuses to serve if unreachable.
-2. Each SSH session:
-   - Requires a PTY (`ssh -t`)
-   - Logs start with user, remote address, key fingerprint (SHA256), terminal type, and window size
-   - Creates its own `client.Client` and `tui.App` instance
-   - Forwards SIGWINCH (window resize) to the program
-   - Suppresses `ctrl+z` (suspend is meaningless over SSH)
-3. On disconnect, `app.Cleanup()` releases SSE goroutines and API connections. **This is critical** — without it, every SSH disconnect would leak the per-session stream goroutines.
-4. Session end is logged with duration.
-
-### Log shipping
-
-When `--logshipper-enabled` is true (default), the wish server ships its own structured logs to `POST /api/v1/applog/ingest` using `pkg/logshipper`. Logs appear under service `taillight-wish`, component `ssh-server`, and include session start/end events for auditability.
+The terminal UI client (`taillight-tui`) and the SSH server that hosts it
+(`taillight-wish`) now live in a separate repository:
+**https://github.com/lasseh/taillight-tui**. Both are HTTP/SSE clients of
+this API — see that repo for build, configuration, keybindings, and usage.
 
 ## Backup and Restore
 
