@@ -8,6 +8,9 @@ api/taillight-shipper
 api/taillight-shipper-linux-amd64
 api/coverage.*
 
+# Release artifacts
+/dist/
+
 # API config (real credentials)
 api/config.yml
 
