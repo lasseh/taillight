@@ -241,9 +241,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ldap.ErrUserNotFound):
 			// User not in LDAP directory — fall through to local auth.
 
-		case errors.Is(err, ldap.ErrAccountLocked):
-			auth.DummyCheckPassword(req.Password) // timing safety
-			logger.Warn("login failed: LDAP account locked", "username", req.Username, "ip", ip)
+		case errors.Is(err, ldap.ErrNotAuthorized):
+			// Authenticated against LDAP but in no mapped group — deny, do NOT fall through.
+			logger.Warn("login failed: LDAP user not in any authorized group", "username", req.Username, "ip", ip)
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 			return
 

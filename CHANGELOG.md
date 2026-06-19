@@ -129,6 +129,7 @@ work waiting for a release.
 
 ### Changed
 
+- LDAP auth: replace the single `admin_group` DN with a `group_role_map` (group full-DN or bare CN → `admin`/regular role; matched case-insensitively, highest role wins, membership in no mapped group denies login), add an optional `ca_bundle` to trust an internal CA without `tls_skip_verify`, and drop the FreeIPA-only `nsAccountLock` account-lock check now that AD is supported
 - Overhaul the analyzer data block sent to Ollama: srvlog rows now group by `COALESCE(NULLIF(msgid,''), msg_pattern)` so RFC 3164 events (sshd/systemd/kernel/cron) reach the prompt instead of being dropped; each top signature ships with 1-2 verbatim sample messages, a 12-48 cell volume sparkline with peak timestamps, top programs/facilities for srvlog, and per-signature host distribution; system prompts updated across daily/weekly/incident with anti-hallucination rules around quoting samples
 - Rework `/analysis`: async per-feed reports with `pending`/`running`/`completed`/`failed` lifecycle, slug-based URLs (`/analysis/reports/<feed>-YYYY-MM-DD-HHMM`), single-worker queue (depth 5) with partial-unique-index guard against duplicate active runs, in-DB recurring schedules (`analysis_schedules`) replacing the single `analysis.schedule_at`/`analysis.feed` config keys
 - Rename syslog to srvlog across entire codebase

@@ -174,11 +174,12 @@ func runServe(_ *cobra.Command, _ []string) error {
 			URL:            cfg.LDAP.URL,
 			StartTLS:       cfg.LDAP.StartTLS,
 			TLSSkipVerify:  cfg.LDAP.TLSSkipVerify,
+			CABundle:       cfg.LDAP.CABundle,
 			BindDN:         cfg.LDAP.BindDN,
 			BindPassword:   cfg.LDAP.BindPassword,
 			UserSearchBase: cfg.LDAP.UserSearchBase,
 			UserFilter:     cfg.LDAP.UserFilter,
-			AdminGroup:     cfg.LDAP.AdminGroup,
+			GroupRoleMap:   cfg.LDAP.GroupRoleMap,
 		}, logger)
 		logger.Info("LDAP authentication enabled", "url", cfg.LDAP.URL)
 	}

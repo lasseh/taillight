@@ -45,7 +45,7 @@ type Config struct {
 	Netbox                 NetboxConfig
 }
 
-// LDAPConfig configures LDAP (FreeIPA) authentication.
+// LDAPConfig configures LDAP authentication (e.g. Active Directory or FreeIPA).
 // When enabled, login attempts are first verified against the LDAP directory.
 // Users authenticated via LDAP are synced to the local database for session
 // and API key support. Local bcrypt auth continues to work for local users.
@@ -54,11 +54,15 @@ type LDAPConfig struct {
 	URL            string // LDAP server URL (e.g. "ldaps://ipa.example.com:636").
 	StartTLS       bool   // Use STARTTLS on port 389 instead of LDAPS.
 	TLSSkipVerify  bool   // Skip TLS certificate verification (dev only).
+	CABundle       string // PEM file of extra trusted CAs, added to the system roots (lets an internal CA verify without skipping).
 	BindDN         string // Service account DN for user lookups.
 	BindPassword   string // Service account password.
 	UserSearchBase string // Base DN for user searches (e.g. "cn=users,cn=accounts,dc=example,dc=com").
 	UserFilter     string // LDAP filter with %s placeholder for escaped username.
-	AdminGroup     string // DN of the group that maps to is_admin=true.
+	// GroupRoleMap maps a group (full DN or bare CN) to a role. "admin" grants
+	// is_admin; any other value authorizes a regular user. A user in no mapped
+	// group is denied login.
+	GroupRoleMap map[string]string
 }
 
 // RetentionConfig controls how long data is kept in each hypertable.
@@ -192,9 +196,10 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("ldap.tls_skip_verify", false)
 	v.SetDefault("ldap.bind_dn", "")
 	v.SetDefault("ldap.bind_password", "")
+	v.SetDefault("ldap.ca_bundle", "")
 	v.SetDefault("ldap.user_search_base", "cn=users,cn=accounts,dc=example,dc=com")
 	v.SetDefault("ldap.user_filter", "(&(objectClass=person)(uid=%s))")
-	v.SetDefault("ldap.admin_group", "")
+	v.SetDefault("ldap.group_role_map", map[string]string{})
 	v.SetDefault("notification.enabled", false)
 	v.SetDefault("notification.rule_refresh_interval", "30s")
 	v.SetDefault("notification.dispatch_workers", 4)
@@ -305,11 +310,12 @@ func Load(configFile ...string) (Config, error) {
 			URL:            v.GetString("ldap.url"),
 			StartTLS:       v.GetBool("ldap.starttls"),
 			TLSSkipVerify:  v.GetBool("ldap.tls_skip_verify"),
+			CABundle:       v.GetString("ldap.ca_bundle"),
 			BindDN:         v.GetString("ldap.bind_dn"),
 			BindPassword:   v.GetString("ldap.bind_password"),
 			UserSearchBase: v.GetString("ldap.user_search_base"),
 			UserFilter:     v.GetString("ldap.user_filter"),
-			AdminGroup:     v.GetString("ldap.admin_group"),
+			GroupRoleMap:   v.GetStringMapString("ldap.group_role_map"),
 		},
 		SMTP: SMTPConfig{
 			Host:     v.GetString("smtp.host"),

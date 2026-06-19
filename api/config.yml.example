@@ -19,20 +19,25 @@ features:
 # Only takes effect when AUTH_ENABLED is true (set in .env).
 auth_read_endpoints: true
 
-# LDAP authentication (FreeIPA).
+# LDAP authentication (e.g. Active Directory or FreeIPA).
 # When enabled, login attempts are first verified against the LDAP server.
 # Users authenticated via LDAP are synced to the local database for session/API-key support.
 # Local bcrypt auth continues to work for users with auth_source='local'.
 ldap:
   enabled: false
   # url: "ldaps://ipa.example.com:636"     # LDAP server URL.
-  # starttls: false                         # Use STARTTLS on port 389 instead of LDAPS.
+  # starttls: false                         # Use STARTTLS on port 389 instead of LDAPS (mutually exclusive with ldaps://).
   # tls_skip_verify: false                  # Skip TLS cert verification (dev only).
-  # bind_dn: "uid=taillight,cn=sysaccounts,cn=etc,dc=example,dc=com"
+  # ca_bundle: "/config/internal-ca-bundle.pem"  # PEM of extra trusted CAs (added to system roots); lets an internal CA verify without skipping.
+  # bind_dn: "uid=taillight,cn=sysaccounts,cn=etc,dc=example,dc=com"  # AD: use a UPN, e.g. "svc-taillight@example.com".
   # bind_password: "changeme"
   # user_search_base: "cn=users,cn=accounts,dc=example,dc=com"
-  # user_filter: "(&(objectClass=person)(uid=%s))"
-  # admin_group: "cn=admins,cn=groups,cn=accounts,dc=example,dc=com"
+  # user_filter: "(&(objectClass=person)(uid=%s))"   # AD: "(sAMAccountName=%s)".
+  # Map groups (full DN or bare CN) to a role. "admin" grants is_admin; any other
+  # value authorizes a regular user. A user in no mapped group is denied login.
+  # group_role_map:
+  #   "cn=admins,cn=groups,cn=accounts,dc=example,dc=com": admin
+  #   "cn=users,cn=groups,cn=accounts,dc=example,dc=com": user
 
 # CORS allowed origins. Defaults to localhost dev origins when empty.
 # For production, specify the allowed origins explicitly.
