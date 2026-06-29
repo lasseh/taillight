@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
+
 	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/broker"
 )
@@ -114,13 +116,12 @@ func (s sseStreamer[E, F]) writeDeadline() time.Duration {
 
 // sseClientKey derives the per-client throttle key for an SSE request. It
 // prefers the authenticated user ID (so a logged-in user is capped regardless
-// of source IP) and falls back to the source IP, which chi's RealIP middleware
-// has already resolved into r.RemoteAddr.
+// of source IP) and falls back to the client IP resolved by clientIPMiddleware.
 func sseClientKey(r *http.Request) string {
 	if u := auth.UserFromContext(r.Context()); u != nil && u.ID.Valid {
 		return "user:" + formatUUID(u.ID.Bytes)
 	}
-	return "ip:" + stripPort(r.RemoteAddr)
+	return "ip:" + middleware.GetClientIP(r.Context())
 }
 
 // run subscribes, backfills, then streams live events until ctx is done or the

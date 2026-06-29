@@ -112,7 +112,7 @@ The server uses `go-chi/chi/v5` as its router, configured in `setupRouter` (`cmd
 | Middleware | Purpose |
 |---|---|
 | `middleware.RequestID` | Generates unique request ID |
-| `middleware.RealIP` | Extracts client IP from X-Forwarded-For |
+| `clientIPMiddleware` | Resolves client IP into context (`GetClientIP`): trusted `real_ip_header` if set, else the TCP peer. Replaces the deprecated, spoofable `middleware.RealIP` |
 | `handler.RequestLogger` | Injects request-scoped logger into context |
 | `middleware.Logger` | Logs request/response (skipped for /health and /api/v1/applog/ingest) |
 | `middleware.Recoverer` | Catches panics, returns 500 |

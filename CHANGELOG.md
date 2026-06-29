@@ -197,6 +197,7 @@ work waiting for a release.
 
 ### Security
 
+- Replace the deprecated, spoofable chi `middleware.RealIP` (GHSA-3fxj-6jh8-hvhx / GHSA-rjr7-jggh-pgcp / GHSA-9g5q-2w5x-hmxf) with a config-driven, safe-by-default client-IP resolver. The real client IP (used for login rate-limiting, `applog_events.source_ip` attribution, and the demo write gate) is now read only from the trusted `real_ip_header` when set, otherwise from the TCP peer — forwarded headers are no longer trusted unconditionally. **Behavior change:** deployments behind a reverse proxy must set `real_ip_header` (e.g. `X-Real-IP`) or every client is attributed to the proxy's IP, collapsing per-IP login rate-limiting into one bucket. Bumps `github.com/go-chi/chi/v5` to 5.3.0
 - Require Go 1.26.4, resolving the `net/textproto` standard-library advisory GO-2026-5039 (`govulncheck` now reports no vulnerabilities in called code)
 - Block the IPv4 "this host" range (`0.0.0.0/8`) and unspecified addresses (`0.0.0.0`, `::`) in the SSRF webhook guard, with a stdlib classification catch-all that also normalises IPv4-mapped IPv6 (e.g. `::ffff:127.0.0.1`)
 - Redact secret webhook/Slack/ntfy URLs from transport errors before they are persisted to the notification audit log or shipped via application logs

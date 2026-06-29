@@ -500,6 +500,18 @@ func buildAnalysisCompletionCallback(engine *notification.Engine, store channelR
 	}
 }
 
+// clientIPMiddleware selects how the real client IP is resolved into the
+// request context (read downstream via middleware.GetClientIP). When
+// cfg.RealIPHeader is set, the proxy-supplied header is trusted; otherwise the
+// TCP peer is used so that a directly-exposed deployment cannot be spoofed via
+// forwarded headers. Replaces the deprecated, spoofable middleware.RealIP.
+func clientIPMiddleware(cfg config.Config) func(http.Handler) http.Handler {
+	if cfg.RealIPHeader != "" {
+		return middleware.ClientIPFromHeader(cfg.RealIPHeader)
+	}
+	return middleware.ClientIPFromRemoteAddr
+}
+
 // setupRouter builds the chi router with all middleware and route registrations.
 func setupRouter(
 	cfg config.Config,
@@ -516,7 +528,10 @@ func setupRouter(
 ) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	r.Use(clientIPMiddleware(cfg))
+	if cfg.RealIPHeader == "" {
+		logger.Warn("real_ip_header not set — client IP resolves to the TCP peer; set real_ip_header (e.g. X-Real-IP) when behind a reverse proxy")
+	}
 	r.Use(handler.RequestLogger)
 	if cfg.LogShipper.Enabled {
 		r.Use(handler.SkipPath(handler.SkipPath(middleware.Logger, "/health"), "/api/v1/applog/ingest"))
