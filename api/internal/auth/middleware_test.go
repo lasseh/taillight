@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/lasseh/taillight/internal/httputil"
@@ -383,7 +384,9 @@ func TestDenyWrites(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mw := DenyWrites(tt.exempt...)
-			handler := mw(okHandler)
+			// Wrap with ClientIPFromRemoteAddr so DenyWrites' GetClientIP lookup
+			// is populated from the request's TCP peer, mirroring the router.
+			handler := middleware.ClientIPFromRemoteAddr(mw(okHandler))
 
 			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.path, nil)
 			if tt.remoteAddr != "" {

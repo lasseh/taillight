@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
+
 	"github.com/lasseh/taillight/internal/broker"
 	"github.com/lasseh/taillight/internal/model"
 )
@@ -50,7 +52,7 @@ func (h *AppLogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	logger := LoggerFromContext(r.Context())
 	connectedAt := time.Now()
 	logger.Debug("applog sse client connected",
-		"remote_addr", r.RemoteAddr,
+		"remote_addr", middleware.GetClientIP(r.Context()),
 		"service", filter.Service,
 		"component", filter.Component,
 		"level", filter.Level,
@@ -58,7 +60,7 @@ func (h *AppLogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	)
 	defer func() {
 		logger.Debug("applog sse client disconnected",
-			"remote_addr", r.RemoteAddr,
+			"remote_addr", middleware.GetClientIP(r.Context()),
 			"duration", time.Since(connectedAt).Round(time.Second),
 		)
 	}()

@@ -264,6 +264,7 @@ clients of this API — see that repo for installation, configuration, and usage
 | `FRONTEND_HOST_PORT` | `3000` | Host port for the web UI |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `AUTH_ENABLED` | `false` | Enable authentication |
+| `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = trust only the TCP peer. Set it behind nginx or clients are attributed to the proxy IP. |
 | `API_URL` | *(empty)* | Frontend API URL (empty = same-origin) |
 
 ### `api/config.yml` — application tuning

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/lasseh/taillight/internal/auth"
@@ -199,7 +199,7 @@ func requireAdmin(w http.ResponseWriter, user *model.User) bool {
 
 // Login handles POST /api/v1/auth/login.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	ip := stripPort(r.RemoteAddr)
+	ip := middleware.GetClientIP(r.Context())
 	if !loginRL.allow(ip) {
 		LoggerFromContext(r.Context()).Warn("login rate limited", "ip", ip)
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many login attempts, try again later")
@@ -926,14 +926,4 @@ func (h *AuthHandler) UpdatePreferences(w http.ResponseWriter, r *http.Request) 
 // trusted reverse proxy that set X-Forwarded-Proto: https.
 func isSecureRequest(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-}
-
-// stripPort removes the port suffix from an address string so it can be
-// stored as a bare IP in a Postgres INET column.
-func stripPort(addr string) string {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return addr // already bare IP or unparseable — use as-is.
-	}
-	return host
 }

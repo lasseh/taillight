@@ -6,7 +6,7 @@ require github.com/lasseh/taillight/pkg/logshipper v0.0.0-00010101000000-0000000
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
-	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/cors v1.2.2
 	github.com/go-ldap/ldap/v3 v3.4.13
 	github.com/golang-migrate/migrate/v4 v4.19.1
