@@ -45,6 +45,14 @@ cors_allowed_origins:
   # - "https://taillight.example.com"
   # - "https://admin.example.com"
 
+# Trusted single-IP header the reverse proxy overwrites on every request, used
+# to resolve the real client IP (login rate-limiting, source_ip attribution,
+# demo write gate). Empty = trust only the TCP peer — the safe default when the
+# API is exposed directly with no proxy. Set to "X-Real-IP" behind nginx
+# (the example proxy config sets `proxy_set_header X-Real-IP $remote_addr`).
+# Leaving this empty behind a proxy makes every client look like the proxy.
+real_ip_header: ""
+
 # Serve /metrics on a separate listener (e.g. ":9090").
 # Empty disables the metrics endpoint entirely — safe default for public-facing deploys.
 metrics_addr: ""

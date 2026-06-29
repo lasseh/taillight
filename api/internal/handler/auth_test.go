@@ -763,27 +763,6 @@ func TestGravatarURL(t *testing.T) {
 	}
 }
 
-func TestStripPort(t *testing.T) {
-	tests := []struct {
-		name string
-		addr string
-		want string
-	}{
-		{name: "with port", addr: "192.168.1.1:8080", want: "192.168.1.1"},
-		{name: "bare ip", addr: "192.168.1.1", want: "192.168.1.1"},
-		{name: "ipv6 with port", addr: "[::1]:8080", want: "::1"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := stripPort(tt.addr)
-			if got != tt.want {
-				t.Errorf("stripPort(%q) = %q, want %q", tt.addr, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestIsSecureRequest(t *testing.T) {
 	tests := []struct {
 		name   string

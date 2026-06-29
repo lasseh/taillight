@@ -32,6 +32,7 @@ type Config struct {
 	AuthReadEndpoints      bool     // When true, read endpoints also require authentication.
 	DemoMode               bool     // When true, all write endpoints return 403 Forbidden.
 	CookieSecure           bool     // When true, force Secure flag on session cookies regardless of X-Forwarded-Proto.
+	RealIPHeader           string   // Trusted single-IP header the reverse proxy overwrites (e.g. "X-Real-IP"). Empty = trust only the TCP peer (no proxy).
 	NotificationBufferSize int      // LISTEN/NOTIFY channel buffer size (0 = default 1024).
 	NotificationWorkers    int      // Number of goroutines consuming LISTEN/NOTIFY events (0 = default 4).
 	JuniperRefPath         string   // Directory containing Juniper syslog reference XLSX files for startup auto-import. Empty disables.
@@ -160,6 +161,7 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("auth_read_endpoints", true)
 	v.SetDefault("demo_mode", false)
 	v.SetDefault("cookie_secure", false)
+	v.SetDefault("real_ip_header", "")
 	v.SetDefault("notification_buffer_size", 1024)
 	v.SetDefault("notification_workers", 4)
 	v.SetDefault("metrics_addr", "")
@@ -265,6 +267,7 @@ func Load(configFile ...string) (Config, error) {
 		AuthReadEndpoints:      v.GetBool("auth_read_endpoints"),
 		DemoMode:               v.GetBool("demo_mode"),
 		CookieSecure:           v.GetBool("cookie_secure"),
+		RealIPHeader:           v.GetString("real_ip_header"),
 		NotificationBufferSize: v.GetInt("notification_buffer_size"),
 		NotificationWorkers:    v.GetInt("notification_workers"),
 		MetricsAddr:            v.GetString("metrics_addr"),

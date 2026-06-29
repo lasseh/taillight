@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
+
 	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/broker"
 	"github.com/lasseh/taillight/internal/metrics"
@@ -137,11 +139,11 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Server-captured ingest metadata, identical for every entry in the batch.
-	// RemoteAddr has already been resolved by chi's middleware.RealIP from
-	// X-Forwarded-For / X-Real-IP, so this is the upstream client IP when
-	// behind a trusted reverse proxy. The trust model is acceptable here
-	// because ingest requires a valid API key.
-	sourceIP := resolveSourceIP(r.RemoteAddr)
+	// The client IP is resolved by the clientIPMiddleware (from the trusted
+	// real_ip_header when behind a proxy, else the TCP peer), never from the
+	// request body. The trust model is acceptable here because ingest requires
+	// a valid API key.
+	sourceIP := resolveSourceIP(middleware.GetClientIP(r.Context()))
 	apiKeyID, _ := auth.APIKeyIDFromContext(r.Context()) // zero-value UUID (Valid=false) → SQL NULL for session auth.
 
 	// Convert to model events.
@@ -189,16 +191,17 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	writeJSONStatus(w, http.StatusAccepted, map[string]int{"accepted": len(inserted)})
 }
 
-// resolveSourceIP returns the host portion of remoteAddr as a parsed IP string,
-// or nil if remoteAddr is empty/malformed. RemoteAddr arrives as "ip:port" (or
-// "[ipv6]:port"); the port is dropped because Postgres `inet` doesn't accept it.
-func resolveSourceIP(remoteAddr string) *string {
-	if remoteAddr == "" {
+// resolveSourceIP normalizes a resolved client IP for storage in the Postgres
+// `inet` source_ip column, returning nil if empty/malformed. The input comes
+// from middleware.GetClientIP (already a bare IP); the SplitHostPort fallback
+// also tolerates a raw "ip:port" RemoteAddr.
+func resolveSourceIP(clientIP string) *string {
+	if clientIP == "" {
 		return nil
 	}
-	host, _, err := net.SplitHostPort(remoteAddr)
+	host, _, err := net.SplitHostPort(clientIP)
 	if err != nil {
-		host = remoteAddr // fall back if no port
+		host = clientIP // already a bare IP (the common case)
 	}
 	addr, err := netip.ParseAddr(host)
 	if err != nil {

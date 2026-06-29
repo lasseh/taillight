@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/lasseh/taillight/internal/httputil"
@@ -165,8 +166,8 @@ func hasScope(scopes []string, target string) bool {
 // with 403 Forbidden. Used in demo mode to make the API read-only.
 // Exempt paths (e.g. ingest endpoint for loadgen) are allowed only from
 // private/loopback IPs (Docker containers, localhost), never from the internet.
-// The source IP is taken from r.RemoteAddr after chi's RealIP middleware has
-// resolved X-Forwarded-For / X-Real-IP, so internet clients get their real IP.
+// The client IP comes from clientIPMiddleware (the trusted real_ip_header when
+// behind a proxy, else the TCP peer), so internet clients get their real IP.
 func DenyWrites(exempt ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -176,7 +177,7 @@ func DenyWrites(exempt ...string) func(http.Handler) http.Handler {
 				return
 			}
 			for _, path := range exempt {
-				if r.URL.Path == path && isPrivateIP(r.RemoteAddr) {
+				if r.URL.Path == path && isPrivateIP(middleware.GetClientIP(r.Context())) {
 					next.ServeHTTP(w, r)
 					return
 				}
