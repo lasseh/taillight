@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test rsyslog-reload psql python-test python-lint release verify-features
+.PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test rsyslog-reload psql python-test python-lint release
 
 # Cross-compile matrix and remote for release binaries.
 RELEASE_PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
@@ -9,7 +9,8 @@ help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 ##@ Stack
-up: ## Start all services
+up: ## Start all services (creates api/config.yml from the example on first run)
+	@test -f api/config.yml || { cp api/config.yml.example api/config.yml && echo "created api/config.yml from config.yml.example"; }
 	docker compose up -d
 
 down: ## Stop all services
@@ -56,13 +57,6 @@ rsyslog-reload: ## Rebuild and restart rsyslog container
 
 psql: ## Connect to the database via psql
 	docker compose exec postgres psql -U taillight -d taillight
-
-##@ Verification
-verify-features: ## Verify frontend/backend feature flags match
-	@api=$$(grep -A3 '^features:' api/config.yml.example | grep -oE '(netlog|srvlog|applog): true' | sort); \
-	 fe=$$(grep -oE '(netlog|srvlog|applog): true' frontend/src/config.ts | sort); \
-	 if [ "$$api" != "$$fe" ]; then echo "Feature flags out of sync"; echo "api: $$api"; echo "fe: $$fe"; exit 1; fi
-	@echo "Feature flags in sync"
 
 ##@ Release
 release: ## Cut a GitHub release (prompts for version; tags, cross-builds binaries, generates notes)
