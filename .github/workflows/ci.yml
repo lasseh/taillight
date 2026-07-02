@@ -94,5 +94,8 @@ jobs:
       - name: Type check
         run: npm run type-check
 
+      - name: Run tests
+        run: npm run test
+
       - name: Build
         run: npm run build

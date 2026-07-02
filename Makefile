@@ -28,6 +28,7 @@ ps: ## Show running services
 ##@ Quality
 test: ## Run all tests
 	$(MAKE) -C api test
+	$(MAKE) -C frontend test
 
 lint: ## Lint all components
 	$(MAKE) -C api lint
