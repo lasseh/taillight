@@ -115,17 +115,29 @@ const router = createRouter({
       component: () => import('@/views/NotificationsView.vue'),
       meta: { public: true },
     },
-    {
-      path: '/analysis',
-      name: 'analysis',
-      component: () => import('@/views/AnalysisView.vue'),
-    },
-    {
-      path: '/analysis/reports/:slug',
-      name: 'analysis-report',
-      component: () => import('@/views/AnalysisReportView.vue'),
-      props: true,
-    },
+    // Analysis routes (feature-gated)
+    ...(features.analysis
+      ? [
+          {
+            path: '/analysis',
+            name: 'analysis',
+            component: () => import('@/views/AnalysisView.vue'),
+          },
+          {
+            path: '/analysis/reports/:slug',
+            name: 'analysis-report',
+            component: () => import('@/views/AnalysisReportView.vue'),
+            props: true,
+          },
+        ]
+      : [
+          {
+            path: '/analysis/:pathMatch(.*)*',
+            name: 'analysis-disabled',
+            component: () => import('@/views/FeatureDisabledView.vue'),
+            props: { feature: 'analysis' },
+          },
+        ]),
     {
       path: '/settings',
       name: 'settings',
