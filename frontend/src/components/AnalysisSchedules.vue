@@ -4,7 +4,7 @@ import { api, ApiError } from '@/lib/api'
 import { features as getFeatures } from '@/lib/features'
 import { useAuthStore } from '@/stores/auth'
 import { useFocusTrap } from '@/composables/useFocusTrap'
-import { feedBadgeClass } from '@/lib/analysis-format'
+import { feedBadgeClass, feedDisplayLabel } from '@/lib/analysis-format'
 import type {
   AnalysisFeed,
   AnalysisFrequency,
@@ -100,7 +100,7 @@ const dayOfWeekLabels = [
 const feedOptions: { value: AnalysisFeed; label: string; available: boolean }[] = [
   { value: 'netlog', label: 'Netlog', available: features.netlog },
   { value: 'srvlog', label: 'Srvlog', available: true },
-  { value: 'all', label: 'All', available: features.netlog },
+  { value: 'all', label: 'All syslog', available: features.netlog },
 ]
 
 async function fetchData() {
@@ -330,7 +330,7 @@ onMounted(() => {
                 class="inline-block rounded px-1.5 py-0.5 text-xs"
                 :class="feedBadgeClass(sched.feed)"
               >
-                {{ sched.feed }}
+                {{ feedDisplayLabel(sched.feed) }}
               </span>
             </div>
             <div class="w-24 shrink-0">

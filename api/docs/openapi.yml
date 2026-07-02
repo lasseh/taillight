@@ -1460,6 +1460,7 @@ paths:
                 feed:
                   type: string
                   enum: [netlog, srvlog, all]
+                  description: "'all' = all syslog feeds (srvlog + netlog); applog is excluded by design"
       responses:
         "201":
           description: Report queued
@@ -2736,6 +2737,7 @@ components:
         feed:
           type: string
           enum: [netlog, srvlog, all]
+          description: "'all' = all syslog feeds (srvlog + netlog); applog is excluded by design"
         model:
           type: string
         period_start:
@@ -2787,6 +2789,7 @@ components:
         feed:
           type: string
           enum: [netlog, srvlog, all]
+          description: "'all' = all syslog feeds (srvlog + netlog); applog is excluded by design"
         frequency:
           type: string
           enum: [daily, weekly, monthly]

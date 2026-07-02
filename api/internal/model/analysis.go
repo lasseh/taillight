@@ -7,6 +7,10 @@ import (
 )
 
 // Analysis feed constants — the data sources an analysis run can target.
+// "all" means all syslog feeds (srvlog + netlog, a UNION ALL of the two
+// syslog tables); applog is excluded by design (architecture review D3).
+// The wire value stays "all" because it is persisted in analysis report
+// and schedule rows — the UI labels it "all syslog" instead.
 const (
 	AnalysisFeedNetlog = "netlog"
 	AnalysisFeedSrvlog = "srvlog"

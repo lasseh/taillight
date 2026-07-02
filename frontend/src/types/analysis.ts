@@ -1,3 +1,7 @@
+// 'all' means all syslog feeds (srvlog + netlog combined); applog is
+// excluded by design (architecture review D3). The wire value stays 'all'
+// because it is persisted in report and schedule rows — the UI labels it
+// "all syslog" instead (feedDisplayLabel in lib/analysis-format.ts).
 export type AnalysisFeed = 'netlog' | 'srvlog' | 'all'
 
 export type AnalysisStatus = 'pending' | 'running' | 'completed' | 'failed'
