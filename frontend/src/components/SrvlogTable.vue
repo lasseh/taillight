@@ -1,41 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+// Srvlog live table — thin config binding over the shared LogTable.
 import { useSrvlogEventStore } from '@/stores/srvlog-events'
-import { useColumnVisibility } from '@/composables/useColumnVisibility'
-import EventTable from '@/components/EventTable.vue'
 import SrvlogRow from '@/components/SrvlogRow.vue'
+import LogTable from '@/components/LogTable.vue'
 
 const events = useSrvlogEventStore()
-const { visible: showProgram } = useColumnVisibility('srvlog', 'program')
-
-const colWidths = computed(() => {
-  let maxHost = 0
-  let maxProg = 0
-  for (const e of events.events) {
-    if (e.hostname.length > maxHost) maxHost = e.hostname.length
-    if (e.programname.length > maxProg) maxProg = e.programname.length
-  }
-  return {
-    '--col-host': `${Math.min(20, Math.max(8, maxHost + 1))}ch`,
-    '--col-prog': showProgram.value ? `${Math.min(16, Math.max(6, maxProg + 1))}ch` : '0',
-  }
-})
 </script>
 
 <template>
-  <EventTable
-    route-name="srvlog"
-    :events="events.events"
-    :loading="events.loading"
-    :error="events.error"
-    :has-more="events.hasMore"
-    :at-cap="events.atCap"
-    :load-history="events.loadHistory"
-    :reattach="events.reattach"
-    :style="colWidths"
-  >
-    <template #default="{ item }">
-      <SrvlogRow :event="item" :show-program="showProgram" />
-    </template>
-  </EventTable>
+  <LogTable :store="events" route-name="srvlog" :row="SrvlogRow" />
 </template>
