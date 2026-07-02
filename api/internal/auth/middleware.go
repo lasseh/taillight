@@ -166,8 +166,10 @@ func hasScope(scopes []string, target string) bool {
 // with 403 Forbidden. Used in demo mode to make the API read-only.
 // Exempt paths (e.g. ingest endpoint for loadgen) are allowed only from
 // private/loopback IPs (Docker containers, localhost), never from the internet.
-// The client IP comes from clientIPMiddleware (the trusted real_ip_header when
-// behind a proxy, else the TCP peer), so internet clients get their real IP.
+// Both the resolved client IP (real_ip_header when behind a proxy, else the
+// TCP peer) and the raw TCP peer must be private: the resolved IP alone is
+// forgeable when a peer bypasses the proxy, and the raw peer alone is the
+// proxy's (private) address for internet clients behind a containerized proxy.
 func DenyWrites(exempt ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +179,9 @@ func DenyWrites(exempt ...string) func(http.Handler) http.Handler {
 				return
 			}
 			for _, path := range exempt {
-				if r.URL.Path == path && isPrivateIP(middleware.GetClientIP(r.Context())) {
+				if r.URL.Path == path &&
+					isPrivateIP(middleware.GetClientIP(r.Context())) &&
+					isPrivateIP(r.RemoteAddr) {
 					next.ServeHTTP(w, r)
 					return
 				}

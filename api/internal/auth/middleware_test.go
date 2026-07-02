@@ -402,6 +402,46 @@ func TestDenyWrites(t *testing.T) {
 	}
 }
 
+// TestDenyWritesRawPeerCheck verifies the exempt-path gate also checks the raw
+// TCP peer: a spoofed private real_ip_header from a public peer — or a public
+// client arriving via a private-IP proxy — cannot reach the exempt endpoint
+// (June audit issue 14).
+func TestDenyWritesRawPeerCheck(t *testing.T) {
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	tests := []struct {
+		name       string
+		remoteAddr string
+		xRealIP    string
+		wantStatus int
+	}{
+		{"private header from public peer blocked", "203.0.113.50:12345", "10.0.0.1", http.StatusForbidden},
+		{"public header from private peer blocked", "172.18.0.5:12345", "203.0.113.9", http.StatusForbidden},
+		{"private header from private peer allowed", "172.18.0.5:12345", "10.0.0.1", http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mw := DenyWrites("/api/v1/applog/ingest")
+			// Wrap with ClientIPFromHeader to mirror a real_ip_header deployment,
+			// where the resolved client IP comes from the proxy header.
+			handler := middleware.ClientIPFromHeader("X-Real-IP")(mw(okHandler))
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/applog/ingest", nil)
+			req.RemoteAddr = tt.remoteAddr
+			req.Header.Set("X-Real-IP", tt.xRealIP)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("got status %d, want %d", rec.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
 func TestHasScope(t *testing.T) {
 	tests := []struct {
 		name   string

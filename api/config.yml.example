@@ -53,6 +53,16 @@ cors_allowed_origins:
 # Leaving this empty behind a proxy makes every client look like the proxy.
 real_ip_header: ""
 
+# CIDRs (or single IPs) of reverse proxies trusted to set real_ip_header.
+# When set, the header is honored only if the raw TCP peer is inside this
+# list; any other peer resolves to its own address, so clients that reach the
+# API without going through the proxy cannot forge their IP. Empty = the
+# header is trusted from any peer (assumes the API is only reachable via the
+# proxy). Ignored when real_ip_header is empty.
+trusted_proxies:
+  # - "172.18.0.0/16"  # docker compose network the proxy lives on
+  # - "127.0.0.1"
+
 # Serve /metrics on a separate listener (e.g. ":9090").
 # Empty disables the metrics endpoint entirely — safe default for public-facing deploys.
 metrics_addr: ""

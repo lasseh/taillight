@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -27,15 +28,16 @@ type Config struct {
 	LogLevel               slog.Level
 	DBMaxConns             int32
 	DBMinConns             int32
-	CORSAllowedOrigins     []string // Empty means allow all origins (dev mode).
-	AuthEnabled            bool     // When false, all endpoints are public (no login required).
-	AuthReadEndpoints      bool     // When true, read endpoints also require authentication.
-	DemoMode               bool     // When true, all write endpoints return 403 Forbidden.
-	CookieSecure           bool     // When true, force Secure flag on session cookies regardless of X-Forwarded-Proto.
-	RealIPHeader           string   // Trusted single-IP header the reverse proxy overwrites (e.g. "X-Real-IP"). Empty = trust only the TCP peer (no proxy).
-	NotificationBufferSize int      // LISTEN/NOTIFY channel buffer size (0 = default 1024).
-	NotificationWorkers    int      // Number of goroutines consuming LISTEN/NOTIFY events (0 = default 4).
-	JuniperRefPath         string   // Directory containing Juniper syslog reference XLSX files for startup auto-import. Empty disables.
+	CORSAllowedOrigins     []string       // Empty means allow all origins (dev mode).
+	AuthEnabled            bool           // When false, all endpoints are public (no login required).
+	AuthReadEndpoints      bool           // When true, read endpoints also require authentication.
+	DemoMode               bool           // When true, all write endpoints return 403 Forbidden.
+	CookieSecure           bool           // When true, force Secure flag on session cookies regardless of X-Forwarded-Proto.
+	RealIPHeader           string         // Trusted single-IP header the reverse proxy overwrites (e.g. "X-Real-IP"). Empty = trust only the TCP peer (no proxy).
+	TrustedProxies         []netip.Prefix // CIDRs (or bare IPs) of proxies allowed to set RealIPHeader. Empty = header trusted from any peer.
+	NotificationBufferSize int            // LISTEN/NOTIFY channel buffer size (0 = default 1024).
+	NotificationWorkers    int            // Number of goroutines consuming LISTEN/NOTIFY events (0 = default 4).
+	JuniperRefPath         string         // Directory containing Juniper syslog reference XLSX files for startup auto-import. Empty disables.
 	Features               FeaturesConfig
 	LogShipper             LogShipperConfig
 	Analysis               AnalysisConfig
@@ -162,6 +164,7 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("demo_mode", false)
 	v.SetDefault("cookie_secure", false)
 	v.SetDefault("real_ip_header", "")
+	v.SetDefault("trusted_proxies", []string{})
 	v.SetDefault("notification_buffer_size", 1024)
 	v.SetDefault("notification_workers", 4)
 	v.SetDefault("metrics_addr", "")
@@ -256,6 +259,11 @@ func Load(configFile ...string) (Config, error) {
 		}
 	}
 
+	trustedProxies, err := parseTrustedProxies(v.GetStringSlice("trusted_proxies"))
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		DatabaseURL:            v.GetString("database_url"),
 		ListenAddr:             v.GetString("listen_addr"),
@@ -268,6 +276,7 @@ func Load(configFile ...string) (Config, error) {
 		DemoMode:               v.GetBool("demo_mode"),
 		CookieSecure:           v.GetBool("cookie_secure"),
 		RealIPHeader:           v.GetString("real_ip_header"),
+		TrustedProxies:         trustedProxies,
 		NotificationBufferSize: v.GetInt("notification_buffer_size"),
 		NotificationWorkers:    v.GetInt("notification_workers"),
 		MetricsAddr:            v.GetString("metrics_addr"),
@@ -347,6 +356,24 @@ func Load(configFile ...string) (Config, error) {
 			MetricsDays:         max(v.GetInt("retention.metrics_days"), 1),
 		},
 	}, nil
+}
+
+// parseTrustedProxies converts trusted_proxies entries (CIDRs or bare IPs)
+// into prefixes; a bare IP becomes a single-address prefix.
+func parseTrustedProxies(entries []string) ([]netip.Prefix, error) {
+	prefixes := make([]netip.Prefix, 0, len(entries))
+	for _, entry := range entries {
+		p, err := netip.ParsePrefix(entry)
+		if err != nil {
+			addr, addrErr := netip.ParseAddr(entry)
+			if addrErr != nil {
+				return nil, fmt.Errorf("parse trusted_proxies entry %q: %w", entry, err)
+			}
+			p = netip.PrefixFrom(addr, addr.BitLen())
+		}
+		prefixes = append(prefixes, p.Masked())
+	}
+	return prefixes, nil
 }
 
 func parseLogLevel(s string) slog.Level {

@@ -199,6 +199,9 @@ func requireAdmin(w http.ResponseWriter, user *model.User) bool {
 
 // Login handles POST /api/v1/auth/login.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	// Limiter keyed on the IP resolved by clientIPMiddleware: with
+	// trusted_proxies set, an untrusted peer resolves to its own TCP address,
+	// so rotating spoofed real_ip_header values cannot dodge the limiter.
 	ip := middleware.GetClientIP(r.Context())
 	if !loginRL.allow(ip) {
 		LoggerFromContext(r.Context()).Warn("login rate limited", "ip", ip)

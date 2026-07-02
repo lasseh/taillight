@@ -2,6 +2,10 @@ package config
 
 import (
 	"log/slog"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -113,6 +117,38 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Notification.SendTimeout != 10*time.Second {
 		t.Errorf("Notification.SendTimeout = %v, want %v", cfg.Notification.SendTimeout, 10*time.Second)
+	}
+}
+
+// TestLoadTrustedProxies verifies trusted_proxies entries parse as CIDRs or
+// bare IPs (normalized to single-address prefixes) and that an invalid entry
+// fails Load.
+func TestLoadTrustedProxies(t *testing.T) {
+	dir := t.TempDir()
+
+	path := filepath.Join(dir, "config.yml")
+	yml := "trusted_proxies:\n  - \"172.18.0.0/16\"\n  - \"127.0.0.1\"\n"
+	if err := os.WriteFile(path, []byte(yml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := []netip.Prefix{
+		netip.MustParsePrefix("172.18.0.0/16"),
+		netip.MustParsePrefix("127.0.0.1/32"),
+	}
+	if !slices.Equal(cfg.TrustedProxies, want) {
+		t.Errorf("TrustedProxies = %v, want %v", cfg.TrustedProxies, want)
+	}
+
+	bad := filepath.Join(dir, "bad.yml")
+	if err := os.WriteFile(bad, []byte("trusted_proxies:\n  - \"not-a-cidr\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(bad); err == nil {
+		t.Error("Load() with invalid trusted_proxies entry should fail")
 	}
 }
 
