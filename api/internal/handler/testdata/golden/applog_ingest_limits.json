@@ -1,0 +1,11 @@
+{
+  "max_batch_size": 1000,
+  "max_msg_bytes": 65536,
+  "required_fields": [
+    "timestamp",
+    "level",
+    "msg",
+    "service",
+    "host"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "logs": [
+    {
+      "timestamp": "2026-06-15T12:00:03Z",
+      "level": "WARN",
+      "msg": "cache miss rate above threshold",
+      "service": "billing-api",
+      "component": "cache",
+      "host": "app01",
+      "source": "cache.go:42",
+      "attrs": {
+        "rate": 0.42
+      }
+    },
+    {
+      "timestamp": "2026-06-15T12:00:04Z",
+      "level": "INFO",
+      "msg": "startup complete",
+      "service": "billing-api",
+      "host": "app02"
+    }
+  ]
+}

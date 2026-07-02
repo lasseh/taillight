@@ -1,0 +1,15 @@
+{
+  "id": 2001,
+  "received_at": "2026-06-15T12:00:01.25Z",
+  "reported_at": "2026-06-15T12:00:00Z",
+  "hostname": "edge-rtr01.example.net",
+  "fromhost_ip": "192.0.2.1",
+  "programname": "rpd",
+  "msgid": "RPD_BGP_NEIGHBOR_STATE_CHANGED",
+  "severity": 3,
+  "severity_label": "err",
+  "facility": 23,
+  "facility_label": "local7",
+  "syslogtag": "rpd[1523]:",
+  "message": "BGP peer 203.0.113.9 (External AS 64511) changed state from Established to Idle"
+}

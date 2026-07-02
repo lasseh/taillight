@@ -1,0 +1,19 @@
+{
+  "data": {
+    "id": 1001,
+    "received_at": "2026-06-15T12:00:00.5Z",
+    "reported_at": "2026-06-15T11:59:59Z",
+    "hostname": "web01.example.net",
+    "fromhost_ip": "192.0.2.10",
+    "programname": "sshd",
+    "msgid": "SSHD_LOGIN_FAILED",
+    "severity": 4,
+    "severity_label": "warning",
+    "facility": 4,
+    "facility_label": "auth",
+    "syslogtag": "sshd[4242]:",
+    "structured_data": "[timeQuality tzKnown=\"1\" isSynced=\"1\"]",
+    "message": "Failed password for invalid user admin from 198.51.100.7 port 52344 ssh2",
+    "raw_message": "\u003c38\u003eJun 15 12:00:00 web01 sshd[4242]: Failed password"
+  }
+}

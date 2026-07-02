@@ -1,0 +1,13 @@
+{
+  "id": 3001,
+  "received_at": "2026-06-15T12:00:02Z",
+  "timestamp": "2026-06-15T12:00:01.75Z",
+  "level": "ERROR",
+  "service": "billing-api",
+  "component": "",
+  "host": "app01",
+  "msg": "payment reconciliation failed",
+  "source": "",
+  "attrs": null,
+  "api_key_id": null
+}
