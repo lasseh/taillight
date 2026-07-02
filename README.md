@@ -96,7 +96,6 @@ Lightweight, real-time log viewer for network operations teams. Stream netlog (n
 - Session-based auth with API key support (read, ingest, admin scopes)
 - Interactive API documentation at `/api/docs` (Scalar/OpenAPI)
 - Docker Compose one-command deployment
-- Built-in load generators for netlog, srvlog, and application log events
 - Juniper netlog reference data import (XLSX)
 
 ## Architecture
@@ -217,6 +216,8 @@ docker compose exec api /app useradd --username admin --password admin
 
 ### Generate test data
 
+Development/demo tooling: the main binary ships three load generators (`loadgen-netlog`, `loadgen-srvlog`, `loadgen-applog`) for seeding a fresh instance with realistic events.
+
 ```sh
 # Netlog events — network device logs (direct SQL insert)
 docker compose exec api /app loadgen-netlog -n 100 --delay 100ms --jitter 200ms
@@ -336,7 +337,7 @@ Response: `{"parsed": N, "upserted": M}`. Max request size is 10 MiB.
 | `rsyslog/` | Modular rsyslog filtering config for network devices |
 | `api/cmd/taillight/` | Main server binary (`serve`, `migrate`, loadgens, `useradd`, `apikey`, `import`) |
 | `api/cmd/taillight-shipper/` | Standalone log file tailer and ingest shipper |
-| `api/pkg/logshipper/` | Go `slog.Handler` for programmatic log shipping |
+| `pkg/logshipper/` | Go `slog.Handler` for programmatic log shipping |
 | `sdk/python/` | Python `logging.Handler` SDK (`pip install taillight-sdk`) |
 | `docs/` | Architecture, internals, notifications, and deployment guides |
 
