@@ -126,8 +126,19 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 - Server-wide HTTP `ReadTimeout` to bound slow-drip request bodies; panic-induced 500s are now recorded in request metrics
 - Standalone `idx_applog_id` index backing SSE Last-Event-ID backfill and single-event lookups, built per-chunk to avoid blocking ingest
 - Gated database integration test harness (`make test-integration`, ephemeral TimescaleDB) plus a CI job, covering keyset pagination, batch-insert ordering, and the API-key/user join
+- Tagged releases: `make release` tags `vX.Y.Z` and CI builds the cross-platform `taillight`/`taillight-shipper` binaries, the GitHub release, and the Docker image — see CONTRIBUTING.md (reverses the earlier no-releases convention; ADR-0005)
+- Golden-fixture contract tests locking the three event shapes, the list/detail envelopes, and the applog ingest request across the Go API and the frontend (ADR-0004); OpenAPI spec backfilled to the full route set with per-operation auth-scope markers, plus a route-inventory test that fails CI when a route lacks a spec entry
+- Listener→broker delivery integration test in the DB harness; table-driven scheduler tests (isDue/period/DST); frontend suites for highlighter XSS regression, SSE reconnect/backoff, API response handling, and filter↔URL round-trips — the frontend vitest suite now runs in CI and `make test`
+- ADRs 0002–0005 recording the 2026-07 architecture-review decisions
 
 ### Changed
+
+- Store files realigned to consumer-interface clusters — one `Store` type, ~13 domain files, zero signature changes (ADR-0003); identical srvlog/netlog summary queries folded into a shared helper
+- Merged the srvlog/netlog presentational clones (filter bar, row, detail, table) into shared components with thin per-feed bindings; VolumeView feed tabs render through one `VolumeChartPanel`; AppHeader menus are data-driven from a single `navItems` source
+- Ingest clients enforce the server contract client-side: `pkg/logshipper` and the Python SDK fail loud on a missing service and truncate oversized messages instead of silently losing whole batches
+- Frontend blocking gate grew from type-check-only to type-check + ESLint (errors-only) + Prettier check, after a mechanical bulk-format of the codebase
+- Analysis feed `all` is labeled "all syslog" in the UI — it covers srvlog+netlog; applog analysis is declared out of scope
+- SSE search filtering is allocation-free on the broadcast hot path
 
 - LDAP auth: replace the single `admin_group` DN with a `group_role_map` (group full-DN or bare CN → `admin`/regular role; matched case-insensitively, highest role wins, membership in no mapped group denies login), add an optional `ca_bundle` to trust an internal CA without `tls_skip_verify`, and drop the FreeIPA-only `nsAccountLock` account-lock check now that AD is supported
 - Overhaul the analyzer data block sent to Ollama: srvlog rows now group by `COALESCE(NULLIF(msgid,''), msg_pattern)` so RFC 3164 events (sshd/systemd/kernel/cron) reach the prompt instead of being dropped; each top signature ships with 1-2 verbatim sample messages, a 12-48 cell volume sparkline with peak timestamps, top programs/facilities for srvlog, and per-signature host distribution; system prompts updated across daily/weekly/incident with anti-hallucination rules around quoting samples
@@ -165,6 +176,11 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Fixed
 
+- SMTP notification sends are bounded by the send deadline — a stalled server fails fast instead of hanging the conversation
+- LISTEN/NOTIFY connection close race on shutdown removed — the listen goroutine is the connection's single owner
+- Notification suppressor memory is bounded: global fingerprint ceiling plus digest-payload trimming for oversized applog events
+- `/analysis` routes show the "feature not enabled" view instead of a broken page when analysis is disabled
+- `make up` creates `api/config.yml` from the example on first run instead of failing the bind-mount
 - **Keyset pagination dropped one event per page boundary** in the srvlog/netlog/applog list endpoints — the next cursor was set to the look-ahead "peek" row, which the strict `<` next-page query then excluded; now uses the last returned row (caught by a new DB integration test)
 - Digest notifications rendered "in the last 0 seconds" — the digest window is now set on flush
 - Notification rate limiter consumed a token on every retry attempt, abandoning alerts on low-burst channels (e.g. email) after two failures and preventing the circuit breaker from tripping; now gated once per notification with retries bypassing it
@@ -202,6 +218,12 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Security
 
+- Auth-UX hardening: a mid-session 401 invalidates auth state and redirects to `/login` instead of leaving stale authenticated UI rendered; logout clears in-memory log buffers and stream cursors; the `/notifications` page requires login (was publicly reachable); admin routes get a router-level guard
+- Analyzer prompts delimit and sanitize untrusted log text (prompt-injection hardening); failed analysis reports no longer expose the internal Ollama URL or upstream error body
+- `trusted_proxies` CIDR allowlist for real-IP resolution; login rate limiting keys on the raw TCP peer
+- `Content-Security-Policy-Report-Only` header on the SPA shell (promotion to enforcing once the two inline scripts are externalized)
+- `.env.example` defaults `AUTH_ENABLED=true` so the quickstart no longer disables auth by copy-paste
+- gosec G201/G202 SQL-injection detectors enabled in the lint gate (note: they only see `database/sql` sinks, not pgx — belt-and-suspenders, not full coverage)
 - Replace the deprecated, spoofable chi `middleware.RealIP` (GHSA-3fxj-6jh8-hvhx / GHSA-rjr7-jggh-pgcp / GHSA-9g5q-2w5x-hmxf) with a config-driven, safe-by-default client-IP resolver. The real client IP (used for login rate-limiting, `applog_events.source_ip` attribution, and the demo write gate) is now read only from the trusted `real_ip_header` when set, otherwise from the TCP peer — forwarded headers are no longer trusted unconditionally. **Behavior change:** deployments behind a reverse proxy must set `real_ip_header` (e.g. `X-Real-IP`) or every client is attributed to the proxy's IP, collapsing per-IP login rate-limiting into one bucket. Bumps `github.com/go-chi/chi/v5` to 5.3.0
 - Require Go 1.26.4, resolving the `net/textproto` standard-library advisory GO-2026-5039 (`govulncheck` now reports no vulnerabilities in called code)
 - Block the IPv4 "this host" range (`0.0.0.0/8`) and unspecified addresses (`0.0.0.0`, `::`) in the SSRF webhook guard, with a stdlib classification catch-all that also normalises IPv4-mapped IPv6 (e.g. `::ffff:127.0.0.1`)
