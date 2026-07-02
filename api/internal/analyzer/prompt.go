@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"unicode"
 
 	"github.com/lasseh/taillight/internal/model"
 )
@@ -47,6 +48,18 @@ var validModes = map[string]struct{}{
 	modeIncident: {},
 }
 
+// logDataBegin / logDataEnd are the sentinel markers that fence the
+// untrusted log-data block in the rendered user prompt. The system prompts
+// tell the model that everything between them is captured log text —
+// evidence, never instructions. sanitizeLogText strips any occurrence of
+// the markers from log data so a crafted log line cannot spoof the end of
+// the block. They are passed to the templates as .LogDataBegin/.LogDataEnd
+// so the token text has a single source of truth in code.
+const (
+	logDataBegin = "<<<TAILLIGHT_LOG_DATA_BEGIN>>>"
+	logDataEnd   = "<<<TAILLIGHT_LOG_DATA_END>>>"
+)
+
 // promptFuncs are the template functions available to both prompts.
 // Registered fresh on every parse so hot-reload picks up new files.
 var promptFuncs = template.FuncMap{
@@ -54,6 +67,52 @@ var promptFuncs = template.FuncMap{
 	"join":          strings.Join,
 	"truncate":      truncatePromptString,
 	"truncateAll":   truncatePromptStrings,
+	"sanitize":      sanitizeLogText,
+	"sanitizeAll":   sanitizeLogTexts,
+}
+
+// sanitizeLogText neutralizes attacker-controlled log text (sample
+// messages, hostnames, msg_pattern signatures, program names) before it is
+// interpolated into a prompt. Any device that can reach rsyslog or the
+// applog ingest API controls this text, so it must not be able to break
+// out of its slot in the data block: newlines and every other control
+// character become spaces (so a multi-line message can never render as
+// extra prompt lines), backticks become straight quotes (so the text
+// cannot close the inline code span the templates wrap it in), and
+// embedded copies of the data-block sentinels are removed (so the text
+// cannot spoof the end of the untrusted block).
+func sanitizeLogText(s string) string {
+	// Map control runes to spaces rather than deleting them — deletion
+	// could splice the surrounding fragments into a sentinel token.
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	// Collapse whitespace runs. A run always yields exactly one space, so
+	// collapsing cannot assemble a sentinel token either.
+	s = strings.Join(strings.Fields(s), " ")
+	s = strings.ReplaceAll(s, "`", "'")
+	// Strip sentinels last, looping because removing one occurrence can
+	// concatenate the neighbouring fragments into a new one. Terminates:
+	// every pass removes at least one occurrence, shrinking the string.
+	for strings.Contains(s, logDataBegin) || strings.Contains(s, logDataEnd) {
+		s = strings.ReplaceAll(s, logDataBegin, "")
+		s = strings.ReplaceAll(s, logDataEnd, "")
+	}
+	return s
+}
+
+// sanitizeLogTexts applies sanitizeLogText to every element of ss,
+// returning a new slice. Used for cluster host and msgid lists that are
+// joined onto a single rendered line.
+func sanitizeLogTexts(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = sanitizeLogText(s)
+	}
+	return out
 }
 
 // truncatePromptString returns s clipped to at most n runes, appending a
@@ -97,7 +156,9 @@ func formatScopeLabel(hosts []string) string {
 	if len(hosts) > 1 {
 		noun = "hosts"
 	}
-	return fmt.Sprintf("%s (%d %s)", strings.Join(hosts, ", "), len(hosts), noun)
+	// Hostnames originate from log data, so they get the same
+	// neutralization as the sample text they came from.
+	return fmt.Sprintf("%s (%d %s)", strings.Join(sanitizeLogTexts(hosts), ", "), len(hosts), noun)
 }
 
 // feedDescription returns a human-readable description of the feed for use in prompts.
@@ -141,6 +202,8 @@ type promptData struct {
 	FeedTitle       string
 	IsScoped        bool
 	ScopeLabel      string // pre-formatted "edge01.lab, edge02.lab (2 hosts)".
+	LogDataBegin    string // sentinel opening the untrusted log-data block.
+	LogDataEnd      string // sentinel closing it; sanitize strips it from data.
 }
 
 // scopedGuardSystemPreamble is the invariant system-prompt block prepended
@@ -207,6 +270,8 @@ func buildPrompt(data analysisData, promptsDir, mode string) (string, string, er
 		FeedTitle:       feedTitle(data.Feed),
 		IsScoped:        len(data.Hosts) > 0,
 		ScopeLabel:      formatScopeLabel(data.Hosts),
+		LogDataBegin:    logDataBegin,
+		LogDataEnd:      logDataEnd,
 	}
 
 	sysSrc, err := loadPromptSource(promptsDir, mode, systemPromptFile)
