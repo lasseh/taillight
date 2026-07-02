@@ -158,6 +158,10 @@ work waiting for a release.
 - Make analyzer timeouts configurable and raise defaults (`ollama_timeout` 2h, `run_timeout` 4h)
 - Strip oversized applog attrs from list and SSE responses to keep payloads bounded
 
+### Removed
+
+- Dormant `attach_pdf` email plumbing (channel config flag, `PDFRenderer` interface, multipart/mixed attachment path) — removed before ever being wired to a renderer; an `attach_pdf` key in existing channel configs is now silently ignored. Design preserved in `.scratch/email-analysis-reports/PRD.md` and git history
+
 ### Fixed
 
 - **Keyset pagination dropped one event per page boundary** in the srvlog/netlog/applog list endpoints — the next cursor was set to the look-ahead "peek" row, which the strict `<` next-page query then excluded; now uses the last returned row (caught by a new DB integration test)

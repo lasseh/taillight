@@ -144,9 +144,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 		notifEngine.RegisterBackend(notification.ChannelTypeNtfy, backend.NewNtfy(logger))
 		// Email backend is always registered so channels can be created without SMTP
 		// configured. Send-time will surface a clear error if smtp.host is unset.
-		// PDF renderer is wired separately (internal/pdfrender). nil here means
-		// channels with attach_pdf=true degrade to HTML-only delivery — see
-		// .scratch/email-analysis-reports/PRD.md for the rollout plan.
 		notifEngine.RegisterBackend(notification.ChannelTypeEmail, backend.NewEmail(backend.EmailGlobalConfig{
 			Host:     cfg.SMTP.Host,
 			Port:     cfg.SMTP.Port,
@@ -155,7 +152,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 			From:     cfg.SMTP.From,
 			TLS:      cfg.SMTP.TLS,
 			AuthType: cfg.SMTP.AuthType,
-		}, nil, logger))
+		}, logger))
 		notifEngine.Start(ctx)
 	}
 

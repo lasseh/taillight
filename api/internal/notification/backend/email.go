@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -25,20 +24,6 @@ import (
 type emailConfig struct {
 	To              []string `json:"to"`
 	SubjectTemplate string   `json:"subject_template,omitempty"`
-	// AttachPDF, when true on an analysis-report payload, renders the report
-	// to PDF via the configured PDFRenderer and ships it as a multipart/mixed
-	// attachment. Ignored on other payload kinds and silently skipped when
-	// the backend has no renderer wired (logs a warning).
-	AttachPDF bool `json:"attach_pdf,omitempty"`
-}
-
-// PDFRenderer is the interface the email backend uses to render an analysis
-// report to PDF bytes. Implemented by internal/pdfrender — but injected as an
-// interface so backend tests can substitute a fake. Nil renderer means
-// PDF attachment is disabled and AttachPDF channel configs degrade to a
-// plain text/html body with a warning logged.
-type PDFRenderer interface {
-	RenderAnalysisReport(ctx context.Context, r model.AnalysisReport) ([]byte, error)
 }
 
 // EmailGlobalConfig holds SMTP connection settings from the app config.
@@ -54,19 +39,15 @@ type EmailGlobalConfig struct {
 
 // Email implements the Notifier interface for SMTP email delivery.
 type Email struct {
-	cfg      EmailGlobalConfig
-	renderer PDFRenderer
-	logger   *slog.Logger
+	cfg    EmailGlobalConfig
+	logger *slog.Logger
 }
 
-// NewEmail creates a new Email backend. Pass nil for renderer to disable PDF
-// attachment support — channels with attach_pdf=true will still send, but
-// only the HTML body (a warning is logged).
-func NewEmail(cfg EmailGlobalConfig, renderer PDFRenderer, logger *slog.Logger) *Email {
+// NewEmail creates a new Email backend.
+func NewEmail(cfg EmailGlobalConfig, logger *slog.Logger) *Email {
 	return &Email{
-		cfg:      cfg,
-		renderer: renderer,
-		logger:   logger.With("backend", "email"),
+		cfg:    cfg,
+		logger: logger.With("backend", "email"),
 	}
 }
 
@@ -110,37 +91,7 @@ func (e *Email) Send(ctx context.Context, ch notification.Channel, payload notif
 
 	subject := buildEmailSubject(cfg.SubjectTemplate, payload)
 	body := buildEmailBody(payload)
-
-	// PDF attachment path. Only kicks in for AnalysisReport payloads with
-	// attach_pdf=true on the channel and a renderer wired on the backend.
-	// Anything else falls through to the plain text/html message that the
-	// existing summary / event flows already use.
-	var pdf []byte
-	if cfg.AttachPDF && payload.AnalysisReport != nil {
-		if e.renderer == nil {
-			e.logger.Warn("attach_pdf requested but no PDF renderer configured; sending without attachment",
-				"slug", payload.AnalysisReport.Slug)
-		} else {
-			rendered, rerr := e.renderer.RenderAnalysisReport(ctx, *payload.AnalysisReport)
-			if rerr != nil {
-				// Failing the whole send because the PDF render failed would be
-				// worse than delivering the HTML body — the recipient can still
-				// open the report via the link in the body.
-				e.logger.Warn("PDF render failed; sending email without attachment",
-					"slug", payload.AnalysisReport.Slug, "err", rerr)
-			} else {
-				pdf = rendered
-			}
-		}
-	}
-
-	var msg []byte
-	if len(pdf) > 0 {
-		filename := pdfFilename(payload.AnalysisReport)
-		msg = buildMIMEMessageWithAttachment(e.cfg.From, cfg.To, subject, body, pdf, filename)
-	} else {
-		msg = buildMIMEMessage(e.cfg.From, cfg.To, subject, body)
-	}
+	msg := buildMIMEMessage(e.cfg.From, cfg.To, subject, body)
 
 	if err := e.sendSMTP(ctx, cfg.To, msg); err != nil {
 		return notification.SendResult{Error: fmt.Errorf("send email: %w", err), Duration: time.Since(start)}
@@ -246,64 +197,6 @@ func buildMIMEMessage(from string, to []string, subject, htmlBody string) []byte
 	b.WriteString("\r\n")
 	b.WriteString(htmlBody)
 	return []byte(b.String())
-}
-
-// buildMIMEMessageWithAttachment constructs a multipart/mixed email carrying
-// the HTML body plus a single binary attachment (the analysis-report PDF).
-// The boundary is derived from a fixed prefix + a nanosecond timestamp; that
-// combination is unique enough for one message and avoids pulling in
-// crypto/rand for what is effectively a delimiter.
-//
-// Attachment is base64-encoded with 76-char line wrapping per RFC 2045 §6.8.
-func buildMIMEMessageWithAttachment(from string, to []string, subject, htmlBody string, attachment []byte, filename string) []byte {
-	boundary := fmt.Sprintf("taillight_%d", time.Now().UnixNano())
-	filename = sanitizeHeaderValue(filename)
-
-	var b strings.Builder
-	b.WriteString("From: " + sanitizeHeaderValue(from) + "\r\n")
-	b.WriteString("To: " + sanitizeHeaderValue(strings.Join(to, ", ")) + "\r\n")
-	b.WriteString("Subject: " + sanitizeHeaderValue(subject) + "\r\n")
-	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: multipart/mixed; boundary=\"" + boundary + "\"\r\n")
-	b.WriteString("\r\n")
-
-	// HTML body part.
-	b.WriteString("--" + boundary + "\r\n")
-	b.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
-	b.WriteString("Content-Transfer-Encoding: 7bit\r\n")
-	b.WriteString("\r\n")
-	b.WriteString(htmlBody)
-	b.WriteString("\r\n")
-
-	// PDF attachment part.
-	b.WriteString("--" + boundary + "\r\n")
-	b.WriteString("Content-Type: application/pdf; name=\"" + filename + "\"\r\n")
-	b.WriteString("Content-Disposition: attachment; filename=\"" + filename + "\"\r\n")
-	b.WriteString("Content-Transfer-Encoding: base64\r\n")
-	b.WriteString("\r\n")
-	encoded := base64.StdEncoding.EncodeToString(attachment)
-	// Wrap to 76 chars per RFC 2045 §6.8.
-	for i := 0; i < len(encoded); i += 76 {
-		end := i + 76
-		if end > len(encoded) {
-			end = len(encoded)
-		}
-		b.WriteString(encoded[i:end])
-		b.WriteString("\r\n")
-	}
-
-	// Final boundary.
-	b.WriteString("--" + boundary + "--\r\n")
-	return []byte(b.String())
-}
-
-// pdfFilename derives a safe filename for the report PDF. Falls back to a
-// timestamped default if the report has no slug (shouldn't happen post-store).
-func pdfFilename(r *model.AnalysisReport) string {
-	if r != nil && r.Slug != "" {
-		return r.Slug + ".pdf"
-	}
-	return fmt.Sprintf("taillight-report-%d.pdf", time.Now().Unix())
 }
 
 // sanitizeHeaderValue strips CR and LF characters to prevent header injection.
@@ -602,9 +495,7 @@ func writeAppLogSection(b *strings.Builder, s *model.AppLogSummary) {
 
 // buildEmailAnalysisReport renders the HTML email body for an analysis report.
 // Delegates to internal/report — the single source of truth shared with the
-// print endpoint — so mail and the printed PDF never drift. There is no
-// attachment in this delivery path; the PDF plumbing (multipart, attach_pdf,
-// the PDFRenderer interface) is committed but dormant for a future slice.
+// print endpoint — so mail and the printed PDF never drift.
 func buildEmailAnalysisReport(r *model.AnalysisReport) string {
 	return report.RenderHTML(r, report.VariantEmail)
 }

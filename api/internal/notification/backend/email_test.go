@@ -21,7 +21,7 @@ func discardLogger() *slog.Logger {
 }
 
 func TestEmailValidate(t *testing.T) {
-	e := NewEmail(EmailGlobalConfig{}, nil, discardLogger())
+	e := NewEmail(EmailGlobalConfig{}, discardLogger())
 
 	tests := []struct {
 		name    string
@@ -82,7 +82,7 @@ func TestEmailValidate(t *testing.T) {
 }
 
 func TestEmailValidateInvalidJSON(t *testing.T) {
-	e := NewEmail(EmailGlobalConfig{}, nil, discardLogger())
+	e := NewEmail(EmailGlobalConfig{}, discardLogger())
 	ch := notification.Channel{Config: json.RawMessage(`{invalid`)}
 	err := e.Validate(ch)
 	if err == nil {
@@ -272,63 +272,6 @@ func TestBuildEmailAnalysisReport(t *testing.T) {
 	}
 }
 
-func TestBuildMIMEMessageWithAttachment(t *testing.T) {
-	pdf := []byte("%PDF-1.4 fake pdf bytes for testing\n")
-	msg := buildMIMEMessageWithAttachment(
-		"from@example.com",
-		[]string{"to@example.com"},
-		"[Taillight] Daily — 2026-05-22",
-		"<p>body</p>",
-		pdf,
-		"netlog-daily-2026-05-22-1018.pdf",
-	)
-	s := string(msg)
-
-	checks := []string{
-		"From: from@example.com\r\n",
-		"To: to@example.com\r\n",
-		`Content-Type: multipart/mixed; boundary="taillight_`,
-		"Content-Type: text/html; charset=UTF-8\r\n",
-		"<p>body</p>",
-		`Content-Type: application/pdf; name="netlog-daily-2026-05-22-1018.pdf"`,
-		`Content-Disposition: attachment; filename="netlog-daily-2026-05-22-1018.pdf"`,
-		"Content-Transfer-Encoding: base64\r\n",
-	}
-	for _, check := range checks {
-		if !strings.Contains(s, check) {
-			t.Errorf("expected MIME message to contain %q", check)
-		}
-	}
-
-	// Final boundary marker must terminate the message.
-	if !strings.HasSuffix(s, "--\r\n") {
-		t.Errorf("expected message to end with terminating boundary, got tail %q", s[max(0, len(s)-40):])
-	}
-}
-
-func TestPDFFilename(t *testing.T) {
-	tests := []struct {
-		name string
-		in   *model.AnalysisReport
-		want string
-	}{
-		{name: "slug present", in: &model.AnalysisReport{Slug: "netlog-daily-2026-05-22"}, want: "netlog-daily-2026-05-22.pdf"},
-		{name: "nil falls back to timestamped", in: nil, want: "taillight-report-"},
-		{name: "empty slug falls back to timestamped", in: &model.AnalysisReport{}, want: "taillight-report-"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := pdfFilename(tt.in)
-			if !strings.HasPrefix(got, tt.want) {
-				t.Errorf("expected filename to start with %q, got %q", tt.want, got)
-			}
-			if !strings.HasSuffix(got, ".pdf") {
-				t.Errorf("expected filename to end with .pdf, got %q", got)
-			}
-		})
-	}
-}
-
 func TestBuildMIMEMessage(t *testing.T) {
 	msg := buildMIMEMessage("from@example.com", []string{"to@example.com"}, "Test Subject", "<p>body</p>")
 	s := string(msg)
@@ -374,7 +317,7 @@ func TestSendSMTPStalledServer(t *testing.T) {
 		Host: "127.0.0.1",
 		Port: addr.Port,
 		From: "from@example.com",
-	}, nil, discardLogger())
+	}, discardLogger())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
