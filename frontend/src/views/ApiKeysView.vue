@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { api, ApiError } from '@/lib/api'
-import type { ApiKeyInfo } from '@/types/auth'
+import type { ApiKeyInfo, CreateKeyRequest } from '@/types/auth'
 
 const keys = ref<ApiKeyInfo[]>([])
 const loading = ref(true)
@@ -141,8 +141,10 @@ async function createKey() {
 
   creating.value = true
   try {
+    const req: CreateKeyRequest = { name, scopes: newKeyScopes.value }
     const expiresAt = computeExpiresAt()
-    const res = await api.createKey({ name, scopes: newKeyScopes.value, expires_at: expiresAt })
+    if (expiresAt) req.expires_at = expiresAt
+    const res = await api.createKey(req)
     createdKey.value = res.key
     keys.value.unshift(res.key_info)
     newKeyName.value = ''

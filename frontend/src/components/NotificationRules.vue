@@ -176,12 +176,13 @@ function buildRule(): Partial<NotificationRule> {
     name: formName.value.trim(),
     enabled: formEnabled.value,
     event_kind: formEventKind.value,
-    search: formSearch.value || undefined,
     channel_ids: formChannelIDs.value,
     silence_ms: Math.max(0, formSilenceSeconds.value) * 1000,
     silence_max_ms: Math.max(0, formSilenceMaxSeconds.value) * 1000,
     coalesce_ms: Math.max(0, formCoalesceMS.value),
   }
+
+  if (formSearch.value) rule.search = formSearch.value
 
   if (formEventKind.value === 'srvlog' || formEventKind.value === 'netlog') {
     if (formHostname.value) rule.hostname = formHostname.value

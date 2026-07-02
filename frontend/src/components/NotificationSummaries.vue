@@ -200,10 +200,11 @@ function buildSchedule(): Partial<SummarySchedule> {
     time_of_day: formTimeOfDay.value,
     timezone: formTimezone.value,
     event_kinds: formEventKinds.value,
-    hostname: formHostname.value || undefined,
     top_n: formTopN.value,
     channel_ids: formChannelIDs.value,
   }
+
+  if (formHostname.value) sched.hostname = formHostname.value
 
   if (formFrequency.value === 'weekly') {
     sched.day_of_week = formDayOfWeek.value

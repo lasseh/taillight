@@ -11,10 +11,9 @@ export interface SrvlogEvent {
   facility: number
   facility_label: string
   syslogtag: string
-  structured_data: string | null
+  structured_data?: string
   message: string
-  raw_message: string | null
-  juniper_ref?: JuniperNetlogRef[]
+  raw_message?: string
 }
 
 export interface SrvlogListResponse {

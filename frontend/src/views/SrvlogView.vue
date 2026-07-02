@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { SrvlogEvent, JuniperNetlogRef } from '@/types/srvlog'
+import type { SrvlogEvent } from '@/types/srvlog'
 import { api, ApiError } from '@/lib/api'
 import { severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
@@ -15,7 +15,6 @@ const props = defineProps<{
 
 const router = useRouter()
 const event = ref<SrvlogEvent | null>(null)
-const juniperRefs = ref<JuniperNetlogRef[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const errorStatus = ref<number | null>(null)
@@ -46,7 +45,6 @@ let fetchVersion = 0
 watch(() => props.id, async (id) => {
   const version = ++fetchVersion
   event.value = null
-  juniperRefs.value = []
   loading.value = true
   error.value = null
   errorStatus.value = null
@@ -62,9 +60,6 @@ watch(() => props.id, async (id) => {
     const res = await api.getSrvlog(numId)
     if (version !== fetchVersion) return
     event.value = res.data
-    if (res.data.juniper_ref) {
-      juniperRefs.value = res.data.juniper_ref
-    }
   } catch (e) {
     if (version !== fetchVersion) return
     if (e instanceof ApiError) {
@@ -189,39 +184,6 @@ watch(() => props.id, async (id) => {
             class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed"
             :data-copytext="`structured data: ${event.structured_data}`"
           >{{ event.structured_data }}</pre>
-        </div>
-
-        <!-- Juniper reference -->
-        <div v-if="juniperRefs.length > 0" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
-            Juniper Reference
-          </h3>
-          <div v-for="ref in juniperRefs" :key="ref.id" class="border-t-border border-b p-4 last:border-b-0">
-            <div class="mb-2 flex items-center gap-2">
-              <span class="text-t-fg font-mono text-sm font-semibold">{{ ref.name }}</span>
-              <span class="bg-t-green/15 text-t-green rounded px-1.5 py-0.5 text-xs">{{ ref.os }}</span>
-              <span v-if="ref.severity" class="text-t-fg-dark text-xs">{{ ref.severity }}</span>
-              <span v-if="ref.type" class="text-t-fg-dark text-xs">({{ ref.type }})</span>
-            </div>
-            <dl class="space-y-2 text-sm">
-              <div v-if="ref.description">
-                <dt class="text-t-fg-dark text-xs font-semibold uppercase">Description</dt>
-                <dd class="text-t-fg mt-0.5">{{ ref.description }}</dd>
-              </div>
-              <div v-if="ref.cause">
-                <dt class="text-t-fg-dark text-xs font-semibold uppercase">Cause</dt>
-                <dd class="text-t-fg mt-0.5">{{ ref.cause }}</dd>
-              </div>
-              <div v-if="ref.action">
-                <dt class="text-t-fg-dark text-xs font-semibold uppercase">Action</dt>
-                <dd class="text-t-fg mt-0.5">{{ ref.action }}</dd>
-              </div>
-              <div v-if="ref.message">
-                <dt class="text-t-fg-dark text-xs font-semibold uppercase">Message</dt>
-                <dd class="text-t-fg mt-0.5 font-mono text-xs">{{ ref.message }}</dd>
-              </div>
-            </dl>
-          </div>
         </div>
 
         <!-- Raw message -->

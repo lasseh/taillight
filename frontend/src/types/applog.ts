@@ -12,6 +12,12 @@ export interface AppLogEvent {
   // attrs_truncated is true when the server stripped a large attrs blob from
   // a list / SSE response. Detail panels should fetch the full event by id.
   attrs_truncated?: boolean
+  // source_ip is the resolved client IP captured by the ingest handler.
+  // Absent on rows ingested before this field was added.
+  source_ip?: string
+  // api_key_id identifies the API key that ingested this row. null when
+  // inserted via session auth or before this field was added.
+  api_key_id: string | null
 }
 
 export interface AppLogListResponse {
