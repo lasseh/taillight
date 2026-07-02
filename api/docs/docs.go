@@ -9,6 +9,10 @@ import (
 //go:embed openapi.yml
 var spec []byte
 
+// Spec returns the embedded OpenAPI document. It exists so the route-inventory
+// test can assert the spec against the live chi route table.
+func Spec() []byte { return spec }
+
 // SpecHandler serves the raw OpenAPI YAML spec.
 func SpecHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
