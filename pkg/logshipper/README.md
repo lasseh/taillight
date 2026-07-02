@@ -173,18 +173,30 @@ with `…[truncated]`. Non-string values (numbers, bools, nested groups,
 `json.Marshaler` types like `time.Time`) are not affected. This is a safety
 net for accidental blowups — use `Redact` if you want per-key control.
 
+### Server limits
+
+The taillight ingest API enforces per-request limits; the shipper handles
+the ones it can so a single oversized entry never sinks a whole batch:
+
+- **`msg` is capped at 64 KB.** Longer messages are truncated client-side
+  (annotated with `…[truncated]`) instead of the server rejecting the batch.
+- **`Service` is required.** `New` returns an error if `Config.Service` is
+  empty, since every shipped entry would be rejected.
+- **Batches are capped at 1000 entries per request.** Keep `BatchSize` at or
+  below 1000 (the default is 100).
+
 ## Config reference
 
 | Field                | Type                            | Default          | Description                                                                                 |
 |----------------------|---------------------------------|------------------|---------------------------------------------------------------------------------------------|
 | `Endpoint`           | `string`                        | —                | Ingest URL. Must be `http://` or `https://` with a non-empty host. Validated in `New`.      |
 | `APIKey`             | `Secret`                        | —                | Bearer token for authentication. Redacted in all string/JSON formatting.                    |
-| `Service`            | `string`                        | —                | Service name attached to every entry.                                                       |
+| `Service`            | `string`                        | —                | Required. Service name attached to every entry; `New` returns an error if empty.            |
 | `Component`          | `string`                        | `""`             | Optional component label.                                                                   |
 | `Host`               | `string`                        | `os.Hostname()`  | Host/instance identifier.                                                                   |
 | `AddSource`          | `bool`                          | `false`          | Include source `file:line` from the calling function.                                       |
 | `MinLevel`           | `slog.Level`                    | `slog.LevelInfo` | Minimum level to ship. Zero value is `LevelInfo`; set `LevelDebug` explicitly to ship everything. |
-| `BatchSize`          | `int`                           | `100`            | Flush when batch reaches this size.                                                         |
+| `BatchSize`          | `int`                           | `100`            | Flush when batch reaches this size. The ingest API caps batches at 1000 entries.            |
 | `FlushPeriod`        | `time.Duration`                 | `1s`             | Flush at least this often.                                                                  |
 | `BufferSize`         | `int`                           | `1024`           | Buffered channel capacity. Entries are dropped (and counted) when full.                     |
 | `SendTimeout`        | `time.Duration`                 | `30s`            | Per-request HTTP timeout. Enforced whether or not `Client` is set.                          |

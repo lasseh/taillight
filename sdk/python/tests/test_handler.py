@@ -372,6 +372,51 @@ class TestTaillightHandler(unittest.TestCase):
         finally:
             logger.removeHandler(handler)
 
+    def test_empty_service_raises(self):
+        with self.assertRaises(ValueError):
+            TaillightHandler(endpoint="http://127.0.0.1:1/ingest")
+
+    def test_oversized_msg_truncated(self):
+        server, url = start_server(CaptureHandler)
+        try:
+            handler = self._make_handler(url, batch_size=1, flush_interval=0.1)
+            logger = logging.getLogger("test_truncate")
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+
+            logger.info("x" * (64 * 1024 + 100))
+
+            time.sleep(0.5)
+            handler.shutdown()
+
+            entry = server.captured[0]["body"]["logs"][0]
+            msg = entry["msg"]
+            self.assertLessEqual(len(msg.encode("utf-8")), 64 * 1024)
+            self.assertTrue(msg.endswith("…[truncated]"))
+        finally:
+            logger.removeHandler(handler)
+            server.shutdown()
+
+    def test_msg_at_cap_not_truncated(self):
+        server, url = start_server(CaptureHandler)
+        try:
+            handler = self._make_handler(url, batch_size=1, flush_interval=0.1)
+            logger = logging.getLogger("test_no_truncate")
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+
+            logger.info("x" * (64 * 1024))
+
+            time.sleep(0.5)
+            handler.shutdown()
+
+            entry = server.captured[0]["body"]["logs"][0]
+            self.assertEqual(len(entry["msg"]), 64 * 1024)
+            self.assertFalse(entry["msg"].endswith("…[truncated]"))
+        finally:
+            logger.removeHandler(handler)
+            server.shutdown()
+
     def test_backoff_reduces_attempt_rate(self):
         """After failures, the handler should back off and not retry immediately."""
         server, url = start_server(FailHandler)

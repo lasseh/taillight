@@ -36,6 +36,19 @@ logger.info("server started", extra={"port": 8080})
 handler.shutdown()
 ```
 
+## Server limits
+
+The Taillight ingest API enforces per-request limits; the handler covers the
+ones it can so a single oversized entry never sinks a whole batch:
+
+- **`service` is required** — an empty service raises `ValueError` at
+  construction, since every shipped entry would be rejected by the server.
+- **Messages are capped at 64 KB** — longer messages are truncated
+  client-side (marked with `…[truncated]`) instead of the server rejecting
+  the batch.
+- **Batches are capped at 1000 entries per request** — keep `batch_size` at
+  or below 1000 (the default is 100).
+
 ## Documentation
 
 See the full [Python logshipper guide](https://github.com/lasseh/taillight/blob/main/docs/python-logshipper.md) for configuration reference, structured logging, Django/Flask integration, and API details.

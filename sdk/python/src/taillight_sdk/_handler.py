@@ -30,6 +30,22 @@ _BACKOFF_INITIAL = 1.0  # seconds
 _BACKOFF_MAX = 60.0  # seconds
 _BACKOFF_MULTIPLIER = 2.0
 
+# The ingest API's per-entry cap on the msg field (64 KB). Messages longer
+# than this are truncated client-side so one oversized entry cannot make the
+# server reject the whole batch.
+_MAX_MSG_BYTES = 64 * 1024
+_TRUNCATION_SUFFIX = "…[truncated]"
+
+
+def _truncate_msg(msg: str) -> str:
+    """Cap msg at the server's 64 KB byte limit, marking the cut with a suffix."""
+    raw = msg.encode("utf-8")
+    if len(raw) <= _MAX_MSG_BYTES:
+        return msg
+    cut = raw[: _MAX_MSG_BYTES - len(_TRUNCATION_SUFFIX.encode("utf-8"))]
+    # errors="ignore" drops a trailing partial character at the cut point.
+    return cut.decode("utf-8", errors="ignore") + _TRUNCATION_SUFFIX
+
 
 class TaillightHandler(logging.Handler):
     """Batching log handler that ships entries to a Taillight applog ingest endpoint.
@@ -39,9 +55,14 @@ class TaillightHandler(logging.Handler):
 
     If the queue is full, new entries are silently dropped (non-blocking).
 
-    The handler never raises exceptions to the caller and never blocks the
-    application. If Taillight is unreachable, entries are dropped and a warning
-    is printed to stderr on the first failure.
+    After construction the handler never raises exceptions to the caller and
+    never blocks the application. If Taillight is unreachable, entries are
+    dropped and a warning is printed to stderr on the first failure.
+
+    ``service`` is required — the ingest API rejects entries without one, so
+    an empty service raises ``ValueError`` at construction. Messages longer
+    than the server's 64 KB cap are truncated (marked with ``…[truncated]``)
+    rather than letting the server reject the whole batch.
     """
 
     def __init__(
@@ -56,6 +77,12 @@ class TaillightHandler(logging.Handler):
         buffer_size: int = 1024,
         timeout: float = 5.0,
     ):
+        if not service:
+            # Raised before super().__init__() so a rejected handler is never
+            # registered with the logging module.
+            raise ValueError(
+                "service is required: the ingest API rejects entries with an empty service"
+            )
         super().__init__()
         self.endpoint = endpoint
         self.api_key = api_key
@@ -84,7 +111,7 @@ class TaillightHandler(logging.Handler):
             entry: dict[str, object] = {
                 "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
                 "level": _LEVEL_MAP.get(record.levelno, "INFO"),
-                "msg": record.getMessage(),
+                "msg": _truncate_msg(record.getMessage()),
                 "service": self.service,
                 "host": self.host,
             }

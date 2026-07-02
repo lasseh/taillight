@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func mustNew(t *testing.T, cfg Config) *Handler {
@@ -899,6 +900,98 @@ func TestHandler_EndpointValidation(t *testing.T) {
 	}
 }
 
+func TestNew_RequiresService(t *testing.T) {
+	h, err := New(Config{
+		Endpoint: "https://example.com/api",
+		APIKey:   "k",
+	})
+	if h != nil {
+		defer h.Shutdown(context.Background()) //nolint:errcheck // Cleanup.
+	}
+	if err == nil {
+		t.Fatal("New with empty Service: expected error, got nil")
+	}
+}
+
+func TestTruncateMsg(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  string
+	}{
+		{"short", "hello"},
+		{"exactly_at_cap", strings.Repeat("a", maxMsgBytes)},
+		{"one_over_cap", strings.Repeat("a", maxMsgBytes+1)},
+		{"far_over_cap", strings.Repeat("a", 3*maxMsgBytes)},
+		{"multibyte_at_boundary", strings.Repeat("é", maxMsgBytes)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateMsg(tt.msg)
+			if len(tt.msg) <= maxMsgBytes {
+				if got != tt.msg {
+					t.Errorf("msg under cap was modified: len %d → %d", len(tt.msg), len(got))
+				}
+				return
+			}
+			if len(got) > maxMsgBytes {
+				t.Errorf("truncated msg is %d bytes, want <= %d", len(got), maxMsgBytes)
+			}
+			if !strings.HasSuffix(got, truncationSuffix) {
+				t.Errorf("truncated msg missing %q suffix", truncationSuffix)
+			}
+			if !utf8.ValidString(got) {
+				t.Error("truncated msg is not valid UTF-8")
+			}
+		})
+	}
+}
+
+func TestHandler_TruncatesOversizedMsg(t *testing.T) {
+	var mu sync.Mutex
+	var received []ingestRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req ingestRequest
+		json.Unmarshal(body, &req) //nolint:errcheck
+		mu.Lock()
+		received = append(received, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	h := mustNew(t, Config{
+		Endpoint:    srv.URL,
+		APIKey:      "k",
+		Service:     "test-svc",
+		BatchSize:   1,
+		FlushPeriod: 50 * time.Millisecond,
+		BufferSize:  10,
+	})
+
+	logger := slog.New(h)
+	logger.Info(strings.Repeat("x", maxMsgBytes+100))
+
+	time.Sleep(200 * time.Millisecond)
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) == 0 || len(received[0].Logs) == 0 {
+		t.Fatal("no batch received")
+	}
+	msg := received[0].Logs[0].Msg
+	if len(msg) > maxMsgBytes {
+		t.Errorf("shipped msg is %d bytes, want <= %d", len(msg), maxMsgBytes)
+	}
+	if !strings.HasSuffix(msg, truncationSuffix) {
+		t.Errorf("shipped msg missing %q suffix", truncationSuffix)
+	}
+}
+
 func TestHandler_SendTimeoutBoundsHungEndpoint(t *testing.T) {
 	// Server that hangs longer than SendTimeout.
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -1147,16 +1240,31 @@ func TestHandler_MaxAttrBytesTruncatesStrings(t *testing.T) {
 }
 
 func TestHandler_CountersSharedAcrossWithChain(t *testing.T) {
-	// Unreachable endpoint + tiny buffer guarantees Dropped > 0.
+	// A server that blocks until released keeps the drain goroutine stuck in
+	// its first send (BatchSize 1 flushes immediately), so the tiny channel
+	// buffer reliably overflows and Dropped > 0 is deterministic rather than
+	// a producer-vs-consumer scheduling race.
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
 	h := mustNew(t, Config{
-		Endpoint:    "http://127.0.0.1:1/unreachable",
+		Endpoint:    srv.URL,
 		APIKey:      "k",
 		Service:     "s",
-		BatchSize:   100,
+		BatchSize:   1,
 		FlushPeriod: time.Hour,
 		BufferSize:  2,
+		SendTimeout: time.Second,
 	})
 	defer h.Shutdown(context.Background()) //nolint:errcheck // Cleanup.
+	defer close(release)                   // Unblock the in-flight send before Shutdown drains.
 
 	root := slog.New(h)
 	child := root.With("req", "1")

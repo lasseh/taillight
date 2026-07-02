@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 // LevelFatal is a custom slog level for fatal/critical log entries.
@@ -38,6 +40,14 @@ const (
 
 	// httpErrorStatusCode is the minimum status code considered an error.
 	httpErrorStatusCode = 400
+
+	// maxMsgBytes is the taillight ingest API's per-entry cap on the msg
+	// field (64 KB). Messages longer than this are truncated client-side so
+	// one oversized entry cannot make the server reject the whole batch.
+	maxMsgBytes = 64 * 1024
+
+	// truncationSuffix marks string values truncated to fit a byte cap.
+	truncationSuffix = "…[truncated]"
 )
 
 // Secret is a redacting string type for sensitive values like API keys.
@@ -76,7 +86,7 @@ func levelString(l slog.Level) string {
 type Config struct {
 	Endpoint  string // POST URL, http:// or https:// only.
 	APIKey    Secret // Bearer token. Redacted in all string/JSON formatting.
-	Service   string // Populates the service field for all entries.
+	Service   string // Required. Populates the service field for all entries; the ingest API rejects entries without one.
 	Component string // Optional component field.
 	Host      string // Optional host/instance identifier.
 	AddSource bool   // Include source file:line from the calling function.
@@ -140,6 +150,10 @@ func (c *Config) setDefaults() error {
 	}
 	if c.SendTimeout <= 0 {
 		c.SendTimeout = defaultSendTimeout
+	}
+
+	if c.Service == "" {
+		return errors.New("service is required: the ingest API rejects entries with an empty service")
 	}
 
 	u, err := url.Parse(c.Endpoint)
@@ -239,7 +253,8 @@ type ingestRequest struct {
 }
 
 // New creates and starts a Handler that batches and sends logs in the background.
-// It returns an error if Config.Endpoint is missing or has an unsupported scheme.
+// It returns an error if Config.Service is empty, or if Config.Endpoint is
+// missing or has an unsupported scheme.
 func New(cfg Config) (*Handler, error) {
 	if err := cfg.setDefaults(); err != nil {
 		return nil, err
@@ -282,7 +297,7 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	entry := logEntry{
 		Timestamp: r.Time,
 		Level:     levelString(r.Level),
-		Msg:       r.Message,
+		Msg:       truncateMsg(r.Message),
 		Service:   h.cfg.Service,
 		Component: h.cfg.Component,
 		Host:      h.cfg.Host,
@@ -334,6 +349,21 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	}
 
 	return nil
+}
+
+// truncateMsg caps msg at maxMsgBytes (the ingest API's per-entry limit) so
+// an oversized message is truncated instead of the server rejecting the whole
+// batch. The cut backs up to a rune boundary so the result stays valid UTF-8
+// and cannot grow past the cap when JSON escaping replaces invalid bytes.
+func truncateMsg(msg string) string {
+	if len(msg) <= maxMsgBytes {
+		return msg
+	}
+	cut := maxMsgBytes - len(truncationSuffix)
+	for cut > 0 && !utf8.RuneStart(msg[cut]) {
+		cut--
+	}
+	return msg[:cut] + truncationSuffix
 }
 
 // encodeErrorPayload builds a JSON object recording that the original attrs
@@ -620,7 +650,7 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 
 	if h.cfg.MaxAttrBytes > 0 {
 		if s, ok := v.(string); ok && len(s) > h.cfg.MaxAttrBytes {
-			v = s[:h.cfg.MaxAttrBytes] + "…[truncated]"
+			v = s[:h.cfg.MaxAttrBytes] + truncationSuffix
 		}
 	}
 	target[a.Key] = v
