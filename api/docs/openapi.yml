@@ -4,6 +4,21 @@ info:
   description: |
     Taillight is a centralized srvlog and application-log viewer with real-time
     streaming, analysis reports, and rsyslog/Juniper integration.
+
+    ## Auth scopes
+
+    Every operation carries an `x-required-scope` marker matching the server's
+    route groups:
+
+    - `none` — public, no authentication.
+    - `authenticated` — any valid session or API key (no specific scope).
+    - `read` — all GET/stream/export endpoints. Only enforced when
+      `auth_read_endpoints` is enabled; sessions always hold this scope,
+      API keys need the `read` scope.
+    - `ingest` — the applog ingest endpoint (API key with `ingest` scope,
+      or any session).
+    - `admin` — write operations. Sessions require the user's admin flag;
+      API keys need the `admin` scope.
   version: "1.0.0"
   license:
     name: MIT
@@ -14,6 +29,8 @@ servers:
     description: Default API prefix
 
 tags:
+  - name: Config
+    description: Runtime feature flags for the frontend
   - name: Auth
     description: Authentication, user management, and API keys
   - name: Srvlog
@@ -37,7 +54,9 @@ tags:
   - name: Metrics
     description: Taillight internal metrics
   - name: Notifications
-    description: Alert channels, rules, and delivery log
+    description: Alert channels, rules, summary schedules, and delivery log
+  - name: Netbox
+    description: Netbox enrichment lookups (routes registered only when Netbox is configured)
   - name: Device
     description: Per-host device detail views
   - name: Analysis
@@ -56,10 +75,31 @@ security:
 # Paths
 # ---------------------------------------------------------------------------
 paths:
+  # ── Config ──────────────────────────────────────────────────────────────
+  /config/features:
+    get:
+      operationId: configFeatures
+      x-required-scope: none
+      tags: [Config]
+      summary: Runtime feature flags
+      description: |
+        Feature flags the frontend uses for routing and nav. Unauthenticated —
+        the frontend must fetch it before any auth UI can render. The three
+        feed flags are always true; `analysis` reflects `analysis.enabled`.
+      security: []
+      responses:
+        "200":
+          description: Feature flags
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeaturesResponse"
+
   # ── Auth ────────────────────────────────────────────────────────────────
   /auth/login:
     post:
       operationId: login
+      x-required-scope: none
       tags: [Auth]
       summary: Log in
       security: []
@@ -84,8 +124,10 @@ paths:
   /auth/logout:
     post:
       operationId: logout
+      x-required-scope: none
       tags: [Auth]
       summary: Log out
+      security: []
       responses:
         "200":
           description: Session cleared
@@ -97,6 +139,7 @@ paths:
   /auth/me:
     get:
       operationId: me
+      x-required-scope: authenticated
       tags: [Auth]
       summary: Current user info
       responses:
@@ -112,6 +155,7 @@ paths:
   /auth/me/email:
     patch:
       operationId: updateEmail
+      x-required-scope: authenticated
       tags: [Auth]
       summary: Update own email
       requestBody:
@@ -140,6 +184,7 @@ paths:
   /auth/me/preferences:
     patch:
       operationId: updatePreferences
+      x-required-scope: authenticated
       tags: [Auth]
       summary: Update user preferences
       requestBody:
@@ -168,6 +213,7 @@ paths:
   /auth/keys:
     get:
       operationId: listKeys
+      x-required-scope: authenticated
       tags: [Auth]
       summary: List API keys
       responses:
@@ -184,6 +230,7 @@ paths:
                       $ref: "#/components/schemas/APIKeyInfo"
     post:
       operationId: createKey
+      x-required-scope: authenticated
       tags: [Auth]
       summary: Create API key
       requestBody:
@@ -211,6 +258,7 @@ paths:
   /auth/keys/{id}:
     delete:
       operationId: revokeKey
+      x-required-scope: authenticated
       tags: [Auth]
       summary: Revoke an API key
       parameters:
@@ -230,6 +278,7 @@ paths:
   /auth/users:
     get:
       operationId: listUsers
+      x-required-scope: admin
       tags: [Auth]
       summary: List users (admin)
       responses:
@@ -246,10 +295,52 @@ paths:
                       $ref: "#/components/schemas/AdminUser"
         "403":
           $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: createUser
+      x-required-scope: admin
+      tags: [Auth]
+      summary: Create user (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 72
+                  description: Bcrypt limit caps passwords at 72 bytes
+                is_admin:
+                  type: boolean
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Username already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /auth/users/{id}/active:
     patch:
       operationId: setUserActive
+      x-required-scope: admin
       tags: [Auth]
       summary: Activate / deactivate user (admin)
       parameters:
@@ -277,12 +368,14 @@ paths:
   /auth/users/{id}/password:
     patch:
       operationId: updateUserPassword
+      x-required-scope: admin
       tags: [Auth]
-      summary: Update user password
+      summary: Update user password (admin)
       description: |
-        Self-change requires `current_password` in the request body. Admin can
-        reset without it. Returns 403 for LDAP-managed users (password changes
-        must go through the LDAP directory).
+        The route group requires admin scope. Changing your own password
+        requires `current_password` in the request body; resetting another
+        user's password does not. Returns 403 for LDAP-managed users
+        (password changes must go through the LDAP directory).
       parameters:
         - $ref: "#/components/parameters/UUID"
       requestBody:
@@ -296,6 +389,11 @@ paths:
                 password:
                   type: string
                   minLength: 8
+                  maxLength: 72
+                  description: Bcrypt limit caps passwords at 72 bytes
+                current_password:
+                  type: string
+                  description: Required when changing your own password
       responses:
         "200":
           description: Password updated
@@ -311,6 +409,7 @@ paths:
   /auth/sessions/revoke-all:
     post:
       operationId: logoutAll
+      x-required-scope: authenticated
       tags: [Auth]
       summary: Revoke all sessions for current user
       description: Logs out all sessions including the current one and clears the session cookie.
@@ -327,6 +426,7 @@ paths:
   /auth/users/{id}/revoke-sessions:
     post:
       operationId: revokeUserSessions
+      x-required-scope: admin
       tags: [Auth]
       summary: Revoke all sessions for a user (admin)
       parameters:
@@ -347,6 +447,7 @@ paths:
   /srvlog:
     get:
       operationId: listSrvlog
+      x-required-scope: read
       tags: [Srvlog]
       summary: List srvlog events
       parameters:
@@ -377,7 +478,7 @@ paths:
                       $ref: "#/components/schemas/SrvlogEvent"
                   cursor:
                     type: string
-                    nullable: true
+                    description: Opaque keyset cursor for the next page; omitted on the last page
                   has_more:
                     type: boolean
         "400":
@@ -386,6 +487,7 @@ paths:
   /srvlog/{id}:
     get:
       operationId: getSrvlog
+      x-required-scope: read
       tags: [Srvlog]
       summary: Get single srvlog event
       parameters:
@@ -406,6 +508,7 @@ paths:
   /srvlog/stream:
     get:
       operationId: streamSrvlog
+      x-required-scope: read
       tags: [Srvlog]
       summary: Stream srvlog events (SSE)
       description: |
@@ -437,10 +540,52 @@ paths:
           content:
             text/event-stream: {}
 
+  /srvlog/export:
+    get:
+      operationId: exportSrvlog
+      x-required-scope: read
+      tags: [Srvlog]
+      summary: Export srvlog events as CSV
+      description: |
+        Streams up to 100 000 matching events as CSV. `from` and `to` are
+        required and must span at most 30 days.
+      parameters:
+        - $ref: "#/components/parameters/SrvlogHostname"
+        - $ref: "#/components/parameters/SrvlogProgramname"
+        - $ref: "#/components/parameters/SyslogTag"
+        - $ref: "#/components/parameters/SrvlogMsgID"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/FromHostIP"
+        - $ref: "#/components/parameters/Severity"
+        - $ref: "#/components/parameters/SeverityMax"
+        - $ref: "#/components/parameters/Facility"
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: CSV download (Content-Disposition attachment)
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
   # ── Srvlog Metadata ─────────────────────────────────────────────────────
   /srvlog/meta/hosts:
     get:
       operationId: srvlogHosts
+      x-required-scope: read
       tags: [Srvlog Metadata]
       summary: Distinct hostnames
       responses:
@@ -450,6 +595,7 @@ paths:
   /srvlog/meta/programs:
     get:
       operationId: srvlogPrograms
+      x-required-scope: read
       tags: [Srvlog Metadata]
       summary: Distinct program names
       responses:
@@ -459,6 +605,7 @@ paths:
   /srvlog/meta/facilities:
     get:
       operationId: srvlogFacilities
+      x-required-scope: read
       tags: [Srvlog Metadata]
       summary: Facility codes in use
       responses:
@@ -477,6 +624,7 @@ paths:
   /srvlog/meta/tags:
     get:
       operationId: srvlogTags
+      x-required-scope: read
       tags: [Srvlog Metadata]
       summary: Distinct srvlog tags
       responses:
@@ -487,6 +635,7 @@ paths:
   /srvlog/stats/volume:
     get:
       operationId: srvlogVolume
+      x-required-scope: read
       tags: [Stats]
       summary: Srvlog volume over time
       parameters:
@@ -508,6 +657,7 @@ paths:
   /srvlog/stats/severity-volume:
     get:
       operationId: srvlogSeverityVolume
+      x-required-scope: read
       tags: [Stats]
       summary: Srvlog severity volume over time
       parameters:
@@ -529,6 +679,7 @@ paths:
   /srvlog/stats/summary:
     get:
       operationId: srvlogSummary
+      x-required-scope: read
       tags: [Stats]
       summary: Srvlog summary
       parameters:
@@ -544,9 +695,34 @@ paths:
                   data:
                     $ref: "#/components/schemas/SrvlogSummary"
 
+  /srvlog/stats/hosts:
+    get:
+      operationId: srvlogStatsHosts
+      x-required-scope: read
+      tags: [Stats]
+      summary: Hosts overview
+      description: |
+        Per-host activity across the srvlog and netlog feeds — status, counts,
+        trend, severity breakdown, hourly buckets, and top error sources.
+      parameters:
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Host entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HostEntry"
+
   /srvlog/device/{hostname}:
     get:
       operationId: getSrvlogDeviceSummary
+      x-required-scope: read
       tags: [Device]
       summary: Srvlog device detail
       description: Aggregated summary for a single srvlog device by hostname.
@@ -573,6 +749,7 @@ paths:
   /netlog:
     get:
       operationId: listNetlog
+      x-required-scope: read
       tags: [Netlog]
       summary: List netlog events
       parameters:
@@ -603,7 +780,7 @@ paths:
                       $ref: "#/components/schemas/NetlogEvent"
                   cursor:
                     type: string
-                    nullable: true
+                    description: Opaque keyset cursor for the next page; omitted on the last page
                   has_more:
                     type: boolean
         "400":
@@ -612,6 +789,7 @@ paths:
   /netlog/{id}:
     get:
       operationId: getNetlog
+      x-required-scope: read
       tags: [Netlog]
       summary: Get single netlog event
       parameters:
@@ -636,9 +814,47 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /netlog/{id}/netbox:
+    get:
+      operationId: enrichNetlog
+      x-required-scope: read
+      tags: [Netbox]
+      summary: Netbox enrichment for a netlog event
+      description: |
+        Extracts entities (devices, IPs, prefixes, ASNs, interfaces) from the
+        event's message and hostname and looks each up in Netbox. Per-entity
+        failures are reported via `lookups[].error`; they don't fail the
+        request. Registered only when the Netbox integration is configured.
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Enrichment result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      entities:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/NetboxEntity"
+                      lookups:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/NetboxLookup"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /netlog/stream:
     get:
       operationId: streamNetlog
+      x-required-scope: read
       tags: [Netlog]
       summary: Stream netlog events (SSE)
       description: |
@@ -670,10 +886,52 @@ paths:
           content:
             text/event-stream: {}
 
+  /netlog/export:
+    get:
+      operationId: exportNetlog
+      x-required-scope: read
+      tags: [Netlog]
+      summary: Export netlog events as CSV
+      description: |
+        Streams up to 100 000 matching events as CSV. `from` and `to` are
+        required and must span at most 30 days.
+      parameters:
+        - $ref: "#/components/parameters/SrvlogHostname"
+        - $ref: "#/components/parameters/SrvlogProgramname"
+        - $ref: "#/components/parameters/SyslogTag"
+        - $ref: "#/components/parameters/SrvlogMsgID"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/FromHostIP"
+        - $ref: "#/components/parameters/Severity"
+        - $ref: "#/components/parameters/SeverityMax"
+        - $ref: "#/components/parameters/Facility"
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: CSV download (Content-Disposition attachment)
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
   # ── Netlog Metadata ─────────────────────────────────────────────────────
   /netlog/meta/hosts:
     get:
       operationId: netlogHosts
+      x-required-scope: read
       tags: [Netlog Metadata]
       summary: Distinct hostnames
       responses:
@@ -683,6 +941,7 @@ paths:
   /netlog/meta/programs:
     get:
       operationId: netlogPrograms
+      x-required-scope: read
       tags: [Netlog Metadata]
       summary: Distinct program names
       responses:
@@ -692,6 +951,7 @@ paths:
   /netlog/meta/facilities:
     get:
       operationId: netlogFacilities
+      x-required-scope: read
       tags: [Netlog Metadata]
       summary: Facility codes in use
       responses:
@@ -710,6 +970,7 @@ paths:
   /netlog/meta/tags:
     get:
       operationId: netlogTags
+      x-required-scope: read
       tags: [Netlog Metadata]
       summary: Distinct netlog tags
       responses:
@@ -720,6 +981,7 @@ paths:
   /netlog/stats/volume:
     get:
       operationId: netlogVolume
+      x-required-scope: read
       tags: [Stats]
       summary: Netlog volume over time
       parameters:
@@ -741,6 +1003,7 @@ paths:
   /netlog/stats/severity-volume:
     get:
       operationId: netlogSeverityVolume
+      x-required-scope: read
       tags: [Stats]
       summary: Netlog severity volume over time
       parameters:
@@ -762,6 +1025,7 @@ paths:
   /netlog/stats/summary:
     get:
       operationId: netlogSummary
+      x-required-scope: read
       tags: [Stats]
       summary: Netlog summary
       parameters:
@@ -780,6 +1044,7 @@ paths:
   /netlog/device/{hostname}:
     get:
       operationId: getNetlogDeviceSummary
+      x-required-scope: read
       tags: [Device]
       summary: Netlog device detail
       description: Aggregated summary for a single network device by hostname.
@@ -806,6 +1071,7 @@ paths:
   /juniper/lookup:
     get:
       operationId: juniperLookup
+      x-required-scope: read
       tags: [Juniper]
       summary: Juniper syslog reference lookup
       parameters:
@@ -830,10 +1096,61 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
+  /juniper/ref/upload:
+    post:
+      operationId: uploadJuniperRef
+      x-required-scope: admin
+      tags: [Juniper]
+      summary: Upload Juniper syslog reference XLSX (admin)
+      description: |
+        Parses the Juniper-published syslog reference XLSX and upserts the
+        rows. `os` selects the target OS and may also be supplied as a query
+        parameter. Max body size 10 MiB.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, os]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Juniper syslog reference XLSX
+                os:
+                  type: string
+                  enum: [junos, junos-evolved]
+      responses:
+        "200":
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  parsed:
+                    type: integer
+                    description: Reference rows parsed from the file
+                  upserted:
+                    type: integer
+                    description: Rows inserted or updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: Request body exceeds 10 MiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   # ── Rsyslog Stats ──────────────────────────────────────────────────────
   /rsyslog/stats/summary:
     get:
       operationId: rsyslogSummary
+      x-required-scope: read
       tags: [Rsyslog]
       summary: Rsyslog daemon summary
       parameters:
@@ -852,6 +1169,7 @@ paths:
   /rsyslog/stats/volume:
     get:
       operationId: rsyslogVolume
+      x-required-scope: read
       tags: [Rsyslog]
       summary: Rsyslog time-series stats
       parameters:
@@ -880,6 +1198,7 @@ paths:
   /metrics/summary:
     get:
       operationId: metricsSummary
+      x-required-scope: read
       tags: [Metrics]
       summary: Taillight internal metrics
       parameters:
@@ -898,6 +1217,7 @@ paths:
   /metrics/volume:
     get:
       operationId: metricsVolume
+      x-required-scope: read
       tags: [Metrics]
       summary: Taillight metrics time-series
       parameters:
@@ -926,6 +1246,7 @@ paths:
   /applog:
     get:
       operationId: listAppLog
+      x-required-scope: read
       tags: [AppLog]
       summary: List application log events
       parameters:
@@ -933,6 +1254,7 @@ paths:
         - $ref: "#/components/parameters/AppLogComponent"
         - $ref: "#/components/parameters/AppLogHost"
         - $ref: "#/components/parameters/AppLogLevel"
+        - $ref: "#/components/parameters/AppLogLevelExact"
         - $ref: "#/components/parameters/Search"
         - $ref: "#/components/parameters/From"
         - $ref: "#/components/parameters/To"
@@ -952,7 +1274,7 @@ paths:
                       $ref: "#/components/schemas/AppLogEvent"
                   cursor:
                     type: string
-                    nullable: true
+                    description: Opaque keyset cursor for the next page; omitted on the last page
                   has_more:
                     type: boolean
         "400":
@@ -961,6 +1283,7 @@ paths:
   /applog/{id}:
     get:
       operationId: getAppLog
+      x-required-scope: read
       tags: [AppLog]
       summary: Get single application log event
       parameters:
@@ -981,6 +1304,7 @@ paths:
   /applog/stream:
     get:
       operationId: streamAppLog
+      x-required-scope: read
       tags: [AppLog]
       summary: Stream application log events (SSE)
       description: |
@@ -994,6 +1318,7 @@ paths:
         - $ref: "#/components/parameters/AppLogComponent"
         - $ref: "#/components/parameters/AppLogHost"
         - $ref: "#/components/parameters/AppLogLevel"
+        - $ref: "#/components/parameters/AppLogLevelExact"
         - $ref: "#/components/parameters/Search"
         - $ref: "#/components/parameters/From"
         - $ref: "#/components/parameters/To"
@@ -1008,9 +1333,48 @@ paths:
           content:
             text/event-stream: {}
 
+  /applog/export:
+    get:
+      operationId: exportAppLog
+      x-required-scope: read
+      tags: [AppLog]
+      summary: Export application log events as CSV
+      description: |
+        Streams up to 100 000 matching events as CSV. `from` and `to` are
+        required and must span at most 30 days.
+      parameters:
+        - $ref: "#/components/parameters/AppLogService"
+        - $ref: "#/components/parameters/AppLogComponent"
+        - $ref: "#/components/parameters/AppLogHost"
+        - $ref: "#/components/parameters/AppLogLevel"
+        - $ref: "#/components/parameters/AppLogLevelExact"
+        - $ref: "#/components/parameters/Search"
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: CSV download (Content-Disposition attachment)
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
   /applog/ingest:
     post:
       operationId: ingestAppLog
+      x-required-scope: ingest
       tags: [AppLog]
       summary: Ingest application log batch
       description: |
@@ -1048,6 +1412,7 @@ paths:
   /applog/meta/services:
     get:
       operationId: applogServices
+      x-required-scope: read
       tags: [AppLog Metadata]
       summary: Distinct service names
       responses:
@@ -1057,6 +1422,7 @@ paths:
   /applog/meta/components:
     get:
       operationId: applogComponents
+      x-required-scope: read
       tags: [AppLog Metadata]
       summary: Distinct component names
       responses:
@@ -1066,6 +1432,7 @@ paths:
   /applog/meta/hosts:
     get:
       operationId: applogHosts
+      x-required-scope: read
       tags: [AppLog Metadata]
       summary: Distinct hosts
       responses:
@@ -1076,6 +1443,7 @@ paths:
   /notifications/channels:
     get:
       operationId: listChannels
+      x-required-scope: read
       tags: [Notifications]
       summary: List notification channels
       responses:
@@ -1092,6 +1460,7 @@ paths:
                       $ref: "#/components/schemas/NotificationChannel"
     post:
       operationId: createChannel
+      x-required-scope: admin
       tags: [Notifications]
       summary: Create notification channel
       requestBody:
@@ -1116,6 +1485,7 @@ paths:
   /notifications/channels/{id}:
     get:
       operationId: getChannel
+      x-required-scope: read
       tags: [Notifications]
       summary: Get notification channel
       parameters:
@@ -1134,6 +1504,7 @@ paths:
           $ref: "#/components/responses/NotFound"
     put:
       operationId: updateChannel
+      x-required-scope: admin
       tags: [Notifications]
       summary: Update notification channel
       parameters:
@@ -1160,6 +1531,7 @@ paths:
           $ref: "#/components/responses/NotFound"
     delete:
       operationId: deleteChannel
+      x-required-scope: admin
       tags: [Notifications]
       summary: Delete notification channel
       parameters:
@@ -1173,6 +1545,7 @@ paths:
   /notifications/channels/{id}/test:
     post:
       operationId: testChannel
+      x-required-scope: admin
       tags: [Notifications]
       summary: Send test notification
       parameters:
@@ -1196,6 +1569,7 @@ paths:
   /notifications/rules:
     get:
       operationId: listRules
+      x-required-scope: read
       tags: [Notifications]
       summary: List notification rules
       responses:
@@ -1212,6 +1586,7 @@ paths:
                       $ref: "#/components/schemas/NotificationRule"
     post:
       operationId: createRule
+      x-required-scope: admin
       tags: [Notifications]
       summary: Create notification rule
       requestBody:
@@ -1236,6 +1611,7 @@ paths:
   /notifications/rules/{id}:
     get:
       operationId: getRule
+      x-required-scope: read
       tags: [Notifications]
       summary: Get notification rule
       parameters:
@@ -1254,6 +1630,7 @@ paths:
           $ref: "#/components/responses/NotFound"
     put:
       operationId: updateRule
+      x-required-scope: admin
       tags: [Notifications]
       summary: Update notification rule
       parameters:
@@ -1280,6 +1657,7 @@ paths:
           $ref: "#/components/responses/NotFound"
     delete:
       operationId: deleteRule
+      x-required-scope: admin
       tags: [Notifications]
       summary: Delete notification rule
       parameters:
@@ -1293,6 +1671,7 @@ paths:
   /notifications/log:
     get:
       operationId: listNotificationLog
+      x-required-scope: read
       tags: [Notifications]
       summary: List notification delivery log
       parameters:
@@ -1326,10 +1705,140 @@ paths:
                     items:
                       $ref: "#/components/schemas/NotificationLogEntry"
 
+  /notifications/summaries:
+    get:
+      operationId: listSummarySchedules
+      x-required-scope: read
+      tags: [Notifications]
+      summary: List summary schedules
+      responses:
+        "200":
+          description: Summary schedule list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SummarySchedule"
+    post:
+      operationId: createSummarySchedule
+      x-required-scope: admin
+      tags: [Notifications]
+      summary: Create summary schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SummaryScheduleInput"
+      responses:
+        "201":
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SummarySchedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /notifications/summaries/{id}:
+    get:
+      operationId: getSummarySchedule
+      x-required-scope: read
+      tags: [Notifications]
+      summary: Get summary schedule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Schedule detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SummarySchedule"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateSummarySchedule
+      x-required-scope: admin
+      tags: [Notifications]
+      summary: Update summary schedule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SummaryScheduleInput"
+      responses:
+        "200":
+          description: Schedule updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SummarySchedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteSummarySchedule
+      x-required-scope: admin
+      tags: [Notifications]
+      summary: Delete summary schedule
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "204":
+          description: Schedule deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /notifications/summaries/{id}/trigger:
+    post:
+      operationId: triggerSummarySchedule
+      x-required-scope: admin
+      tags: [Notifications]
+      summary: Run a summary schedule immediately
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "200":
+          description: Summary generated and dispatched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "503":
+          description: Summary scheduler not enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   # ── Device ─────────────────────────────────────────────────────────────
   /applog/device/{hostname}:
     get:
       operationId: getAppLogDeviceSummary
+      x-required-scope: read
       tags: [Device]
       summary: AppLog device detail
       description: Aggregated summary for a single application log host.
@@ -1356,6 +1865,7 @@ paths:
   /applog/stats/volume:
     get:
       operationId: applogVolume
+      x-required-scope: read
       tags: [Stats]
       summary: AppLog volume over time
       parameters:
@@ -1377,6 +1887,7 @@ paths:
   /applog/stats/severity-volume:
     get:
       operationId: applogSeverityVolume
+      x-required-scope: read
       tags: [Stats]
       summary: AppLog severity volume over time
       parameters:
@@ -1398,6 +1909,7 @@ paths:
   /applog/stats/summary:
     get:
       operationId: applogSummary
+      x-required-scope: read
       tags: [Stats]
       summary: AppLog summary
       parameters:
@@ -1417,6 +1929,7 @@ paths:
   /analysis/reports:
     get:
       operationId: listReports
+      x-required-scope: read
       tags: [Analysis]
       summary: List analysis reports
       parameters:
@@ -1442,6 +1955,7 @@ paths:
 
     post:
       operationId: createReport
+      x-required-scope: admin
       tags: [Analysis]
       summary: Queue a new analysis run
       description: |
@@ -1461,6 +1975,25 @@ paths:
                   type: string
                   enum: [netlog, srvlog, all]
                   description: "'all' = all syslog feeds (srvlog + netlog); applog is excluded by design"
+                prompt_mode:
+                  type: string
+                  enum: [daily, weekly, incident]
+                  default: daily
+                  description: Prompt set framing the report
+                period_minutes:
+                  type: integer
+                  minimum: 5
+                  maximum: 43200
+                  description: |
+                    Analysis window override in minutes. Omitted/zero picks a
+                    mode-aware default (24h for daily/weekly, 60min for incident).
+                hosts:
+                  type: array
+                  items:
+                    type: string
+                  description: |
+                    Restrict the report to these hostnames. Empty/missing means
+                    all hosts on the feed; unknown names are rejected with 400.
       responses:
         "201":
           description: Report queued
@@ -1499,6 +2032,7 @@ paths:
   /analysis/reports/{slug}:
     get:
       operationId: getReport
+      x-required-scope: read
       tags: [Analysis]
       summary: Get report by slug
       parameters:
@@ -1521,6 +2055,7 @@ paths:
           $ref: "#/components/responses/NotFound"
     delete:
       operationId: deleteReport
+      x-required-scope: admin
       tags: [Analysis]
       summary: Delete a report by slug
       parameters:
@@ -1535,9 +2070,73 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /analysis/reports/{slug}/print:
+    get:
+      operationId: printReport
+      x-required-scope: read
+      tags: [Analysis]
+      summary: Print-ready HTML for a completed report
+      description: |
+        Returns a complete standalone HTML document (not the JSON envelope)
+        styled for browser print-to-PDF. The frontend loads it into a hidden
+        iframe and calls print(). Only completed reports are printable.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Standalone HTML document
+          content:
+            text/html:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Report is not completed yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /analysis/hosts:
+    get:
+      operationId: listAnalysisHosts
+      x-required-scope: read
+      tags: [Analysis]
+      summary: Hosts available for analysis scoping
+      description: |
+        Known hostnames for the given feed, used by the create-report host
+        picker. Intentionally minimal — no per-host stats.
+      parameters:
+        - name: feed
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [netlog, srvlog, all]
+      responses:
+        "200":
+          description: Host entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AnalysisHostEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
   /analysis/schedules:
     get:
       operationId: listAnalysisSchedules
+      x-required-scope: read
       tags: [Analysis]
       summary: List recurring analysis schedules
       responses:
@@ -1554,6 +2153,7 @@ paths:
                       $ref: "#/components/schemas/AnalysisSchedule"
     post:
       operationId: createAnalysisSchedule
+      x-required-scope: admin
       tags: [Analysis]
       summary: Create a recurring analysis schedule
       requestBody:
@@ -1572,10 +2172,13 @@ paths:
                 properties:
                   data:
                     $ref: "#/components/schemas/AnalysisSchedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /analysis/schedules/{id}:
     get:
       operationId: getAnalysisSchedule
+      x-required-scope: read
       tags: [Analysis]
       summary: Get a schedule by ID
       parameters:
@@ -1594,6 +2197,7 @@ paths:
           $ref: "#/components/responses/NotFound"
     put:
       operationId: updateAnalysisSchedule
+      x-required-scope: admin
       tags: [Analysis]
       summary: Update a schedule
       parameters:
@@ -1614,10 +2218,13 @@ paths:
                 properties:
                   data:
                     $ref: "#/components/schemas/AnalysisSchedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
       operationId: deleteAnalysisSchedule
+      x-required-scope: admin
       tags: [Analysis]
       summary: Delete a schedule
       parameters:
@@ -1631,6 +2238,7 @@ paths:
   /analysis/schedules/{id}/run:
     post:
       operationId: runAnalysisSchedule
+      x-required-scope: admin
       tags: [Analysis]
       summary: Run a schedule immediately
       description: Enqueues a one-off run for the given schedule.
@@ -1653,6 +2261,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Analysis scheduler not enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Health ──────────────────────────────────────────────────────────────
   /health:
@@ -1661,6 +2275,7 @@ paths:
         description: Health endpoint is at root, not under /api/v1
     get:
       operationId: health
+      x-required-scope: none
       tags: [Health]
       summary: Health check
       security: []
@@ -1808,8 +2423,7 @@ components:
       in: query
       schema:
         type: string
-        format: ipv4
-      description: Source IP address
+      description: Source IP address (IPv4 or IPv6)
 
     Severity:
       name: severity
@@ -1866,6 +2480,14 @@ components:
         type: string
         enum: [DEBUG, INFO, WARN, ERROR, FATAL]
       description: Minimum log level (returns this level and above)
+
+    AppLogLevelExact:
+      name: level_exact
+      in: query
+      schema:
+        type: string
+        enum: [DEBUG, INFO, WARN, ERROR, FATAL]
+      description: Exact log level match (unlike `level`, which is a minimum)
 
   # ── Responses ───────────────────────────────────────────────────────────
   responses:
@@ -2066,12 +2688,12 @@ components:
           type: string
         structured_data:
           type: string
-          nullable: true
+          description: Omitted entirely (not null) when the event has none
         message:
           type: string
         raw_message:
           type: string
-          nullable: true
+          description: Omitted entirely (not null) when the event has none
 
     # ── Netlog ────────────────────────────────────────────────────────────
     NetlogEvent:
@@ -2110,12 +2732,12 @@ components:
           type: string
         structured_data:
           type: string
-          nullable: true
+          description: Omitted entirely (not null) when the event has none
         message:
           type: string
         raw_message:
           type: string
-          nullable: true
+          description: Omitted entirely (not null) when the event has none
 
     # ── AppLog ────────────────────────────────────────────────────────────
     AppLogEvent:
@@ -2136,19 +2758,36 @@ components:
           type: string
         component:
           type: string
-          nullable: true
+          description: Empty string (not null) when not provided
         host:
           type: string
-          nullable: true
         msg:
           type: string
         source:
           type: string
-          nullable: true
+          description: Empty string (not null) when not provided
         attrs:
           type: object
           nullable: true
           additionalProperties: true
+        attrs_truncated:
+          type: boolean
+          description: |
+            Present (true) only on list/SSE responses when attrs was elided to
+            control payload size; fetch the event by ID for the full attrs.
+            Detail responses never set this.
+        source_ip:
+          type: string
+          description: |
+            Client IP resolved by the ingest handler. Omitted when unknown
+            (rows ingested before the field was added).
+        api_key_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            API key that ingested this row; null when inserted via session
+            auth or before the field was added.
 
     IngestRequest:
       type: object
@@ -2738,6 +3377,15 @@ components:
           type: string
           enum: [netlog, srvlog, all]
           description: "'all' = all syslog feeds (srvlog + netlog); applog is excluded by design"
+        prompt_mode:
+          type: string
+          enum: [daily, weekly, incident]
+          description: Prompt set that framed the report
+        hosts:
+          type: array
+          items:
+            type: string
+          description: Host scope; empty = all hosts on the feed
         model:
           type: string
         period_start:
@@ -2809,6 +3457,14 @@ components:
         timezone:
           type: string
           example: "UTC"
+        notify_channel_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: |
+            Email notification channels the completed report is mailed to;
+            empty = no email. Snapshotted onto each enqueued report.
         last_run_at:
           type: string
           format: date-time
@@ -2819,3 +3475,229 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    FeaturesResponse:
+      type: object
+      properties:
+        netlog:
+          type: boolean
+          description: Always true — feeds are no longer gated
+        srvlog:
+          type: boolean
+          description: Always true — feeds are no longer gated
+        applog:
+          type: boolean
+          description: Always true — feeds are no longer gated
+        analysis:
+          type: boolean
+          description: True when LLM analysis is enabled
+
+    HostEntry:
+      type: object
+      properties:
+        hostname:
+          type: string
+        feed:
+          type: string
+          enum: [srvlog, netlog, both]
+        status:
+          type: string
+          enum: [healthy, warning, critical]
+          description: Computed from the error ratio
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        total_count:
+          type: integer
+        error_count:
+          type: integer
+        trend:
+          type: number
+          format: double
+        severity_breakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeverityCount"
+        hourly_buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/HourlyBucket"
+        top_errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopSource"
+
+    HourlyBucket:
+      type: object
+      properties:
+        bucket:
+          type: string
+          format: date-time
+        count:
+          type: integer
+        error_count:
+          type: integer
+
+    TopSource:
+      type: object
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+        pct:
+          type: number
+          format: double
+
+    AnalysisHostEntry:
+      type: object
+      properties:
+        hostname:
+          type: string
+        last_seen:
+          type: string
+          format: date-time
+          description: Most recent hour-aligned activity bucket; omitted when unknown
+
+    SummarySchedule:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        enabled:
+          type: boolean
+        frequency:
+          type: string
+          enum: [daily, weekly, monthly]
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+          nullable: true
+          description: 0=Sun..6=Sat; omitted for daily
+        day_of_month:
+          type: integer
+          minimum: 1
+          maximum: 28
+          nullable: true
+          description: Omitted for daily/weekly
+        time_of_day:
+          type: string
+          example: "08:00"
+        timezone:
+          type: string
+          example: "UTC"
+        event_kinds:
+          type: array
+          items:
+            type: string
+            enum: [srvlog, netlog, applog]
+        severity_max:
+          type: integer
+          minimum: 0
+          maximum: 7
+          nullable: true
+          description: Only include events at or below this severity; omitted = all
+        hostname:
+          type: string
+          description: Restrict to one hostname; omitted = all hosts
+        top_n:
+          type: integer
+          description: Number of top issues to include (default 25)
+        channel_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        last_run_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SummaryScheduleInput:
+      type: object
+      required: [name, frequency, event_kinds, channel_ids]
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        frequency:
+          type: string
+          enum: [daily, weekly, monthly]
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+        day_of_month:
+          type: integer
+          minimum: 1
+          maximum: 28
+        time_of_day:
+          type: string
+          example: "08:00"
+        timezone:
+          type: string
+          description: IANA timezone; defaults to UTC
+        event_kinds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [srvlog, netlog, applog]
+        severity_max:
+          type: integer
+          minimum: 0
+          maximum: 7
+        hostname:
+          type: string
+        top_n:
+          type: integer
+          description: Defaults to 25 when omitted or zero
+        channel_ids:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+            format: int64
+
+    NetboxEntity:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [device, ip, prefix, asn, interface]
+        value:
+          type: string
+        context:
+          type: object
+          additionalProperties:
+            type: string
+          description: Extra extraction context, e.g. the owning device for an interface
+
+    NetboxLookup:
+      type: object
+      properties:
+        entity:
+          $ref: "#/components/schemas/NetboxEntity"
+        found:
+          type: boolean
+        data:
+          type: object
+          additionalProperties: true
+          description: |
+            Tagged union keyed by entity type — exactly one of `device`, `ip`,
+            `prefix`, `asn`, or `interface` is set; omitted when not found.
+        error:
+          type: string
+          description: Per-entity lookup failure; omitted on success
