@@ -70,10 +70,11 @@ The primary use case is monitoring syslog output from network devices (Juniper, 
 
 - A terminal UI client (`taillight-tui`) and an SSH server that hosts it (`taillight-wish`) live in the companion repo [taillight-tui](https://github.com/lasseh/taillight-tui) — both consume this API over HTTP/SSE
 
-### AI analysis (experimental)
+### AI analysis (optional, default-off)
 
-- Daily srvlog analysis using a local Ollama LLM instance
-- Scheduled morning briefings covering incidents, anomalies, and correlations
+- Netlog and srvlog analysis using a local Ollama LLM instance — no log data leaves the box
+- Async report generation with permalink URLs, optional host scoping, and print/PDF export
+- Recurring schedules managed in the UI (stored in the database); completed reports can be emailed via notification channels
 - On-demand analysis trigger via the API
 
 ## Technology Stack
@@ -182,13 +183,16 @@ Populate the database with realistic srvlog events:
 
 ```sh
 # Direct SQL insert into srvlog_events (fast, bypasses rsyslog)
-docker compose exec api /app loadgen -n 500 --delay 50ms --jitter 100ms
+docker compose exec api /app loadgen-srvlog -n 500 --delay 50ms --jitter 100ms
 
 # Via rsyslog (full pipeline: UDP -> rsyslog -> ompgsql -> srvlog_events -> NOTIFY)
-docker compose exec api /app loadgen -n 500 --syslog rsyslog:514 --delay 50ms
+docker compose exec api /app loadgen-srvlog -n 500 --syslog rsyslog:514 --delay 50ms
+
+# Network device log events (Juniper, Cisco, Arista)
+docker compose exec api /app loadgen-netlog -n 500 --syslog rsyslog:514 --delay 50ms
 
 # Application log events (via HTTP ingest API)
-docker compose exec api /app applog-loadgen -n 500 --batch 50 \
+docker compose exec api /app loadgen-applog -n 500 --batch 50 \
   --endpoint http://localhost:8080/api/v1/applog/ingest
 ```
 
@@ -347,16 +351,18 @@ Channels and rules are managed via the API or the ALERTS tab in the UI.
 
 #### AI analysis
 
-Uses a local Ollama instance to produce daily ops briefings from srvlog data.
+Uses a local Ollama instance to produce ops briefings from netlog/srvlog data. Config holds the model/runtime settings only — report schedules, feed selection, and email recipients are managed in the UI and stored in the database (`analysis_schedules`).
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `analysis.enabled` | `false` | Enable AI analysis |
 | `analysis.ollama_url` | `"http://localhost:11434"` | Ollama API URL |
-| `analysis.model` | `"llama3.1:8b"` | LLM model name |
-| `analysis.schedule_at` | `"06:00"` | Daily run time in UTC (HH:MM) |
+| `analysis.model` | `"llama3"` | LLM model name |
 | `analysis.temperature` | `0.3` | LLM temperature (lower = more deterministic) |
 | `analysis.num_ctx` | `8192` | Context window size in tokens |
+| `analysis.prompts_dir` | `""` | Override the embedded prompt templates (dir path) |
+| `analysis.ollama_timeout` | `"2h"` | HTTP timeout for a single Ollama call |
+| `analysis.run_timeout` | `"4h"` | Overall timeout for one analysis run |
 
 ### Environment variable overrides
 
@@ -412,19 +418,19 @@ taillight migrate force 42          # force set version (use with caution)
 | `--path` | `migrations` | Path to migrations directory |
 | `--steps` | `0` (all) | Number of migrations to roll back (down only) |
 
-### `loadgen`
+### `loadgen-srvlog` / `loadgen-netlog`
 
-Generate random srvlog events for testing. Events use realistic hostnames, programs, and messages from Juniper, Cisco, and Arista device profiles.
+Generate random test events. `loadgen-srvlog` produces server logs (Linux, nginx, PostgreSQL, Docker); `loadgen-netlog` produces network device logs with realistic hostnames, programs, and messages from Juniper, Cisco, and Arista device profiles.
 
 ```sh
 # Direct SQL insert (bypasses rsyslog)
-taillight loadgen -n 1000 --delay 100ms --jitter 200ms
+taillight loadgen-srvlog -n 1000 --delay 100ms --jitter 200ms
 
 # Via rsyslog (full pipeline over RFC 5424 UDP)
-taillight loadgen -n 1000 --syslog localhost:1514 --delay 100ms
+taillight loadgen-netlog -n 1000 --syslog localhost:1514 --delay 100ms
 
 # TCP transport
-taillight loadgen -n 1000 --syslog localhost:1514 --protocol tcp
+taillight loadgen-netlog -n 1000 --syslog localhost:1514 --protocol tcp
 ```
 
 | Flag | Default | Description |
@@ -435,16 +441,16 @@ taillight loadgen -n 1000 --syslog localhost:1514 --protocol tcp
 | `--syslog` | `""` | Send via syslog instead of SQL (`host:port`) |
 | `--protocol` | `udp` | Syslog transport: `udp` or `tcp` |
 
-### `applog-loadgen`
+### `loadgen-applog`
 
 Generate random application log events via the HTTP ingest API.
 
 ```sh
-taillight applog-loadgen -n 1000 --batch 50 \
+taillight loadgen-applog -n 1000 --batch 50 \
   --endpoint http://localhost:8080/api/v1/applog/ingest
 
 # With authentication
-taillight applog-loadgen -n 1000 --api-key tl_abc123...
+taillight loadgen-applog -n 1000 --api-key tl_abc123...
 ```
 
 | Flag | Default | Description |

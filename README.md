@@ -231,7 +231,7 @@ docker compose exec api /app loadgen-srvlog -n 100 --delay 100ms --jitter 200ms
 docker compose exec api /app loadgen-srvlog -n 100 --syslog rsyslog:514 --delay 100ms
 
 # Application log events (HTTP ingest)
-docker compose exec api /app applog-loadgen -n 100 --batch 1 \
+docker compose exec api /app loadgen-applog -n 100 --batch 1 \
   --endpoint http://localhost:8080/api/v1/applog/ingest
 ```
 
@@ -298,7 +298,7 @@ npm install && npm run dev
 | `migrate` | Run database migrations (up/down/version) |
 | `loadgen-netlog` | Generate netlog test events (Juniper, Cisco, Arista) |
 | `loadgen-srvlog` | Generate srvlog test events (Linux, Docker, PostgreSQL) |
-| `applog-loadgen` | Generate application log test events |
+| `loadgen-applog` | Generate application log test events |
 | `useradd` | Create a user account |
 | `apikey` | Manage API keys |
 | `import` | Import Juniper netlog reference data (XLSX) |
