@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError } from '@/lib/api'
-import { features as getFeatures } from '@/lib/features'
 import { useAuthStore } from '@/stores/auth'
 import { usePolling } from '@/composables/usePolling'
 import {
@@ -23,7 +22,6 @@ import type {
 } from '@/types/analysis'
 
 const auth = useAuthStore()
-const features = getFeatures()
 const isAdmin = computed(() => auth.user?.is_admin === true)
 
 const reports = ref<AnalysisReportSummary[]>([])
@@ -31,7 +29,7 @@ const loadError = ref('')
 const initialLoading = ref(true)
 
 const showCreate = ref(false)
-const selectedFeed = ref<AnalysisFeed>(features.netlog ? 'netlog' : 'srvlog')
+const selectedFeed = ref<AnalysisFeed>('netlog')
 const selectedMode = ref<AnalysisPromptMode>('daily')
 // Window in minutes used only when mode = incident. Daily/weekly use the
 // server-side mode-aware default (24h / 7d) so the period selector is hidden.
@@ -39,10 +37,10 @@ const incidentPeriodMinutes = ref(60)
 const creating = ref(false)
 const createError = ref('')
 
-const confirmedFeeds: { value: AnalysisFeed; label: string; available: boolean }[] = [
-  { value: 'netlog', label: 'Netlog', available: features.netlog },
-  { value: 'srvlog', label: 'Srvlog', available: true },
-  { value: 'all', label: 'All syslog', available: features.netlog },
+const confirmedFeeds: { value: AnalysisFeed; label: string }[] = [
+  { value: 'netlog', label: 'Netlog' },
+  { value: 'srvlog', label: 'Srvlog' },
+  { value: 'all', label: 'All syslog' },
 ]
 
 const promptModes: { value: AnalysisPromptMode; label: string; hint: string }[] = [
@@ -256,8 +254,6 @@ async function createReport() {
         createError.value = 'a report for this feed and mode is already pending or running'
       } else if (e.code === 'queue_full') {
         createError.value = 'analysis queue is full — try again shortly'
-      } else if (e.code === 'feed_unavailable') {
-        createError.value = 'this feed is disabled on the server'
       } else if (e.code === 'unknown_hosts') {
         // Server returns the bad names inline in the message. Parse the
         // brackets so the picker can badge each offender; keep the full
@@ -318,16 +314,13 @@ onMounted(async () => {
                 <button
                   v-for="opt in confirmedFeeds"
                   :key="opt.value"
-                  :disabled="!opt.available"
                   class="flex items-center gap-2 rounded border px-3 py-1.5 text-sm transition-all"
                   :class="
-                    !opt.available
-                      ? 'border-t-border text-t-fg-gutter cursor-not-allowed opacity-60'
-                      : selectedFeed === opt.value
-                        ? 'bg-t-orange/15 border-t-orange text-t-orange'
-                        : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
+                    selectedFeed === opt.value
+                      ? 'bg-t-orange/15 border-t-orange text-t-orange'
+                      : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
                   "
-                  @click="opt.available && (selectedFeed = opt.value)"
+                  @click="selectedFeed = opt.value"
                 >
                   <span class="w-4 text-center text-xs">{{
                     selectedFeed === opt.value ? '✓' : ''

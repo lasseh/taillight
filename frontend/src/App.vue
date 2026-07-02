@@ -21,7 +21,6 @@ import { useFavicon } from '@/composables/useFavicon'
 import { useFullscreen } from '@/composables/useFullscreen'
 import { useNavHotkeys } from '@/composables/useNavHotkeys'
 import { useColumnVisibility } from '@/composables/useColumnVisibility'
-import { features as getFeatures } from '@/lib/features'
 import AppHeader from '@/components/AppHeader.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import NetlogFilterBar from '@/components/NetlogFilterBar.vue'
@@ -39,9 +38,8 @@ const appLogFilters = useAppLogFilterStore()
 const appLogMeta = useAppLogMetaStore()
 const netlogMeta = useNetlogMetaStore()
 const scrollStore = useScrollStore()
-const features = getFeatures()
 const srvlogEvents = useSrvlogEventStore()
-const netlogEvents = features.netlog ? useNetlogEventStore() : null
+const netlogEvents = useNetlogEventStore()
 const applogEvents = useAppLogEventStore()
 const home = useHomeStore()
 
@@ -118,13 +116,13 @@ function startStreams() {
   netlogFilters.initFromURL()
   appLogFilters.initFromURL()
   meta.fetchAll()
-  if (features.netlog) netlogMeta.fetchAll()
+  netlogMeta.fetchAll()
   appLogMeta.fetchAll()
   srvlogStream.start()
-  if (features.netlog) netlogStream.start()
+  netlogStream.start()
   applogStream.start()
   unsubSrvlog = srvlogStream.subscribe(notifySrvlog)
-  if (features.netlog) unsubNetlog = netlogStream.subscribe(notifyNetlog)
+  unsubNetlog = netlogStream.subscribe(notifyNetlog)
   unsubApplog = applogStream.subscribe(notifyApplog)
 }
 
@@ -149,7 +147,7 @@ function resetSessionState() {
   netlogStream.reset()
   applogStream.reset()
   srvlogEvents.reset()
-  netlogEvents?.reset()
+  netlogEvents.reset()
   applogEvents.reset()
   home.reset()
 }

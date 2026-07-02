@@ -33,14 +33,13 @@ type AnalysisScheduleStore interface {
 
 // AnalysisScheduleHandler exposes CRUD + run-now for recurring analysis schedules.
 type AnalysisScheduleHandler struct {
-	store         AnalysisScheduleStore
-	scheduler     *scheduler.AnalysisScheduler
-	netlogEnabled bool
+	store     AnalysisScheduleStore
+	scheduler *scheduler.AnalysisScheduler
 }
 
 // NewAnalysisScheduleHandler creates a new AnalysisScheduleHandler.
-func NewAnalysisScheduleHandler(store AnalysisScheduleStore, sched *scheduler.AnalysisScheduler, netlogEnabled bool) *AnalysisScheduleHandler {
-	return &AnalysisScheduleHandler{store: store, scheduler: sched, netlogEnabled: netlogEnabled}
+func NewAnalysisScheduleHandler(store AnalysisScheduleStore, sched *scheduler.AnalysisScheduler) *AnalysisScheduleHandler {
+	return &AnalysisScheduleHandler{store: store, scheduler: sched}
 }
 
 // List handles GET /api/v1/analysis/schedules.
@@ -171,7 +170,6 @@ func (h *AnalysisScheduleHandler) Run(w http.ResponseWriter, r *http.Request) {
 // decodeAndValidateSchedule reads and validates a schedule from the request
 // body. On validation failure it writes the error response and returns ok=false.
 func (h *AnalysisScheduleHandler) decodeAndValidateSchedule(w http.ResponseWriter, r *http.Request) (model.AnalysisSchedule, bool) {
-	netlogEnabled := h.netlogEnabled
 	body, err := io.ReadAll(io.LimitReader(r.Body, 8*1024))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "read_error", "failed to read request body")
@@ -190,10 +188,6 @@ func (h *AnalysisScheduleHandler) decodeAndValidateSchedule(w http.ResponseWrite
 	}
 	if !model.IsValidAnalysisFeed(sched.Feed) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "feed must be netlog, srvlog, or all")
-		return model.AnalysisSchedule{}, false
-	}
-	if (sched.Feed == model.AnalysisFeedNetlog || sched.Feed == model.AnalysisFeedAll) && !netlogEnabled {
-		writeError(w, http.StatusBadRequest, "feed_unavailable", "netlog feature is disabled")
 		return model.AnalysisSchedule{}, false
 	}
 	switch sched.Frequency {

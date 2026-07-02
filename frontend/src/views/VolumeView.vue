@@ -10,7 +10,6 @@ import { useAppLogVolumeStore } from '@/stores/applog-volume'
 import { useRsyslogStatsStore } from '@/stores/rsyslog-stats'
 import { useTaillightMetricsStore } from '@/stores/taillight-metrics'
 import { useTheme } from '@/composables/useTheme'
-import { features as getFeatures } from '@/lib/features'
 import type { SimplePoint } from '@/types/chart'
 
 const route = useRoute()
@@ -21,22 +20,17 @@ const applogVolume = useAppLogVolumeStore()
 const rsyslogStats = useRsyslogStatsStore()
 const taillightMetrics = useTaillightMetricsStore()
 const { current: theme } = useTheme()
-const features = getFeatures()
 
 type Tab = 'netlog' | 'srvlog' | 'applog' | 'rsyslog' | 'taillight'
 const TABS: readonly Tab[] = ['netlog', 'srvlog', 'applog', 'rsyslog', 'taillight']
-const defaultTab = features.netlog ? 'netlog' : features.srvlog ? 'srvlog' : 'applog'
+const defaultTab = 'netlog'
 
-// Resolve the initial tab from the URL. Must be a known tab; the three
-// feature-flagged feeds also require their flag (rsyslog/taillight have no flag
-// and are honored whenever valid). Unknown values or an array (?tab=a&tab=b)
-// fall back to defaultTab instead of rendering a blank content area.
+// Resolve the initial tab from the URL. Must be a known tab; unknown values
+// or an array (?tab=a&tab=b) fall back to defaultTab instead of rendering a
+// blank content area.
 function resolveTab(value: unknown): Tab {
   if (typeof value !== 'string' || !(TABS as readonly string[]).includes(value)) return defaultTab
-  const tab = value as Tab
-  if ((tab === 'netlog' || tab === 'srvlog' || tab === 'applog') && !features[tab])
-    return defaultTab
-  return tab
+  return value as Tab
 }
 const activeTab = ref<Tab>(resolveTab(route.query.tab))
 
@@ -405,7 +399,6 @@ onUnmounted(() => {
     <div class="flex items-center gap-4">
       <div class="flex gap-1">
         <button
-          v-if="features.netlog"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             activeTab === 'netlog'
@@ -417,7 +410,6 @@ onUnmounted(() => {
           NETLOG
         </button>
         <button
-          v-if="features.srvlog"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             activeTab === 'srvlog'
@@ -429,7 +421,6 @@ onUnmounted(() => {
           SRVLOG
         </button>
         <button
-          v-if="features.applog"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="
             activeTab === 'applog'

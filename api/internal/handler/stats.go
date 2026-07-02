@@ -19,18 +19,17 @@ type StatsStore interface {
 	GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
 	GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (model.AppLogSummary, error)
 	GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
-	ListHosts(ctx context.Context, rangeDur time.Duration, includeNetlog bool) ([]model.HostEntry, error)
+	ListHosts(ctx context.Context, rangeDur time.Duration) ([]model.HostEntry, error)
 }
 
 // StatsHandler handles REST endpoints for dashboard statistics.
 type StatsHandler struct {
-	store         StatsStore
-	includeNetlog bool
+	store StatsStore
 }
 
 // NewStatsHandler creates a new StatsHandler.
-func NewStatsHandler(store StatsStore, includeNetlog bool) *StatsHandler {
-	return &StatsHandler{store: store, includeNetlog: includeNetlog}
+func NewStatsHandler(store StatsStore) *StatsHandler {
+	return &StatsHandler{store: store}
 }
 
 // Volume handles GET /api/v1/stats/volume.
@@ -230,7 +229,7 @@ func (h *StatsHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hosts, err := h.store.ListHosts(r.Context(), rangeDur, h.includeNetlog)
+	hosts, err := h.store.ListHosts(r.Context(), rangeDur)
 	if err != nil {
 		if isClientGone(r) {
 			return

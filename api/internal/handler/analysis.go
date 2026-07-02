@@ -35,17 +35,16 @@ type AnalysisEnqueuer interface {
 }
 
 // AnalysisHandler serves the report list, detail, create, and delete endpoints.
-// The enqueuer and netlogEnabled flag are optional — pass nil/false to disable
-// the corresponding capabilities (used in deployments without analysis or netlog).
+// The enqueuer is optional — pass nil to disable report creation (used in
+// deployments without analysis).
 type AnalysisHandler struct {
-	store         AnalysisReportStore
-	enqueuer      AnalysisEnqueuer
-	netlogEnabled bool
+	store    AnalysisReportStore
+	enqueuer AnalysisEnqueuer
 }
 
 // NewAnalysisHandler creates a new AnalysisHandler.
-func NewAnalysisHandler(store AnalysisReportStore, enqueuer AnalysisEnqueuer, netlogEnabled bool) *AnalysisHandler {
-	return &AnalysisHandler{store: store, enqueuer: enqueuer, netlogEnabled: netlogEnabled}
+func NewAnalysisHandler(store AnalysisReportStore, enqueuer AnalysisEnqueuer) *AnalysisHandler {
+	return &AnalysisHandler{store: store, enqueuer: enqueuer}
 }
 
 // List handles GET /api/v1/analysis/reports.
@@ -202,10 +201,6 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_feed", "feed must be netlog, srvlog, or all")
 		return
 	}
-	if (req.Feed == model.AnalysisFeedNetlog || req.Feed == model.AnalysisFeedAll) && !h.netlogEnabled {
-		writeError(w, http.StatusBadRequest, "feed_unavailable", "netlog feature is disabled")
-		return
-	}
 
 	mode := req.PromptMode
 	if mode == "" {
@@ -313,10 +308,6 @@ func (h *AnalysisHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 	feed := r.URL.Query().Get("feed")
 	if !model.IsValidAnalysisFeed(feed) {
 		writeError(w, http.StatusBadRequest, "invalid_feed", "feed must be netlog, srvlog, or all")
-		return
-	}
-	if (feed == model.AnalysisFeedNetlog || feed == model.AnalysisFeedAll) && !h.netlogEnabled {
-		writeError(w, http.StatusBadRequest, "feed_unavailable", "netlog feature is disabled")
 		return
 	}
 

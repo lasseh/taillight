@@ -14,8 +14,8 @@ import (
 const topErrorsPerHost = 4
 
 // ListHosts returns per-host stats for the hosts overview page.
-// When includeNetlog is true the queries union srvlog and netlog tables.
-func (s *Store) ListHosts(ctx context.Context, rangeDur time.Duration, includeNetlog bool) ([]model.HostEntry, error) {
+// The queries union srvlog and netlog tables.
+func (s *Store) ListHosts(ctx context.Context, rangeDur time.Duration) ([]model.HostEntry, error) {
 	since := time.Now().UTC().Add(-rangeDur)
 	prevStart := since.Add(-rangeDur)
 	sparkSince := time.Now().UTC().Add(-24 * time.Hour)
@@ -23,11 +23,11 @@ func (s *Store) ListHosts(ctx context.Context, rangeDur time.Duration, includeNe
 
 	// Send all 5 queries in a single round-trip.
 	batch := &pgx.Batch{}
-	batch.Queue(hostSeverityQuery(includeNetlog), since)
-	batch.Queue(hostPrevTotalsQuery(includeNetlog), prevStart, since)
-	batch.Queue(hostHourlyQuery(includeNetlog), sparkSince)
-	batch.Queue(hostTopErrorsQuery(includeNetlog), msgSince, topErrorsPerHost)
-	batch.Queue(hostLastSeenQuery(includeNetlog), since)
+	batch.Queue(hostSeverityQuery, since)
+	batch.Queue(hostPrevTotalsQuery, prevStart, since)
+	batch.Queue(hostHourlyQuery, sparkSince)
+	batch.Queue(hostTopErrorsQuery, msgSince, topErrorsPerHost)
+	batch.Queue(hostLastSeenQuery, since)
 
 	results := s.pool.SendBatch(ctx, batch)
 	defer results.Close() //nolint:errcheck // best-effort close
@@ -55,20 +55,15 @@ func (s *Store) ListHosts(ctx context.Context, rangeDur time.Duration, includeNe
 	return assembleHostEntries(hostOrder, hosts, prevByHost, hourlyByHost, errorsByHost), nil
 }
 
-// hostSeverityQuery builds Q1: per-host severity rows (current period).
-func hostSeverityQuery(includeNetlog bool) string {
-	q := `WITH combined AS (
+// hostSeverityQuery is Q1: per-host severity rows (current period).
+const hostSeverityQuery = `WITH combined AS (
     SELECT hostname, severity, SUM(cnt) AS cnt, 'srvlog' AS feed, MAX(bucket) AS last_bucket
     FROM srvlog_summary_hourly WHERE bucket >= $1
-    GROUP BY hostname, severity`
-	if includeNetlog {
-		q += `
+    GROUP BY hostname, severity
     UNION ALL
     SELECT hostname, severity, SUM(cnt) AS cnt, 'netlog' AS feed, MAX(bucket) AS last_bucket
     FROM netlog_summary_hourly WHERE bucket >= $1
-    GROUP BY hostname, severity`
-	}
-	q += `
+    GROUP BY hostname, severity
 )
 SELECT hostname, severity, SUM(cnt) AS cnt,
        CASE WHEN COUNT(DISTINCT feed) > 1 THEN 'both' ELSE MIN(feed) END AS feed,
@@ -76,88 +71,60 @@ SELECT hostname, severity, SUM(cnt) AS cnt,
 FROM combined
 GROUP BY hostname, severity
 ORDER BY hostname, severity`
-	return q
-}
 
-// hostPrevTotalsQuery builds Q2: previous-period totals per host (for trend).
-func hostPrevTotalsQuery(includeNetlog bool) string {
-	q := `SELECT hostname, COALESCE(SUM(cnt), 0) AS prev_total
+// hostPrevTotalsQuery is Q2: previous-period totals per host (for trend).
+const hostPrevTotalsQuery = `SELECT hostname, COALESCE(SUM(cnt), 0) AS prev_total
 FROM srvlog_summary_hourly WHERE bucket >= $1 AND bucket < $2
-GROUP BY hostname`
-	if includeNetlog {
-		q += `
+GROUP BY hostname
 UNION ALL
 SELECT hostname, COALESCE(SUM(cnt), 0) AS prev_total
 FROM netlog_summary_hourly WHERE bucket >= $1 AND bucket < $2
 GROUP BY hostname`
-	}
-	return q
-}
 
-// hostHourlyQuery builds Q3: hourly activity buckets (always last 24h).
-func hostHourlyQuery(includeNetlog bool) string {
-	q := `WITH combined AS (
+// hostHourlyQuery is Q3: hourly activity buckets (always last 24h).
+const hostHourlyQuery = `WITH combined AS (
     SELECT hostname, bucket AS hr, SUM(cnt) AS cnt,
            SUM(CASE WHEN severity <= 3 THEN cnt ELSE 0 END) AS err_cnt
     FROM srvlog_summary_hourly WHERE bucket >= $1
-    GROUP BY hostname, bucket`
-	if includeNetlog {
-		q += `
+    GROUP BY hostname, bucket
     UNION ALL
     SELECT hostname, bucket AS hr, SUM(cnt) AS cnt,
            SUM(CASE WHEN severity <= 3 THEN cnt ELSE 0 END) AS err_cnt
     FROM netlog_summary_hourly WHERE bucket >= $1
-    GROUP BY hostname, bucket`
-	}
-	q += `
+    GROUP BY hostname, bucket
 )
 SELECT hostname, hr, SUM(cnt) AS count, SUM(err_cnt) AS error_count
 FROM combined
 GROUP BY hostname, hr
 ORDER BY hostname, hr`
-	return q
-}
 
-// hostTopErrorsQuery builds Q4: top error patterns per host (24h).
-func hostTopErrorsQuery(includeNetlog bool) string {
-	q := `WITH ranked AS (
+// hostTopErrorsQuery is Q4: top error patterns per host (24h).
+const hostTopErrorsQuery = `WITH ranked AS (
     SELECT hostname, msg_pattern AS pattern, count(*) AS cnt,
            ROW_NUMBER() OVER (PARTITION BY hostname ORDER BY count(*) DESC) AS rn
     FROM srvlog_events
     WHERE received_at >= $1 AND severity <= 3 AND msg_pattern != ''
-    GROUP BY hostname, msg_pattern`
-	if includeNetlog {
-		q += `
+    GROUP BY hostname, msg_pattern
     UNION ALL
     SELECT hostname, msg_pattern AS pattern, count(*) AS cnt,
            ROW_NUMBER() OVER (PARTITION BY hostname ORDER BY count(*) DESC) AS rn
     FROM netlog_events
     WHERE received_at >= $1 AND severity <= 3 AND msg_pattern != ''
-    GROUP BY hostname, msg_pattern`
-	}
-	q += `
+    GROUP BY hostname, msg_pattern
 )
 SELECT hostname, pattern, cnt FROM ranked WHERE rn <= $2
 ORDER BY hostname, cnt DESC`
-	return q
-}
 
-// hostLastSeenQuery builds Q5: precise last_seen_at per host from raw events.
+// hostLastSeenQuery is Q5: precise last_seen_at per host from raw events.
 // The continuous aggregate's MAX(bucket) is hour-aligned, so this query
 // provides the actual most recent received_at timestamp.
-func hostLastSeenQuery(includeNetlog bool) string {
-	q := `SELECT hostname, MAX(received_at) AS last_seen
+const hostLastSeenQuery = `SELECT hostname, MAX(received_at) AS last_seen
 FROM srvlog_events WHERE received_at >= $1
-GROUP BY hostname`
-	if includeNetlog {
-		q += `
+GROUP BY hostname
 UNION ALL
 SELECT hostname, MAX(received_at) AS last_seen
 FROM netlog_events WHERE received_at >= $1
 GROUP BY hostname`
-	}
-	return q
-}
 
 // hostAccum accumulates per-host data from the severity rows (Q1).
 type hostAccum struct {

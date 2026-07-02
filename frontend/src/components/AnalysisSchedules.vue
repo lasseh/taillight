@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, ApiError } from '@/lib/api'
-import { features as getFeatures } from '@/lib/features'
 import { useAuthStore } from '@/stores/auth'
 import { useFocusTrap } from '@/composables/useFocusTrap'
 import { feedBadgeClass, feedDisplayLabel } from '@/lib/analysis-format'
@@ -14,7 +13,6 @@ import type {
 import type { NotificationChannel } from '@/types/notification'
 
 const auth = useAuthStore()
-const features = getFeatures()
 const isAdmin = computed(() => auth.user?.is_admin === true)
 
 const schedules = ref<AnalysisSchedule[]>([])
@@ -28,7 +26,7 @@ const saveError = ref('')
 
 const formName = ref('')
 const formEnabled = ref(true)
-const formFeed = ref<AnalysisFeed>(features.netlog ? 'netlog' : 'srvlog')
+const formFeed = ref<AnalysisFeed>('netlog')
 const formFrequency = ref<AnalysisFrequency>('daily')
 const formDayOfWeek = ref(1)
 const formDayOfMonth = ref(1)
@@ -97,10 +95,10 @@ const dayOfWeekLabels = [
   'Saturday',
 ]
 
-const feedOptions: { value: AnalysisFeed; label: string; available: boolean }[] = [
-  { value: 'netlog', label: 'Netlog', available: features.netlog },
-  { value: 'srvlog', label: 'Srvlog', available: true },
-  { value: 'all', label: 'All syslog', available: features.netlog },
+const feedOptions: { value: AnalysisFeed; label: string }[] = [
+  { value: 'netlog', label: 'Netlog' },
+  { value: 'srvlog', label: 'Srvlog' },
+  { value: 'all', label: 'All syslog' },
 ]
 
 async function fetchData() {
@@ -128,7 +126,7 @@ function openCreate() {
   editing.value = null
   formName.value = ''
   formEnabled.value = true
-  formFeed.value = features.netlog ? 'netlog' : 'srvlog'
+  formFeed.value = 'netlog'
   formFrequency.value = 'daily'
   formDayOfWeek.value = 1
   formDayOfMonth.value = 1
@@ -453,16 +451,13 @@ onMounted(() => {
                   <button
                     v-for="opt in feedOptions"
                     :key="opt.value"
-                    :disabled="!opt.available"
                     class="border px-3 py-1.5 text-sm transition-all"
                     :class="
-                      !opt.available
-                        ? 'border-t-border text-t-fg-gutter cursor-not-allowed opacity-60'
-                        : formFeed === opt.value
-                          ? 'border-t-orange text-t-orange'
-                          : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                      formFeed === opt.value
+                        ? 'border-t-orange text-t-orange'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
                     "
-                    @click="opt.available && (formFeed = opt.value)"
+                    @click="formFeed = opt.value"
                   >
                     {{ opt.label }}
                   </button>

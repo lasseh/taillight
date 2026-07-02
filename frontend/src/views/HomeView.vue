@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useElementSize } from '@vueuse/core'
-import { features as getFeatures } from '@/lib/features'
 import { useHomeStore } from '@/stores/home'
 import { useTheme } from '@/composables/useTheme'
 import { useDashboardLayout } from '@/composables/useDashboardLayout'
@@ -18,21 +17,16 @@ import { rangePresets } from '@/lib/ranges'
 
 defineOptions({ name: 'HomeView' })
 
-const features = getFeatures()
 const home = useHomeStore()
 const { current: theme } = useTheme()
 const { editing, isVisible, hideWidget, stopEditing, resetLayout, allHidden } = useDashboardLayout()
 const accentColors = computed(() => theme.value.chartColors)
 
-const anySyslogWidgetVisible = computed(
-  () =>
-    (features.srvlog || features.netlog) &&
-    ['syslog-summary', 'syslog-distribution', 'syslog-recent'].some((id) => isVisible(id)),
+const anySyslogWidgetVisible = computed(() =>
+  ['syslog-summary', 'syslog-distribution', 'syslog-recent'].some((id) => isVisible(id)),
 )
-const anyApplogWidgetVisible = computed(
-  () =>
-    features.applog &&
-    ['applog-summary', 'applog-distribution', 'applog-recent'].some((id) => isVisible(id)),
+const anyApplogWidgetVisible = computed(() =>
+  ['applog-summary', 'applog-distribution', 'applog-recent'].some((id) => isVisible(id)),
 )
 const anyActivityVisible = computed(() =>
   ['syslog-heatmap', 'applog-heatmap'].some((id) => isVisible(id)),
@@ -191,14 +185,12 @@ function getSeverityBgClass(level: string): string {
       <section v-if="anySyslogWidgetVisible || editing">
         <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
           <RouterLink
-            v-if="features.netlog"
             to="/netlog"
             class="text-t-fuchsia bg-t-fuchsia/20 rounded px-2 py-0.5 hover:bg-t-fuchsia/30 transition-colors"
             >Netlog</RouterLink
           >
-          <span v-if="features.netlog && features.srvlog" class="text-t-fg-dark">&amp;</span>
+          <span class="text-t-fg-dark">&amp;</span>
           <RouterLink
-            v-if="features.srvlog"
             to="/srvlog"
             class="text-t-teal bg-t-teal/20 rounded px-2 py-0.5 hover:bg-t-teal/30 transition-colors"
             >Srvlog</RouterLink
@@ -624,10 +616,7 @@ function getSeverityBgClass(level: string): string {
         <!-- Heatmaps -->
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <!-- Syslog Heatmap (combined srvlog + netlog) -->
-          <div
-            v-if="(features.srvlog || features.netlog) && isVisible('syslog-heatmap')"
-            class="relative"
-          >
+          <div v-if="isVisible('syslog-heatmap')" class="relative">
             <WidgetCloseButton v-if="editing" @close="hideWidget('syslog-heatmap')" />
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">
@@ -642,7 +631,7 @@ function getSeverityBgClass(level: string): string {
           </div>
 
           <!-- Applog Heatmap -->
-          <div v-if="features.applog && isVisible('applog-heatmap')" class="relative">
+          <div v-if="isVisible('applog-heatmap')" class="relative">
             <WidgetCloseButton v-if="editing" @close="hideWidget('applog-heatmap')" />
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <h3 class="text-t-magenta mb-3 text-xs font-semibold uppercase tracking-wide">

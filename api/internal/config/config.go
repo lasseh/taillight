@@ -12,14 +12,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-// FeaturesConfig controls which log feeds are enabled.
-// When a feed is disabled, its API routes return 404 and its broker is not started.
-type FeaturesConfig struct {
-	Srvlog bool // Default true.
-	Netlog bool // Default true.
-	AppLog bool // Default true.
-}
-
 // Config holds application configuration.
 type Config struct {
 	DatabaseURL            string
@@ -38,7 +30,6 @@ type Config struct {
 	NotificationBufferSize int            // LISTEN/NOTIFY channel buffer size (0 = default 1024).
 	NotificationWorkers    int            // Number of goroutines consuming LISTEN/NOTIFY events (0 = default 4).
 	JuniperRefPath         string         // Directory containing Juniper syslog reference XLSX files for startup auto-import. Empty disables.
-	Features               FeaturesConfig
 	LogShipper             LogShipperConfig
 	Analysis               AnalysisConfig
 	Notification           NotificationConfig
@@ -173,9 +164,6 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("logshipper.service", "taillight")
 	v.SetDefault("logshipper.component", "server")
 	v.SetDefault("logshipper.min_level", "info")
-	v.SetDefault("features.srvlog", true)
-	v.SetDefault("features.netlog", true)
-	v.SetDefault("features.applog", true)
 	v.SetDefault("analysis.enabled", false)
 	v.SetDefault("analysis.ollama_url", "http://localhost:11434")
 	v.SetDefault("analysis.model", "llama3")
@@ -281,11 +269,6 @@ func Load(configFile ...string) (Config, error) {
 		NotificationWorkers:    v.GetInt("notification_workers"),
 		MetricsAddr:            v.GetString("metrics_addr"),
 		JuniperRefPath:         v.GetString("juniper_ref_path"),
-		Features: FeaturesConfig{
-			Srvlog: v.GetBool("features.srvlog"),
-			Netlog: v.GetBool("features.netlog"),
-			AppLog: v.GetBool("features.applog"),
-		},
 		LogShipper: LogShipperConfig{
 			Enabled:     v.GetBool("logshipper.enabled"),
 			APIKey:      v.GetString("logshipper.api_key"),

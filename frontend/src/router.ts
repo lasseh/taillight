@@ -12,64 +12,42 @@ const router = createRouter({
       name: 'home',
       component: () => import('@/views/HomeView.vue'),
     },
-    // Netlog routes (feature-gated)
-    ...(features.netlog
-      ? [
-          {
-            path: '/netlog',
-            name: 'netlog',
-            component: () => import('@/views/NetlogListView.vue'),
-          },
-          {
-            path: '/netlog/device/:hostname',
-            name: 'netlog-device-detail',
-            component: () => import('@/views/NetlogDeviceView.vue'),
-            props: true,
-          },
-          {
-            path: '/netlog/:id',
-            name: 'netlog-detail',
-            component: () => import('@/views/NetlogView.vue'),
-            props: true,
-          },
-        ]
-      : [
-          {
-            path: '/netlog/:pathMatch(.*)*',
-            name: 'netlog-disabled',
-            component: () => import('@/views/FeatureDisabledView.vue'),
-            props: { feature: 'netlog' },
-          },
-        ]),
-    // Srvlog routes (feature-gated)
-    ...(features.srvlog
-      ? [
-          {
-            path: '/srvlog',
-            name: 'srvlog',
-            component: () => import('@/views/SrvlogListView.vue'),
-          },
-          {
-            path: '/srvlog/device/:hostname',
-            name: 'srvlog-device-detail',
-            component: () => import('@/views/DeviceView.vue'),
-            props: true,
-          },
-          {
-            path: '/srvlog/:id',
-            name: 'srvlog-detail',
-            component: () => import('@/views/SrvlogView.vue'),
-            props: true,
-          },
-        ]
-      : [
-          {
-            path: '/srvlog/:pathMatch(.*)*',
-            name: 'srvlog-disabled',
-            component: () => import('@/views/FeatureDisabledView.vue'),
-            props: { feature: 'srvlog' },
-          },
-        ]),
+    // Netlog routes
+    {
+      path: '/netlog',
+      name: 'netlog',
+      component: () => import('@/views/NetlogListView.vue'),
+    },
+    {
+      path: '/netlog/device/:hostname',
+      name: 'netlog-device-detail',
+      component: () => import('@/views/NetlogDeviceView.vue'),
+      props: true,
+    },
+    {
+      path: '/netlog/:id',
+      name: 'netlog-detail',
+      component: () => import('@/views/NetlogView.vue'),
+      props: true,
+    },
+    // Srvlog routes
+    {
+      path: '/srvlog',
+      name: 'srvlog',
+      component: () => import('@/views/SrvlogListView.vue'),
+    },
+    {
+      path: '/srvlog/device/:hostname',
+      name: 'srvlog-device-detail',
+      component: () => import('@/views/DeviceView.vue'),
+      props: true,
+    },
+    {
+      path: '/srvlog/:id',
+      name: 'srvlog-detail',
+      component: () => import('@/views/SrvlogView.vue'),
+      props: true,
+    },
     {
       path: '/hosts',
       name: 'hosts',
@@ -80,35 +58,24 @@ const router = createRouter({
       name: 'volume',
       component: () => import('@/views/VolumeView.vue'),
     },
-    // Applog routes (feature-gated)
-    ...(features.applog
-      ? [
-          {
-            path: '/applog',
-            name: 'applog',
-            component: () => import('@/views/AppLogListView.vue'),
-          },
-          {
-            path: '/applog/device/:hostname',
-            name: 'applog-device-detail',
-            component: () => import('@/views/AppLogDeviceView.vue'),
-            props: true,
-          },
-          {
-            path: '/applog/:id',
-            name: 'applog-detail',
-            component: () => import('@/views/AppLogView.vue'),
-            props: true,
-          },
-        ]
-      : [
-          {
-            path: '/applog/:pathMatch(.*)*',
-            name: 'applog-disabled',
-            component: () => import('@/views/FeatureDisabledView.vue'),
-            props: { feature: 'applog' },
-          },
-        ]),
+    // Applog routes
+    {
+      path: '/applog',
+      name: 'applog',
+      component: () => import('@/views/AppLogListView.vue'),
+    },
+    {
+      path: '/applog/device/:hostname',
+      name: 'applog-device-detail',
+      component: () => import('@/views/AppLogDeviceView.vue'),
+      props: true,
+    },
+    {
+      path: '/applog/:id',
+      name: 'applog-detail',
+      component: () => import('@/views/AppLogView.vue'),
+      props: true,
+    },
     {
       path: '/notifications',
       name: 'notifications',

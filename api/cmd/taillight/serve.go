@@ -105,13 +105,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	// Dedicated LISTEN connection.
-	var listenChannels []string
-	if cfg.Features.Srvlog {
-		listenChannels = append(listenChannels, "srvlog_ingest")
-	}
-	if cfg.Features.Netlog {
-		listenChannels = append(listenChannels, "netlog_ingest")
-	}
+	listenChannels := []string{"srvlog_ingest", "netlog_ingest"}
 	listener := postgres.NewListener(cfg.DatabaseURL, pool, cfg.NotificationBufferSize, logger, listenChannels)
 	notifications, err := listener.Listen(ctx)
 	if err != nil {
@@ -120,10 +114,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// SSE brokers.
 	srvlogBroker := broker.NewSrvlogBroker(logger)
-	var netlogBroker *broker.NetlogBroker
-	if cfg.Features.Netlog {
-		netlogBroker = broker.NewNetlogBroker(logger)
-	}
+	netlogBroker := broker.NewNetlogBroker(logger)
 	applogBroker := broker.NewAppLogBroker(logger)
 
 	// Notification engine (optional).
@@ -188,7 +179,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		go summaryScheduler.Start(ctx)
 	}
 
-	// Netbox enrichment client (optional — requires netlog).
+	// Netbox enrichment client (optional).
 	nbClient := setupNetbox(cfg, logger)
 
 	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler, nbClient)
@@ -225,9 +216,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// Close SSE brokers first so clients disconnect cleanly.
 	srvlogBroker.Shutdown()
-	if netlogBroker != nil {
-		netlogBroker.Shutdown()
-	}
+	netlogBroker.Shutdown()
 	applogBroker.Shutdown()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -278,10 +267,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 	return srvErr
 }
 
-// setupNetbox creates the netbox enrichment client when enabled alongside
-// netlog. Returns nil when disabled or when client init fails.
+// setupNetbox creates the netbox enrichment client when enabled.
+// Returns nil when disabled or when client init fails.
 func setupNetbox(cfg config.Config, logger *slog.Logger) *netbox.Client {
-	if !cfg.Netbox.Enabled || !cfg.Features.Netlog {
+	if !cfg.Netbox.Enabled {
 		return nil
 	}
 	nbClient, err := netbox.NewClient(netbox.Config{
@@ -365,13 +354,10 @@ func startBackgroundWorkers(
 			notifEngine.HandleSrvlogEvent(e)
 		}
 	}
-	var onNetlog func(model.NetlogEvent)
-	if netlogBroker != nil {
-		onNetlog = func(e model.NetlogEvent) {
-			netlogBroker.Broadcast(e)
-			if notifEngine != nil {
-				notifEngine.HandleNetlogEvent(e)
-			}
+	onNetlog := func(e model.NetlogEvent) {
+		netlogBroker.Broadcast(e)
+		if notifEngine != nil {
+			notifEngine.HandleNetlogEvent(e)
 		}
 	}
 
@@ -479,8 +465,8 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 	go sched.Start(ctx)
 
 	return &analysisWiring{
-		reports:   handler.NewAnalysisHandler(store, w, cfg.Features.Netlog),
-		schedules: handler.NewAnalysisScheduleHandler(store, sched, cfg.Features.Netlog),
+		reports:   handler.NewAnalysisHandler(store, w),
+		schedules: handler.NewAnalysisScheduleHandler(store, sched),
 	}
 }
 
@@ -602,28 +588,22 @@ func setupRouter(
 	// Srvlog handlers.
 	srvlogHandler := handler.NewSrvlogHandler(store)
 	srvlogMetaHandler := handler.NewSrvlogMetaHandler(store)
-	statsHandler := handler.NewStatsHandler(store, cfg.Features.Netlog)
+	statsHandler := handler.NewStatsHandler(store)
 	juniperHandler := handler.NewJuniperHandler(store)
 	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
 	taillightMetricsHandler := handler.NewTaillightMetricsHandler(store)
 	srvlogSSEHandler := handler.NewSrvlogSSEHandler(srvlogBroker, store, logger)
 	srvlogDeviceHandler := handler.NewSrvlogDeviceHandler(store)
 
-	// Netlog handlers (feature-gated).
-	var netlogHandler *handler.NetlogHandler
-	var netlogSSEHandler *handler.NetlogSSEHandler
-	var netlogMetaHandler *handler.NetlogMetaHandler
-	var netlogDeviceHandler *handler.NetlogDeviceHandler
-	if cfg.Features.Netlog && netlogBroker != nil {
-		netlogHandler = handler.NewNetlogHandler(store)
-		netlogSSEHandler = handler.NewNetlogSSEHandler(netlogBroker, store, logger)
-		netlogMetaHandler = handler.NewNetlogMetaHandler(store)
-		netlogDeviceHandler = handler.NewNetlogDeviceHandler(store)
-	}
+	// Netlog handlers.
+	netlogHandler := handler.NewNetlogHandler(store)
+	netlogSSEHandler := handler.NewNetlogSSEHandler(netlogBroker, store, logger)
+	netlogMetaHandler := handler.NewNetlogMetaHandler(store)
+	netlogDeviceHandler := handler.NewNetlogDeviceHandler(store)
 
-	// Netbox enrichment handler (only enabled when configured and netlog is on).
+	// Netbox enrichment handler (only enabled when configured).
 	var netboxHandler *handler.NetboxHandler
-	if nbClient != nil && netlogHandler != nil {
+	if nbClient != nil {
 		netboxHandler = handler.NewNetboxHandler(nbClient, store, logger)
 	}
 
@@ -638,7 +618,7 @@ func setupRouter(
 	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
 	exportHandler := handler.NewExportHandler(store, store, store)
 	juniperRefHandler := handler.NewJuniperRefHandler(store)
-	configHandler := handler.NewConfigHandler(cfg.Features, cfg.Analysis.Enabled)
+	configHandler := handler.NewConfigHandler(cfg.Analysis.Enabled)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Runtime config — unauthenticated so the frontend can fetch feature
@@ -733,42 +713,40 @@ func setupRouter(
 				})
 			})
 
-			// Netlog routes — feature-gated, all under /netlog/ prefix.
-			if netlogHandler != nil {
-				r.Route("/netlog", func(r chi.Router) {
-					// SSE stream — long-lived, no timeout.
-					r.Get("/stream", netlogSSEHandler.Stream)
+			// Netlog routes — all under /netlog/ prefix.
+			r.Route("/netlog", func(r chi.Router) {
+				// SSE stream — long-lived, no timeout.
+				r.Get("/stream", netlogSSEHandler.Stream)
 
-					// Export — longer timeout for streaming CSV.
-					r.Group(func(r chi.Router) {
-						r.Use(middleware.Timeout(5 * time.Minute))
-						r.Get("/export", exportHandler.ExportNetlogs)
-					})
-
-					// REST endpoints — with request timeout.
-					r.Group(func(r chi.Router) {
-						r.Use(middleware.Timeout(30 * time.Second))
-
-						r.Get("/", netlogHandler.List)
-						r.Get("/{id}", netlogHandler.Get)
-
-						if netboxHandler != nil {
-							r.Get("/{id}/netbox", netboxHandler.EnrichNetlog)
-						}
-
-						r.Get("/meta/hosts", netlogMetaHandler.Hosts)
-						r.Get("/meta/programs", netlogMetaHandler.Programs)
-						r.Get("/meta/facilities", netlogMetaHandler.Facilities)
-						r.Get("/meta/tags", netlogMetaHandler.Tags)
-
-						r.Get("/stats/volume", statsHandler.NetlogVolume)
-						r.Get("/stats/severity-volume", statsHandler.NetlogSeverityVolume)
-						r.Get("/stats/summary", statsHandler.NetlogSummary)
-
-						r.Get("/device/{hostname}", netlogDeviceHandler.Get)
-					})
+				// Export — longer timeout for streaming CSV.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(5 * time.Minute))
+					r.Get("/export", exportHandler.ExportNetlogs)
 				})
-			}
+
+				// REST endpoints — with request timeout.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.Timeout(30 * time.Second))
+
+					r.Get("/", netlogHandler.List)
+					r.Get("/{id}", netlogHandler.Get)
+
+					if netboxHandler != nil {
+						r.Get("/{id}/netbox", netboxHandler.EnrichNetlog)
+					}
+
+					r.Get("/meta/hosts", netlogMetaHandler.Hosts)
+					r.Get("/meta/programs", netlogMetaHandler.Programs)
+					r.Get("/meta/facilities", netlogMetaHandler.Facilities)
+					r.Get("/meta/tags", netlogMetaHandler.Tags)
+
+					r.Get("/stats/volume", statsHandler.NetlogVolume)
+					r.Get("/stats/severity-volume", statsHandler.NetlogSeverityVolume)
+					r.Get("/stats/summary", statsHandler.NetlogSummary)
+
+					r.Get("/device/{hostname}", netlogDeviceHandler.Get)
+				})
+			})
 
 			// Shared endpoints — with request timeout.
 			r.Group(func(r chi.Router) {

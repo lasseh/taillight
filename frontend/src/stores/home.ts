@@ -1,7 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { api, ApiError } from '@/lib/api'
-import { features as getFeatures } from '@/lib/features'
 import { useSrvlogStream } from '@/composables/useSrvlogStream'
 import { useNetlogStream } from '@/composables/useNetlogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
@@ -52,7 +51,6 @@ function pad2(n: number): string {
 }
 
 export const useHomeStore = defineStore('home', () => {
-  const features = getFeatures()
   const srvlogSummary = ref<SrvlogSummary | null>(null)
   const netlogSummary = ref<SrvlogSummary | null>(null)
   const applogSummary = ref<AppLogSummary | null>(null)
@@ -222,31 +220,25 @@ export const useHomeStore = defineStore('home', () => {
     let applogErr: unknown = null
 
     // Fetch independently so one failure doesn't block the other.
-    if (features.srvlog) {
-      try {
-        const res = await api.getSrvlogSummary(range_.value)
-        srvlogSummary.value = res.data
-      } catch (e) {
-        srvlogErr = e
-      }
+    try {
+      const res = await api.getSrvlogSummary(range_.value)
+      srvlogSummary.value = res.data
+    } catch (e) {
+      srvlogErr = e
     }
 
-    if (features.netlog) {
-      try {
-        const res = await api.getNetlogSummary(range_.value)
-        netlogSummary.value = res.data
-      } catch (e) {
-        netlogErr = e
-      }
+    try {
+      const res = await api.getNetlogSummary(range_.value)
+      netlogSummary.value = res.data
+    } catch (e) {
+      netlogErr = e
     }
 
-    if (features.applog) {
-      try {
-        const res = await api.getAppLogSummary(range_.value)
-        applogSummary.value = res.data
-      } catch (e) {
-        applogErr = e
-      }
+    try {
+      const res = await api.getAppLogSummary(range_.value)
+      applogSummary.value = res.data
+    } catch (e) {
+      applogErr = e
     }
 
     // Detect connection-level failures: network errors or gateway errors (502-504).
@@ -254,14 +246,13 @@ export const useHomeStore = defineStore('home', () => {
       !(e instanceof ApiError) || (e.status >= 502 && e.status <= 504)
     const errMsg = (e: unknown) => (e instanceof Error && e.message ? e.message : 'unknown error')
 
-    // Collect all errors from enabled feeds.
+    // Collect all errors from the feeds.
     const feedErrors: { name: string; err: unknown }[] = []
-    if (features.srvlog && srvlogErr) feedErrors.push({ name: 'srvlog', err: srvlogErr })
-    if (features.netlog && netlogErr) feedErrors.push({ name: 'netlog', err: netlogErr })
-    if (features.applog && applogErr) feedErrors.push({ name: 'applog', err: applogErr })
+    if (srvlogErr) feedErrors.push({ name: 'srvlog', err: srvlogErr })
+    if (netlogErr) feedErrors.push({ name: 'netlog', err: netlogErr })
+    if (applogErr) feedErrors.push({ name: 'applog', err: applogErr })
 
-    const enabledCount = [features.srvlog, features.netlog, features.applog].filter(Boolean).length
-    const allFailed = feedErrors.length === enabledCount && enabledCount > 0
+    const allFailed = feedErrors.length === 3
     const allConnection = feedErrors.every((f) => isConnectionErr(f.err))
 
     if (allFailed && allConnection) {
@@ -281,57 +272,51 @@ export const useHomeStore = defineStore('home', () => {
     const version = ++fetchVersion
     const from = rangeToFrom(range_.value)
 
-    if (features.srvlog) {
-      try {
-        const srvlogEventsRes = await api.getSrvlogs(
-          new URLSearchParams({
-            severity_max: String(HIGH_SEVERITY_MAX),
-            limit: String(MAX_RECENT_EVENTS),
-            from,
-          }),
-        )
-        if (version !== fetchVersion) return
-        const events = (srvlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
-        recentSrvlogEvents.value = events
-        srvlogSeenIds.clear()
-        for (const e of events) srvlogSeenIds.add(e.id)
-      } catch {
-        // Non-critical — keep existing data
-      }
+    try {
+      const srvlogEventsRes = await api.getSrvlogs(
+        new URLSearchParams({
+          severity_max: String(HIGH_SEVERITY_MAX),
+          limit: String(MAX_RECENT_EVENTS),
+          from,
+        }),
+      )
+      if (version !== fetchVersion) return
+      const events = (srvlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+      recentSrvlogEvents.value = events
+      srvlogSeenIds.clear()
+      for (const e of events) srvlogSeenIds.add(e.id)
+    } catch {
+      // Non-critical — keep existing data
     }
 
-    if (features.netlog) {
-      try {
-        const netlogEventsRes = await api.getNetlogs(
-          new URLSearchParams({
-            severity_max: String(HIGH_SEVERITY_MAX),
-            limit: String(MAX_RECENT_EVENTS),
-            from,
-          }),
-        )
-        if (version !== fetchVersion) return
-        const events = (netlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
-        recentNetlogEvents.value = events
-        netlogSeenIds.clear()
-        for (const e of events) netlogSeenIds.add(e.id)
-      } catch {
-        // Non-critical — keep existing data
-      }
+    try {
+      const netlogEventsRes = await api.getNetlogs(
+        new URLSearchParams({
+          severity_max: String(HIGH_SEVERITY_MAX),
+          limit: String(MAX_RECENT_EVENTS),
+          from,
+        }),
+      )
+      if (version !== fetchVersion) return
+      const events = (netlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+      recentNetlogEvents.value = events
+      netlogSeenIds.clear()
+      for (const e of events) netlogSeenIds.add(e.id)
+    } catch {
+      // Non-critical — keep existing data
     }
 
-    if (features.applog) {
-      try {
-        const applogEventsRes = await api.getAppLogs(
-          new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS), from }),
-        )
-        if (version !== fetchVersion) return
-        const events = (applogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
-        recentApplogEvents.value = events
-        applogSeenIds.clear()
-        for (const e of events) applogSeenIds.add(e.id)
-      } catch {
-        // Non-critical — keep existing data
-      }
+    try {
+      const applogEventsRes = await api.getAppLogs(
+        new URLSearchParams({ level: 'WARN', limit: String(MAX_RECENT_EVENTS), from }),
+      )
+      if (version !== fetchVersion) return
+      const events = (applogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
+      recentApplogEvents.value = events
+      applogSeenIds.clear()
+      for (const e of events) applogSeenIds.add(e.id)
+    } catch {
+      // Non-critical — keep existing data
     }
 
     if (version === fetchVersion) {
@@ -342,62 +327,50 @@ export const useHomeStore = defineStore('home', () => {
   async function fetchHeatmaps() {
     const params = new URLSearchParams({ interval: '30m', range: '7d' })
 
-    if (features.srvlog) {
-      try {
-        const res = await api.getSrvlogVolume(params)
-        srvlogHeatmap.value = volumeToHeatmap(res.data ?? [])
-      } catch {
-        // Non-critical — keep existing data
-      }
+    try {
+      const res = await api.getSrvlogVolume(params)
+      srvlogHeatmap.value = volumeToHeatmap(res.data ?? [])
+    } catch {
+      // Non-critical — keep existing data
     }
 
-    if (features.netlog) {
-      try {
-        const res = await api.getNetlogVolume(params)
-        netlogHeatmap.value = volumeToHeatmap(res.data ?? [])
-      } catch {
-        // Non-critical — keep existing data
-      }
+    try {
+      const res = await api.getNetlogVolume(params)
+      netlogHeatmap.value = volumeToHeatmap(res.data ?? [])
+    } catch {
+      // Non-critical — keep existing data
     }
 
-    if (features.applog) {
-      try {
-        const res = await api.getAppLogVolume(params)
-        applogHeatmap.value = volumeToHeatmap(res.data ?? [])
-      } catch {
-        // Non-critical — keep existing data
-      }
+    try {
+      const res = await api.getAppLogVolume(params)
+      applogHeatmap.value = volumeToHeatmap(res.data ?? [])
+    } catch {
+      // Non-critical — keep existing data
     }
   }
 
   async function fetchSeverityTimelines() {
     const params = new URLSearchParams({ interval: '15m', range: '24h' })
 
-    if (features.srvlog) {
-      try {
-        const res = await api.getSrvlogSeverityVolume(params)
-        srvlogSeverityVolume.value = res.data ?? []
-      } catch {
-        // Non-critical — keep existing data
-      }
+    try {
+      const res = await api.getSrvlogSeverityVolume(params)
+      srvlogSeverityVolume.value = res.data ?? []
+    } catch {
+      // Non-critical — keep existing data
     }
 
-    if (features.netlog) {
-      try {
-        const res = await api.getNetlogSeverityVolume(params)
-        netlogSeverityVolume.value = res.data ?? []
-      } catch {
-        // Non-critical — keep existing data
-      }
+    try {
+      const res = await api.getNetlogSeverityVolume(params)
+      netlogSeverityVolume.value = res.data ?? []
+    } catch {
+      // Non-critical — keep existing data
     }
 
-    if (features.applog) {
-      try {
-        const res = await api.getAppLogSeverityVolume(params)
-        applogSeverityVolume.value = res.data ?? []
-      } catch {
-        // Non-critical — keep existing data
-      }
+    try {
+      const res = await api.getAppLogSeverityVolume(params)
+      applogSeverityVolume.value = res.data ?? []
+    } catch {
+      // Non-critical — keep existing data
     }
   }
 
@@ -411,18 +384,12 @@ export const useHomeStore = defineStore('home', () => {
   }
 
   function subscribeStreams() {
-    if (features.srvlog) {
-      const srvlog = useSrvlogStream()
-      unsubSrvlog = srvlog.subscribe(onSrvlogEvent)
-    }
-    if (features.netlog) {
-      const netlog = useNetlogStream()
-      unsubNetlog = netlog.subscribe(onNetlogEvent)
-    }
-    if (features.applog) {
-      const applog = useAppLogStream()
-      unsubApplog = applog.subscribe(onApplogEvent)
-    }
+    const srvlog = useSrvlogStream()
+    unsubSrvlog = srvlog.subscribe(onSrvlogEvent)
+    const netlog = useNetlogStream()
+    unsubNetlog = netlog.subscribe(onNetlogEvent)
+    const applog = useAppLogStream()
+    unsubApplog = applog.subscribe(onApplogEvent)
   }
 
   function unsubscribeStreams() {

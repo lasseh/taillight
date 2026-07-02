@@ -5,45 +5,29 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/lasseh/taillight/internal/config"
 )
 
 func TestConfigHandler_Features(t *testing.T) {
 	tests := []struct {
 		name     string
-		cfg      config.FeaturesConfig
 		analysis bool
 		want     FeaturesResponse
 	}{
 		{
-			name:     "all enabled",
-			cfg:      config.FeaturesConfig{Srvlog: true, Netlog: true, AppLog: true},
+			name:     "analysis enabled",
 			analysis: true,
 			want:     FeaturesResponse{Srvlog: true, Netlog: true, Applog: true, Analysis: true},
 		},
 		{
-			name: "all disabled",
-			cfg:  config.FeaturesConfig{},
-			want: FeaturesResponse{},
-		},
-		{
-			name:     "mixed",
-			cfg:      config.FeaturesConfig{Srvlog: true, Netlog: false, AppLog: true},
+			name:     "analysis disabled",
 			analysis: false,
-			want:     FeaturesResponse{Srvlog: true, Netlog: false, Applog: true, Analysis: false},
-		},
-		{
-			name:     "analysis on, feeds off",
-			cfg:      config.FeaturesConfig{},
-			analysis: true,
-			want:     FeaturesResponse{Analysis: true},
+			want:     FeaturesResponse{Srvlog: true, Netlog: true, Applog: true, Analysis: false},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewConfigHandler(tt.cfg, tt.analysis)
+			h := NewConfigHandler(tt.analysis)
 
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/config/features", nil)
 			w := httptest.NewRecorder()

@@ -71,7 +71,7 @@ func TestCreateRejectsUnknownHosts(t *testing.T) {
 		},
 	}
 	enq := &stubEnqueuer{}
-	h := NewAnalysisHandler(store, enq, true)
+	h := NewAnalysisHandler(store, enq)
 
 	body, _ := json.Marshal(map[string]any{
 		"feed":           "srvlog",
@@ -108,7 +108,7 @@ func TestCreateNormalizesHosts(t *testing.T) {
 		},
 	}
 	enq := &stubEnqueuer{}
-	h := NewAnalysisHandler(store, enq, true)
+	h := NewAnalysisHandler(store, enq)
 
 	body, _ := json.Marshal(map[string]any{
 		"feed":           "srvlog",
@@ -142,7 +142,7 @@ func TestHostsRejectsInvalidFeed(t *testing.T) {
 	store := &stubAnalysisStore{
 		knownHosts: map[string][]string{"srvlog": {"a.lab"}},
 	}
-	h := NewAnalysisHandler(store, &stubEnqueuer{}, true)
+	h := NewAnalysisHandler(store, &stubEnqueuer{})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/analysis/hosts?feed=bogus", http.NoBody)
 	w := httptest.NewRecorder()
@@ -163,7 +163,7 @@ func TestHostsReturnsEntries(t *testing.T) {
 	store := &stubAnalysisStore{
 		knownHosts: map[string][]string{"srvlog": {"a.lab", "b.lab"}},
 	}
-	h := NewAnalysisHandler(store, &stubEnqueuer{}, true)
+	h := NewAnalysisHandler(store, &stubEnqueuer{})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/analysis/hosts?feed=srvlog", http.NoBody)
 	w := httptest.NewRecorder()
@@ -193,7 +193,7 @@ func TestCreateAcceptsEmptyHostsAsAllHosts(t *testing.T) {
 		knownHosts: map[string][]string{"srvlog": {"a.lab"}},
 	}
 	enq := &stubEnqueuer{}
-	h := NewAnalysisHandler(store, enq, true)
+	h := NewAnalysisHandler(store, enq)
 
 	body, _ := json.Marshal(map[string]any{
 		"feed":        "srvlog",

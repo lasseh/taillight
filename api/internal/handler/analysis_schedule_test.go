@@ -84,7 +84,7 @@ func TestCreateScheduleNotifyChannelValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &stubScheduleStore{channels: channels}
-			h := NewAnalysisScheduleHandler(store, nil, true)
+			h := NewAnalysisScheduleHandler(store, nil)
 
 			body := make(map[string]any, len(base)+1)
 			for k, v := range base {

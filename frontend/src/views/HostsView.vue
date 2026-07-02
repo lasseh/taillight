@@ -2,14 +2,12 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useHostsStore } from '@/stores/hosts'
-import { features as getFeatures } from '@/lib/features'
 import { formatNumber, formatRelativeTime, lastSeenColorClass } from '@/lib/format'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import type { HostEntry, HourlyBucket } from '@/types/host'
 
 const router = useRouter()
 const store = useHostsStore()
-const features = getFeatures()
 
 const rangePresets = [
   { label: '1h', value: '1h' },
@@ -21,7 +19,7 @@ const rangePresets = [
 ]
 
 function goToDevice(host: HostEntry) {
-  if (host.feed === 'netlog' && features.netlog) {
+  if (host.feed === 'netlog') {
     router.push({ name: 'netlog-device-detail', params: { hostname: host.hostname } })
   } else {
     router.push({ name: 'srvlog-device-detail', params: { hostname: host.hostname } })

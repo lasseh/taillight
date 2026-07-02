@@ -4,9 +4,7 @@ import { api, ApiError } from '@/lib/api'
 import type { SummarySchedule } from '@/types/summary'
 import type { NotificationChannel } from '@/types/notification'
 import { useFocusTrap } from '@/composables/useFocusTrap'
-import { features as getFeatures } from '@/lib/features'
 
-const features = getFeatures()
 const schedules = ref<SummarySchedule[]>([])
 const channels = ref<NotificationChannel[]>([])
 const loading = ref(true)
@@ -597,7 +595,6 @@ onMounted(fetchData)
                   <span class="text-t-fg-dark mb-1.5 block text-xs">Event Kinds</span>
                   <div class="flex gap-2">
                     <button
-                      v-if="features.srvlog"
                       class="border px-3 py-1.5 text-sm transition-all"
                       :class="
                         formEventKinds.includes('srvlog')
@@ -609,7 +606,6 @@ onMounted(fetchData)
                       Srvlog
                     </button>
                     <button
-                      v-if="features.netlog"
                       class="border px-3 py-1.5 text-sm transition-all"
                       :class="
                         formEventKinds.includes('netlog')
@@ -621,7 +617,6 @@ onMounted(fetchData)
                       Netlog
                     </button>
                     <button
-                      v-if="features.applog"
                       class="border px-3 py-1.5 text-sm transition-all"
                       :class="
                         formEventKinds.includes('applog')

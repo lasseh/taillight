@@ -3,12 +3,10 @@ import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useNotifications } from '@/composables/useNotifications'
 import { api, ApiError } from '@/lib/api'
-import { features as getFeatures } from '@/lib/features'
 import { severityLabels } from '@/lib/constants'
 import type { UserPreferences } from '@/types/auth'
 
 const auth = useAuthStore()
-const features = getFeatures()
 const {
   supported: notifSupported,
   permission: notifPermission,
@@ -349,7 +347,7 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
               class="border-t-border space-y-3 border-t pt-4"
             >
               <!-- Srvlog -->
-              <div v-if="features.srvlog" class="flex items-center gap-4">
+              <div class="flex items-center gap-4">
                 <label class="relative inline-flex cursor-pointer items-center">
                   <input v-model="notifSrvlogEnabled" type="checkbox" class="peer sr-only" />
                   <div
@@ -369,7 +367,7 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
               </div>
 
               <!-- Netlog -->
-              <div v-if="features.netlog" class="flex items-center gap-4">
+              <div class="flex items-center gap-4">
                 <label class="relative inline-flex cursor-pointer items-center">
                   <input v-model="notifNetlogEnabled" type="checkbox" class="peer sr-only" />
                   <div
@@ -389,7 +387,7 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
               </div>
 
               <!-- Applog -->
-              <div v-if="features.applog" class="flex items-start gap-4">
+              <div class="flex items-start gap-4">
                 <label class="relative mt-0.5 inline-flex cursor-pointer items-center">
                   <input v-model="notifApplogEnabled" type="checkbox" class="peer sr-only" />
                   <div

@@ -32,7 +32,7 @@ function navigateToLog(routeName: 'netlog' | 'srvlog' | 'applog') {
 const volumeTab = computed(() => {
   const name = String(route.name)
   if (name.startsWith('applog')) return 'applog'
-  if (name.startsWith('netlog') && features.netlog) return 'netlog'
+  if (name.startsWith('netlog')) return 'netlog'
   return 'srvlog'
 })
 
@@ -91,39 +91,37 @@ interface FeedLink {
   inactiveClass: string
 }
 
-const navLinks: FeedLink[] = (
-  [
-    {
-      id: 'home',
-      label: 'DASHBOARD',
-      title: 'Dashboard (1)',
-      to: '/',
-      activeClass: 'bg-t-bg-highlight text-t-blue',
-      inactiveClass: 'text-t-blue/50 hover:text-t-blue',
-    },
-    {
-      id: 'netlog',
-      label: 'NETLOG',
-      title: 'Netlog (2)',
-      activeClass: 'bg-t-bg-highlight text-t-fuchsia',
-      inactiveClass: 'text-t-fuchsia/50 hover:text-t-fuchsia',
-    },
-    {
-      id: 'srvlog',
-      label: 'SRVLOG',
-      title: 'Srvlog (3)',
-      activeClass: 'bg-t-bg-highlight text-t-teal',
-      inactiveClass: 'text-t-teal/50 hover:text-t-teal',
-    },
-    {
-      id: 'applog',
-      label: 'APPLOG',
-      title: 'Applog (4)',
-      activeClass: 'bg-t-bg-highlight text-t-magenta',
-      inactiveClass: 'text-t-magenta/50 hover:text-t-magenta',
-    },
-  ] satisfies FeedLink[]
-).filter((l) => l.id === 'home' || features[l.id])
+const navLinks: FeedLink[] = [
+  {
+    id: 'home',
+    label: 'DASHBOARD',
+    title: 'Dashboard (1)',
+    to: '/',
+    activeClass: 'bg-t-bg-highlight text-t-blue',
+    inactiveClass: 'text-t-blue/50 hover:text-t-blue',
+  },
+  {
+    id: 'netlog',
+    label: 'NETLOG',
+    title: 'Netlog (2)',
+    activeClass: 'bg-t-bg-highlight text-t-fuchsia',
+    inactiveClass: 'text-t-fuchsia/50 hover:text-t-fuchsia',
+  },
+  {
+    id: 'srvlog',
+    label: 'SRVLOG',
+    title: 'Srvlog (3)',
+    activeClass: 'bg-t-bg-highlight text-t-teal',
+    inactiveClass: 'text-t-teal/50 hover:text-t-teal',
+  },
+  {
+    id: 'applog',
+    label: 'APPLOG',
+    title: 'Applog (4)',
+    activeClass: 'bg-t-bg-highlight text-t-magenta',
+    inactiveClass: 'text-t-magenta/50 hover:text-t-magenta',
+  },
+]
 
 function isFeedActive(id: FeedLink['id']): boolean {
   if (id === 'home') return route.name === 'home'
