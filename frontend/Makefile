@@ -22,12 +22,13 @@ build: ## Build for production
 test: ## Run unit tests
 	npm test
 
-lint: ## Lint (type-check) — the blocking gate
+lint: ## Blocking gate: type-check + ESLint errors-only + Prettier check
 	npm run type-check
-
-check: ## Advisory ESLint + Prettier check (not part of the gate)
-	npm run lint:js
+	npx eslint . --quiet
 	npm run format:check
+
+check: ## Full ESLint including warnings (advisory)
+	npm run lint:js
 
 format: ## Auto-format with Prettier
 	npm run format

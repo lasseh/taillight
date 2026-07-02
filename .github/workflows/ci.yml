@@ -94,6 +94,12 @@ jobs:
       - name: Type check
         run: npm run type-check
 
+      - name: Lint (errors only)
+        run: npx eslint . --quiet
+
+      - name: Format check
+        run: npm run format:check
+
       - name: Run tests
         run: npm run test
 
