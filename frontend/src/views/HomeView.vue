@@ -88,76 +88,12 @@ const applogInfo = computed(() => {
     .find(l => l.level === 'INFO')?.count ?? 0
 })
 
-// Syslog: combined total & trend
-const syslogTotal = computed(() => (home.srvlogSummary?.total ?? 0) + (home.netlogSummary?.total ?? 0))
+// Syslog: combined srvlog+netlog total/trend/breakdown/top-hosts/recent/heatmap
+// shaping lives in the home store (home.syslogTotal, home.syslogTrend,
+// home.syslogSeverityBreakdown, home.syslogTopHosts, home.combinedRecentEvents,
+// home.syslogHeatmap); see stores/home.ts.
 
-const syslogTrend = computed(() => {
-  const s = home.srvlogSummary
-  const n = home.netlogSummary
-  if (!s && !n) return 0
-  const curr = syslogTotal.value
-  const sPrev = s && s.trend !== 0 ? s.total / (1 + s.trend / 100) : (s?.total ?? 0)
-  const nPrev = n && n.trend !== 0 ? n.total / (1 + n.trend / 100) : (n?.total ?? 0)
-  const prev = sPrev + nPrev
-  if (prev === 0) return curr > 0 ? 100 : 0
-  return ((curr - prev) / prev) * 100
-})
-
-// Syslog: combined severity breakdown for SeverityDistribution component
-const syslogSeverityBreakdown = computed(() => {
-  const srvlog = home.srvlogSummary?.severity_breakdown ?? []
-  const netlog = home.netlogSummary?.severity_breakdown ?? []
-  const total = syslogTotal.value
-  const map = new Map<number, { severity: number; label: string; count: number }>()
-  for (const s of [...srvlog, ...netlog]) {
-    const existing = map.get(s.severity)
-    if (existing) {
-      existing.count += s.count
-    } else {
-      map.set(s.severity, { severity: s.severity, label: s.label, count: s.count })
-    }
-  }
-  return [...map.values()]
-    .map(s => ({ ...s, pct: total > 0 ? (s.count / total) * 100 : 0 }))
-    .sort((a, b) => a.severity - b.severity)
-})
-
-// Syslog: merged top hosts from both feeds
-const syslogTopHosts = computed(() => {
-  const srvlog = home.srvlogSummary?.top_hosts ?? []
-  const netlog = home.netlogSummary?.top_hosts ?? []
-  const total = syslogTotal.value
-  const srvlogNames = new Set(srvlog.map(h => h.name))
-  const map = new Map<string, number>()
-  for (const h of [...srvlog, ...netlog]) {
-    map.set(h.name, (map.get(h.name) ?? 0) + h.count)
-  }
-  return [...map.entries()]
-    .map(([name, count]) => ({
-      name,
-      count,
-      pct: total > 0 ? (count / total) * 100 : 0,
-      feed: srvlogNames.has(name) ? 'srvlog' : 'netlog' as 'srvlog' | 'netlog',
-    }))
-    .sort((a, b) => b.count - a.count)
-})
-
-// Syslog: combined recent events with feed badge — shaping moved to the home
-// store (home.combinedRecentEvents); see stores/home.ts.
-
-// Syslog: combined heatmap
-const syslogHeatmap = computed(() => {
-  const combined: Record<string, number> = {}
-  for (const [key, val] of Object.entries(home.srvlogHeatmap)) {
-    combined[key] = (combined[key] ?? 0) + val
-  }
-  for (const [key, val] of Object.entries(home.netlogHeatmap)) {
-    combined[key] = (combined[key] ?? 0) + val
-  }
-  return combined
-})
-
-const hasSyslogData = computed(() => syslogTotal.value > 0)
+const hasSyslogData = computed(() => home.syslogTotal > 0)
 const hasApplogData = computed(() => home.applogSummary && home.applogSummary.total > 0)
 
 // Dynamic list sizing: measure the list container and compute how many items fit
@@ -170,7 +106,7 @@ const { height: servicesListHeight } = useElementSize(servicesListEl)
 
 const visibleHosts = computed(() => {
   const count = Math.max(5, Math.floor(hostsListHeight.value / ITEM_HEIGHT))
-  return syslogTopHosts.value.slice(0, count)
+  return home.syslogTopHosts.slice(0, count)
 })
 
 const visibleServices = computed(() => {
@@ -263,10 +199,10 @@ function getSeverityBgClass(level: string): string {
               <!-- Total -->
               <div class="bg-t-bg-dark border-t-border rounded border p-4">
                 <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Total {{ rangeLabel }}</div>
-                <div class="text-t-teal text-2xl font-bold">{{ formatNumber(syslogTotal) }}</div>
+                <div class="text-t-teal text-2xl font-bold">{{ formatNumber(home.syslogTotal) }}</div>
                 <div class="mt-1 flex items-center gap-1 text-xs">
-                  <span :class="syslogTrend >= 0 ? 'text-t-green' : 'text-t-red'">
-                    {{ syslogTrend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(syslogTrend).toFixed(1) }}%
+                  <span :class="home.syslogTrend >= 0 ? 'text-t-green' : 'text-t-red'">
+                    {{ home.syslogTrend >= 0 ? '&#x25B2;' : '&#x25BC;' }}{{ Math.abs(home.syslogTrend).toFixed(1) }}%
                   </span>
                   <span class="text-t-fg-dark">vs prev {{ rangeLabel }}</span>
                 </div>
@@ -277,7 +213,7 @@ function getSeverityBgClass(level: string): string {
                 <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Emerg & Alert</div>
                 <div class="text-2xl font-bold"><span class="text-sev-emerg">{{ formatNumber(syslogEmerg) }}</span> <span class="text-t-fg-dark">/</span> <span class="text-sev-alert">{{ formatNumber(syslogAlert) }}</span></div>
                 <div class="text-t-fg-dark mt-1 text-xs">
-                  {{ syslogTotal > 0 ? ((syslogEmergAlert / syslogTotal) * 100).toFixed(1) : 0 }}% of total
+                  {{ home.syslogTotal > 0 ? ((syslogEmergAlert / home.syslogTotal) * 100).toFixed(1) : 0 }}% of total
                 </div>
               </div>
 
@@ -286,7 +222,7 @@ function getSeverityBgClass(level: string): string {
                 <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Criticals</div>
                 <div class="text-2xl font-bold"><span class="text-sev-crit">{{ formatNumber(syslogCriticals) }}</span></div>
                 <div class="text-t-fg-dark mt-1 text-xs">
-                  {{ syslogTotal > 0 ? ((syslogCriticals / syslogTotal) * 100).toFixed(1) : 0 }}% of total
+                  {{ home.syslogTotal > 0 ? ((syslogCriticals / home.syslogTotal) * 100).toFixed(1) : 0 }}% of total
                 </div>
               </div>
 
@@ -295,7 +231,7 @@ function getSeverityBgClass(level: string): string {
                 <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Errors</div>
                 <div class="text-2xl font-bold"><span class="text-sev-err">{{ formatNumber(syslogErrors) }}</span></div>
                 <div class="text-t-fg-dark mt-1 text-xs">
-                  {{ syslogTotal > 0 ? ((syslogErrors / syslogTotal) * 100).toFixed(1) : 0 }}% of total
+                  {{ home.syslogTotal > 0 ? ((syslogErrors / home.syslogTotal) * 100).toFixed(1) : 0 }}% of total
                 </div>
               </div>
             </div>
@@ -306,7 +242,7 @@ function getSeverityBgClass(level: string): string {
             <WidgetCloseButton v-if="editing" @close="hideWidget('syslog-distribution')" />
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <!-- Severity Distribution -->
-              <SeverityDistribution :items="syslogSeverityBreakdown" />
+              <SeverityDistribution :items="home.syslogSeverityBreakdown" />
 
               <!-- Top Hosts -->
               <div class="bg-t-bg-dark border-t-border flex flex-col rounded border p-4">
@@ -510,7 +446,7 @@ function getSeverityBgClass(level: string): string {
             <WidgetCloseButton v-if="editing" @close="hideWidget('syslog-heatmap')" />
             <div class="bg-t-bg-dark border-t-border rounded border p-4">
               <h3 class="text-t-teal mb-3 text-xs font-semibold uppercase tracking-wide">Syslog Volume</h3>
-              <ActivityHeatmap :data="syslogHeatmap" color-var="--color-t-teal" label="syslog events" />
+              <ActivityHeatmap :data="home.syslogHeatmap" color-var="--color-t-teal" label="syslog events" />
             </div>
           </div>
 

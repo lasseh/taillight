@@ -80,6 +80,78 @@ export const useHomeStore = defineStore('home', () => {
   const srvlogSeverityVolume = ref<SeverityVolumeBucket[]>([])
   const netlogSeverityVolume = ref<SeverityVolumeBucket[]>([])
   const applogSeverityVolume = ref<SeverityVolumeBucket[]>([])
+
+  // ── Cross-feed shaping: combined srvlog+netlog "syslog" getters ──
+  // Same rationale as combinedRecentEvents: derivation lives in the store so
+  // it is testable and reusable, not re-authored in views.
+
+  // Syslog: combined total & trend
+  const syslogTotal = computed(
+    () => (srvlogSummary.value?.total ?? 0) + (netlogSummary.value?.total ?? 0),
+  )
+
+  const syslogTrend = computed(() => {
+    const s = srvlogSummary.value
+    const n = netlogSummary.value
+    if (!s && !n) return 0
+    const curr = syslogTotal.value
+    const sPrev = s && s.trend !== 0 ? s.total / (1 + s.trend / 100) : (s?.total ?? 0)
+    const nPrev = n && n.trend !== 0 ? n.total / (1 + n.trend / 100) : (n?.total ?? 0)
+    const prev = sPrev + nPrev
+    if (prev === 0) return curr > 0 ? 100 : 0
+    return ((curr - prev) / prev) * 100
+  })
+
+  // Syslog: combined severity breakdown for SeverityDistribution component
+  const syslogSeverityBreakdown = computed(() => {
+    const srvlog = srvlogSummary.value?.severity_breakdown ?? []
+    const netlog = netlogSummary.value?.severity_breakdown ?? []
+    const total = syslogTotal.value
+    const map = new Map<number, { severity: number; label: string; count: number }>()
+    for (const s of [...srvlog, ...netlog]) {
+      const existing = map.get(s.severity)
+      if (existing) {
+        existing.count += s.count
+      } else {
+        map.set(s.severity, { severity: s.severity, label: s.label, count: s.count })
+      }
+    }
+    return [...map.values()]
+      .map(s => ({ ...s, pct: total > 0 ? (s.count / total) * 100 : 0 }))
+      .sort((a, b) => a.severity - b.severity)
+  })
+
+  // Syslog: merged top hosts from both feeds
+  const syslogTopHosts = computed(() => {
+    const srvlog = srvlogSummary.value?.top_hosts ?? []
+    const netlog = netlogSummary.value?.top_hosts ?? []
+    const total = syslogTotal.value
+    const srvlogNames = new Set(srvlog.map(h => h.name))
+    const map = new Map<string, number>()
+    for (const h of [...srvlog, ...netlog]) {
+      map.set(h.name, (map.get(h.name) ?? 0) + h.count)
+    }
+    return [...map.entries()]
+      .map(([name, count]) => ({
+        name,
+        count,
+        pct: total > 0 ? (count / total) * 100 : 0,
+        feed: srvlogNames.has(name) ? 'srvlog' : 'netlog' as 'srvlog' | 'netlog',
+      }))
+      .sort((a, b) => b.count - a.count)
+  })
+
+  // Syslog: combined heatmap
+  const syslogHeatmap = computed(() => {
+    const combined: Record<string, number> = {}
+    for (const [key, val] of Object.entries(srvlogHeatmap.value)) {
+      combined[key] = (combined[key] ?? 0) + val
+    }
+    for (const [key, val] of Object.entries(netlogHeatmap.value)) {
+      combined[key] = (combined[key] ?? 0) + val
+    }
+    return combined
+  })
   const loading = ref(false)
   const loaded = ref(false)
   const error = ref<string | null>(null)
@@ -423,6 +495,11 @@ export const useHomeStore = defineStore('home', () => {
     recentNetlogEvents,
     recentApplogEvents,
     combinedRecentEvents,
+    syslogTotal,
+    syslogTrend,
+    syslogSeverityBreakdown,
+    syslogTopHosts,
+    syslogHeatmap,
     srvlogHeatmap,
     netlogHeatmap,
     applogHeatmap,
