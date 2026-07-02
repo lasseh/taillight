@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // maxFilterStringLen is the maximum length for string filter parameters.
@@ -113,6 +115,8 @@ type SrvlogFilter struct {
 	Search      string
 	From        *time.Time
 	To          *time.Time
+
+	searchLower string // precomputed strings.ToLower(Search); empty means not set
 }
 
 // matchWildcard reports whether value matches a glob pattern where * matches
@@ -157,6 +161,56 @@ func matchField(value, pattern string) bool {
 	return value == pattern
 }
 
+// containsFold reports whether strings.ToLower(string(s)) contains substrLower,
+// without allocating. substrLower must already be lowercase (as produced by
+// strings.ToLower). Filters precompute it at parse time so the SSE broadcast
+// hot path does not re-lowercase the event body once per subscriber.
+func containsFold[T ~string | ~[]byte](s T, substrLower string) bool {
+	if substrLower == "" {
+		return true
+	}
+	for i := range len(s) {
+		if s[i]&0xC0 == 0x80 {
+			continue // UTF-8 continuation byte: matches only start on rune boundaries
+		}
+		if hasPrefixFold(s[i:], substrLower) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasPrefixFold reports whether strings.ToLower(string(s)) starts with prefixLower.
+func hasPrefixFold[T ~string | ~[]byte](s T, prefixLower string) bool {
+	i := 0
+	for _, pr := range prefixLower {
+		if i >= len(s) {
+			return false
+		}
+		sr, size := rune(s[i]), 1
+		if sr >= utf8.RuneSelf {
+			var buf [utf8.UTFMax]byte
+			n := copy(buf[:], s[i:])
+			sr, size = utf8.DecodeRune(buf[:n])
+		}
+		if unicode.ToLower(sr) != pr {
+			return false
+		}
+		i += size
+	}
+	return true
+}
+
+// searchNeedle returns the lowercased search term for Matches, preferring the
+// parse-time precomputed value and lowering on the fly for filters constructed
+// directly (e.g. from notification rules).
+func searchNeedle(search, searchLower string) string {
+	if searchLower != "" {
+		return searchLower
+	}
+	return strings.ToLower(search)
+}
+
 // Matches returns true if the event satisfies all non-zero filter fields.
 // Time filters (From/To) are intentionally not checked here — live SSE
 // clients should not filter by time range since they receive future events.
@@ -186,8 +240,7 @@ func (f SrvlogFilter) Matches(e SrvlogEvent) bool {
 		return false
 	}
 	if f.Search != "" {
-		sl := strings.ToLower(f.Search)
-		if !strings.Contains(strings.ToLower(e.Message), sl) {
+		if !containsFold(e.Message, searchNeedle(f.Search, f.searchLower)) {
 			return false
 		}
 	}
@@ -247,6 +300,7 @@ func ParseSrvlogFilter(r *http.Request) (SrvlogFilter, error) {
 		From:        p.rfc3339("from"),
 		To:          p.rfc3339("to"),
 	}
+	f.searchLower = strings.ToLower(f.Search)
 	if err := p.err(); err != nil {
 		return SrvlogFilter{}, err
 	}

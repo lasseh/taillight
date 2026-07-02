@@ -38,6 +38,8 @@ type NetlogFilter struct {
 	Search      string
 	From        *time.Time
 	To          *time.Time
+
+	searchLower string // precomputed strings.ToLower(Search); empty means not set
 }
 
 // Matches returns true if the event satisfies all non-zero filter fields.
@@ -69,8 +71,7 @@ func (f NetlogFilter) Matches(e NetlogEvent) bool {
 		return false
 	}
 	if f.Search != "" {
-		sl := strings.ToLower(f.Search)
-		if !strings.Contains(strings.ToLower(e.Message), sl) {
+		if !containsFold(e.Message, searchNeedle(f.Search, f.searchLower)) {
 			return false
 		}
 	}
@@ -94,6 +95,7 @@ func ParseNetlogFilter(r *http.Request) (NetlogFilter, error) {
 		From:        p.rfc3339("from"),
 		To:          p.rfc3339("to"),
 	}
+	f.searchLower = strings.ToLower(f.Search)
 	if err := p.err(); err != nil {
 		return NetlogFilter{}, err
 	}

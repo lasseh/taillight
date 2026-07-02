@@ -99,7 +99,8 @@ type AppLogFilter struct {
 	From       *time.Time
 	To         *time.Time
 
-	levelMinRank *int // precomputed AppLogLevelRank(Level); nil means not set
+	levelMinRank *int   // precomputed AppLogLevelRank(Level); nil means not set
+	searchLower  string // precomputed strings.ToLower(Search); empty means not set
 }
 
 // Matches returns true if the event satisfies all non-zero filter fields.
@@ -136,9 +137,8 @@ func (f AppLogFilter) Matches(e AppLogEvent) bool {
 		}
 	}
 	if f.Search != "" {
-		sl := strings.ToLower(f.Search)
-		if !strings.Contains(strings.ToLower(e.Msg), sl) &&
-			!strings.Contains(strings.ToLower(string(e.Attrs)), sl) {
+		needle := searchNeedle(f.Search, f.searchLower)
+		if !containsFold(e.Msg, needle) && !containsFold(e.Attrs, needle) {
 			return false
 		}
 	}
@@ -154,6 +154,7 @@ func ParseAppLogFilter(r *http.Request) (AppLogFilter, error) {
 		Host:      p.str("host"),
 		Search:    p.str("search"),
 	}
+	f.searchLower = strings.ToLower(f.Search)
 
 	if v := r.URL.Query().Get("level"); v != "" {
 		if normalized, ok := NormalizeLevel(v); !ok {

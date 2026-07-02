@@ -368,6 +368,91 @@ func Test_matchWildcard(t *testing.T) {
 	}
 }
 
+func Test_containsFold(t *testing.T) {
+	tests := []struct {
+		s      string
+		substr string // must be lowercase, as produced by strings.ToLower
+		want   bool
+	}{
+		{"BGP peer 10.0.0.2 state changed", "bgp peer", true},
+		{"BGP PEER DOWN", "bgp peer", true},
+		{"bgp peer down", "bgp peer", true},
+		{"BGP peer down", "ospf", false},
+		{"", "bgp", false},
+		{"bgp", "bgp peer longer than haystack", false},
+		{"anything", "", true},
+		{"", "", true},
+		// Unicode case folding (multi-byte runes).
+		{"Grønn ØL", "grønn øl", true},
+		{"GRØNN ØL", "øl", true},
+		{"Grønn ØL", "gronn", false},
+		// Match at start and end.
+		{"error: disk full", "error", true},
+		{"error: disk full", "full", true},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s~%s", tt.s, tt.substr), func(t *testing.T) {
+			if got := containsFold(tt.s, tt.substr); got != tt.want {
+				t.Errorf("containsFold(%q, %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
+			}
+			// []byte form must behave identically (applog Attrs path).
+			if got := containsFold([]byte(tt.s), tt.substr); got != tt.want {
+				t.Errorf("containsFold([]byte(%q), %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSrvlogFilter_Matches_SearchParsed proves case-insensitive search still
+// matches when the filter comes from ParseSrvlogFilter, i.e. via the
+// precomputed searchLower hot path used by SSE broadcast.
+func TestSrvlogFilter_Matches_SearchParsed(t *testing.T) {
+	r := &http.Request{URL: &url.URL{RawQuery: "search=BGP+PEER"}}
+	f, err := ParseSrvlogFilter(r)
+	if err != nil {
+		t.Fatalf("ParseSrvlogFilter() error = %v", err)
+	}
+	if !f.Matches(SrvlogEvent{Message: "bgp peer 10.0.0.2 state changed"}) {
+		t.Error("parsed search filter should match case-insensitively")
+	}
+	if f.Matches(SrvlogEvent{Message: "ospf adjacency down"}) {
+		t.Error("parsed search filter should not match unrelated message")
+	}
+}
+
+func TestNetlogFilter_Matches_Search(t *testing.T) {
+	r := &http.Request{URL: &url.URL{RawQuery: "search=Link+Down"}}
+	f, err := ParseNetlogFilter(r)
+	if err != nil {
+		t.Fatalf("ParseNetlogFilter() error = %v", err)
+	}
+	if !f.Matches(NetlogEvent{Message: "SNMP_TRAP_LINK_DOWN: link down on xe-0/0/0"}) {
+		t.Error("parsed search filter should match case-insensitively")
+	}
+	// Directly-constructed filter (no precomputed searchLower) still works.
+	direct := NetlogFilter{Search: "LINK DOWN"}
+	if !direct.Matches(NetlogEvent{Message: "snmp link down"}) {
+		t.Error("direct search filter should match case-insensitively")
+	}
+}
+
+// BenchmarkSrvlogFilter_Matches_Search guards the SSE broadcast hot path:
+// matching a parsed search filter must not allocate per call.
+func BenchmarkSrvlogFilter_Matches_Search(b *testing.B) {
+	r := &http.Request{URL: &url.URL{RawQuery: "search=BGP+Peer"}}
+	f, err := ParseSrvlogFilter(r)
+	if err != nil {
+		b.Fatalf("ParseSrvlogFilter() error = %v", err)
+	}
+	e := SrvlogEvent{Message: "interface xe-0/0/0 flapped repeatedly before the BGP peer 10.0.0.2 state changed"}
+	b.ReportAllocs()
+	for b.Loop() {
+		if !f.Matches(e) {
+			b.Fatal("expected match")
+		}
+	}
+}
+
 func TestSrvlogFilter_Matches_Wildcard(t *testing.T) {
 	base := SrvlogEvent{
 		Hostname: "c-lab-sw01",
