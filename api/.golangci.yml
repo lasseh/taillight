@@ -23,6 +23,7 @@ linters:
     - errname
     - errorlint
     - exhaustive
+    - gocyclo
     - godot
     - gosec
     - misspell
@@ -53,6 +54,10 @@ linters:
         - appendCombine
     exhaustive:
       default-signifies-exhaustive: true
+    gocyclo:
+      # Ratchet at 30: only flags genuinely sprawling functions (15 would
+      # flag ~32 functions — too noisy). See backend audit issue 12.
+      min-complexity: 30
     gosec:
       # Scoped to the SQL-injection detectors (defense-in-depth); the full
       # ruleset is too noisy to be a blocking gate. Note: gosec only

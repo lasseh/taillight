@@ -192,23 +192,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	// Netbox enrichment client (optional — requires netlog).
-	var nbClient *netbox.Client
-	if cfg.Netbox.Enabled && cfg.Features.Netlog {
-		var err error
-		nbClient, err = netbox.NewClient(netbox.Config{
-			URL:           cfg.Netbox.URL,
-			Token:         cfg.Netbox.Token,
-			AuthScheme:    cfg.Netbox.AuthScheme,
-			Timeout:       cfg.Netbox.Timeout,
-			CacheTTL:      cfg.Netbox.CacheTTL,
-			TLSSkipVerify: cfg.Netbox.TLSSkipVerify,
-			Logger:        logger,
-		})
-		if err != nil {
-			logger.Warn("netbox enrichment disabled: client init failed", "err", err)
-			nbClient = nil
-		}
-	}
+	nbClient := setupNetbox(cfg, logger)
 
 	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler, nbClient)
 
@@ -295,6 +279,28 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	return srvErr
+}
+
+// setupNetbox creates the netbox enrichment client when enabled alongside
+// netlog. Returns nil when disabled or when client init fails.
+func setupNetbox(cfg config.Config, logger *slog.Logger) *netbox.Client {
+	if !cfg.Netbox.Enabled || !cfg.Features.Netlog {
+		return nil
+	}
+	nbClient, err := netbox.NewClient(netbox.Config{
+		URL:           cfg.Netbox.URL,
+		Token:         cfg.Netbox.Token,
+		AuthScheme:    cfg.Netbox.AuthScheme,
+		Timeout:       cfg.Netbox.Timeout,
+		CacheTTL:      cfg.Netbox.CacheTTL,
+		TLSSkipVerify: cfg.Netbox.TLSSkipVerify,
+		Logger:        logger,
+	})
+	if err != nil {
+		logger.Warn("netbox enrichment disabled: client init failed", "err", err)
+		return nil
+	}
+	return nbClient
 }
 
 // setupLogger creates the application logger with optional log shipping.
