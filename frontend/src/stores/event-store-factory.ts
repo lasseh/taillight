@@ -178,6 +178,24 @@ export function createEventStore<TEvent extends { id: number }>(
       }
     }
 
+    /**
+     * Drop all buffered events and pagination state without refetching.
+     * Called on logout so the next session starts clean.
+     */
+    function reset() {
+      if (_abortController) {
+        _abortController.abort()
+        _abortController = null
+      }
+      events.value = []
+      cursor.value = null
+      hasMore.value = false
+      atCap.value = false
+      _knownIds.clear()
+      _initialLoadComplete.value = false
+      error.value = null
+    }
+
     /** Called when the list view activates for the first time. */
     async function enter() {
       events.value = []
@@ -259,6 +277,7 @@ export function createEventStore<TEvent extends { id: number }>(
       enter,
       loadHistory,
       reattach,
+      reset,
     }
   })
 }

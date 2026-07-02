@@ -113,7 +113,6 @@ const router = createRouter({
       path: '/notifications',
       name: 'notifications',
       component: () => import('@/views/NotificationsView.vue'),
-      meta: { public: true },
     },
     // Analysis routes (feature-gated)
     ...(features.analysis
@@ -152,6 +151,7 @@ const router = createRouter({
       path: '/admin/users',
       name: 'admin-users',
       component: () => import('@/views/UsersView.vue'),
+      meta: { admin: true },
     },
     {
       path: '/login',
@@ -181,6 +181,12 @@ router.beforeEach(async (to) => {
   }
 
   if (auth.user && to.name === 'login') {
+    return { name: 'home' }
+  }
+
+  // Admin-only routes: the backend is the authority (403s non-admins); this
+  // guard is frontend defense-in-depth so non-admins never mount admin views.
+  if (to.meta.admin && !auth.user?.is_admin) {
     return { name: 'home' }
   }
 })

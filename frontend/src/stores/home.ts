@@ -487,6 +487,18 @@ export const useHomeStore = defineStore('home', () => {
     unsubscribeStreams()
   }
 
+  /** Drop buffered event rows so the next session starts clean. Called on logout. */
+  function reset() {
+    // Invalidate any in-flight fetchRecentEvents so it can't repopulate.
+    fetchVersion++
+    recentSrvlogEvents.value = []
+    recentNetlogEvents.value = []
+    recentApplogEvents.value = []
+    srvlogSeenIds.clear()
+    netlogSeenIds.clear()
+    applogSeenIds.clear()
+  }
+
   return {
     srvlogSummary,
     netlogSummary,
@@ -514,5 +526,6 @@ export const useHomeStore = defineStore('home', () => {
     startRefresh,
     stopRefresh,
     setRange,
+    reset,
   }
 })

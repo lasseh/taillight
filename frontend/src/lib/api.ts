@@ -41,8 +41,39 @@ export class ApiError extends Error {
   }
 }
 
+// Paths where a 401 is an expected, locally-handled response: the login form
+// shows its own error and auth.init()'s /auth/me probe treats 401 as "not
+// logged in". Excluding them keeps the global 401 interceptor from
+// redirect-looping during bootstrap.
+const AUTH_BOOTSTRAP_PATHS = ['/api/v1/auth/login', '/api/v1/auth/me']
+
+/**
+ * Global 401 interceptor: a mid-session 401 means the session cookie expired
+ * or was revoked, so invalidate auth state and send the user to /login
+ * instead of leaving stale authenticated chrome rendered. Imports are dynamic
+ * to avoid a static api → auth-store → router cycle (and to keep this module
+ * importable in node test environments where the router cannot be created).
+ */
+async function handleUnauthorized(res: Response) {
+  const pathname = new URL(res.url).pathname
+  if (AUTH_BOOTSTRAP_PATHS.some((p) => pathname.endsWith(p))) return
+  const [{ useAuthStore }, { default: router }] = await Promise.all([
+    import('@/stores/auth'),
+    import('@/router'),
+  ])
+  const auth = useAuthStore()
+  // Already logged out (e.g. a second concurrent 401) — the route guard
+  // handles the redirect; doing nothing here avoids redirect loops.
+  if (!auth.user) return
+  auth.user = null
+  router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
+    if (res.status === 401) {
+      handleUnauthorized(res).catch((e) => console.error('401 interceptor failed', e))
+    }
     const body: ApiErrorBody | null = await res.json().catch(() => null)
     const code = body?.error?.code ?? 'unknown'
     const message = body?.error?.message ?? res.statusText

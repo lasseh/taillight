@@ -9,6 +9,10 @@ import { useAppLogFilterStore } from '@/stores/applog-filters'
 import { useAppLogMetaStore } from '@/stores/applog-meta'
 import { useNetlogMetaStore } from '@/stores/netlog-meta'
 import { useScrollStore } from '@/stores/scroll'
+import { useSrvlogEventStore } from '@/stores/srvlog-events'
+import { useNetlogEventStore } from '@/stores/netlog-events'
+import { useAppLogEventStore } from '@/stores/applog-events'
+import { useHomeStore } from '@/stores/home'
 import { useSrvlogStream } from '@/composables/useSrvlogStream'
 import { useNetlogStream } from '@/composables/useNetlogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
@@ -36,6 +40,10 @@ const appLogMeta = useAppLogMetaStore()
 const netlogMeta = useNetlogMetaStore()
 const scrollStore = useScrollStore()
 const features = getFeatures()
+const srvlogEvents = useSrvlogEventStore()
+const netlogEvents = features.netlog ? useNetlogEventStore() : null
+const applogEvents = useAppLogEventStore()
+const home = useHomeStore()
 
 // Wait for initial navigation to complete before rendering the layout.
 // This prevents a race where auth resolves (triggering layout render)
@@ -123,6 +131,20 @@ function stopStreams() {
   applogStream.stop()
 }
 
+// Forget per-session data when the user logs out (or the session expires):
+// stream backfill cursors and buffered event rows must not leak into the
+// next login, which would otherwise backfill from a stale cursor and show
+// prior-session rows.
+function resetSessionState() {
+  srvlogStream.reset()
+  netlogStream.reset()
+  applogStream.reset()
+  srvlogEvents.reset()
+  netlogEvents?.reset()
+  applogEvents.reset()
+  home.reset()
+}
+
 // Start/stop streams based on auth state, but wait for router to be ready
 // so that initFromURL() can read query params from the resolved route.
 router.isReady().then(() => {
@@ -133,6 +155,7 @@ router.isReady().then(() => {
         startStreams()
       } else {
         stopStreams()
+        resetSessionState()
       }
     },
     { immediate: true },

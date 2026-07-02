@@ -155,10 +155,16 @@ export function createEventStream<T>(path: string, eventName: string) {
     document.removeEventListener('visibilitychange', onVisibilityChange)
   }
 
+  // Forget the backfill cursor so the next start() connects fresh instead of
+  // backfilling from a prior session's position. Called on logout.
+  function reset() {
+    lastEventId = ''
+  }
+
   function subscribe(cb: (event: T) => void) {
     listeners.add(cb)
     return () => listeners.delete(cb)
   }
 
-  return { connected, reconnectAfterGap, start, stop, subscribe }
+  return { connected, reconnectAfterGap, start, stop, reset, subscribe }
 }

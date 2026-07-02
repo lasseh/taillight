@@ -100,4 +100,28 @@ describe('createEventStore', () => {
     expect(store.events.map((e) => e.id)).toEqual([1, 2, 3, 4])
     expect(store.hasMore).toBe(false)
   })
+
+  it('reset() drops buffered events and pagination state without refetching', async () => {
+    const events = [
+      { id: 2, message: 'newer' },
+      { id: 1, message: 'older' },
+    ]
+    const fetchEvents = vi.fn(() =>
+      Promise.resolve({ data: events, cursor: 'c1', has_more: true }),
+    )
+    const useStore = makeStore(fetchEvents)
+    const store = useStore()
+
+    await store.enter()
+    expect(store.events).toHaveLength(2)
+    expect(store.hasMore).toBe(true)
+
+    store.reset()
+
+    expect(store.events).toEqual([])
+    expect(store.hasMore).toBe(false)
+    expect(store.error).toBeNull()
+    // No refetch on reset — only the enter() call hit the API.
+    expect(fetchEvents).toHaveBeenCalledOnce()
+  })
 })
