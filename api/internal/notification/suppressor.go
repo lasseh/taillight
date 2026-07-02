@@ -2,6 +2,7 @@ package notification
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,17 @@ import (
 // memory exhaustion from attacker-controlled unique keys (e.g. a too-specific
 // group_by on a request ID).
 const maxFingerprintsPerRule = 10000
+
+// maxFingerprintsGlobal caps distinct fingerprints across all rules combined.
+// The per-rule cap alone multiplies by the number of enabled rules, so total
+// suppressor memory would otherwise be unbounded as rules are added.
+const maxFingerprintsGlobal = 5 * maxFingerprintsPerRule
+
+// maxRetainedMsgBytes caps the applog Msg copy retained per fingerprint
+// between flushes. Ingest allows 64KB messages, but digest formatters render
+// at most a few hundred characters, so retaining the full message for every
+// live fingerprint would dominate suppressor memory.
+const maxRetainedMsgBytes = 4096
 
 // Suppressor manages the first-match-immediate + silence-window-digest lifecycle
 // for notification fingerprints keyed by "ruleID:groupKey".
@@ -38,8 +50,10 @@ type fingerprint struct {
 	phase phase
 
 	// first/last carry the earliest/latest event payloads for this run.
-	// `first` is cleared after the initial alert fires; from then on the
-	// digest path uses `last` as the representative event.
+	// `first` holds the full payload only while a coalesce window is open
+	// and is cleared after the initial alert fires; from then on the digest
+	// path uses `last` — a trimmed copy (see trimForDigest) — as the
+	// representative event.
 	first Payload
 	last  Payload
 
@@ -94,21 +108,21 @@ func (s *Suppressor) Record(ruleID int64, groupKey string, silence, silenceMax, 
 	if ok {
 		// Already tracking this fingerprint — just accumulate.
 		fp.count++
-		fp.last = payload
+		fp.last = trimForDigest(payload)
 		s.mu.Unlock()
 		return
 	}
 
-	// New fingerprint. Enforce per-rule cap first.
-	if s.ruleFingerprintCount[ruleID] >= maxFingerprintsPerRule {
+	// New fingerprint. Enforce the per-rule cap and the global ceiling.
+	if s.ruleFingerprintCount[ruleID] >= maxFingerprintsPerRule ||
+		len(s.fingerprints) >= maxFingerprintsGlobal {
 		metrics.NotifFingerprintsDroppedTotal.Inc()
 		s.mu.Unlock()
 		return
 	}
 
 	fp = &fingerprint{
-		first:          payload,
-		last:           payload,
+		last:           trimForDigest(payload),
 		count:          1,
 		baseSilence:    silence,
 		currentSilence: silence,
@@ -117,6 +131,9 @@ func (s *Suppressor) Record(ruleID int64, groupKey string, silence, silenceMax, 
 	}
 
 	if coalesce > 0 {
+		// Keep the full payload for the initial alert; flushInitial
+		// clears it once that alert fires.
+		fp.first = payload
 		fp.phase = phaseCoalesce
 		fp.timer = time.AfterFunc(coalesce, func() {
 			s.flushInitial(ruleID, groupKey, key)
@@ -171,6 +188,7 @@ func (s *Suppressor) flushInitial(ruleID int64, groupKey, key string) {
 	alert.GroupKey = groupKey
 	alert.IsDigest = false
 
+	fp.first = Payload{} // release the full payload; digests use fp.last
 	fp.phase = phaseSilence
 	fp.count = 0
 	fp.timer = time.AfterFunc(fp.currentSilence, func() {
@@ -255,4 +273,23 @@ func (s *Suppressor) Stop() {
 
 func fingerprintKey(ruleID int64, groupKey string) string {
 	return fmt.Sprintf("%d:%s", ruleID, groupKey)
+}
+
+// trimForDigest returns a copy of payload reduced to what the digest path
+// renders. Applog events can carry up to 64KB each of Msg and Attrs; no
+// notification backend renders Attrs, and formatters display only a slice of
+// Msg, so the retained copy strips Attrs and caps Msg at maxRetainedMsgBytes.
+// The event is copied — the caller's payload is never mutated.
+func trimForDigest(payload Payload) Payload {
+	ev := payload.AppLogEvent
+	if ev == nil || (len(ev.Attrs) == 0 && len(ev.Msg) <= maxRetainedMsgBytes) {
+		return payload
+	}
+	trimmed := ev.WithAttrsPreview(0)
+	if len(trimmed.Msg) > maxRetainedMsgBytes {
+		// strings.Clone drops the reference to the original backing array.
+		trimmed.Msg = strings.Clone(trimmed.Msg[:maxRetainedMsgBytes])
+	}
+	payload.AppLogEvent = &trimmed
+	return payload
 }

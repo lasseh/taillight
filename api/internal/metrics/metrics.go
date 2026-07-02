@@ -278,11 +278,12 @@ var (
 	})
 
 	// NotifFingerprintsDroppedTotal counts events dropped because the per-rule
-	// fingerprint cap was reached (too-wide group_by letting unique keys pile up).
+	// fingerprint cap or the global fingerprint ceiling was reached (too-wide
+	// group_by letting unique keys pile up).
 	NotifFingerprintsDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "taillight",
 		Name:      "notification_fingerprints_dropped_total",
-		Help:      "Events dropped because the per-rule fingerprint cap was reached.",
+		Help:      "Events dropped because the per-rule fingerprint cap or global ceiling was reached.",
 	})
 
 	// NotifSendAttemptsTotal counts individual send attempts by outcome,

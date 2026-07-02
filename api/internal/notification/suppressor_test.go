@@ -1,9 +1,12 @@
 package notification
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lasseh/taillight/internal/model"
 )
 
 type flushRecord struct {
@@ -263,6 +266,117 @@ func TestSuppressor_FingerprintCapEnforced(t *testing.T) {
 	s.mu.Unlock()
 	if got != maxFingerprintsPerRule {
 		t.Errorf("fingerprint count = %d, want %d", got, maxFingerprintsPerRule)
+	}
+}
+
+// TestSuppressor_GlobalFingerprintCeiling verifies the global ceiling bounds
+// total fingerprints across all rules, even when no single rule has hit its
+// per-rule cap.
+func TestSuppressor_GlobalFingerprintCeiling(t *testing.T) {
+	s, _, _ := collectFlushes(t)
+	defer s.Stop()
+
+	const coalesce = 10 * time.Second // never fires during the test
+
+	// Fill the global ceiling exactly, spread across rules at their
+	// per-rule caps.
+	rules := maxFingerprintsGlobal / maxFingerprintsPerRule
+	for r := range rules {
+		for i := range maxFingerprintsPerRule {
+			s.Record(int64(r), itoa(i), time.Second, time.Second, coalesce, Payload{})
+		}
+	}
+
+	// A fresh rule is nowhere near its per-rule cap, but the global
+	// ceiling must still reject its first fingerprint.
+	s.Record(int64(rules), "overflow", time.Second, time.Second, coalesce, Payload{})
+
+	s.mu.Lock()
+	total := len(s.fingerprints)
+	fresh := s.ruleFingerprintCount[int64(rules)]
+	s.mu.Unlock()
+	if total != maxFingerprintsGlobal {
+		t.Errorf("total fingerprints = %d, want %d", total, maxFingerprintsGlobal)
+	}
+	if fresh != 0 {
+		t.Errorf("fresh rule fingerprint count = %d, want 0", fresh)
+	}
+}
+
+// TestSuppressor_DigestPayloadTrimmed verifies the retained representative
+// event is trimmed (no Attrs, capped Msg) while the initial alert and the
+// caller's payload keep the full event.
+func TestSuppressor_DigestPayloadTrimmed(t *testing.T) {
+	s, mu, records := collectFlushes(t)
+	defer s.Stop()
+
+	silence := 80 * time.Millisecond
+	bigMsg := strings.Repeat("x", maxRetainedMsgBytes+100)
+	payload := Payload{AppLogEvent: &model.AppLogEvent{
+		Host:  "host1",
+		Msg:   bigMsg,
+		Attrs: []byte(`{"k":"v"}`),
+	}}
+
+	// First event fires immediately with the full payload; the second
+	// accumulates and becomes the digest's representative event.
+	s.Record(1, "host1", silence, time.Second, 0, payload)
+	s.Record(1, "host1", silence, time.Second, 0, payload)
+
+	time.Sleep(silence + 50*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(*records) != 2 {
+		t.Fatalf("expected 2 flushes (alert + digest), got %d", len(*records))
+	}
+	alert := (*records)[0].payload
+	if alert.AppLogEvent.Msg != bigMsg || len(alert.AppLogEvent.Attrs) == 0 {
+		t.Error("initial alert should carry the full untrimmed event")
+	}
+	digest := (*records)[1].payload
+	if len(digest.AppLogEvent.Attrs) != 0 || !digest.AppLogEvent.AttrsTruncated {
+		t.Error("digest event should have attrs stripped and marked truncated")
+	}
+	if len(digest.AppLogEvent.Msg) != maxRetainedMsgBytes {
+		t.Errorf("digest msg length = %d, want %d", len(digest.AppLogEvent.Msg), maxRetainedMsgBytes)
+	}
+	if payload.AppLogEvent.Msg != bigMsg || len(payload.AppLogEvent.Attrs) == 0 {
+		t.Error("trim must copy the event, not mutate the caller's payload")
+	}
+}
+
+// TestSuppressor_FirstPayloadClearedAfterInitialAlert verifies the full first
+// payload is released once the coalesced initial alert fires, so only the
+// trimmed representative event stays retained during silence.
+func TestSuppressor_FirstPayloadClearedAfterInitialAlert(t *testing.T) {
+	s, mu, records := collectFlushes(t)
+	defer s.Stop()
+
+	coalesce := 40 * time.Millisecond
+	payload := Payload{AppLogEvent: &model.AppLogEvent{Host: "host1", Msg: "boom"}}
+
+	s.Record(1, "host1", 500*time.Millisecond, time.Second, coalesce, payload)
+	time.Sleep(coalesce + 30*time.Millisecond)
+
+	mu.Lock()
+	if len(*records) != 1 || (*records)[0].payload.AppLogEvent == nil {
+		mu.Unlock()
+		t.Fatalf("expected 1 initial alert carrying the event, got %d flushes", len(*records))
+	}
+	mu.Unlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fp, ok := s.fingerprints[fingerprintKey(1, "host1")]
+	if !ok {
+		t.Fatal("fingerprint should still be tracked during silence")
+	}
+	if fp.first.AppLogEvent != nil {
+		t.Error("first payload should be cleared after the initial alert fires")
+	}
+	if fp.last.AppLogEvent == nil {
+		t.Error("last payload should still hold the representative event")
 	}
 }
 
