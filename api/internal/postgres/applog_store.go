@@ -201,6 +201,163 @@ func (s *Store) listAppLogDistinctStrings(ctx context.Context, column string) ([
 	return values, nil
 }
 
+// GetAppLogVolume returns time-bucketed event counts grouped by service.
+func (s *Store) GetAppLogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
+	return s.getVolume(ctx, "applog_events", "service", interval, rangeDur)
+}
+
+// GetAppLogSeverityVolume returns time-bucketed event counts grouped by applog level.
+func (s *Store) GetAppLogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error) {
+	if !interval.IsValid() {
+		return nil, fmt.Errorf("invalid volume interval: %s", interval)
+	}
+	since := time.Now().UTC().Add(-rangeDur)
+
+	query := `SELECT time_bucket($1::interval, received_at) AS bucket,
+	                 level, count(*) AS cnt
+	          FROM applog_events
+	          WHERE received_at >= $2
+	          GROUP BY bucket, level
+	          ORDER BY bucket ASC`
+
+	rows, err := s.pool.Query(ctx, query, interval.String(), since)
+	if err != nil {
+		return nil, fmt.Errorf("applog severity volume query: %w", err)
+	}
+	defer rows.Close()
+
+	type key = time.Time
+	idx := make(map[key]int)
+	var buckets []model.SeverityVolumeBucket
+
+	for rows.Next() {
+		var (
+			bucket time.Time
+			level  string
+			cnt    int64
+		)
+		if err := rows.Scan(&bucket, &level, &cnt); err != nil {
+			return nil, fmt.Errorf("scan applog severity volume row: %w", err)
+		}
+
+		i, ok := idx[bucket]
+		if !ok {
+			i = len(buckets)
+			idx[bucket] = i
+			buckets = append(buckets, model.SeverityVolumeBucket{
+				Time:       bucket,
+				BySeverity: make(map[string]int64),
+			})
+		}
+		buckets[i].Total += cnt
+		buckets[i].BySeverity[strings.ToUpper(level)] = cnt
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("applog severity volume rows: %w", err)
+	}
+
+	return buckets, nil
+}
+
+// GetAppLogSummary returns summary statistics for the given range.
+// Uses applog_summary_hourly continuous aggregate.
+func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (model.AppLogSummary, error) {
+	since := time.Now().UTC().Add(-rangeDur)
+	prevStart := since.Add(-rangeDur)
+
+	// Get current totals by level from the continuous aggregate.
+	query := `SELECT level, SUM(cnt) AS cnt
+	          FROM applog_summary_hourly
+	          WHERE bucket >= $1
+	          GROUP BY level
+	          ORDER BY level`
+
+	rows, err := s.pool.Query(ctx, query, since)
+	if err != nil {
+		return model.AppLogSummary{}, fmt.Errorf("applog summary query: %w", err)
+	}
+	defer rows.Close()
+
+	var summary model.AppLogSummary
+	summary.LevelBreakdown = make([]model.LevelCount, 0)
+	summary.TopServices = make([]model.TopSource, 0)
+
+	for rows.Next() {
+		var level string
+		var cnt int64
+		if err := rows.Scan(&level, &cnt); err != nil {
+			return model.AppLogSummary{}, fmt.Errorf("scan level: %w", err)
+		}
+		summary.Total += cnt
+		levelUpper := strings.ToUpper(level)
+		if levelUpper == "ERROR" || levelUpper == "FATAL" || levelUpper == "PANIC" {
+			summary.Errors += cnt
+		}
+		if levelUpper == "WARN" || levelUpper == "WARNING" {
+			summary.Warnings += cnt
+		}
+		summary.LevelBreakdown = append(summary.LevelBreakdown, model.LevelCount{
+			Level: level,
+			Count: cnt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return model.AppLogSummary{}, fmt.Errorf("level rows: %w", err)
+	}
+
+	// Get previous period total for trend calculation.
+	var prevTotal int64
+	err = s.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(cnt), 0) FROM applog_summary_hourly WHERE bucket >= $1 AND bucket < $2`,
+		prevStart, since).Scan(&prevTotal)
+	if err != nil {
+		return model.AppLogSummary{}, fmt.Errorf("prev total query: %w", err)
+	}
+
+	if prevTotal > 0 {
+		summary.Trend = float64(summary.Total-prevTotal) / float64(prevTotal) * 100
+	}
+
+	// Get top services from the continuous aggregate.
+	svcQuery := `SELECT service, SUM(cnt) AS cnt
+	             FROM applog_summary_hourly
+	             WHERE bucket >= $1
+	             GROUP BY service
+	             ORDER BY cnt DESC
+	             LIMIT $2`
+
+	svcRows, err := s.pool.Query(ctx, svcQuery, since, topSourcesLimit)
+	if err != nil {
+		return model.AppLogSummary{}, fmt.Errorf("top services query: %w", err)
+	}
+
+	services, err := pgx.CollectRows(svcRows, func(row pgx.CollectableRow) (model.TopSource, error) {
+		var ts model.TopSource
+		err := row.Scan(&ts.Name, &ts.Count)
+		return ts, err
+	})
+	if err != nil {
+		return model.AppLogSummary{}, fmt.Errorf("scan service: %w", err)
+	}
+	summary.TopServices = append(summary.TopServices, services...)
+
+	// Calculate percentages for top services.
+	for i := range summary.TopServices {
+		if summary.Total > 0 {
+			summary.TopServices[i].Pct = float64(summary.TopServices[i].Count) / float64(summary.Total) * 100
+		}
+	}
+
+	// Calculate percentages for level breakdown.
+	for i := range summary.LevelBreakdown {
+		if summary.Total > 0 {
+			summary.LevelBreakdown[i].Pct = float64(summary.LevelBreakdown[i].Count) / float64(summary.Total) * 100
+		}
+	}
+
+	return summary, nil
+}
+
 func applyAppLogFilter(qb sq.SelectBuilder, f model.AppLogFilter) sq.SelectBuilder {
 	if f.Service != "" {
 		qb = qb.Where(sq.Eq{"service": f.Service})
