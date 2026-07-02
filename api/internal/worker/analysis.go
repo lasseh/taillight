@@ -6,12 +6,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/lasseh/taillight/internal/analyzer"
 	"github.com/lasseh/taillight/internal/model"
+	"github.com/lasseh/taillight/internal/ollama"
 )
 
 // QueueDepth caps the number of pending analysis reports waiting to start.
@@ -173,11 +175,7 @@ func (a *Analysis) process(parent context.Context, id int64) {
 		Mode:   report.PromptMode,
 	})
 	if runErr != nil {
-		msg := truncateErr(runErr, 200)
-		if errors.Is(runErr, context.DeadlineExceeded) {
-			msg = "analysis timeout"
-		}
-		if markErr := a.store.MarkReportFailed(parent, id, msg); markErr != nil {
+		if markErr := a.store.MarkReportFailed(parent, id, sanitizeRunErr(runErr)); markErr != nil {
 			a.logger.Error("worker failed to mark failed", "report_id", id, "err", markErr)
 		}
 		a.logger.Warn("analysis run failed", "report_id", id, "feed", report.Feed, "err", runErr)
@@ -224,6 +222,26 @@ func (a *Analysis) fireCompletion(parent context.Context, id int64, report model
 	report.CompletedAt = &now
 
 	a.onCompleted(parent, report)
+}
+
+// sanitizeRunErr maps a run error to the message persisted on the report row.
+// The row's error field is served to read-scope clients, but errors from the
+// Ollama HTTP layer embed the internal backend URL (*url.Error) or up to 1KB
+// of upstream response body (*ollama.StatusError) — those collapse to coarse
+// generic messages. The full error is still logged at Warn by the caller.
+func sanitizeRunErr(err error) string {
+	var statusErr *ollama.StatusError
+	var urlErr *url.Error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "analysis timeout"
+	case errors.As(err, &statusErr):
+		return "analysis backend error"
+	case errors.As(err, &urlErr):
+		return "analysis backend unavailable"
+	default:
+		return truncateErr(err, 200)
+	}
 }
 
 func truncateErr(err error, n int) string {

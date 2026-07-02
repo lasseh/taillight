@@ -39,6 +39,18 @@ type ChatResponse struct {
 	EvalCount       int         `json:"eval_count"`
 }
 
+// StatusError is returned by Chat when Ollama responds with a non-200 status.
+// Body carries up to 1KB of the upstream response for server-side diagnostics;
+// callers that surface errors to clients must not include it.
+type StatusError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("ollama returned status %d: %s", e.StatusCode, e.Body)
+}
+
 // Client is a minimal HTTP client for the Ollama API.
 type Client struct {
 	baseURL    string
@@ -88,7 +100,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return ChatResponse{}, fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, string(respBody))
+		return ChatResponse{}, &StatusError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	var chatResp ChatResponse
