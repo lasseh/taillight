@@ -1,9 +1,11 @@
 package backend
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -343,6 +345,49 @@ func TestBuildMIMEMessage(t *testing.T) {
 		if !strings.Contains(s, check) {
 			t.Errorf("expected MIME message to contain %q", check)
 		}
+	}
+}
+
+func TestSendSMTPStalledServer(t *testing.T) {
+	// A server that completes the TCP handshake but never sends the SMTP
+	// greeting. Without a conn deadline, sendSMTP would block here forever.
+	lc := net.ListenConfig{}
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() {
+		ln.Close() //nolint:errcheck // Test listener cleanup.
+	})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close() //nolint:errcheck // Test connection cleanup.
+		// Stall: drain without responding until the client hangs up.
+		io.Copy(io.Discard, conn) //nolint:errcheck // Drain result is irrelevant.
+	}()
+
+	addr := ln.Addr().(*net.TCPAddr)
+	e := NewEmail(EmailGlobalConfig{
+		Host: "127.0.0.1",
+		Port: addr.Port,
+		From: "from@example.com",
+	}, nil, discardLogger())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err = e.sendSMTP(ctx, []string{"to@example.com"}, []byte("test message"))
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from stalled SMTP server")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("sendSMTP took %v; expected it to fail within the context deadline", elapsed)
 	}
 }
 

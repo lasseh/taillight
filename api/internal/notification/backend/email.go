@@ -162,6 +162,16 @@ func (e *Email) sendSMTP(ctx context.Context, to []string, msg []byte) error {
 		return fmt.Errorf("dial SMTP server: %w", err)
 	}
 
+	// Bound the whole SMTP conversation on the caller's deadline. net/smtp has
+	// no context support past the dial, so without this a peer that stalls
+	// mid-protocol would block the send goroutine forever.
+	if dl, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(dl); err != nil {
+			conn.Close() //nolint:errcheck // Best-effort cleanup on setup failure.
+			return fmt.Errorf("set SMTP conn deadline: %w", err)
+		}
+	}
+
 	c, err := smtp.NewClient(conn, e.cfg.Host)
 	if err != nil {
 		conn.Close() //nolint:errcheck // Best-effort cleanup on client creation failure.
