@@ -1,15 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  VisXYContainer,
-  VisStackedBar,
-  VisLine,
-  VisAxis,
-  VisCrosshair,
-  VisTooltip,
-} from '@unovis/vue'
+import { VisXYContainer, VisLine, VisAxis, VisCrosshair, VisTooltip } from '@unovis/vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import VolumeChartPanel from '@/components/VolumeChartPanel.vue'
 import { useSrvlogVolumeStore } from '@/stores/srvlog-volume'
 import { useNetlogVolumeStore } from '@/stores/netlog-volume'
 import { useAppLogVolumeStore } from '@/stores/applog-volume'
@@ -17,7 +11,6 @@ import { useRsyslogStatsStore } from '@/stores/rsyslog-stats'
 import { useTaillightMetricsStore } from '@/stores/taillight-metrics'
 import { useTheme } from '@/composables/useTheme'
 import { features as getFeatures } from '@/lib/features'
-import type { VolumeDataRecord } from '@/types/stats'
 import type { SimplePoint } from '@/types/chart'
 
 const route = useRoute()
@@ -29,15 +22,6 @@ const rsyslogStats = useRsyslogStatsStore()
 const taillightMetrics = useTaillightMetricsStore()
 const { current: theme } = useTheme()
 const features = getFeatures()
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 
 type Tab = 'netlog' | 'srvlog' | 'applog' | 'rsyslog' | 'taillight'
 const TABS: readonly Tab[] = ['netlog', 'srvlog', 'applog', 'rsyslog', 'taillight']
@@ -184,13 +168,6 @@ function selectPreset(range: string, interval: string) {
   router.replace({ query: { ...route.query, range } })
 }
 
-// X accessor
-const xTotal = (d: VolumeDataRecord) => d.x
-
-// --- Hover state for individual charts ---
-const hoveredHost = ref<Record<string, VolumeDataRecord | null>>({})
-const hoveredService = ref<Record<string, VolumeDataRecord | null>>({})
-
 function formatHoverTime(ts: number): string {
   const d = new Date(ts)
   const r = activeRange.value
@@ -209,90 +186,6 @@ function formatHoverTime(ts: number): string {
     second: '2-digit',
     hour12: false,
   })
-}
-
-// --- Generic chart helpers ---
-function makeYAccessors(keys: string[]) {
-  return keys.map((k) => (d: VolumeDataRecord) => (d[k] as number) ?? 0)
-}
-
-function makeColorAccessor(_d: VolumeDataRecord, i: number) {
-  return accentColors.value[i % accentColors.value.length]
-}
-
-function makeTemplate(keys: string[]) {
-  return (d: VolumeDataRecord) => {
-    const date = new Date(d.x)
-    const lines = keys
-      .map((k, i) => {
-        const v = (d[k] as number) ?? 0
-        if (v === 0) return ''
-        const color = accentColors.value[i % accentColors.value.length]
-        return `<div><span style="color:${color}">●</span> ${escapeHtml(k)}: <b>${v}</b></div>`
-      })
-      .filter(Boolean)
-      .join('')
-    return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
-      <div style="color:var(--color-t-fg-dark)">${date.toLocaleString()}</div>
-      ${lines}
-    </div>`
-  }
-}
-
-function makeSingleYAccessor(key: string) {
-  return [(d: VolumeDataRecord) => (d[key] as number) ?? 0]
-}
-
-function makeSingleTracker(hovered: typeof hoveredHost, key: string) {
-  return (d: VolumeDataRecord) => {
-    hovered.value[key] = d
-    return ''
-  }
-}
-
-// Srvlog-specific wrappers using generic helpers.
-function hostYAccessors() {
-  return makeYAccessors(srvlogVolume.hosts)
-}
-const hostColorAccessor = makeColorAccessor
-function hostTemplate(d: VolumeDataRecord) {
-  return makeTemplate(srvlogVolume.hosts)(d)
-}
-function singleHostYAccessor(host: string) {
-  return makeSingleYAccessor(host)
-}
-function singleHostTracker(host: string) {
-  return makeSingleTracker(hoveredHost, host)
-}
-
-// Netlog-specific wrappers using generic helpers.
-function netlogHostYAccessors() {
-  return makeYAccessors(netlogVolume.hosts)
-}
-const netlogHostColorAccessor = makeColorAccessor
-function netlogHostTemplate(d: VolumeDataRecord) {
-  return makeTemplate(netlogVolume.hosts)(d)
-}
-function singleNetlogHostYAccessor(host: string) {
-  return makeSingleYAccessor(host)
-}
-function singleNetlogHostTracker(host: string) {
-  return makeSingleTracker(hoveredHost, host)
-}
-
-// Applog-specific wrappers using generic helpers.
-function serviceYAccessors() {
-  return makeYAccessors(applogVolume.services)
-}
-const serviceColorAccessor = makeColorAccessor
-function serviceTemplate(d: VolumeDataRecord) {
-  return makeTemplate(applogVolume.services)(d)
-}
-function singleServiceYAccessor(service: string) {
-  return makeSingleYAccessor(service)
-}
-function singleServiceTracker(service: string) {
-  return makeSingleTracker(hoveredService, service)
 }
 
 // --- Rsyslog merged line chart data ---
@@ -593,322 +486,41 @@ onUnmounted(() => {
 
     <!-- ═══════════════ NETLOG TAB ═══════════════ -->
     <template v-if="activeTab === 'netlog'">
-      <!-- Chart 1: Total volume (stacked bar by host) -->
-      <div>
-        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">
-          Total Volume
-        </h3>
-        <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer
-            :data="netlogVolume.chartData"
-            :height="220"
-            :duration="0"
-            :padding="{ top: 8, right: 8 }"
-          >
-            <VisStackedBar
-              :x="xTotal"
-              :y="netlogHostYAccessors()"
-              :color="netlogHostColorAccessor"
-              :barPadding="0.6"
-              :roundedCorners="2"
-              :dataStep="dataStep"
-            />
-            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
-            <VisAxis type="y" :gridLine="true" :tickLine="false" />
-            <VisCrosshair :template="netlogHostTemplate" />
-            <VisTooltip />
-          </VisXYContainer>
-        </div>
-
-        <!-- Legend -->
-        <div class="mt-2 flex flex-wrap gap-3">
-          <span
-            v-for="(host, i) in netlogVolume.hosts"
-            :key="host"
-            class="flex items-center gap-1 text-xs"
-          >
-            <span
-              class="inline-block h-2.5 w-2.5 rounded-sm"
-              :style="{ backgroundColor: accentColors[i % accentColors.length] }"
-            />
-            <span :style="{ color: accentColors[i % accentColors.length] }">{{ host }}</span>
-          </span>
-        </div>
-      </div>
-
-      <!-- Chart 2: Individual bar chart per host -->
-      <div v-if="netlogVolume.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <div v-for="(host, idx) in netlogVolume.hosts" :key="host">
-          <h3
-            class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide"
-          >
-            <span
-              class="inline-block h-2 w-2 rounded-sm"
-              :style="{ backgroundColor: accentColors[idx % accentColors.length] }"
-            />
-            {{ host }}
-            <span
-              v-if="hoveredHost[host]"
-              class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
-            >
-              <span class="text-t-fg-dark">{{ formatHoverTime(hoveredHost[host]!.x) }} - </span>
-              <span class="font-bold" :style="{ color: accentColors[idx % accentColors.length] }">{{
-                hoveredHost[host]![host] ?? 0
-              }}</span>
-            </span>
-          </h3>
-          <div
-            class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
-            @mouseleave="hoveredHost[host] = null"
-          >
-            <VisXYContainer
-              :data="netlogVolume.chartData"
-              :height="120"
-              :duration="0"
-              :padding="{ top: 4, right: 4 }"
-            >
-              <VisStackedBar
-                :x="xTotal"
-                :y="singleNetlogHostYAccessor(host)"
-                :color="() => accentColors[idx % accentColors.length]"
-                :barPadding="0.6"
-                :roundedCorners="2"
-                :dataStep="dataStep"
-              />
-              <VisAxis
-                type="x"
-                :tickFormat="xTickFormat"
-                :numTicks="3"
-                :gridLine="false"
-                :tickLine="false"
-              />
-              <VisAxis type="y" :gridLine="true" :tickLine="false" />
-              <VisCrosshair :template="singleNetlogHostTracker(host)" />
-              <VisTooltip />
-            </VisXYContainer>
-          </div>
-        </div>
-      </div>
-      <div
-        v-else-if="!netlogVolume.loading && !netlogVolume.error"
-        class="bg-t-bg-dark border-t-border text-t-fg-dark flex items-center justify-center rounded border py-16 text-sm"
-      >
-        No data for the selected time range. Try a longer period.
-      </div>
+      <VolumeChartPanel
+        :chart-data="netlogVolume.chartData"
+        :keys="netlogVolume.hosts"
+        :data-step="dataStep"
+        :x-tick-format="xTickFormat"
+        :format-hover-time="formatHoverTime"
+        :loading="netlogVolume.loading"
+        :error="netlogVolume.error"
+      />
     </template>
 
     <!-- ═══════════════ SRVLOG TAB ═══════════════ -->
     <template v-if="activeTab === 'srvlog'">
-      <!-- Chart 1: Total volume (stacked bar by host) -->
-      <div>
-        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">
-          Total Volume
-        </h3>
-        <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer
-            :data="srvlogVolume.chartData"
-            :height="220"
-            :duration="0"
-            :padding="{ top: 8, right: 8 }"
-          >
-            <VisStackedBar
-              :x="xTotal"
-              :y="hostYAccessors()"
-              :color="hostColorAccessor"
-              :barPadding="0.6"
-              :roundedCorners="2"
-              :dataStep="dataStep"
-            />
-            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
-            <VisAxis type="y" :gridLine="true" :tickLine="false" />
-            <VisCrosshair :template="hostTemplate" />
-            <VisTooltip />
-          </VisXYContainer>
-        </div>
-
-        <!-- Legend -->
-        <div class="mt-2 flex flex-wrap gap-3">
-          <span
-            v-for="(host, i) in srvlogVolume.hosts"
-            :key="host"
-            class="flex items-center gap-1 text-xs"
-          >
-            <span
-              class="inline-block h-2.5 w-2.5 rounded-sm"
-              :style="{ backgroundColor: accentColors[i % accentColors.length] }"
-            />
-            <span class="text-t-fg-dark">{{ host }}</span>
-          </span>
-        </div>
-      </div>
-
-      <!-- Chart 2: Individual bar chart per host -->
-      <div v-if="srvlogVolume.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <div v-for="(host, i) in srvlogVolume.hosts" :key="host">
-          <h3
-            class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide"
-          >
-            <span
-              class="inline-block h-2 w-2 rounded-sm"
-              :style="{ backgroundColor: accentColors[i % accentColors.length] }"
-            />
-            {{ host }}
-            <span
-              v-if="hoveredHost[host]"
-              class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
-            >
-              <span class="text-t-fg-dark">{{ formatHoverTime(hoveredHost[host]!.x) }} - </span>
-              <span class="font-bold" :style="{ color: accentColors[i % accentColors.length] }">{{
-                hoveredHost[host]![host] ?? 0
-              }}</span>
-            </span>
-          </h3>
-          <div
-            class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
-            @mouseleave="hoveredHost[host] = null"
-          >
-            <VisXYContainer
-              :data="srvlogVolume.chartData"
-              :height="120"
-              :duration="0"
-              :padding="{ top: 4, right: 4 }"
-            >
-              <VisStackedBar
-                :x="xTotal"
-                :y="singleHostYAccessor(host)"
-                :color="() => accentColors[i % accentColors.length]"
-                :barPadding="0.6"
-                :roundedCorners="2"
-                :dataStep="dataStep"
-              />
-              <VisAxis
-                type="x"
-                :tickFormat="xTickFormat"
-                :numTicks="3"
-                :gridLine="false"
-                :tickLine="false"
-              />
-              <VisAxis type="y" :gridLine="true" :tickLine="false" />
-              <VisCrosshair :template="singleHostTracker(host)" />
-              <VisTooltip />
-            </VisXYContainer>
-          </div>
-        </div>
-      </div>
-      <div
-        v-else-if="!srvlogVolume.loading && !srvlogVolume.error"
-        class="bg-t-bg-dark border-t-border text-t-fg-dark flex items-center justify-center rounded border py-16 text-sm"
-      >
-        No data for the selected time range. Try a longer period.
-      </div>
+      <VolumeChartPanel
+        :chart-data="srvlogVolume.chartData"
+        :keys="srvlogVolume.hosts"
+        :data-step="dataStep"
+        :x-tick-format="xTickFormat"
+        :format-hover-time="formatHoverTime"
+        :loading="srvlogVolume.loading"
+        :error="srvlogVolume.error"
+      />
     </template>
 
     <!-- ═══════════════ APPLOG TAB ═══════════════ -->
     <template v-if="activeTab === 'applog'">
-      <!-- Chart 1: Total volume (stacked bar by service) -->
-      <div>
-        <h3 class="text-t-fg-dark mb-2 text-xs font-semibold uppercase tracking-wide">
-          Total Volume
-        </h3>
-        <div class="bg-t-bg-dark border-t-border rounded border p-3">
-          <VisXYContainer
-            :data="applogVolume.chartData"
-            :height="220"
-            :duration="0"
-            :padding="{ top: 8, right: 8 }"
-          >
-            <VisStackedBar
-              :x="xTotal"
-              :y="serviceYAccessors()"
-              :color="serviceColorAccessor"
-              :barPadding="0.6"
-              :roundedCorners="2"
-              :dataStep="dataStep"
-            />
-            <VisAxis type="x" :tickFormat="xTickFormat" :gridLine="false" :tickLine="false" />
-            <VisAxis type="y" :gridLine="true" :tickLine="false" />
-            <VisCrosshair :template="serviceTemplate" />
-            <VisTooltip />
-          </VisXYContainer>
-        </div>
-
-        <!-- Legend -->
-        <div class="mt-2 flex flex-wrap gap-3">
-          <span
-            v-for="(service, i) in applogVolume.services"
-            :key="service"
-            class="flex items-center gap-1 text-xs"
-          >
-            <span
-              class="inline-block h-2.5 w-2.5 rounded-sm"
-              :style="{ backgroundColor: accentColors[i % accentColors.length] }"
-            />
-            <span class="text-t-fg-dark">{{ service }}</span>
-          </span>
-        </div>
-      </div>
-
-      <!-- Chart 2: Individual bar chart per service -->
-      <div v-if="applogVolume.chartData.length > 0" class="grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <div v-for="(service, i) in applogVolume.services" :key="service">
-          <h3
-            class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide"
-          >
-            <span
-              class="inline-block h-2 w-2 rounded-sm"
-              :style="{ backgroundColor: accentColors[i % accentColors.length] }"
-            />
-            {{ service }}
-            <span
-              v-if="hoveredService[service]"
-              class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
-            >
-              <span class="text-t-fg-dark"
-                >{{ formatHoverTime(hoveredService[service]!.x) }} -
-              </span>
-              <span class="font-bold" :style="{ color: accentColors[i % accentColors.length] }">{{
-                hoveredService[service]![service] ?? 0
-              }}</span>
-            </span>
-          </h3>
-          <div
-            class="hide-tooltip bg-t-bg-dark border-t-border rounded border p-2"
-            @mouseleave="hoveredService[service] = null"
-          >
-            <VisXYContainer
-              :data="applogVolume.chartData"
-              :height="120"
-              :duration="0"
-              :padding="{ top: 4, right: 4 }"
-            >
-              <VisStackedBar
-                :x="xTotal"
-                :y="singleServiceYAccessor(service)"
-                :color="() => accentColors[i % accentColors.length]"
-                :barPadding="0.6"
-                :roundedCorners="2"
-                :dataStep="dataStep"
-              />
-              <VisAxis
-                type="x"
-                :tickFormat="xTickFormat"
-                :numTicks="3"
-                :gridLine="false"
-                :tickLine="false"
-              />
-              <VisAxis type="y" :gridLine="true" :tickLine="false" />
-              <VisCrosshair :template="singleServiceTracker(service)" />
-              <VisTooltip />
-            </VisXYContainer>
-          </div>
-        </div>
-      </div>
-      <div
-        v-else-if="!applogVolume.loading && !applogVolume.error"
-        class="bg-t-bg-dark border-t-border text-t-fg-dark flex items-center justify-center rounded border py-16 text-sm"
-      >
-        No data for the selected time range. Try a longer period.
-      </div>
+      <VolumeChartPanel
+        :chart-data="applogVolume.chartData"
+        :keys="applogVolume.services"
+        :data-step="dataStep"
+        :x-tick-format="xTickFormat"
+        :format-hover-time="formatHoverTime"
+        :loading="applogVolume.loading"
+        :error="applogVolume.error"
+      />
     </template>
 
     <!-- ═══════════════ RSRVLOG TAB ═══════════════ -->
@@ -1394,16 +1006,8 @@ onUnmounted(() => {
   fill: var(--color-t-fg-dark);
 }
 
-:deep(.unovis-xy-container) path[class*='-bar'] {
-  opacity: 0.55;
-}
-
 :deep(.unovis-xy-container) .tick line {
   stroke: var(--color-t-border);
   opacity: 0.4;
-}
-
-.hide-tooltip :deep(.unovis-tooltip) {
-  display: none !important;
 }
 </style>
