@@ -87,7 +87,15 @@ const timezones = [
   'Australia/Sydney',
 ]
 
-const dayOfWeekLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const dayOfWeekLabels = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+]
 
 const feedOptions: { value: AnalysisFeed; label: string; available: boolean }[] = [
   { value: 'netlog', label: 'Netlog', available: features.netlog },
@@ -282,11 +290,16 @@ onMounted(() => {
         <div class="border-t-border border-b px-5 py-2.5">
           <h3 class="text-t-fg-dark text-xs font-semibold uppercase tracking-wide">
             Schedules
-            <span class="text-t-fg-gutter ml-1 font-normal normal-case">{{ schedules.length }}</span>
+            <span class="text-t-fg-gutter ml-1 font-normal normal-case">{{
+              schedules.length
+            }}</span>
           </h3>
         </div>
 
-        <div v-if="schedules.length > 0" class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider">
+        <div
+          v-if="schedules.length > 0"
+          class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider"
+        >
           <span class="w-8 shrink-0"></span>
           <span class="w-44 shrink-0">Name</span>
           <span class="w-20 shrink-0">Feed</span>
@@ -368,8 +381,18 @@ onMounted(() => {
                   </button>
                 </template>
                 <template v-else>
-                  <button class="text-t-red hover:brightness-125 text-xs font-semibold" @click="deleteSchedule(sched.id)">yes</button>
-                  <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="confirmDelete = null">no</button>
+                  <button
+                    class="text-t-red hover:brightness-125 text-xs font-semibold"
+                    @click="deleteSchedule(sched.id)"
+                  >
+                    yes
+                  </button>
+                  <button
+                    class="text-t-fg-dark hover:text-t-fg text-xs"
+                    @click="confirmDelete = null"
+                  >
+                    no
+                  </button>
                 </template>
               </template>
             </div>
@@ -396,9 +419,14 @@ onMounted(() => {
           class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 pt-10 pb-10"
           @click.self="closeModal"
         >
-          <div ref="modalEl" class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl">
+          <div
+            ref="modalEl"
+            class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl"
+          >
             <div class="border-t-border border-b px-5 py-3">
-              <h3 class="text-t-fg text-sm font-semibold">{{ editing ? 'Edit Schedule' : 'Add Schedule' }}</h3>
+              <h3 class="text-t-fg text-sm font-semibold">
+                {{ editing ? 'Edit Schedule' : 'Add Schedule' }}
+              </h3>
             </div>
 
             <div class="space-y-4 px-5 py-4">
@@ -418,7 +446,9 @@ onMounted(() => {
               </label>
 
               <div class="border-t-border space-y-3 border-t pt-3">
-                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Source</span>
+                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                  >Source</span
+                >
                 <div class="flex flex-wrap gap-2">
                   <button
                     v-for="opt in feedOptions"
@@ -440,33 +470,48 @@ onMounted(() => {
               </div>
 
               <div class="border-t-border space-y-3 border-t pt-3">
-                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Schedule</span>
+                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                  >Schedule</span
+                >
 
                 <div class="flex gap-2">
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formFrequency === 'daily' ? 'border-t-green text-t-green' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="
+                      formFrequency === 'daily'
+                        ? 'border-t-green text-t-green'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
                     @click="formFrequency = 'daily'"
                   >
                     Daily
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formFrequency === 'weekly' ? 'border-t-blue text-t-blue' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="
+                      formFrequency === 'weekly'
+                        ? 'border-t-blue text-t-blue'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
                     @click="formFrequency = 'weekly'"
                   >
                     Weekly
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formFrequency === 'monthly' ? 'border-t-purple text-t-purple' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="
+                      formFrequency === 'monthly'
+                        ? 'border-t-purple text-t-purple'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
                     @click="formFrequency = 'monthly'"
                   >
                     Monthly
                   </button>
                 </div>
                 <p class="text-t-fg-gutter text-xs">
-                  daily cadence uses the daily prompt; weekly and monthly both use the weekly trend prompt.
+                  daily cadence uses the daily prompt; weekly and monthly both use the weekly trend
+                  prompt.
                 </p>
 
                 <div class="grid grid-cols-2 gap-3">
@@ -476,7 +521,9 @@ onMounted(() => {
                       v-model.number="formDayOfWeek"
                       class="bg-t-bg border-t-border text-t-fg focus:border-t-orange mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
                     >
-                      <option v-for="(label, idx) in dayOfWeekLabels" :key="idx" :value="idx">{{ label }}</option>
+                      <option v-for="(label, idx) in dayOfWeekLabels" :key="idx" :value="idx">
+                        {{ label }}
+                      </option>
                     </select>
                   </label>
 
@@ -512,9 +559,12 @@ onMounted(() => {
               </div>
 
               <div class="border-t-border space-y-3 border-t pt-3">
-                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Email report to</span>
+                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                  >Email report to</span
+                >
                 <p v-if="emailChannels.length === 0" class="text-t-fg-gutter text-xs">
-                  no email notification channels configured — add one under Notifications to email this report.
+                  no email notification channels configured — add one under Notifications to email
+                  this report.
                 </p>
                 <div v-else class="flex flex-wrap gap-2">
                   <button
@@ -541,13 +591,15 @@ onMounted(() => {
             </div>
 
             <div class="border-t-border flex items-center justify-end gap-3 border-t px-5 py-3">
-              <button class="text-t-fg-dark hover:text-t-fg text-sm" @click="closeModal">cancel</button>
+              <button class="text-t-fg-dark hover:text-t-fg text-sm" @click="closeModal">
+                cancel
+              </button>
               <button
                 class="bg-t-orange/15 text-t-orange hover:brightness-125 border-t-orange/30 border px-4 py-2 text-sm"
                 :disabled="saving"
                 @click="saveSchedule"
               >
-                {{ saving ? 'saving...' : (editing ? 'save changes' : 'create schedule') }}
+                {{ saving ? 'saving...' : editing ? 'save changes' : 'create schedule' }}
               </button>
             </div>
           </div>

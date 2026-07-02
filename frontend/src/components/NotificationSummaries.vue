@@ -39,8 +39,8 @@ const deleteError = ref('')
 const triggering = ref<number | null>(null)
 const triggerResult = ref<{ scheduleId: number; success: boolean; message: string } | null>(null)
 
-const enabledSchedules = computed(() => schedules.value.filter(s => s.enabled))
-const disabledSchedules = computed(() => schedules.value.filter(s => !s.enabled))
+const enabledSchedules = computed(() => schedules.value.filter((s) => s.enabled))
+const disabledSchedules = computed(() => schedules.value.filter((s) => !s.enabled))
 
 const severityOptions = [
   { value: '0', label: 'Emergency (0)' },
@@ -70,14 +70,22 @@ const timezones = [
   'Australia/Sydney',
 ]
 
-const dayOfWeekLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const dayOfWeekLabels = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+]
 
 function channelName(id: number): string {
-  return channels.value.find(c => c.id === id)?.name || `#${id}`
+  return channels.value.find((c) => c.id === id)?.name || `#${id}`
 }
 
 function channelType(id: number): string {
-  return channels.value.find(c => c.id === id)?.type || ''
+  return channels.value.find((c) => c.id === id)?.type || ''
 }
 
 function channelBadgeClass(type_: string): string {
@@ -109,7 +117,12 @@ function frequencyBadgeClass(freq: string): string {
 function formatLastRun(iso: string | null | undefined): string {
   if (!iso) return 'never'
   const d = new Date(iso)
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 async function fetchData() {
@@ -239,7 +252,7 @@ async function saveSchedule() {
     const body = buildSchedule()
     if (editing.value) {
       const res = await api.updateSummarySchedule(editing.value.id, body)
-      const idx = schedules.value.findIndex(s => s.id === editing.value!.id)
+      const idx = schedules.value.findIndex((s) => s.id === editing.value!.id)
       if (idx >= 0) schedules.value[idx] = res.data
     } else {
       const res = await api.createSummarySchedule(body)
@@ -257,7 +270,7 @@ async function deleteSchedule(id: number) {
   deleteError.value = ''
   try {
     await api.deleteSummarySchedule(id)
-    schedules.value = schedules.value.filter(s => s.id !== id)
+    schedules.value = schedules.value.filter((s) => s.id !== id)
   } catch (e) {
     deleteError.value = e instanceof ApiError ? e.message : 'Failed to delete schedule'
   }
@@ -309,12 +322,17 @@ onMounted(fetchData)
         <div class="border-t-border border-b px-5 py-2.5">
           <h3 class="text-t-fg-dark text-xs font-semibold uppercase tracking-wide">
             Schedules
-            <span class="text-t-fg-gutter ml-1 font-normal normal-case">{{ schedules.length }}</span>
+            <span class="text-t-fg-gutter ml-1 font-normal normal-case">{{
+              schedules.length
+            }}</span>
           </h3>
         </div>
 
         <!-- Table header -->
-        <div v-if="schedules.length > 0" class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider">
+        <div
+          v-if="schedules.length > 0"
+          class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider"
+        >
           <span class="w-8 shrink-0"></span>
           <span class="w-44 shrink-0">Name</span>
           <span class="w-24 shrink-0">Frequency</span>
@@ -362,7 +380,9 @@ onMounted(fetchData)
             </div>
             <div class="w-24 shrink-0">
               <span class="text-t-fg-dark text-xs">{{ sched.time_of_day }}</span>
-              <span class="text-t-fg-gutter ml-1 text-xs">{{ sched.timezone === 'UTC' ? 'UTC' : sched.timezone.split('/').pop() }}</span>
+              <span class="text-t-fg-gutter ml-1 text-xs">{{
+                sched.timezone === 'UTC' ? 'UTC' : sched.timezone.split('/').pop()
+              }}</span>
             </div>
             <div class="w-36 shrink-0">
               <span
@@ -407,8 +427,18 @@ onMounted(fetchData)
                 </button>
               </template>
               <template v-else>
-                <button class="text-t-red hover:brightness-125 text-xs font-semibold" @click="deleteSchedule(sched.id)">yes</button>
-                <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="confirmDelete = null">no</button>
+                <button
+                  class="text-t-red hover:brightness-125 text-xs font-semibold"
+                  @click="deleteSchedule(sched.id)"
+                >
+                  yes
+                </button>
+                <button
+                  class="text-t-fg-dark hover:text-t-fg text-xs"
+                  @click="confirmDelete = null"
+                >
+                  no
+                </button>
               </template>
             </div>
           </div>
@@ -417,10 +447,7 @@ onMounted(fetchData)
         <!-- Empty state -->
         <div v-if="schedules.length === 0" class="px-5 py-10 text-center">
           <p class="text-t-fg-dark text-sm">no summary schedules configured</p>
-          <button
-            class="text-t-yellow mt-2 text-sm hover:brightness-125"
-            @click="openCreate"
-          >
+          <button class="text-t-yellow mt-2 text-sm hover:brightness-125" @click="openCreate">
             create your first schedule
           </button>
         </div>
@@ -435,11 +462,18 @@ onMounted(fetchData)
           class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 pt-10 pb-10"
           @click.self="closeModal"
         >
-          <div ref="modalEl" class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl">
+          <div
+            ref="modalEl"
+            class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl"
+          >
             <!-- Modal header -->
             <div class="border-t-border flex items-center justify-between border-b px-5 py-3">
-              <h3 class="text-t-fg text-sm font-semibold">{{ editing ? 'Edit Schedule' : 'Add Schedule' }}</h3>
-              <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="closeModal">close</button>
+              <h3 class="text-t-fg text-sm font-semibold">
+                {{ editing ? 'Edit Schedule' : 'Add Schedule' }}
+              </h3>
+              <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="closeModal">
+                close
+              </button>
             </div>
 
             <!-- Modal body -->
@@ -463,27 +497,41 @@ onMounted(fetchData)
 
               <!-- Schedule section -->
               <div class="border-t-border space-y-3 border-t pt-3">
-                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Schedule</span>
+                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                  >Schedule</span
+                >
 
                 <!-- Frequency -->
                 <div class="flex gap-2">
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formFrequency === 'daily' ? 'border-t-green text-t-green' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="
+                      formFrequency === 'daily'
+                        ? 'border-t-green text-t-green'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
                     @click="formFrequency = 'daily'"
                   >
                     Daily
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formFrequency === 'weekly' ? 'border-t-blue text-t-blue' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="
+                      formFrequency === 'weekly'
+                        ? 'border-t-blue text-t-blue'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
                     @click="formFrequency = 'weekly'"
                   >
                     Weekly
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formFrequency === 'monthly' ? 'border-t-purple text-t-purple' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="
+                      formFrequency === 'monthly'
+                        ? 'border-t-purple text-t-purple'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
                     @click="formFrequency = 'monthly'"
                   >
                     Monthly
@@ -498,7 +546,9 @@ onMounted(fetchData)
                       v-model.number="formDayOfWeek"
                       class="bg-t-bg border-t-border text-t-fg focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
                     >
-                      <option v-for="(label, idx) in dayOfWeekLabels" :key="idx" :value="idx">{{ label }}</option>
+                      <option v-for="(label, idx) in dayOfWeekLabels" :key="idx" :value="idx">
+                        {{ label }}
+                      </option>
                     </select>
                   </label>
 
@@ -538,7 +588,9 @@ onMounted(fetchData)
 
               <!-- Scope section -->
               <div class="border-t-border space-y-3 border-t pt-3">
-                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Scope</span>
+                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                  >Scope</span
+                >
 
                 <!-- Event kinds (multi-select) -->
                 <div>
@@ -547,7 +599,11 @@ onMounted(fetchData)
                     <button
                       v-if="features.srvlog"
                       class="border px-3 py-1.5 text-sm transition-all"
-                      :class="formEventKinds.includes('srvlog') ? 'border-t-teal text-t-teal' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                      :class="
+                        formEventKinds.includes('srvlog')
+                          ? 'border-t-teal text-t-teal'
+                          : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                      "
                       @click="toggleEventKind('srvlog')"
                     >
                       Srvlog
@@ -555,7 +611,11 @@ onMounted(fetchData)
                     <button
                       v-if="features.netlog"
                       class="border px-3 py-1.5 text-sm transition-all"
-                      :class="formEventKinds.includes('netlog') ? 'border-t-fuchsia text-t-fuchsia' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                      :class="
+                        formEventKinds.includes('netlog')
+                          ? 'border-t-fuchsia text-t-fuchsia'
+                          : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                      "
                       @click="toggleEventKind('netlog')"
                     >
                       Netlog
@@ -563,7 +623,11 @@ onMounted(fetchData)
                     <button
                       v-if="features.applog"
                       class="border px-3 py-1.5 text-sm transition-all"
-                      :class="formEventKinds.includes('applog') ? 'border-t-magenta text-t-magenta' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                      :class="
+                        formEventKinds.includes('applog')
+                          ? 'border-t-magenta text-t-magenta'
+                          : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                      "
                       @click="toggleEventKind('applog')"
                     >
                       AppLog
@@ -579,7 +643,9 @@ onMounted(fetchData)
                       class="bg-t-bg border-t-border text-t-fg focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
                     >
                       <option value="">all</option>
-                      <option v-for="opt in severityOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                      <option v-for="opt in severityOptions" :key="opt.value" :value="opt.value">
+                        {{ opt.label }}
+                      </option>
                     </select>
                   </label>
                   <label class="block">
@@ -606,7 +672,9 @@ onMounted(fetchData)
 
               <!-- Channels -->
               <div class="border-t-border space-y-2 border-t pt-3">
-                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Channels</span>
+                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                  >Channels</span
+                >
                 <div v-if="channels.length === 0" class="text-t-fg-gutter text-sm">
                   no channels configured — create one first
                 </div>

@@ -84,7 +84,9 @@ describe('useDeviceLogScroll', () => {
   })
 
   it('re-pins and scrolls to bottom on tab switch', async () => {
-    const el = ref<HTMLElement | null>(fakeEl({ scrollHeight: 500, scrollTop: 0, clientHeight: 100 }))
+    const el = ref<HTMLElement | null>(
+      fakeEl({ scrollHeight: 500, scrollTop: 0, clientHeight: 100 }),
+    )
     const tab = ref('critical')
     const { api } = mountScroll(el, ref([]), tab)
     api.isPinned.value = false

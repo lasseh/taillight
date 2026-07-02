@@ -15,27 +15,31 @@ const showBanner = ref(false)
 
 let graceTimer: ReturnType<typeof setTimeout> | null = null
 
-watch(() => props.connected, (val) => {
-  if (val) {
-    hasConnected.value = true
-    if (graceTimer) {
-      clearTimeout(graceTimer)
-      graceTimer = null
-    }
-    showBanner.value = false
-  } else if (hasConnected.value) {
-    // Only show after a 5s delay to avoid flicker during brief reconnects
-    // and wake-from-sleep scenarios where the network needs time to recover.
-    if (!graceTimer) {
-      graceTimer = setTimeout(() => {
+watch(
+  () => props.connected,
+  (val) => {
+    if (val) {
+      hasConnected.value = true
+      if (graceTimer) {
+        clearTimeout(graceTimer)
         graceTimer = null
-        if (!props.connected) {
-          showBanner.value = true
-        }
-      }, 5000)
+      }
+      showBanner.value = false
+    } else if (hasConnected.value) {
+      // Only show after a 5s delay to avoid flicker during brief reconnects
+      // and wake-from-sleep scenarios where the network needs time to recover.
+      if (!graceTimer) {
+        graceTimer = setTimeout(() => {
+          graceTimer = null
+          if (!props.connected) {
+            showBanner.value = true
+          }
+        }, 5000)
+      }
     }
-  }
-}, { immediate: true })
+  },
+  { immediate: true },
+)
 
 onUnmounted(() => {
   if (graceTimer) clearTimeout(graceTimer)
@@ -61,7 +65,15 @@ const bannerTop = computed(() => (fullscreenActive.value ? '0' : 'var(--header-h
       :style="{ top: bannerTop }"
       class="bg-t-red/10 border-t-red/30 fixed left-0 right-0 z-40 flex items-center justify-center gap-3 border-b px-4 py-2 backdrop-blur-sm"
     >
-      <svg class="text-t-red h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <svg
+        class="text-t-red h-5 w-5 shrink-0"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
         <line x1="1" y1="1" x2="23" y2="23" />
         <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
         <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
@@ -72,7 +84,9 @@ const bannerTop = computed(() => (fullscreenActive.value ? '0' : 'var(--header-h
       </svg>
       <div class="text-center">
         <p class="text-t-fg text-sm font-semibold">Cannot connect to server</p>
-        <p class="text-t-fg-dark text-xs">The API may be down or restarting. Retrying automatically...</p>
+        <p class="text-t-fg-dark text-xs">
+          The API may be down or restarting. Retrying automatically...
+        </p>
       </div>
     </div>
   </Transition>

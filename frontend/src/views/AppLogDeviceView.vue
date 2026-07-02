@@ -5,7 +5,12 @@ import type { AppLogDeviceSummary } from '@/types/device'
 import type { AppLogEvent } from '@/types/applog'
 import { api, ApiError } from '@/lib/api'
 import { formatRelativeTime, lastSeenColorClass, formatNumber } from '@/lib/format'
-import { LEVEL_RANK, levelColorClass, levelBgClass, levelBgColorClass } from '@/lib/applog-constants'
+import {
+  LEVEL_RANK,
+  levelColorClass,
+  levelBgClass,
+  levelBgColorClass,
+} from '@/lib/applog-constants'
 import { useAppLogDeviceLogs } from '@/composables/useAppLogDeviceLogs'
 import { useDeviceSummaryCollapsed } from '@/composables/useDeviceSummaryCollapsed'
 import { useDeviceLogScroll } from '@/composables/useDeviceLogScroll'
@@ -51,7 +56,7 @@ const chronologicalErrorLogs = computed(() => [...(summary.value?.error_logs ?? 
 
 // Derive individual level counts from breakdown (matches dashboard pattern).
 function lvlCount(level: string): number {
-  return summary.value?.level_breakdown.find(l => l.level === level)?.count ?? 0
+  return summary.value?.level_breakdown.find((l) => l.level === level)?.count ?? 0
 }
 const fatalCount = computed(() => lvlCount('FATAL'))
 const errorCount = computed(() => lvlCount('ERROR'))
@@ -61,9 +66,8 @@ const infoCount = computed(() => lvlCount('INFO'))
 
 // Compute dynamic column widths for AppLogRow.
 const colWidths = computed(() => {
-  const events = activeTab.value === 'error'
-    ? chronologicalErrorLogs.value
-    : chronologicalLogs.value
+  const events =
+    activeTab.value === 'error' ? chronologicalErrorLogs.value : chronologicalLogs.value
   const hostLen = props.hostname.length
   let maxSvc = 0
   let maxComp = 0
@@ -80,7 +84,11 @@ const colWidths = computed(() => {
 
 // Auto-scroll the log container to bottom when pinned.
 const logScrollEl = ref<HTMLElement | null>(null)
-const { isPinned, scrollToBottom, onLogScroll } = useDeviceLogScroll(logScrollEl, chronologicalLogs, activeTab)
+const { isPinned, scrollToBottom, onLogScroll } = useDeviceLogScroll(
+  logScrollEl,
+  chronologicalLogs,
+  activeTab,
+)
 
 async function fetchData() {
   try {
@@ -112,7 +120,7 @@ const { baseline } = useDeviceSummaryLive(deviceLogs, (event) => {
   s.last_seen_at = event.received_at
 
   // Update level breakdown counts + percentages.
-  const existing = s.level_breakdown.find(l => l.level === event.level)
+  const existing = s.level_breakdown.find((l) => l.level === event.level)
   if (existing) {
     existing.count++
   } else {
@@ -133,16 +141,20 @@ const { baseline } = useDeviceSummaryLive(deviceLogs, (event) => {
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
-watch(() => props.hostname, () => {
-  clearInterval(refreshTimer)
-  summary.value = null
-  loading.value = true
-  error.value = null
-  errorStatus.value = null
-  fetchData()
-  // Slow poll for top_messages accuracy and drift correction.
-  refreshTimer = setInterval(fetchData, 30_000)
-}, { immediate: true })
+watch(
+  () => props.hostname,
+  () => {
+    clearInterval(refreshTimer)
+    summary.value = null
+    loading.value = true
+    error.value = null
+    errorStatus.value = null
+    fetchData()
+    // Slow poll for top_messages accuracy and drift correction.
+    refreshTimer = setInterval(fetchData, 30_000)
+  },
+  { immediate: true },
+)
 
 onUnmounted(() => {
   clearInterval(refreshTimer)
@@ -157,7 +169,9 @@ function currentEvents(): AppLogEvent[] {
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <!-- Loading state -->
-    <div v-if="loading" class="text-t-fg-dark flex flex-1 items-center justify-center text-xs">loading...</div>
+    <div v-if="loading" class="text-t-fg-dark flex flex-1 items-center justify-center text-xs">
+      loading...
+    </div>
 
     <!-- Error states -->
     <div v-else-if="error" class="flex flex-1 items-center justify-center px-4 py-4">
@@ -186,10 +200,7 @@ function currentEvents(): AppLogEvent[] {
       <div class="shrink-0 space-y-4 p-4">
         <!-- Navigation -->
         <div class="flex items-center justify-between">
-          <button
-            class="text-t-teal text-xs hover:underline"
-            @click="router.back()"
-          >
+          <button class="text-t-teal text-xs hover:underline" @click="router.back()">
             &larr; back
           </button>
           <RouterLink
@@ -205,8 +216,15 @@ function currentEvents(): AppLogEvent[] {
           <!-- Hostname -->
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Host</div>
-            <div class="text-t-teal truncate font-mono text-lg font-bold" :title="summary.host">{{ summary.host }}</div>
-            <div class="mt-1 font-mono text-xs" :class="summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'">
+            <div class="text-t-teal truncate font-mono text-lg font-bold" :title="summary.host">
+              {{ summary.host }}
+            </div>
+            <div
+              class="mt-1 font-mono text-xs"
+              :class="
+                summary.last_seen_at ? lastSeenColorClass(summary.last_seen_at) : 'text-t-fg-dark'
+              "
+            >
               {{ summary.last_seen_at ? formatRelativeTime(summary.last_seen_at) : 'never seen' }}
             </div>
           </div>
@@ -215,9 +233,17 @@ function currentEvents(): AppLogEvent[] {
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Fatal & Errors</div>
             <div class="text-2xl font-bold">
-              <RouterLink :to="{ name: 'applog', query: { host: summary.host, level_exact: 'FATAL' } }" class="text-sev-emerg hover:underline">{{ formatNumber(fatalCount) }}</RouterLink>
+              <RouterLink
+                :to="{ name: 'applog', query: { host: summary.host, level_exact: 'FATAL' } }"
+                class="text-sev-emerg hover:underline"
+                >{{ formatNumber(fatalCount) }}</RouterLink
+              >
               <span class="text-t-fg-dark"> / </span>
-              <RouterLink :to="{ name: 'applog', query: { host: summary.host, level_exact: 'ERROR' } }" class="text-sev-alert hover:underline">{{ formatNumber(errorCount) }}</RouterLink>
+              <RouterLink
+                :to="{ name: 'applog', query: { host: summary.host, level_exact: 'ERROR' } }"
+                class="text-sev-alert hover:underline"
+                >{{ formatNumber(errorCount) }}</RouterLink
+              >
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
               {{ ((fatalErrorCount / summary.total_count) * 100).toFixed(1) }}% of total
@@ -228,7 +254,11 @@ function currentEvents(): AppLogEvent[] {
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Warnings</div>
             <div class="text-2xl font-bold">
-              <RouterLink :to="{ name: 'applog', query: { host: summary.host, level_exact: 'WARN' } }" class="text-sev-crit hover:underline">{{ formatNumber(warnCount) }}</RouterLink>
+              <RouterLink
+                :to="{ name: 'applog', query: { host: summary.host, level_exact: 'WARN' } }"
+                class="text-sev-crit hover:underline"
+                >{{ formatNumber(warnCount) }}</RouterLink
+              >
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
               {{ ((warnCount / summary.total_count) * 100).toFixed(1) }}% of total
@@ -239,7 +269,11 @@ function currentEvents(): AppLogEvent[] {
           <div class="bg-t-bg-dark border-t-border rounded border p-4">
             <div class="text-t-fg-dark mb-1 text-xs uppercase tracking-wide">Info</div>
             <div class="text-2xl font-bold">
-              <RouterLink :to="{ name: 'applog', query: { host: summary.host, level_exact: 'INFO' } }" class="text-sev-notice hover:underline">{{ formatNumber(infoCount) }}</RouterLink>
+              <RouterLink
+                :to="{ name: 'applog', query: { host: summary.host, level_exact: 'INFO' } }"
+                class="text-sev-notice hover:underline"
+                >{{ formatNumber(infoCount) }}</RouterLink
+              >
             </div>
             <div v-if="summary.total_count > 0" class="text-t-fg-dark mt-1 text-xs">
               {{ ((infoCount / summary.total_count) * 100).toFixed(1) }}% of total
@@ -250,8 +284,13 @@ function currentEvents(): AppLogEvent[] {
         <!-- Top Messages + Level Distribution -->
         <div v-if="!summaryCollapsed" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <!-- Top Messages -->
-          <div v-if="summary.top_messages.length > 0" class="bg-t-bg-dark border-t-border rounded border p-4">
-            <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">Top Messages <span class="text-t-fg-dark font-normal normal-case">(24h)</span></h3>
+          <div
+            v-if="summary.top_messages.length > 0"
+            class="bg-t-bg-dark border-t-border rounded border p-4"
+          >
+            <h3 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">
+              Top Messages <span class="text-t-fg-dark font-normal normal-case">(24h)</span>
+            </h3>
             <div class="-mx-4">
               <!-- Mobile: color bar + count + message -->
               <RouterLink
@@ -261,9 +300,14 @@ function currentEvents(): AppLogEvent[] {
                 class="hover:bg-t-bg-hover flex gap-2 py-1 pr-2 md:hidden"
                 :class="levelBgClass[msg.level] ?? ''"
               >
-                <div class="w-[3px] shrink-0 rounded-r" :class="levelBgColorClass[msg.level] ?? 'bg-sev-notice'" />
+                <div
+                  class="w-[3px] shrink-0 rounded-r"
+                  :class="levelBgColorClass[msg.level] ?? 'bg-sev-notice'"
+                />
                 <div class="min-w-0 flex-1">
-                  <div class="text-t-purple text-[10px] leading-tight">{{ formatNumber(msg.count) }}x &middot; {{ msg.level }}</div>
+                  <div class="text-t-purple text-[10px] leading-tight">
+                    {{ formatNumber(msg.count) }}x &middot; {{ msg.level }}
+                  </div>
                   <div class="min-w-0 truncate text-xs leading-snug">{{ msg.sample }}</div>
                 </div>
               </RouterLink>
@@ -275,9 +319,18 @@ function currentEvents(): AppLogEvent[] {
                 class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug transition-colors md:flex"
                 :class="levelBgClass[msg.level] ?? ''"
               >
-                <span class="text-t-fg-dark w-[10ch] shrink-0 text-right text-xs whitespace-nowrap">{{ formatRelativeTime(msg.latest_at) }}</span>
-                <span class="text-t-purple w-[6ch] shrink-0 text-right text-xs">{{ formatNumber(msg.count) }}</span>
-                <span class="w-[6ch] shrink-0 text-xs uppercase" :class="levelColorClass[msg.level] ?? 'text-t-fg'">{{ msg.level }}</span>
+                <span
+                  class="text-t-fg-dark w-[10ch] shrink-0 text-right text-xs whitespace-nowrap"
+                  >{{ formatRelativeTime(msg.latest_at) }}</span
+                >
+                <span class="text-t-purple w-[6ch] shrink-0 text-right text-xs">{{
+                  formatNumber(msg.count)
+                }}</span>
+                <span
+                  class="w-[6ch] shrink-0 text-xs uppercase"
+                  :class="levelColorClass[msg.level] ?? 'text-t-fg'"
+                  >{{ msg.level }}</span
+                >
                 <span class="min-w-0 flex-1 truncate" :title="msg.sample">{{ msg.sample }}</span>
               </RouterLink>
             </div>
@@ -300,7 +353,17 @@ function currentEvents(): AppLogEvent[] {
           aria-label="Expand summary"
           @click="summaryCollapsed = false"
         >
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+          <svg
+            class="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </button>
       </div>
 
@@ -325,7 +388,9 @@ function currentEvents(): AppLogEvent[] {
         </div>
 
         <!-- Log stream -->
-        <div class="bg-t-bg-dark border-t-border mx-4 mb-4 flex min-h-0 flex-1 flex-col rounded-b border">
+        <div
+          class="bg-t-bg-dark border-t-border mx-4 mb-4 flex min-h-0 flex-1 flex-col rounded-b border"
+        >
           <div
             v-if="currentEvents().length === 0"
             class="text-t-fg-dark flex flex-1 items-center justify-center text-xs"
@@ -343,11 +408,7 @@ function currentEvents(): AppLogEvent[] {
             :style="colWidths"
             @scroll="onLogScroll"
           >
-            <AppLogRow
-              v-for="event in currentEvents()"
-              :key="event.id"
-              :event="event"
-            />
+            <AppLogRow v-for="event in currentEvents()" :key="event.id" :event="event" />
           </div>
         </div>
 

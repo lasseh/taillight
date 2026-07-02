@@ -6,7 +6,9 @@ function loadHidden(): Set<string> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return new Set(JSON.parse(raw) as string[])
-  } catch { /* ignore corrupt data */ }
+  } catch {
+    /* ignore corrupt data */
+  }
   return new Set()
 }
 
@@ -42,5 +44,14 @@ export function useDashboardLayout() {
 
   const allHidden = computed(() => hiddenWidgets.value.size >= 12)
 
-  return { editing, hiddenWidgets, isVisible, hideWidget, startEditing, stopEditing, resetLayout, allHidden }
+  return {
+    editing,
+    hiddenWidgets,
+    isVisible,
+    hideWidget,
+    startEditing,
+    stopEditing,
+    resetLayout,
+    allHidden,
+  }
 }

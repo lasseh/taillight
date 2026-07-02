@@ -3,7 +3,13 @@ import ErrorDisplay from '@/components/ErrorDisplay.vue'
 import { features as getFeatures } from '@/lib/features'
 
 const features = getFeatures()
-const defaultRoute = features.netlog ? 'netlog' : features.srvlog ? 'srvlog' : features.applog ? 'applog' : 'home'
+const defaultRoute = features.netlog
+  ? 'netlog'
+  : features.srvlog
+    ? 'srvlog'
+    : features.applog
+      ? 'applog'
+      : 'home'
 const defaultLabel = `go to ${defaultRoute}`
 </script>
 

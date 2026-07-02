@@ -30,9 +30,12 @@ function goToDevice(host: HostEntry) {
 
 function statusDotClass(status: string): string {
   switch (status) {
-    case 'critical': return 'bg-t-red'
-    case 'warning': return 'bg-t-yellow'
-    default: return 'bg-t-green'
+    case 'critical':
+      return 'bg-t-red'
+    case 'warning':
+      return 'bg-t-yellow'
+    default:
+      return 'bg-t-green'
   }
 }
 
@@ -67,7 +70,13 @@ function sparkBars(buckets: HourlyBucket[]): { height: number; hasErrors: boolea
 }
 
 function cycleSortBy() {
-  const order: ('errors' | 'total' | 'hostname' | 'last_seen' | 'trend')[] = ['errors', 'total', 'hostname', 'last_seen', 'trend']
+  const order: ('errors' | 'total' | 'hostname' | 'last_seen' | 'trend')[] = [
+    'errors',
+    'total',
+    'hostname',
+    'last_seen',
+    'trend',
+  ]
   const idx = order.indexOf(store.sortBy)
   const next = order[(idx + 1) % order.length]
   if (next) store.sortBy = next
@@ -93,7 +102,9 @@ onUnmounted(() => store.stopRefresh())
       <button
         class="text-t-fg-dark rounded px-1.5 py-0.5 text-xs transition-colors hover:text-t-fg"
         @click="cycleSortBy"
-      >sort: {{ store.sortBy.replace('_', ' ') }}</button>
+      >
+        sort: {{ store.sortBy.replace('_', ' ') }}
+      </button>
 
       <div class="flex-1"></div>
 
@@ -105,9 +116,15 @@ onUnmounted(() => store.stopRefresh())
           v-for="p in rangePresets"
           :key="p.value"
           class="rounded px-1.5 py-0.5 text-xs transition-colors"
-          :class="store.range_ === p.value ? 'bg-t-bg-highlight text-t-purple' : 'text-t-fg-dark hover:text-t-fg'"
+          :class="
+            store.range_ === p.value
+              ? 'bg-t-bg-highlight text-t-purple'
+              : 'text-t-fg-dark hover:text-t-fg'
+          "
           @click="store.setRange(p.value)"
-        >{{ p.label }}</button>
+        >
+          {{ p.label }}
+        </button>
       </div>
     </div>
 
@@ -142,7 +159,9 @@ onUnmounted(() => store.stopRefresh())
     <div v-else class="flex-1 overflow-y-auto">
       <table class="w-full border-collapse">
         <thead class="bg-t-bg sticky top-0 z-10">
-          <tr class="border-t-border border-b text-left text-[10px] uppercase tracking-wide text-t-fg-dark">
+          <tr
+            class="border-t-border border-b text-left text-[10px] uppercase tracking-wide text-t-fg-dark"
+          >
             <th class="w-3 py-1.5 pl-3 pr-0 font-medium"></th>
             <th class="py-1.5 pl-2 pr-2 font-medium">Hostname</th>
             <th class="px-2 font-medium">Feed</th>
@@ -174,8 +193,16 @@ onUnmounted(() => store.stopRefresh())
             <!-- Feed -->
             <td class="px-2">
               <span class="flex gap-0.5">
-                <span v-if="host.feed === 'srvlog' || host.feed === 'both'" class="rounded bg-t-teal/20 px-1 text-[10px] text-t-teal">S</span>
-                <span v-if="host.feed === 'netlog' || host.feed === 'both'" class="rounded bg-t-fuchsia/20 px-1 text-[10px] text-t-fuchsia">N</span>
+                <span
+                  v-if="host.feed === 'srvlog' || host.feed === 'both'"
+                  class="rounded bg-t-teal/20 px-1 text-[10px] text-t-teal"
+                  >S</span
+                >
+                <span
+                  v-if="host.feed === 'netlog' || host.feed === 'both'"
+                  class="rounded bg-t-fuchsia/20 px-1 text-[10px] text-t-fuchsia"
+                  >N</span
+                >
               </span>
             </td>
 
@@ -186,17 +213,23 @@ onUnmounted(() => store.stopRefresh())
 
             <!-- Errors -->
             <td class="px-2 text-right">
-              <span class="text-xs" :class="host.error_count ? 'text-t-red' : 'text-t-fg-dark'">{{ formatNumber(host.error_count) }}</span>
+              <span class="text-xs" :class="host.error_count ? 'text-t-red' : 'text-t-fg-dark'">{{
+                formatNumber(host.error_count)
+              }}</span>
             </td>
 
             <!-- Error ratio -->
             <td class="px-2 text-right">
-              <span class="text-xs" :class="host.error_count ? 'text-t-orange' : 'text-t-fg-dark'">{{ errorRatio(host) }}%</span>
+              <span class="text-xs" :class="host.error_count ? 'text-t-orange' : 'text-t-fg-dark'"
+                >{{ errorRatio(host) }}%</span
+              >
             </td>
 
             <!-- Trend -->
             <td class="px-2 text-right">
-              <span class="text-xs" :class="trendColor(host.trend)">{{ trendArrow(host.trend) }} {{ Math.abs(host.trend).toFixed(0) }}%</span>
+              <span class="text-xs" :class="trendColor(host.trend)"
+                >{{ trendArrow(host.trend) }} {{ Math.abs(host.trend).toFixed(0) }}%</span
+              >
             </td>
 
             <!-- Activity sparkline -->
@@ -207,14 +240,19 @@ onUnmounted(() => store.stopRefresh())
                   :key="i"
                   class="w-1.5 rounded-t-sm"
                   :class="bar.hasErrors ? 'bg-t-red/60' : 'bg-t-teal/40'"
-                  :style="{ height: (bar.height * 100) + '%' }"
+                  :style="{ height: bar.height * 100 + '%' }"
                 ></div>
               </div>
             </td>
 
             <!-- Last seen -->
             <td class="px-2 pr-3 text-right">
-              <span v-if="host.last_seen_at" class="text-xs" :class="lastSeenColorClass(host.last_seen_at)">{{ formatRelativeTime(host.last_seen_at) }}</span>
+              <span
+                v-if="host.last_seen_at"
+                class="text-xs"
+                :class="lastSeenColorClass(host.last_seen_at)"
+                >{{ formatRelativeTime(host.last_seen_at) }}</span
+              >
               <span v-else class="text-t-fg-dark text-xs">&mdash;</span>
             </td>
           </tr>

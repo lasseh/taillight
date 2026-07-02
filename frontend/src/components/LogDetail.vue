@@ -126,19 +126,23 @@ function applyFilter(field: Field) {
       <RouterLink
         v-if="field.key === 'hostname'"
         :to="{ name: props.deviceRoute, params: { hostname: event.hostname } }"
-        class="min-w-0 break-all hover:underline" :class="fieldColor(field)"
+        class="min-w-0 break-all hover:underline"
+        :class="fieldColor(field)"
         @click.stop
       >
         {{ event.hostname || '–' }} →
       </RouterLink>
       <button
         v-else-if="field.filter"
-        class="min-w-0 break-all text-left cursor-pointer hover:underline" :class="fieldColor(field)"
+        class="min-w-0 break-all text-left cursor-pointer hover:underline"
+        :class="fieldColor(field)"
         @click.stop="applyFilter(field)"
       >
         {{ fieldValue(field) }}
       </button>
-      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{ fieldValue(field) }}</span>
+      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{
+        fieldValue(field)
+      }}</span>
     </div>
 
     <!-- message -->
@@ -146,6 +150,5 @@ function applyFilter(field: Field) {
       <span class="text-t-fg-dark w-24 shrink-0 text-right">message</span>
       <span class="text-t-fg min-w-0 break-all font-mono text-xs" v-html="highlightedMsg"></span>
     </div>
-
   </div>
 </template>

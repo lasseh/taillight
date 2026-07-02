@@ -23,9 +23,7 @@ const sevClass = computed(() =>
   event.value ? (severityColorClass[event.value.severity] ?? 'text-t-fg') : 'text-t-fg',
 )
 
-const highlightedMsg = computed(() =>
-  event.value ? highlight(event.value.message) : '',
-)
+const highlightedMsg = computed(() => (event.value ? highlight(event.value.message) : ''))
 
 const highlightedRaw = computed(() =>
   event.value?.raw_message ? highlight(event.value.raw_message) : '',
@@ -42,38 +40,42 @@ function onCopy(ev: ClipboardEvent) {
 
 let fetchVersion = 0
 
-watch(() => props.id, async (id) => {
-  const version = ++fetchVersion
-  event.value = null
-  loading.value = true
-  error.value = null
-  errorStatus.value = null
+watch(
+  () => props.id,
+  async (id) => {
+    const version = ++fetchVersion
+    event.value = null
+    loading.value = true
+    error.value = null
+    errorStatus.value = null
 
-  const numId = Number(id)
-  if (!Number.isInteger(numId) || numId <= 0) {
-    errorStatus.value = 404
-    error.value = `srvlog #${id} does not exist`
-    loading.value = false
-    return
-  }
-  try {
-    const res = await api.getSrvlog(numId)
-    if (version !== fetchVersion) return
-    event.value = res.data
-  } catch (e) {
-    if (version !== fetchVersion) return
-    if (e instanceof ApiError) {
-      errorStatus.value = e.status
-      error.value = e.message
-    } else {
-      error.value = e instanceof Error ? e.message : 'failed to load event'
-    }
-  } finally {
-    if (version === fetchVersion) {
+    const numId = Number(id)
+    if (!Number.isInteger(numId) || numId <= 0) {
+      errorStatus.value = 404
+      error.value = `srvlog #${id} does not exist`
       loading.value = false
+      return
     }
-  }
-}, { immediate: true })
+    try {
+      const res = await api.getSrvlog(numId)
+      if (version !== fetchVersion) return
+      event.value = res.data
+    } catch (e) {
+      if (version !== fetchVersion) return
+      if (e instanceof ApiError) {
+        errorStatus.value = e.status
+        error.value = e.message
+      } else {
+        error.value = e instanceof Error ? e.message : 'failed to load event'
+      }
+    } finally {
+      if (version === fetchVersion) {
+        loading.value = false
+      }
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -117,7 +119,10 @@ watch(() => props.id, async (id) => {
       <div v-else-if="event" class="mx-auto max-w-7xl space-y-4" @copy="onCopy">
         <!-- Header: severity + message -->
         <div class="bg-t-bg-dark rounded p-4">
-          <div class="mb-2" :data-copytext="`severity: ${event.severity_label} (${event.severity})`">
+          <div
+            class="mb-2"
+            :data-copytext="`severity: ${event.severity_label} (${event.severity})`"
+          >
             <span class="text-xs font-semibold uppercase" :class="sevClass">
               {{ event.severity_label }}
             </span>
@@ -131,19 +136,30 @@ watch(() => props.id, async (id) => {
 
         <!-- Metadata grid -->
         <div class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+          <h3
+            class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide"
+          >
             Details
           </h3>
           <div class="divide-t-border divide-y text-sm">
-            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`received: ${formatDateTime(event.received_at)}`">
+            <div
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`received: ${formatDateTime(event.received_at)}`"
+            >
               <span class="text-t-fg-dark w-24 shrink-0 text-right">received</span>
               <span class="text-t-fg font-mono">{{ formatDateTime(event.received_at) }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`reported: ${formatDateTime(event.reported_at)}`">
+            <div
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`reported: ${formatDateTime(event.reported_at)}`"
+            >
               <span class="text-t-fg-dark w-24 shrink-0 text-right">reported</span>
               <span class="text-t-fg font-mono">{{ formatDateTime(event.reported_at) }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`hostname: ${event.hostname || '–'}`">
+            <div
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`hostname: ${event.hostname || '–'}`"
+            >
               <span class="text-t-fg-dark w-24 shrink-0 text-right">hostname</span>
               <RouterLink
                 :to="{ name: 'srvlog-device-detail', params: { hostname: event.hostname } }"
@@ -156,7 +172,10 @@ watch(() => props.id, async (id) => {
               <span class="text-t-fg-dark w-24 shrink-0 text-right">ip</span>
               <span class="text-t-blue font-mono">{{ event.fromhost_ip || '–' }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`program: ${event.programname || '–'}`">
+            <div
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`program: ${event.programname || '–'}`"
+            >
               <span class="text-t-fg-dark w-24 shrink-0 text-right">program</span>
               <span class="text-t-purple font-mono">{{ event.programname || '–' }}</span>
             </div>
@@ -164,31 +183,46 @@ watch(() => props.id, async (id) => {
               <span class="text-t-fg-dark w-24 shrink-0 text-right">msgid</span>
               <span class="text-t-fg font-mono">{{ event.msgid || '–' }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`severity: ${event.severity_label} (${event.severity})`">
+            <div
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`severity: ${event.severity_label} (${event.severity})`"
+            >
               <span class="text-t-fg-dark w-24 shrink-0 text-right">severity</span>
-              <span class="font-mono" :class="sevClass">{{ event.severity_label }} ({{ event.severity }})</span>
+              <span class="font-mono" :class="sevClass"
+                >{{ event.severity_label }} ({{ event.severity }})</span
+              >
             </div>
-            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`facility: ${event.facility_label} (${event.facility})`">
+            <div
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`facility: ${event.facility_label} (${event.facility})`"
+            >
               <span class="text-t-fg-dark w-24 shrink-0 text-right">facility</span>
-              <span class="text-t-orange font-mono">{{ event.facility_label }} ({{ event.facility }})</span>
+              <span class="text-t-orange font-mono"
+                >{{ event.facility_label }} ({{ event.facility }})</span
+              >
             </div>
           </div>
         </div>
 
         <!-- Structured data -->
         <div v-if="event.structured_data" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+          <h3
+            class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide"
+          >
             Structured Data
           </h3>
           <pre
             class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed"
             :data-copytext="`structured data: ${event.structured_data}`"
-          >{{ event.structured_data }}</pre>
+            >{{ event.structured_data }}</pre
+          >
         </div>
 
         <!-- Raw message -->
         <div v-if="event.raw_message" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+          <h3
+            class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide"
+          >
             Raw Message
           </h3>
           <pre

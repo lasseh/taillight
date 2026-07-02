@@ -11,16 +11,23 @@ function matchesFilters(event: AppLogEvent, filters: Record<string, string>): bo
   if (filters.service && event.service !== filters.service) return false
   if (filters.component && event.component !== filters.component) return false
   if (filters.host) {
-    if (filters.host.includes('*') ? !wildcardMatch(event.host, filters.host) : event.host !== filters.host) return false
+    if (
+      filters.host.includes('*')
+        ? !wildcardMatch(event.host, filters.host)
+        : event.host !== filters.host
+    )
+      return false
   }
-  if (filters.level_exact && event.level.toUpperCase() !== filters.level_exact.toUpperCase()) return false
+  if (filters.level_exact && event.level.toUpperCase() !== filters.level_exact.toUpperCase())
+    return false
   // Level filter: include events at or above the selected level (lower rank = more severe).
   if (filters.level) {
     const filterRank = LEVEL_RANK[filters.level] ?? 99
     const eventRank = LEVEL_RANK[event.level] ?? 99
     if (eventRank > filterRank) return false
   }
-  if (filters.search && !event.msg.toLowerCase().includes(filters.search.toLowerCase())) return false
+  if (filters.search && !event.msg.toLowerCase().includes(filters.search.toLowerCase()))
+    return false
   return true
 }
 

@@ -70,9 +70,19 @@ function exportCSV() {
     @click="mobileOpen = !mobileOpen"
   >
     <div class="flex flex-1 items-center gap-2">
-      <svg class="text-t-fg-dark h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+      <svg
+        class="text-t-fg-dark h-3.5 w-3.5"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+      </svg>
       <span class="text-t-fg-dark text-xs">filters</span>
-      <span v-if="activeFilterCount" class="bg-t-blue/20 text-t-blue rounded-full px-1.5 text-xs">{{ activeFilterCount }}</span>
+      <span v-if="activeFilterCount" class="bg-t-blue/20 text-t-blue rounded-full px-1.5 text-xs">{{
+        activeFilterCount
+      }}</span>
     </div>
     <div class="flex items-center gap-3">
       <button
@@ -104,17 +114,37 @@ function exportCSV() {
 
   <!-- Mobile filter panel -->
   <Transition name="filter-panel">
-    <div v-if="mobileOpen" class="border-t-border bg-t-bg-dark flex flex-col gap-3 border-b px-4 py-2 md:hidden">
+    <div
+      v-if="mobileOpen"
+      class="border-t-border bg-t-bg-dark flex flex-col gap-3 border-b px-4 py-2 md:hidden"
+    >
       <DateRangePicker
         :from="filterStore.filters.from"
         :to="filterStore.filters.to"
         @update:from="filterStore.filters.from = $event"
         @update:to="filterStore.filters.to = $event"
       />
-      <FilterSelect v-model="filterStore.filters.severity_max" label="severity" :options="severityOptions" />
-      <FilterSelect v-model="filterStore.filters.hostname" label="host" :options="hostOptions" searchable />
-      <FilterSelect v-model="filterStore.filters.programname" label="program" :options="programOptions" />
-      <FilterSelect v-model="filterStore.filters.facility" label="facility" :options="facilityOptions" />
+      <FilterSelect
+        v-model="filterStore.filters.severity_max"
+        label="severity"
+        :options="severityOptions"
+      />
+      <FilterSelect
+        v-model="filterStore.filters.hostname"
+        label="host"
+        :options="hostOptions"
+        searchable
+      />
+      <FilterSelect
+        v-model="filterStore.filters.programname"
+        label="program"
+        :options="programOptions"
+      />
+      <FilterSelect
+        v-model="filterStore.filters.facility"
+        label="facility"
+        :options="facilityOptions"
+      />
       <label class="flex items-center gap-1">
         <span class="text-t-fg-dark text-xs">search</span>
         <input
@@ -135,17 +165,36 @@ function exportCSV() {
   </Transition>
 
   <!-- Desktop filter bar -->
-  <div class="border-t-border bg-t-bg-dark hidden flex-wrap items-center gap-3 border-b px-4 py-1.5 md:flex">
+  <div
+    class="border-t-border bg-t-bg-dark hidden flex-wrap items-center gap-3 border-b px-4 py-1.5 md:flex"
+  >
     <DateRangePicker
       :from="filterStore.filters.from"
       :to="filterStore.filters.to"
       @update:from="filterStore.filters.from = $event"
       @update:to="filterStore.filters.to = $event"
     />
-    <FilterSelect v-model="filterStore.filters.severity_max" label="severity" :options="severityOptions" />
-    <FilterSelect v-model="filterStore.filters.hostname" label="host" :options="hostOptions" searchable />
-    <FilterSelect v-model="filterStore.filters.programname" label="program" :options="programOptions" />
-    <FilterSelect v-model="filterStore.filters.facility" label="facility" :options="facilityOptions" />
+    <FilterSelect
+      v-model="filterStore.filters.severity_max"
+      label="severity"
+      :options="severityOptions"
+    />
+    <FilterSelect
+      v-model="filterStore.filters.hostname"
+      label="host"
+      :options="hostOptions"
+      searchable
+    />
+    <FilterSelect
+      v-model="filterStore.filters.programname"
+      label="program"
+      :options="programOptions"
+    />
+    <FilterSelect
+      v-model="filterStore.filters.facility"
+      label="facility"
+      :options="facilityOptions"
+    />
     <label class="flex items-center gap-1">
       <span class="text-t-fg-dark text-xs">search</span>
       <input
@@ -166,7 +215,11 @@ function exportCSV() {
       clear
     </button>
 
-    <span v-if="filterStore.filters.hostname && !filterStore.filters.hostname.includes('*')" class="text-t-fg-dark text-xs">-</span>
+    <span
+      v-if="filterStore.filters.hostname && !filterStore.filters.hostname.includes('*')"
+      class="text-t-fg-dark text-xs"
+      >-</span
+    >
     <RouterLink
       v-if="filterStore.filters.hostname && !filterStore.filters.hostname.includes('*')"
       :to="{ name: props.deviceRoute, params: { hostname: filterStore.filters.hostname } }"
@@ -189,7 +242,9 @@ function exportCSV() {
 <style scoped>
 .filter-panel-enter-active,
 .filter-panel-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
   transform-origin: top;
 }
 .filter-panel-enter-from,

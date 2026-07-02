@@ -13,11 +13,7 @@ export const useMetaStore = defineStore('meta', () => {
     loading.value = true
     error.value = null
     try {
-      const [h, p, f] = await Promise.all([
-        api.getHosts(),
-        api.getPrograms(),
-        api.getFacilities(),
-      ])
+      const [h, p, f] = await Promise.all([api.getHosts(), api.getPrograms(), api.getFacilities()])
       hosts.value = h.data
       programs.value = p.data
       facilities.value = f.data

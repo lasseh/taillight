@@ -1,10 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
-import type {
-  RsyslogStatsSummary,
-  RsyslogStatsTimeSeries,
-} from '@/types/rsyslog-stats'
+import type { RsyslogStatsSummary, RsyslogStatsTimeSeries } from '@/types/rsyslog-stats'
 import type { SimplePoint } from '@/types/chart'
 
 const REFRESH_INTERVAL = 60_000 // 60 seconds

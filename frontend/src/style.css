@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme {
   /* Color palette (default: Tokyo Night) */
@@ -41,8 +41,9 @@
   --color-t-border: #292e42;
 
   /* Font */
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono",
-    Menlo, Consolas, "Liberation Mono", monospace;
+  --font-mono:
+    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
 
   /* Layout */
   --header-h: 2.25rem;
@@ -95,7 +96,7 @@ select {
 }
 
 /* ── Tokyo Night Storm ── */
-[data-theme="tokyonight-storm"] {
+[data-theme='tokyonight-storm'] {
   --color-t-bg: #24283b;
   --color-t-bg-dark: #1f2335;
   --color-t-bg-highlight: #292e42;
@@ -118,7 +119,7 @@ select {
 }
 
 /* ── Tokyo Night Moon ── */
-[data-theme="tokyonight-moon"] {
+[data-theme='tokyonight-moon'] {
   --color-t-bg: #222436;
   --color-t-bg-dark: #1e2030;
   --color-t-bg-highlight: #2f334d;
@@ -151,7 +152,7 @@ select {
 }
 
 /* ── Tokyo Night Day ── */
-[data-theme="tokyonight-day"] {
+[data-theme='tokyonight-day'] {
   --color-t-bg: #f0f1f5;
   --color-t-bg-dark: #ffffff;
   --color-t-bg-highlight: #dce0f5;
@@ -184,7 +185,7 @@ select {
 }
 
 /* ── Dracula ── */
-[data-theme="dracula"] {
+[data-theme='dracula'] {
   --color-t-bg: #282a36;
   --color-t-bg-dark: #21222c;
   --color-t-bg-highlight: #44475a;
@@ -217,7 +218,7 @@ select {
 }
 
 /* ── Catppuccin Mocha ── */
-[data-theme="catppuccin"] {
+[data-theme='catppuccin'] {
   --color-t-bg: #1e1e2e;
   --color-t-bg-dark: #181825;
   --color-t-bg-highlight: #45475a;
@@ -250,7 +251,7 @@ select {
 }
 
 /* ── Catppuccin Macchiato ── */
-[data-theme="catppuccin-macchiato"] {
+[data-theme='catppuccin-macchiato'] {
   --color-t-bg: #24273a;
   --color-t-bg-dark: #1e2030;
   --color-t-bg-highlight: #494d64;
@@ -283,7 +284,7 @@ select {
 }
 
 /* ── Catppuccin Frappé ── */
-[data-theme="catppuccin-frappe"] {
+[data-theme='catppuccin-frappe'] {
   --color-t-bg: #303446;
   --color-t-bg-dark: #292c3c;
   --color-t-bg-highlight: #51576d;
@@ -316,7 +317,7 @@ select {
 }
 
 /* ── Catppuccin Latte ── */
-[data-theme="catppuccin-latte"] {
+[data-theme='catppuccin-latte'] {
   --color-t-bg: #eff0f5;
   --color-t-bg-dark: #ffffff;
   --color-t-bg-highlight: #dce0ec;
@@ -349,7 +350,7 @@ select {
 }
 
 /* ── One Dark ── */
-[data-theme="onedark"] {
+[data-theme='onedark'] {
   --color-t-bg: #282c34;
   --color-t-bg-dark: #21252b;
   --color-t-bg-highlight: #3e4452;
@@ -382,7 +383,7 @@ select {
 }
 
 /* ── Solarized Dark ── */
-[data-theme="solarized"] {
+[data-theme='solarized'] {
   --color-t-bg: #002b36;
   --color-t-bg-dark: #00212b;
   --color-t-bg-highlight: #073642;
@@ -415,7 +416,7 @@ select {
 }
 
 /* ── Monokai ── */
-[data-theme="monokai"] {
+[data-theme='monokai'] {
   --color-t-bg: #272822;
   --color-t-bg-dark: #1e1f1c;
   --color-t-bg-highlight: #3e3d32;
@@ -448,7 +449,7 @@ select {
 }
 
 /* ── Nord ── */
-[data-theme="nord"] {
+[data-theme='nord'] {
   --color-t-bg: #2e3440;
   --color-t-bg-dark: #272c36;
   --color-t-bg-highlight: #434c5e;
@@ -481,7 +482,7 @@ select {
 }
 
 /* ── Gruvbox Dark ── */
-[data-theme="gruvbox"] {
+[data-theme='gruvbox'] {
   --color-t-bg: #282828;
   --color-t-bg-dark: #1d2021;
   --color-t-bg-highlight: #3c3836;
@@ -514,7 +515,7 @@ select {
 }
 
 /* ── Rosé Pine ── */
-[data-theme="rosepine"] {
+[data-theme='rosepine'] {
   --color-t-bg: #191724;
   --color-t-bg-dark: #13111e;
   --color-t-bg-highlight: #26233a;
@@ -547,7 +548,7 @@ select {
 }
 
 /* ── GitHub Light ── */
-[data-theme="light"] {
+[data-theme='light'] {
   --color-t-bg: #f4f5f7;
   --color-t-bg-dark: #ffffff;
   --color-t-bg-highlight: #dce4ed;
@@ -579,7 +580,7 @@ select {
   --color-sev-bg-crit: #bc4c0022;
 }
 
-[data-theme="synthwave84"] {
+[data-theme='synthwave84'] {
   --color-t-bg: #262335;
   --color-t-bg-dark: #171520;
   --color-t-bg-highlight: #37294d;
@@ -603,7 +604,7 @@ select {
   --color-sev-bg-crit: #fe445012;
 }
 
-[data-theme="onelight"] {
+[data-theme='onelight'] {
   --color-t-bg: #f2f2f4;
   --color-t-bg-dark: #ffffff;
   --color-t-bg-highlight: #e2e3e8;
@@ -635,7 +636,7 @@ select {
   --color-sev-bg-crit: #e4564922;
 }
 
-[data-theme="winter"] {
+[data-theme='winter'] {
   --color-t-bg: #f1f5f8;
   --color-t-bg-dark: #ffffff;
   --color-t-bg-highlight: #d8e8f4;
@@ -683,8 +684,12 @@ select {
 /* Shared highlight flash for freshly-arrived rows (used from scoped styles;
    unrewritten keyframe references fall through to this global definition). */
 @keyframes row-flash {
-  0% { background-color: var(--color-t-bg-highlight); }
-  100% { background-color: transparent; }
+  0% {
+    background-color: var(--color-t-bg-highlight);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 
 /* Respect the user's reduced-motion preference: near-instant animations and

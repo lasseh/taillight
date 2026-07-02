@@ -2,12 +2,42 @@ import type { SrvlogListResponse, MetaResponse, SingleSrvlogResponse } from '@/t
 import type { NetlogListResponse, SingleNetlogResponse } from '@/types/netlog'
 import type { NetboxEnrichmentResponse } from '@/types/netbox'
 import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
-import type { VolumeResponse, SeverityVolumeResponse, SrvlogSummaryResponse, AppLogSummaryResponse } from '@/types/stats'
+import type {
+  VolumeResponse,
+  SeverityVolumeResponse,
+  SrvlogSummaryResponse,
+  AppLogSummaryResponse,
+} from '@/types/stats'
 import type { RsyslogStatsSummaryResponse, RsyslogStatsVolumeResponse } from '@/types/rsyslog-stats'
-import type { TaillightMetricsSummaryResponse, TaillightMetricsVolumeResponse } from '@/types/taillight-metrics'
-import type { LoginResponse, MeResponse, ListKeysResponse, CreateKeyRequest, CreateKeyResponse, ListUsersResponse, AdminUser, UserPreferences } from '@/types/auth'
-import type { ChannelListResponse, ChannelResponse, RuleListResponse, RuleResponse, LogListResponse, TestChannelResult, NotificationChannel, NotificationRule } from '@/types/notification'
-import type { SummaryScheduleListResponse, SummaryScheduleResponse, SummarySchedule } from '@/types/summary'
+import type {
+  TaillightMetricsSummaryResponse,
+  TaillightMetricsVolumeResponse,
+} from '@/types/taillight-metrics'
+import type {
+  LoginResponse,
+  MeResponse,
+  ListKeysResponse,
+  CreateKeyRequest,
+  CreateKeyResponse,
+  ListUsersResponse,
+  AdminUser,
+  UserPreferences,
+} from '@/types/auth'
+import type {
+  ChannelListResponse,
+  ChannelResponse,
+  RuleListResponse,
+  RuleResponse,
+  LogListResponse,
+  TestChannelResult,
+  NotificationChannel,
+  NotificationRule,
+} from '@/types/notification'
+import type {
+  SummaryScheduleListResponse,
+  SummaryScheduleResponse,
+  SummarySchedule,
+} from '@/types/summary'
 import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
 import type { HostsResponse } from '@/types/host'
 import type {
@@ -164,8 +194,15 @@ export const api = {
     return deleteAPI(`/api/v1/auth/keys/${id}`)
   },
 
-  updatePassword(id: string, password: string, currentPassword: string): Promise<{ status: string }> {
-    return patchAPI(`/api/v1/auth/users/${id}/password`, { password, current_password: currentPassword })
+  updatePassword(
+    id: string,
+    password: string,
+    currentPassword: string,
+  ): Promise<{ status: string }> {
+    return patchAPI(`/api/v1/auth/users/${id}/password`, {
+      password,
+      current_password: currentPassword,
+    })
   },
 
   updateEmail(email: string): Promise<MeResponse> {
@@ -181,7 +218,11 @@ export const api = {
     return fetchAPI('/api/v1/auth/users')
   },
 
-  createUser(req: { username: string; password: string; is_admin: boolean }): Promise<{ user: AdminUser }> {
+  createUser(req: {
+    username: string
+    password: string
+    is_admin: boolean
+  }): Promise<{ user: AdminUser }> {
     return postAPI('/api/v1/auth/users', req)
   },
 
@@ -441,7 +482,10 @@ export const api = {
     return postAPI('/api/v1/analysis/schedules', s)
   },
 
-  updateAnalysisSchedule(id: number, s: CreateAnalysisScheduleRequest): Promise<AnalysisScheduleResponse> {
+  updateAnalysisSchedule(
+    id: number,
+    s: CreateAnalysisScheduleRequest,
+  ): Promise<AnalysisScheduleResponse> {
     return putAPI(`/api/v1/analysis/schedules/${id}`, s)
   },
 

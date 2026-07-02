@@ -1,10 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
-import type {
-  TaillightMetricsSummary,
-  TaillightMetricsTimeSeries,
-} from '@/types/taillight-metrics'
+import type { TaillightMetricsSummary, TaillightMetricsTimeSeries } from '@/types/taillight-metrics'
 import type { SimplePoint } from '@/types/chart'
 
 const REFRESH_INTERVAL_IDLE = 60_000 // 60 seconds when tab inactive
@@ -64,11 +61,21 @@ export const useTaillightMetricsStore = defineStore('taillight-metrics', () => {
         dbPoolTotalRes,
       ] = await Promise.all([
         api.getTaillightMetricsSummary(range_.value),
-        api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'events_broadcast']])),
-        api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'applog_events_broadcast']])),
-        api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'sse_clients_srvlog']])),
-        api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'sse_clients_applog']])),
-        api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'db_pool_active']])),
+        api.getTaillightMetricsVolume(
+          new URLSearchParams([...params, ['field', 'events_broadcast']]),
+        ),
+        api.getTaillightMetricsVolume(
+          new URLSearchParams([...params, ['field', 'applog_events_broadcast']]),
+        ),
+        api.getTaillightMetricsVolume(
+          new URLSearchParams([...params, ['field', 'sse_clients_srvlog']]),
+        ),
+        api.getTaillightMetricsVolume(
+          new URLSearchParams([...params, ['field', 'sse_clients_applog']]),
+        ),
+        api.getTaillightMetricsVolume(
+          new URLSearchParams([...params, ['field', 'db_pool_active']]),
+        ),
         api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'db_pool_idle']])),
         api.getTaillightMetricsVolume(new URLSearchParams([...params, ['field', 'db_pool_total']])),
       ])

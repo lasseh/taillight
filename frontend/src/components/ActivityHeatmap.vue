@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-const props = withDefaults(defineProps<{
-  /** Map of "YYYY-MM-DD HH:mm" to count (30-min buckets, e.g. "2026-02-19 14:00") */
-  data: Record<string, number>
-  /** CSS color variable name for the heatmap accent */
-  colorVar?: string
-  /** Label shown in tooltip */
-  label?: string
-}>(), {
-  colorVar: '--color-t-teal',
-  label: 'events',
-})
+const props = withDefaults(
+  defineProps<{
+    /** Map of "YYYY-MM-DD HH:mm" to count (30-min buckets, e.g. "2026-02-19 14:00") */
+    data: Record<string, number>
+    /** CSS color variable name for the heatmap accent */
+    colorVar?: string
+    /** Label shown in tooltip */
+    label?: string
+  }>(),
+  {
+    colorVar: '--color-t-teal',
+    label: 'events',
+  },
+)
 
 // ── Calendar heatmap: 48 columns (00:00–23:30) × 7 rows (full days) ──
 // Each row is one calendar day. Today's future slots are dimmed.
@@ -22,11 +25,11 @@ const SLOT_MS = 30 * 60 * 1000
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 interface Cell {
-  key: string        // "YYYY-MM-DD HH:mm"
+  key: string // "YYYY-MM-DD HH:mm"
   count: number
-  level: number      // 0-4, or -1 for future slots
-  row: number        // 0-6
-  col: number        // 0-47
+  level: number // 0-4, or -1 for future slots
+  row: number // 0-6
+  col: number // 0-47
   tipText: string
 }
 
@@ -76,10 +79,10 @@ const grid = computed(() => {
   }
 
   // Percentile-based levels (GitHub style) — only for non-future cells
-  const nonZero = counts.filter(c => c > 0).sort((a, b) => a - b)
+  const nonZero = counts.filter((c) => c > 0).sort((a, b) => a - b)
   if (nonZero.length > 0) {
     const p25 = nonZero[Math.floor(nonZero.length * 0.25)] ?? 1
-    const p50 = nonZero[Math.floor(nonZero.length * 0.50)] ?? 1
+    const p50 = nonZero[Math.floor(nonZero.length * 0.5)] ?? 1
     const p75 = nonZero[Math.floor(nonZero.length * 0.75)] ?? 1
     for (const cell of cells) {
       if (cell.level === -1) continue // skip future
@@ -145,7 +148,8 @@ function hideTooltip() {
         :key="h.col"
         class="text-t-fg-dark text-[10px]"
         :style="{ gridColumnStart: h.col + 1 }"
-      >{{ h.label }}</span>
+        >{{ h.label }}</span
+      >
     </div>
 
     <div class="flex gap-2">
@@ -178,11 +182,31 @@ function hideTooltip() {
     <div class="mt-2 flex items-center justify-end">
       <div class="flex items-center gap-1">
         <span class="text-t-fg-dark text-[10px]">Less</span>
-        <div class="heatmap-cell legend" data-level="0" :style="{ '--heatmap-color': `var(${colorVar})` }"></div>
-        <div class="heatmap-cell legend" data-level="1" :style="{ '--heatmap-color': `var(${colorVar})` }"></div>
-        <div class="heatmap-cell legend" data-level="2" :style="{ '--heatmap-color': `var(${colorVar})` }"></div>
-        <div class="heatmap-cell legend" data-level="3" :style="{ '--heatmap-color': `var(${colorVar})` }"></div>
-        <div class="heatmap-cell legend" data-level="4" :style="{ '--heatmap-color': `var(${colorVar})` }"></div>
+        <div
+          class="heatmap-cell legend"
+          data-level="0"
+          :style="{ '--heatmap-color': `var(${colorVar})` }"
+        ></div>
+        <div
+          class="heatmap-cell legend"
+          data-level="1"
+          :style="{ '--heatmap-color': `var(${colorVar})` }"
+        ></div>
+        <div
+          class="heatmap-cell legend"
+          data-level="2"
+          :style="{ '--heatmap-color': `var(${colorVar})` }"
+        ></div>
+        <div
+          class="heatmap-cell legend"
+          data-level="3"
+          :style="{ '--heatmap-color': `var(${colorVar})` }"
+        ></div>
+        <div
+          class="heatmap-cell legend"
+          data-level="4"
+          :style="{ '--heatmap-color': `var(${colorVar})` }"
+        ></div>
         <span class="text-t-fg-dark text-[10px]">More</span>
       </div>
     </div>
@@ -262,27 +286,27 @@ function hideTooltip() {
 }
 
 /* Intensity levels */
-.heatmap-cell[data-level="-1"] {
+.heatmap-cell[data-level='-1'] {
   background-color: transparent;
 }
 
-.heatmap-cell[data-level="0"] {
+.heatmap-cell[data-level='0'] {
   background-color: var(--color-t-bg-highlight);
 }
 
-.heatmap-cell[data-level="1"] {
+.heatmap-cell[data-level='1'] {
   background-color: color-mix(in srgb, var(--heatmap-color) 25%, var(--color-t-bg-highlight));
 }
 
-.heatmap-cell[data-level="2"] {
+.heatmap-cell[data-level='2'] {
   background-color: color-mix(in srgb, var(--heatmap-color) 50%, var(--color-t-bg-highlight));
 }
 
-.heatmap-cell[data-level="3"] {
+.heatmap-cell[data-level='3'] {
   background-color: color-mix(in srgb, var(--heatmap-color) 75%, var(--color-t-bg-highlight));
 }
 
-.heatmap-cell[data-level="4"] {
+.heatmap-cell[data-level='4'] {
   background-color: var(--heatmap-color);
 }
 </style>

@@ -15,27 +15,26 @@ export function useNewFlash<T extends { id: number }>(source: Ref<T[]> | (() => 
   let ready = false
   let readyTimer: ReturnType<typeof setTimeout> | null = null
 
-  watch(
-    typeof source === 'function' ? source : () => source.value,
-    (curr, prev) => {
-      if (!ready) {
-        if (curr.length > 0 && !readyTimer) {
-          readyTimer = setTimeout(() => { ready = true }, GRACE_PERIOD)
-        }
-        return
+  watch(typeof source === 'function' ? source : () => source.value, (curr, prev) => {
+    if (!ready) {
+      if (curr.length > 0 && !readyTimer) {
+        readyTimer = setTimeout(() => {
+          ready = true
+        }, GRACE_PERIOD)
       }
-      const prevIds = new Set((prev ?? []).map(e => e.id))
-      for (const e of curr) {
-        if (!prevIds.has(e.id)) {
-          ids.add(e.id)
-          timers[e.id] = setTimeout(() => {
-            ids.delete(e.id)
-            delete timers[e.id]
-          }, FLASH_DURATION)
-        }
+      return
+    }
+    const prevIds = new Set((prev ?? []).map((e) => e.id))
+    for (const e of curr) {
+      if (!prevIds.has(e.id)) {
+        ids.add(e.id)
+        timers[e.id] = setTimeout(() => {
+          ids.delete(e.id)
+          delete timers[e.id]
+        }, FLASH_DURATION)
       }
-    },
-  )
+    }
+  })
 
   /** Re-enter the grace period so the next data swap doesn't flash. */
   function reset() {

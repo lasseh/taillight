@@ -39,13 +39,17 @@ const deleteError = ref('')
 const testing = ref<number | null>(null)
 const testResult = ref<{ channelId: number; success: boolean; message: string } | null>(null)
 
-const enabledChannels = computed(() => channels.value.filter(c => c.enabled))
-const disabledChannels = computed(() => channels.value.filter(c => !c.enabled))
+const enabledChannels = computed(() => channels.value.filter((c) => c.enabled))
+const disabledChannels = computed(() => channels.value.filter((c) => !c.enabled))
 
 function formatDate(ts: string): string {
   return new Date(ts).toLocaleString(undefined, {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
   })
 }
 
@@ -124,7 +128,10 @@ function buildConfig(): Record<string, unknown> {
     return { webhook_url: formWebhookURL.value }
   }
   if (formType.value === 'email') {
-    const to = formEmailTo.value.split(',').map(s => s.trim()).filter(Boolean)
+    const to = formEmailTo.value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
     const cfg: Record<string, unknown> = { to }
     if (formEmailSubjectTemplate.value.trim()) {
       cfg.subject_template = formEmailSubjectTemplate.value
@@ -166,7 +173,10 @@ async function saveChannel() {
     return
   }
   if (formType.value === 'email') {
-    const to = formEmailTo.value.split(',').map(s => s.trim()).filter(Boolean)
+    const to = formEmailTo.value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
     if (to.length === 0) {
       saveError.value = 'at least one email address is required'
       return
@@ -196,7 +206,7 @@ async function saveChannel() {
 
     if (editing.value) {
       const res = await api.updateChannel(editing.value.id, body)
-      const idx = channels.value.findIndex(c => c.id === editing.value!.id)
+      const idx = channels.value.findIndex((c) => c.id === editing.value!.id)
       if (idx >= 0) channels.value[idx] = res.data
     } else {
       const res = await api.createChannel(body)
@@ -214,7 +224,7 @@ async function deleteChannel(id: number) {
   deleteError.value = ''
   try {
     await api.deleteChannel(id)
-    channels.value = channels.value.filter(c => c.id !== id)
+    channels.value = channels.value.filter((c) => c.id !== id)
   } catch (e) {
     deleteError.value = e instanceof ApiError ? e.message : 'Failed to delete channel'
   }
@@ -229,9 +239,7 @@ async function testChannel(id: number) {
     testResult.value = {
       channelId: id,
       success: res.success,
-      message: res.success
-        ? `OK (${res.duration_ms}ms)`
-        : res.error || `HTTP ${res.status_code}`,
+      message: res.success ? `OK (${res.duration_ms}ms)` : res.error || `HTTP ${res.status_code}`,
     }
   } catch (e) {
     testResult.value = {
@@ -278,7 +286,10 @@ onMounted(fetchChannels)
         </div>
 
         <!-- Table header -->
-        <div v-if="channels.length > 0" class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider">
+        <div
+          v-if="channels.length > 0"
+          class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider"
+        >
           <span class="w-8 shrink-0"></span>
           <span class="w-48 shrink-0">Name</span>
           <span class="w-28 shrink-0">Type</span>
@@ -307,13 +318,23 @@ onMounted(fetchChannels)
             <div class="w-28 shrink-0">
               <span
                 class="inline-block rounded px-1.5 py-0.5 text-xs uppercase"
-                :class="ch.type === 'slack' ? 'bg-t-purple/10 text-t-purple' : ch.type === 'email' ? 'bg-t-green/10 text-t-green' : ch.type === 'ntfy' ? 'bg-t-teal/10 text-t-teal' : 'bg-t-blue/10 text-t-blue'"
+                :class="
+                  ch.type === 'slack'
+                    ? 'bg-t-purple/10 text-t-purple'
+                    : ch.type === 'email'
+                      ? 'bg-t-green/10 text-t-green'
+                      : ch.type === 'ntfy'
+                        ? 'bg-t-teal/10 text-t-teal'
+                        : 'bg-t-blue/10 text-t-blue'
+                "
               >
                 {{ typeLabel(ch.type) }}
               </span>
             </div>
             <div class="w-36 shrink-0">
-              <span class="text-t-fg-dark" :title="formatDate(ch.updated_at)">{{ formatDate(ch.updated_at) }}</span>
+              <span class="text-t-fg-dark" :title="formatDate(ch.updated_at)">{{
+                formatDate(ch.updated_at)
+              }}</span>
             </div>
             <div class="min-w-0 flex-1">
               <!-- Test result -->
@@ -348,8 +369,18 @@ onMounted(fetchChannels)
                 </button>
               </template>
               <template v-else>
-                <button class="text-t-red hover:brightness-125 text-xs font-semibold" @click="deleteChannel(ch.id)">yes</button>
-                <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="confirmDelete = null">no</button>
+                <button
+                  class="text-t-red hover:brightness-125 text-xs font-semibold"
+                  @click="deleteChannel(ch.id)"
+                >
+                  yes
+                </button>
+                <button
+                  class="text-t-fg-dark hover:text-t-fg text-xs"
+                  @click="confirmDelete = null"
+                >
+                  no
+                </button>
               </template>
             </div>
           </div>
@@ -358,10 +389,7 @@ onMounted(fetchChannels)
         <!-- Empty state -->
         <div v-if="channels.length === 0" class="px-5 py-10 text-center">
           <p class="text-t-fg-dark text-sm">no notification channels configured</p>
-          <button
-            class="text-t-yellow mt-2 text-sm hover:brightness-125"
-            @click="openCreate"
-          >
+          <button class="text-t-yellow mt-2 text-sm hover:brightness-125" @click="openCreate">
             add your first channel
           </button>
         </div>
@@ -376,11 +404,18 @@ onMounted(fetchChannels)
           class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-20"
           @click.self="closeModal"
         >
-          <div ref="modalEl" class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl">
+          <div
+            ref="modalEl"
+            class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl"
+          >
             <!-- Modal header -->
             <div class="border-t-border flex items-center justify-between border-b px-5 py-3">
-              <h3 class="text-t-fg text-sm font-semibold">{{ editing ? 'Edit Channel' : 'Add Channel' }}</h3>
-              <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="closeModal">close</button>
+              <h3 class="text-t-fg text-sm font-semibold">
+                {{ editing ? 'Edit Channel' : 'Add Channel' }}
+              </h3>
+              <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="closeModal">
+                close
+              </button>
             </div>
 
             <!-- Modal body -->
@@ -402,7 +437,11 @@ onMounted(fetchChannels)
                 <div class="mt-1.5 flex gap-2">
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formType === 'slack' ? 'border-t-yellow text-t-yellow' : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'"
+                    :class="
+                      formType === 'slack'
+                        ? 'border-t-yellow text-t-yellow'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
+                    "
                     :disabled="!!editing"
                     @click="formType = 'slack'"
                   >
@@ -410,7 +449,11 @@ onMounted(fetchChannels)
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formType === 'webhook' ? 'border-t-yellow text-t-yellow' : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'"
+                    :class="
+                      formType === 'webhook'
+                        ? 'border-t-yellow text-t-yellow'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
+                    "
                     :disabled="!!editing"
                     @click="formType = 'webhook'"
                   >
@@ -418,7 +461,11 @@ onMounted(fetchChannels)
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formType === 'ntfy' ? 'border-t-yellow text-t-yellow' : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'"
+                    :class="
+                      formType === 'ntfy'
+                        ? 'border-t-yellow text-t-yellow'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
+                    "
                     :disabled="!!editing"
                     @click="formType = 'ntfy'"
                   >
@@ -426,7 +473,11 @@ onMounted(fetchChannels)
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formType === 'email' ? 'border-t-yellow text-t-yellow' : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'"
+                    :class="
+                      formType === 'email'
+                        ? 'border-t-yellow text-t-yellow'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg hover:border-t-fg-dark'
+                    "
                     :disabled="!!editing"
                     @click="formType = 'email'"
                   >
@@ -452,7 +503,10 @@ onMounted(fetchChannels)
                     class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-3 py-2 text-sm outline-none"
                   />
                 </label>
-                <p class="text-t-fg-gutter text-xs">The webhook is tied to the channel you selected when creating it in Slack. To send to a different channel, create a separate webhook.</p>
+                <p class="text-t-fg-gutter text-xs">
+                  The webhook is tied to the channel you selected when creating it in Slack. To send
+                  to a different channel, create a separate webhook.
+                </p>
               </template>
 
               <!-- ntfy config -->
@@ -476,7 +530,9 @@ onMounted(fetchChannels)
                   />
                 </label>
                 <label class="block">
-                  <span class="text-t-fg-dark text-sm">Token <span class="text-t-fg-gutter">(optional)</span></span>
+                  <span class="text-t-fg-dark text-sm"
+                    >Token <span class="text-t-fg-gutter">(optional)</span></span
+                  >
                   <input
                     v-model="formNtfyToken"
                     type="password"
@@ -484,7 +540,10 @@ onMounted(fetchChannels)
                     class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-3 py-2 text-sm outline-none"
                   />
                 </label>
-                <p class="text-t-fg-gutter text-xs">Priority is automatically mapped from the event severity. Use a self-hosted server or ntfy.sh.</p>
+                <p class="text-t-fg-gutter text-xs">
+                  Priority is automatically mapped from the event severity. Use a self-hosted server
+                  or ntfy.sh.
+                </p>
               </template>
 
               <!-- Email config -->
@@ -500,16 +559,22 @@ onMounted(fetchChannels)
                   <p class="text-t-fg-gutter mt-1 text-xs">comma-separated email addresses</p>
                 </label>
                 <label class="block">
-                  <span class="text-t-fg-dark text-sm">Subject Template <span class="text-t-fg-gutter">(optional)</span></span>
+                  <span class="text-t-fg-dark text-sm"
+                    >Subject Template <span class="text-t-fg-gutter">(optional)</span></span
+                  >
                   <input
                     v-model="formEmailSubjectTemplate"
                     type="text"
                     placeholder="[Taillight] {{.RuleName}}"
                     class="bg-t-bg border-t-border text-t-fg placeholder:text-t-fg-gutter focus:border-t-yellow mt-1 block w-full border px-3 py-2 font-mono text-sm outline-none"
                   />
-                  <p class="text-t-fg-gutter mt-1 text-xs">Go text/template syntax. Leave empty for default subject.</p>
+                  <p class="text-t-fg-gutter mt-1 text-xs">
+                    Go text/template syntax. Leave empty for default subject.
+                  </p>
                 </label>
-                <p class="text-t-fg-gutter text-xs">SMTP server settings are configured globally in config.yml (smtp section).</p>
+                <p class="text-t-fg-gutter text-xs">
+                  SMTP server settings are configured globally in config.yml (smtp section).
+                </p>
               </template>
 
               <!-- Webhook config -->
@@ -530,7 +595,11 @@ onMounted(fetchChannels)
                       v-for="m in ['POST', 'PUT']"
                       :key="m"
                       class="border px-3 py-1.5 text-sm transition-all"
-                      :class="formWebhookMethod === m ? 'border-t-yellow text-t-yellow' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                      :class="
+                        formWebhookMethod === m
+                          ? 'border-t-yellow text-t-yellow'
+                          : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                      "
                       @click="formWebhookMethod = m"
                     >
                       {{ m }}
@@ -538,7 +607,9 @@ onMounted(fetchChannels)
                   </div>
                 </label>
                 <label class="block">
-                  <span class="text-t-fg-dark text-sm">Headers <span class="text-t-fg-gutter">(JSON, optional)</span></span>
+                  <span class="text-t-fg-dark text-sm"
+                    >Headers <span class="text-t-fg-gutter">(JSON, optional)</span></span
+                  >
                   <textarea
                     v-model="formWebhookHeaders"
                     rows="3"
@@ -547,7 +618,10 @@ onMounted(fetchChannels)
                   />
                 </label>
                 <label class="block">
-                  <span class="text-t-fg-dark text-sm">Template <span class="text-t-fg-gutter">(Go text/template, optional)</span></span>
+                  <span class="text-t-fg-dark text-sm"
+                    >Template
+                    <span class="text-t-fg-gutter">(Go text/template, optional)</span></span
+                  >
                   <textarea
                     v-model="formWebhookTemplate"
                     rows="3"

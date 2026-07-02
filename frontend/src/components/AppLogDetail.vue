@@ -149,12 +149,15 @@ function applyFilter(field: Field) {
       </RouterLink>
       <button
         v-else-if="field.filter"
-        class="min-w-0 break-all text-left cursor-pointer hover:underline" :class="fieldColor(field)"
+        class="min-w-0 break-all text-left cursor-pointer hover:underline"
+        :class="fieldColor(field)"
         @click.stop="applyFilter(field)"
       >
         {{ fieldValue(field) }}
       </button>
-      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{ fieldValue(field) }}</span>
+      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{
+        fieldValue(field)
+      }}</span>
     </div>
 
     <!-- message -->
@@ -164,10 +167,7 @@ function applyFilter(field: Field) {
     </div>
 
     <!-- attrs -->
-    <div
-      v-if="attrsLoading"
-      class="flex gap-2 py-0.5 text-sm"
-    >
+    <div v-if="attrsLoading" class="flex gap-2 py-0.5 text-sm">
       <span class="text-t-fg-dark w-24 shrink-0 text-right">attrs</span>
       <span class="text-t-fg-dark min-w-0 font-mono text-xs italic">loading…</span>
     </div>
@@ -177,7 +177,10 @@ function applyFilter(field: Field) {
       :data-copytext="attrsCopyText()"
     >
       <span class="text-t-fg-dark w-24 shrink-0 text-right">attrs</span>
-      <pre class="language-json text-t-fg min-w-0 break-all font-mono text-xs" v-html="highlightAttrs(displayAttrs)"></pre>
+      <pre
+        class="language-json text-t-fg min-w-0 break-all font-mono text-xs"
+        v-html="highlightAttrs(displayAttrs)"
+      ></pre>
     </div>
   </div>
 </template>

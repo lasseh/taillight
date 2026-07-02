@@ -9,7 +9,13 @@ import type { UserPreferences } from '@/types/auth'
 
 const auth = useAuthStore()
 const features = getFeatures()
-const { supported: notifSupported, permission: notifPermission, enabled: notifEnabled, requestPermission, setEnabled } = useNotifications()
+const {
+  supported: notifSupported,
+  permission: notifPermission,
+  enabled: notifEnabled,
+  requestPermission,
+  setEnabled,
+} = useNotifications()
 
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -66,17 +72,41 @@ onMounted(loadNotifPrefs)
 
 const notifDirty = computed(() => {
   const prefs = auth.user?.preferences?.browser_notifications
-  const origSrvlog = { enabled: prefs?.srvlog?.enabled ?? true, max_severity: prefs?.srvlog?.max_severity ?? 2 }
-  const origNetlog = { enabled: prefs?.netlog?.enabled ?? true, max_severity: prefs?.netlog?.max_severity ?? 2 }
-  const origApplog = { enabled: prefs?.applog?.enabled ?? true, levels: prefs?.applog?.levels ?? ['ERROR', 'FATAL'] }
+  const origSrvlog = {
+    enabled: prefs?.srvlog?.enabled ?? true,
+    max_severity: prefs?.srvlog?.max_severity ?? 2,
+  }
+  const origNetlog = {
+    enabled: prefs?.netlog?.enabled ?? true,
+    max_severity: prefs?.netlog?.max_severity ?? 2,
+  }
+  const origApplog = {
+    enabled: prefs?.applog?.enabled ?? true,
+    levels: prefs?.applog?.levels ?? ['ERROR', 'FATAL'],
+  }
 
-  if (notifSrvlogEnabled.value !== origSrvlog.enabled || notifSrvlogSeverity.value !== origSrvlog.max_severity) return true
-  if (notifNetlogEnabled.value !== origNetlog.enabled || notifNetlogSeverity.value !== origNetlog.max_severity) return true
+  if (
+    notifSrvlogEnabled.value !== origSrvlog.enabled ||
+    notifSrvlogSeverity.value !== origSrvlog.max_severity
+  )
+    return true
+  if (
+    notifNetlogEnabled.value !== origNetlog.enabled ||
+    notifNetlogSeverity.value !== origNetlog.max_severity
+  )
+    return true
   if (notifApplogEnabled.value !== origApplog.enabled) return true
 
-  const currentLevels = Object.entries(notifApplogLevels.value).filter(([, v]) => v).map(([k]) => k).sort()
+  const currentLevels = Object.entries(notifApplogLevels.value)
+    .filter(([, v]) => v)
+    .map(([k]) => k)
+    .sort()
   const origLevelsSorted = [...origApplog.levels].sort()
-  if (currentLevels.length !== origLevelsSorted.length || currentLevels.some((l, i) => l !== origLevelsSorted[i])) return true
+  if (
+    currentLevels.length !== origLevelsSorted.length ||
+    currentLevels.some((l, i) => l !== origLevelsSorted[i])
+  )
+    return true
 
   return false
 })
@@ -86,7 +116,9 @@ async function saveNotifPrefs() {
   notifSuccess.value = ''
   notifSaving.value = true
 
-  const selectedLevels = Object.entries(notifApplogLevels.value).filter(([, v]) => v).map(([k]) => k)
+  const selectedLevels = Object.entries(notifApplogLevels.value)
+    .filter(([, v]) => v)
+    .map(([k]) => k)
 
   const preferences: UserPreferences = {
     browser_notifications: {
@@ -100,7 +132,9 @@ async function saveNotifPrefs() {
     const res = await api.updatePreferences(preferences)
     auth.user = res.user
     notifSuccess.value = 'notification preferences saved'
-    setTimeout(() => { notifSuccess.value = '' }, 3000)
+    setTimeout(() => {
+      notifSuccess.value = ''
+    }, 3000)
   } catch (e) {
     notifError.value = e instanceof ApiError ? e.message : 'failed to save preferences'
   } finally {
@@ -128,7 +162,9 @@ async function saveEmail() {
     auth.user = res.user
     emailInput.value = res.user.email ?? ''
     emailSuccess.value = 'email updated'
-    setTimeout(() => { emailSuccess.value = '' }, 3000)
+    setTimeout(() => {
+      emailSuccess.value = ''
+    }, 3000)
   } catch (e) {
     emailError.value = e instanceof ApiError ? e.message : 'Failed to update email'
   } finally {
@@ -171,7 +207,10 @@ async function changePassword() {
   }
 }
 
-const severityOptions = Object.entries(severityLabels).map(([k, v]) => ({ value: Number(k), label: `${k} — ${v}` }))
+const severityOptions = Object.entries(severityLabels).map(([k, v]) => ({
+  value: Number(k),
+  label: `${k} — ${v}`,
+}))
 const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
 </script>
 
@@ -179,7 +218,6 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="flex-1 overflow-y-auto px-4 py-6">
       <div class="mx-auto max-w-5xl space-y-5">
-
         <!-- Page header -->
         <div>
           <h2 class="text-t-fg text-base font-semibold">User Settings</h2>
@@ -195,7 +233,10 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
               alt="avatar"
               class="h-20 w-20 rounded border border-t-border"
             />
-            <div v-else class="bg-t-bg-highlight border-t-border flex h-20 w-20 items-center justify-center rounded border text-2xl font-bold text-t-fg-dark">
+            <div
+              v-else
+              class="bg-t-bg-highlight border-t-border flex h-20 w-20 items-center justify-center rounded border text-2xl font-bold text-t-fg-dark"
+            >
               {{ auth.user?.username?.charAt(0)?.toUpperCase() }}
             </div>
             <div>
@@ -207,12 +248,16 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
 
         <!-- Account details -->
         <div class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide">
+          <h3
+            class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide"
+          >
             Account
           </h3>
           <dl class="grid grid-cols-[auto_1fr] text-sm">
             <dt class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-right">username</dt>
-            <dd class="text-t-fg border-t-border border-b px-5 py-2.5 font-mono">{{ auth.user?.username }}</dd>
+            <dd class="text-t-fg border-t-border border-b px-5 py-2.5 font-mono">
+              {{ auth.user?.username }}
+            </dd>
 
             <dt class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-right">email</dt>
             <dd class="text-t-fg border-t-border border-b px-5 py-2.5">
@@ -233,24 +278,35 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
                 </button>
               </div>
               <span v-if="emailError" class="text-t-red mt-1 block text-xs">{{ emailError }}</span>
-              <span v-if="emailSuccess" class="text-t-green mt-1 block text-xs">{{ emailSuccess }}</span>
+              <span v-if="emailSuccess" class="text-t-green mt-1 block text-xs">{{
+                emailSuccess
+              }}</span>
             </dd>
 
-            <dt class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-right">member since</dt>
-            <dd class="text-t-fg border-t-border border-b px-5 py-2.5">{{ formatDate(auth.user?.created_at) }}</dd>
+            <dt class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-right">
+              member since
+            </dt>
+            <dd class="text-t-fg border-t-border border-b px-5 py-2.5">
+              {{ formatDate(auth.user?.created_at) }}
+            </dd>
 
-            <dt class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-right">last login</dt>
-            <dd class="text-t-fg border-t-border border-b px-5 py-2.5">{{ formatDate(auth.user?.last_login_at) }}</dd>
+            <dt class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-right">
+              last login
+            </dt>
+            <dd class="text-t-fg border-t-border border-b px-5 py-2.5">
+              {{ formatDate(auth.user?.last_login_at) }}
+            </dd>
           </dl>
         </div>
 
         <!-- Browser Notifications -->
         <div class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide">
+          <h3
+            class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide"
+          >
             Browser Notifications
           </h3>
           <div class="space-y-4 p-5">
-
             <!-- Master toggle + permission -->
             <div class="flex items-center justify-between">
               <div>
@@ -273,7 +329,9 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
                     :disabled="!notifSupported"
                     @change="setEnabled(!notifEnabled)"
                   />
-                  <div class="peer h-5 w-9 rounded-full bg-t-fg-gutter after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-t-blue peer-checked:after:translate-x-full peer-disabled:opacity-50"></div>
+                  <div
+                    class="peer h-5 w-9 rounded-full bg-t-fg-gutter after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-t-blue peer-checked:after:translate-x-full peer-disabled:opacity-50"
+                  ></div>
                 </label>
               </div>
             </div>
@@ -286,13 +344,17 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
             </div>
 
             <!-- Per-log-type settings -->
-            <div v-if="notifSupported && notifEnabled" class="border-t-border space-y-3 border-t pt-4">
-
+            <div
+              v-if="notifSupported && notifEnabled"
+              class="border-t-border space-y-3 border-t pt-4"
+            >
               <!-- Srvlog -->
               <div v-if="features.srvlog" class="flex items-center gap-4">
                 <label class="relative inline-flex cursor-pointer items-center">
                   <input v-model="notifSrvlogEnabled" type="checkbox" class="peer sr-only" />
-                  <div class="peer h-5 w-9 rounded-full bg-t-fg-gutter after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-t-blue peer-checked:after:translate-x-full"></div>
+                  <div
+                    class="peer h-5 w-9 rounded-full bg-t-fg-gutter after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-t-blue peer-checked:after:translate-x-full"
+                  ></div>
                 </label>
                 <span class="text-t-fg w-16 text-sm font-medium">srvlog</span>
                 <select
@@ -310,7 +372,9 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
               <div v-if="features.netlog" class="flex items-center gap-4">
                 <label class="relative inline-flex cursor-pointer items-center">
                   <input v-model="notifNetlogEnabled" type="checkbox" class="peer sr-only" />
-                  <div class="peer h-5 w-9 rounded-full bg-t-fg-gutter after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-t-blue peer-checked:after:translate-x-full"></div>
+                  <div
+                    class="peer h-5 w-9 rounded-full bg-t-fg-gutter after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-t-blue peer-checked:after:translate-x-full"
+                  ></div>
                 </label>
                 <span class="text-t-fg w-16 text-sm font-medium">netlog</span>
                 <select
@@ -328,7 +392,9 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
               <div v-if="features.applog" class="flex items-start gap-4">
                 <label class="relative mt-0.5 inline-flex cursor-pointer items-center">
                   <input v-model="notifApplogEnabled" type="checkbox" class="peer sr-only" />
-                  <div class="peer h-5 w-9 rounded-full bg-t-fg-gutter after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-t-blue peer-checked:after:translate-x-full"></div>
+                  <div
+                    class="peer h-5 w-9 rounded-full bg-t-fg-gutter after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-t-blue peer-checked:after:translate-x-full"
+                  ></div>
                 </label>
                 <span class="text-t-fg mt-0.5 w-16 text-sm font-medium">applog</span>
                 <div class="flex flex-wrap gap-2">
@@ -368,7 +434,9 @@ const applogLevelOrder = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
 
         <!-- Change password -->
         <div class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide">
+          <h3
+            class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide"
+          >
             Change Password
           </h3>
           <form class="space-y-4 p-5" @submit.prevent="changePassword">

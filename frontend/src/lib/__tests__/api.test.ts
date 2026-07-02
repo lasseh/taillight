@@ -48,7 +48,9 @@ describe('handleResponse', () => {
   })
 
   it('falls back to unknown/statusText on a non-JSON error body', async () => {
-    stubFetch(new Response('<html>gateway error</html>', { status: 502, statusText: 'Bad Gateway' }))
+    stubFetch(
+      new Response('<html>gateway error</html>', { status: 502, statusText: 'Bad Gateway' }),
+    )
     const err = await api.getSrvlog(1).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(502)

@@ -184,11 +184,7 @@ function onKeydown(e: KeyboardEvent) {
           >
             clear
           </button>
-          <button
-            type="button"
-            class="text-t-blue text-xs hover:underline"
-            @click="apply"
-          >
+          <button type="button" class="text-t-blue text-xs hover:underline" @click="apply">
             apply
           </button>
         </div>
@@ -200,7 +196,9 @@ function onKeydown(e: KeyboardEvent) {
 <style scoped>
 .menu-enter-active,
 .menu-leave-active {
-  transition: opacity 0.1s ease, transform 0.1s ease;
+  transition:
+    opacity 0.1s ease,
+    transform 0.1s ease;
 }
 
 .menu-enter-from,

@@ -17,7 +17,9 @@ const expanded = ref(false)
 const rowEl = ref<HTMLElement | null>(null)
 const collapseSignal = inject<Ref<number>>('collapseSignal')
 if (collapseSignal) {
-  watch(collapseSignal, () => { expanded.value = false })
+  watch(collapseSignal, () => {
+    expanded.value = false
+  })
 }
 
 function toggle() {
@@ -64,7 +66,13 @@ const copyText = computed(() => {
       <div class="w-[3px] shrink-0 rounded-r" :class="lvlBarClass" />
       <div class="min-w-0 flex-1">
         <div class="text-t-teal/60 truncate text-[10px] leading-tight">{{ event.host }}</div>
-        <div class="text-t-fg truncate text-xs leading-snug">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></div>
+        <div class="text-t-fg truncate text-xs leading-snug">
+          {{ event.msg
+          }}<template v-if="hasAttrs"
+            >&nbsp;<span class="text-t-orange">-</span>
+            <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template
+          >
+        </div>
       </div>
     </div>
     <!-- Desktop: single-line layout -->
@@ -89,9 +97,19 @@ const copyText = computed(() => {
       >
         {{ event.host }}
       </button>
-      <span class="text-t-purple shrink-0 truncate" :style="{ width: 'var(--col-svc, 14ch)' }">{{ event.service }}</span>
-      <span class="text-t-yellow shrink-0 truncate" :style="{ width: 'var(--col-comp, 14ch)' }">{{ event.component }}</span>
-      <span class="text-t-fg min-w-0 flex-1 truncate">{{ event.msg }}<template v-if="hasAttrs">&nbsp;<span class="text-t-orange">-</span> <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template></span>
+      <span class="text-t-purple shrink-0 truncate" :style="{ width: 'var(--col-svc, 14ch)' }">{{
+        event.service
+      }}</span>
+      <span class="text-t-yellow shrink-0 truncate" :style="{ width: 'var(--col-comp, 14ch)' }">{{
+        event.component
+      }}</span>
+      <span class="text-t-fg min-w-0 flex-1 truncate"
+        >{{ event.msg
+        }}<template v-if="hasAttrs"
+          >&nbsp;<span class="text-t-orange">-</span>
+          <span class="text-t-fg-dark">{{ formatAttrs(event.attrs!) }}</span></template
+        ></span
+      >
     </div>
     <AppLogDetail v-if="expanded" :event="event" />
   </div>

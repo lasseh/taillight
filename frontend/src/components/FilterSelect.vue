@@ -218,7 +218,9 @@ function onKeydown(e: KeyboardEvent) {
 <style scoped>
 .menu-enter-active,
 .menu-leave-active {
-  transition: opacity 0.1s ease, transform 0.1s ease;
+  transition:
+    opacity 0.1s ease,
+    transform 0.1s ease;
 }
 
 .menu-enter-from,

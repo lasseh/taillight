@@ -40,13 +40,34 @@ const scopeExpanded = ref(false)
 // markdown pre-expand a row if needed.
 const MARKDOWN_SANITIZE = {
   ALLOWED_TAGS: [
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    'p', 'br', 'hr',
-    'ul', 'ol', 'li',
-    'strong', 'em', 'del', 's', 'code', 'pre',
-    'blockquote', 'a',
-    'table', 'thead', 'tbody', 'tr', 'th', 'td',
-    'details', 'summary',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'p',
+    'br',
+    'hr',
+    'ul',
+    'ol',
+    'li',
+    'strong',
+    'em',
+    'del',
+    's',
+    'code',
+    'pre',
+    'blockquote',
+    'a',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+    'details',
+    'summary',
   ],
   ALLOWED_ATTR: ['href', 'title', 'align', 'open'],
 }
@@ -168,12 +189,15 @@ onMounted(refresh)
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="flex-1 overflow-y-auto px-4 py-6">
       <div class="mx-auto max-w-7xl space-y-5">
-
         <div v-if="loading" class="text-t-fg-dark py-20 text-center text-sm">loading...</div>
 
         <div v-else-if="loadError" class="space-y-3">
-          <router-link :to="{ name: 'analysis' }" class="text-t-fg-dark hover:text-t-fg text-sm">← back to analysis</router-link>
-          <div class="rounded border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <router-link :to="{ name: 'analysis' }" class="text-t-fg-dark hover:text-t-fg text-sm"
+            >← back to analysis</router-link
+          >
+          <div
+            class="rounded border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+          >
             {{ loadError }}
           </div>
         </div>
@@ -181,7 +205,9 @@ onMounted(refresh)
         <template v-else-if="report">
           <div class="flex items-center justify-between gap-4">
             <div class="flex items-center gap-3">
-              <router-link :to="{ name: 'analysis' }" class="text-t-fg-dark hover:text-t-fg text-sm">← back</router-link>
+              <router-link :to="{ name: 'analysis' }" class="text-t-fg-dark hover:text-t-fg text-sm"
+                >← back</router-link
+              >
             </div>
             <div class="flex items-center gap-3">
               <button
@@ -207,7 +233,12 @@ onMounted(refresh)
                   >
                     {{ deleting ? 'deleting...' : 'yes' }}
                   </button>
-                  <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="confirmDelete = false">no</button>
+                  <button
+                    class="text-t-fg-dark hover:text-t-fg text-xs"
+                    @click="confirmDelete = false"
+                  >
+                    no
+                  </button>
                 </span>
               </template>
             </div>
@@ -227,13 +258,19 @@ onMounted(refresh)
           >
             <div class="flex items-center gap-1.5">
               <span class="text-t-fg-dark text-xs">Status</span>
-              <span class="rounded px-1.5 py-0.5 text-xs font-medium" :class="statusBadgeClass(report.status)">
+              <span
+                class="rounded px-1.5 py-0.5 text-xs font-medium"
+                :class="statusBadgeClass(report.status)"
+              >
                 {{ report.status }}
               </span>
             </div>
             <div class="flex items-center gap-1.5">
               <span class="text-t-fg-dark text-xs">Source</span>
-              <span class="rounded px-1.5 py-0.5 text-xs font-medium" :class="feedBadgeClass(report.feed)">
+              <span
+                class="rounded px-1.5 py-0.5 text-xs font-medium"
+                :class="feedBadgeClass(report.feed)"
+              >
                 {{ report.feed }}
               </span>
             </div>
@@ -272,7 +309,10 @@ onMounted(refresh)
             </div>
           </div>
 
-          <div v-if="deleteError" class="rounded border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div
+            v-if="deleteError"
+            class="rounded border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+          >
             {{ deleteError }}
           </div>
 
@@ -280,8 +320,16 @@ onMounted(refresh)
             v-if="report.status === 'pending' || report.status === 'running'"
             class="text-t-fg-dark flex items-center gap-3 py-10 text-sm justify-center"
           >
-            <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+            <svg
+              class="h-4 w-4 animate-spin"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
+              />
             </svg>
             <span>report is being generated — this page will update automatically</span>
           </div>
@@ -300,7 +348,6 @@ onMounted(refresh)
             v-html="renderedMarkdown"
           />
         </template>
-
       </div>
     </div>
   </div>
@@ -311,34 +358,152 @@ onMounted(refresh)
   color: var(--color-t-fg);
   line-height: 1.75;
 }
-.prose :deep(h1) { color: var(--color-t-fg); font-size: 1.25rem; font-weight: 700; margin-top: 0; margin-bottom: 1rem; padding-bottom: 0.625rem; border-bottom: 2px solid var(--color-t-orange); }
-.prose :deep(h2) { color: var(--color-t-orange); font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.625rem; padding-bottom: 0.375rem; border-bottom: 1px solid var(--color-t-border); }
-.prose :deep(h3) { color: var(--color-t-teal); font-size: 0.875rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.375rem; }
-.prose :deep(p) { margin-top: 0.5rem; margin-bottom: 0.5rem; font-size: 0.8125rem; }
-.prose :deep(ul), .prose :deep(ol) { margin-top: 0.375rem; margin-bottom: 0.375rem; padding-left: 1.5rem; font-size: 0.8125rem; }
-.prose :deep(li) { margin-top: 0.1875rem; margin-bottom: 0.1875rem; }
-.prose :deep(li::marker) { color: var(--color-t-fg-dark); }
-.prose :deep(strong) { color: var(--color-t-fg); font-weight: 600; }
-.prose :deep(em) { color: var(--color-t-fg-dark); font-style: italic; }
-.prose :deep(code) { color: var(--color-t-teal); background: var(--color-t-bg-highlight); padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.75rem; border: 1px solid var(--color-t-border); }
-.prose :deep(pre) { background: var(--color-t-bg-dark); border: 1px solid var(--color-t-border); border-radius: 0.375rem; padding: 0.875rem 1rem; overflow-x: auto; margin-top: 0.75rem; margin-bottom: 0.75rem; }
-.prose :deep(pre code) { background: none; padding: 0; border: none; color: var(--color-t-fg); }
-.prose :deep(hr) { border: none; border-top: 1px solid var(--color-t-border); margin: 1.5rem 0; }
-.prose :deep(table) { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-top: 0.75rem; margin-bottom: 0.75rem; border: 1px solid var(--color-t-border); border-radius: 0.375rem; overflow: hidden; }
-.prose :deep(th) { color: var(--color-t-orange); font-weight: 600; text-align: left; padding: 0.5rem 0.75rem; background: var(--color-t-bg-dark); border-bottom: 1px solid var(--color-t-border); }
-.prose :deep(td) { padding: 0.375rem 0.75rem; border-bottom: 1px solid var(--color-t-border); }
-.prose :deep(tr:last-child td) { border-bottom: none; }
-.prose :deep(tr:hover td) { background: var(--color-t-bg-highlight); }
-.prose :deep(a) { color: var(--color-t-blue); text-decoration: underline; text-underline-offset: 2px; }
-.prose :deep(a:hover) { color: var(--color-t-teal); }
-.prose :deep(blockquote) { border-left: 3px solid var(--color-t-orange); padding-left: 1rem; color: var(--color-t-fg-dark); margin: 0.75rem 0; font-size: 0.8125rem; }
+.prose :deep(h1) {
+  color: var(--color-t-fg);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  padding-bottom: 0.625rem;
+  border-bottom: 2px solid var(--color-t-orange);
+}
+.prose :deep(h2) {
+  color: var(--color-t-orange);
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 0.625rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid var(--color-t-border);
+}
+.prose :deep(h3) {
+  color: var(--color-t-teal);
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.375rem;
+}
+.prose :deep(p) {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+}
+.prose :deep(ul),
+.prose :deep(ol) {
+  margin-top: 0.375rem;
+  margin-bottom: 0.375rem;
+  padding-left: 1.5rem;
+  font-size: 0.8125rem;
+}
+.prose :deep(li) {
+  margin-top: 0.1875rem;
+  margin-bottom: 0.1875rem;
+}
+.prose :deep(li::marker) {
+  color: var(--color-t-fg-dark);
+}
+.prose :deep(strong) {
+  color: var(--color-t-fg);
+  font-weight: 600;
+}
+.prose :deep(em) {
+  color: var(--color-t-fg-dark);
+  font-style: italic;
+}
+.prose :deep(code) {
+  color: var(--color-t-teal);
+  background: var(--color-t-bg-highlight);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--color-t-border);
+}
+.prose :deep(pre) {
+  background: var(--color-t-bg-dark);
+  border: 1px solid var(--color-t-border);
+  border-radius: 0.375rem;
+  padding: 0.875rem 1rem;
+  overflow-x: auto;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.prose :deep(pre code) {
+  background: none;
+  padding: 0;
+  border: none;
+  color: var(--color-t-fg);
+}
+.prose :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--color-t-border);
+  margin: 1.5rem 0;
+}
+.prose :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--color-t-border);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+.prose :deep(th) {
+  color: var(--color-t-orange);
+  font-weight: 600;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-t-bg-dark);
+  border-bottom: 1px solid var(--color-t-border);
+}
+.prose :deep(td) {
+  padding: 0.375rem 0.75rem;
+  border-bottom: 1px solid var(--color-t-border);
+}
+.prose :deep(tr:last-child td) {
+  border-bottom: none;
+}
+.prose :deep(tr:hover td) {
+  background: var(--color-t-bg-highlight);
+}
+.prose :deep(a) {
+  color: var(--color-t-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose :deep(a:hover) {
+  color: var(--color-t-teal);
+}
+.prose :deep(blockquote) {
+  border-left: 3px solid var(--color-t-orange);
+  padding-left: 1rem;
+  color: var(--color-t-fg-dark);
+  margin: 0.75rem 0;
+  font-size: 0.8125rem;
+}
 /* Disclosure widget used inside Correlations table Hosts column. Summary
  * picks up the blue accent so a reader sees a clickable affordance; the
  * expanded body keeps the same font size as the surrounding cell. */
-.prose :deep(details) { display: inline; }
-.prose :deep(summary) { color: var(--color-t-blue); cursor: pointer; list-style: none; }
-.prose :deep(summary::-webkit-details-marker) { display: none; }
-.prose :deep(summary::before) { content: '▸ '; color: var(--color-t-fg-dark); font-size: 0.7rem; }
-.prose :deep(details[open]) > summary::before { content: '▾ '; }
-.prose :deep(details[open]) { display: block; }
+.prose :deep(details) {
+  display: inline;
+}
+.prose :deep(summary) {
+  color: var(--color-t-blue);
+  cursor: pointer;
+  list-style: none;
+}
+.prose :deep(summary::-webkit-details-marker) {
+  display: none;
+}
+.prose :deep(summary::before) {
+  content: '▸ ';
+  color: var(--color-t-fg-dark);
+  font-size: 0.7rem;
+}
+.prose :deep(details[open]) > summary::before {
+  content: '▾ ';
+}
+.prose :deep(details[open]) {
+  display: block;
+}
 </style>

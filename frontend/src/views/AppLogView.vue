@@ -33,38 +33,42 @@ function onCopy(ev: ClipboardEvent) {
 
 let fetchVersion = 0
 
-watch(() => props.id, async (id) => {
-  const version = ++fetchVersion
-  event.value = null
-  loading.value = true
-  error.value = null
-  errorStatus.value = null
+watch(
+  () => props.id,
+  async (id) => {
+    const version = ++fetchVersion
+    event.value = null
+    loading.value = true
+    error.value = null
+    errorStatus.value = null
 
-  const numId = Number(id)
-  if (!Number.isInteger(numId) || numId <= 0) {
-    errorStatus.value = 404
-    error.value = `applog #${id} does not exist`
-    loading.value = false
-    return
-  }
-  try {
-    const res = await api.getAppLog(numId)
-    if (version !== fetchVersion) return
-    event.value = res.data
-  } catch (e) {
-    if (version !== fetchVersion) return
-    if (e instanceof ApiError) {
-      errorStatus.value = e.status
-      error.value = e.message
-    } else {
-      error.value = e instanceof Error ? e.message : 'failed to load event'
-    }
-  } finally {
-    if (version === fetchVersion) {
+    const numId = Number(id)
+    if (!Number.isInteger(numId) || numId <= 0) {
+      errorStatus.value = 404
+      error.value = `applog #${id} does not exist`
       loading.value = false
+      return
     }
-  }
-}, { immediate: true })
+    try {
+      const res = await api.getAppLog(numId)
+      if (version !== fetchVersion) return
+      event.value = res.data
+    } catch (e) {
+      if (version !== fetchVersion) return
+      if (e instanceof ApiError) {
+        errorStatus.value = e.status
+        error.value = e.message
+      } else {
+        error.value = e instanceof Error ? e.message : 'failed to load event'
+      }
+    } finally {
+      if (version === fetchVersion) {
+        loading.value = false
+      }
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -113,9 +117,19 @@ watch(() => props.id, async (id) => {
               {{ event.level }}
             </span>
           </div>
-          <p class="text-t-fg break-all font-mono text-sm leading-relaxed" :data-copytext="`message: ${event.msg}`">{{ event.msg }}</p>
-          <div v-if="event.attrs && Object.keys(event.attrs).length > 0" class="border-t-border mt-3 border-t pt-3">
-            <span class="text-t-fg-dark mb-1 block text-xs font-semibold uppercase tracking-wide">Fields</span>
+          <p
+            class="text-t-fg break-all font-mono text-sm leading-relaxed"
+            :data-copytext="`message: ${event.msg}`"
+          >
+            {{ event.msg }}
+          </p>
+          <div
+            v-if="event.attrs && Object.keys(event.attrs).length > 0"
+            class="border-t-border mt-3 border-t pt-3"
+          >
+            <span class="text-t-fg-dark mb-1 block text-xs font-semibold uppercase tracking-wide"
+              >Fields</span
+            >
             <pre
               class="language-json text-t-fg overflow-x-auto font-mono text-xs leading-relaxed"
               :data-copytext="`attrs: ${JSON.stringify(event.attrs, null, 2)}`"
@@ -126,15 +140,23 @@ watch(() => props.id, async (id) => {
 
         <!-- Metadata grid -->
         <div class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+          <h3
+            class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide"
+          >
             Details
           </h3>
           <div class="divide-t-border divide-y text-sm">
-            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`received: ${formatDateTime(event.received_at)}`">
+            <div
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`received: ${formatDateTime(event.received_at)}`"
+            >
               <span class="text-t-fg-dark w-24 shrink-0 text-right">received</span>
               <span class="text-t-fg font-mono">{{ formatDateTime(event.received_at) }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`timestamp: ${formatDateTime(event.timestamp)}`">
+            <div
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`timestamp: ${formatDateTime(event.timestamp)}`"
+            >
               <span class="text-t-fg-dark w-24 shrink-0 text-right">timestamp</span>
               <span class="text-t-fg font-mono">{{ formatDateTime(event.timestamp) }}</span>
             </div>
@@ -157,7 +179,10 @@ watch(() => props.id, async (id) => {
               <span class="text-t-fg-dark w-24 shrink-0 text-right">service</span>
               <span class="text-t-purple font-mono">{{ event.service || '–' }}</span>
             </div>
-            <div class="flex gap-2 px-4 py-1.5" :data-copytext="`component: ${event.component || '–'}`">
+            <div
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`component: ${event.component || '–'}`"
+            >
               <span class="text-t-fg-dark w-24 shrink-0 text-right">component</span>
               <span class="text-t-yellow font-mono">{{ event.component || '–' }}</span>
             </div>

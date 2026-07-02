@@ -265,7 +265,10 @@ async function createReport() {
         const match = e.message.match(/\[([^\]]+)\]/)
         const captured = match?.[1]
         if (captured) {
-          const bad = captured.split(/\s+/).map((s) => s.trim()).filter(Boolean)
+          const bad = captured
+            .split(/\s+/)
+            .map((s) => s.trim())
+            .filter(Boolean)
           unknownHostNames.value = new Set(bad)
         }
       } else if (e.code === 'invalid_prompt_mode' || e.code === 'invalid_period') {
@@ -325,7 +328,9 @@ onMounted(async () => {
                   "
                   @click="opt.available && (selectedFeed = opt.value)"
                 >
-                  <span class="w-4 text-center text-xs">{{ selectedFeed === opt.value ? '✓' : '' }}</span>
+                  <span class="w-4 text-center text-xs">{{
+                    selectedFeed === opt.value ? '✓' : ''
+                  }}</span>
                   {{ opt.label }}
                 </button>
                 <button
@@ -358,7 +363,9 @@ onMounted(async () => {
                   :title="opt.hint"
                   @click="selectedMode = opt.value"
                 >
-                  <span class="w-4 text-center text-xs">{{ selectedMode === opt.value ? '✓' : '' }}</span>
+                  <span class="w-4 text-center text-xs">{{
+                    selectedMode === opt.value ? '✓' : ''
+                  }}</span>
                   {{ opt.label }}
                 </button>
               </div>
@@ -420,9 +427,7 @@ onMounted(async () => {
                     v-model="hostQuery"
                     type="text"
                     :placeholder="
-                      selectedHosts.length === 0
-                        ? 'All hosts. Type to filter…'
-                        : 'add another…'
+                      selectedHosts.length === 0 ? 'All hosts. Type to filter…' : 'add another…'
                     "
                     class="text-t-fg placeholder:text-t-fg-gutter min-w-[8rem] flex-1 bg-transparent text-sm outline-none"
                     @keydown="onHostKeydown"
@@ -510,7 +515,10 @@ onMounted(async () => {
           </h3>
         </div>
 
-        <div v-if="reports.length > 0" class="text-t-fg-gutter border-t-border flex items-center border-b px-5 py-2 text-xs uppercase tracking-wider">
+        <div
+          v-if="reports.length > 0"
+          class="text-t-fg-gutter border-t-border flex items-center border-b px-5 py-2 text-xs uppercase tracking-wider"
+        >
           <span class="min-w-0 flex-1">Report</span>
           <span class="w-20 shrink-0">Source</span>
           <span class="w-20 shrink-0">Mode</span>
@@ -532,7 +540,9 @@ onMounted(async () => {
               >
                 {{ reportTitle(r) }}
               </router-link>
-              <span class="bg-t-fg-dark/10 text-t-fg-dark inline-block rounded px-1.5 py-0.5 font-mono text-xs">
+              <span
+                class="bg-t-fg-dark/10 text-t-fg-dark inline-block rounded px-1.5 py-0.5 font-mono text-xs"
+              >
                 {{ formatDate(r.created_at) }}
               </span>
             </div>
@@ -592,7 +602,9 @@ onMounted(async () => {
 <style scoped>
 .slide-enter-active,
 .slide-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .slide-enter-from,

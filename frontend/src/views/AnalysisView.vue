@@ -12,7 +12,6 @@ const activeTab = ref<Tab>('Reports')
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="flex-1 overflow-y-auto px-4 py-6">
       <div class="mx-auto max-w-7xl space-y-5">
-
         <div>
           <h2 class="text-t-fg text-base font-semibold">Analysis</h2>
           <p class="text-t-fg-dark mt-1 text-sm">
@@ -25,11 +24,7 @@ const activeTab = ref<Tab>('Reports')
             v-for="tab in tabs"
             :key="tab"
             class="relative px-4 py-2 text-xs font-medium transition-colors"
-            :class="
-              activeTab === tab
-                ? 'text-t-orange'
-                : 'text-t-fg-dark hover:text-t-fg'
-            "
+            :class="activeTab === tab ? 'text-t-orange' : 'text-t-fg-dark hover:text-t-fg'"
             @click="activeTab = tab"
           >
             {{ tab }}
@@ -42,7 +37,6 @@ const activeTab = ref<Tab>('Reports')
 
         <AnalysisReports v-if="activeTab === 'Reports'" />
         <AnalysisSchedules v-else-if="activeTab === 'Schedules'" />
-
       </div>
     </div>
   </div>

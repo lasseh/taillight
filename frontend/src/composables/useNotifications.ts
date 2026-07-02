@@ -124,5 +124,14 @@ function notifyApplog(event: AppLogEvent) {
 }
 
 export function useNotifications() {
-  return { supported, permission, enabled, requestPermission, setEnabled, notifySrvlog, notifyNetlog, notifyApplog }
+  return {
+    supported,
+    permission,
+    enabled,
+    requestPermission,
+    setEnabled,
+    notifySrvlog,
+    notifyNetlog,
+    notifyApplog,
+  }
 }

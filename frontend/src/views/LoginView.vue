@@ -92,7 +92,9 @@ async function handleSubmit() {
   <div class="login-page">
     <div class="login-card">
       <h1 class="logo">
-        <span class="bg-gradient-to-r from-sev-emerg to-sev-alert bg-clip-text text-transparent">[Taillight]</span>
+        <span class="bg-gradient-to-r from-sev-emerg to-sev-alert bg-clip-text text-transparent"
+          >[Taillight]</span
+        >
       </h1>
       <template v-if="auth.apiError">
         <p class="subtitle">Cannot connect to server</p>
@@ -217,7 +219,9 @@ async function handleSubmit() {
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .field-input::placeholder {
@@ -268,7 +272,9 @@ async function handleSubmit() {
 
 .err-enter-active,
 .err-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .err-enter-from,
@@ -287,7 +293,9 @@ async function handleSubmit() {
   border-radius: 6px;
   padding: 0.6rem 0;
   cursor: pointer;
-  transition: filter 0.15s ease, opacity 0.15s ease;
+  transition:
+    filter 0.15s ease,
+    opacity 0.15s ease;
   margin-top: 0.5rem;
 }
 

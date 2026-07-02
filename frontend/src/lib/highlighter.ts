@@ -26,8 +26,7 @@ Prism.languages.insertBefore('log', 'string', {
     /\b(?:BGP|OSPF|OSPFv[23]|IS-?IS|MPLS|LDP|RSVP|BFD|LACP|LLDP|VRRP|RIP(?:ng)?|PIM|IGMP|MLD|MSDP|STP|RSTP|MSTP|MVRP)\b/,
 
   // BGP states
-  'junos-bgp-state':
-    /\b(?:Idle|Connect|Active|OpenSent|OpenConfirm|Established)\b/,
+  'junos-bgp-state': /\b(?:Idle|Connect|Active|OpenSent|OpenConfirm|Established)\b/,
 
   // Firewall / security actions
   'junos-action': {
@@ -44,8 +43,7 @@ Prism.languages.insertBefore('log', 'string', {
     /\b(?:rpd|chassisd|mgd|dcd|pfed|dfwd|snmpd|mib2d|alarmd|craftd|eventd|cosd|ppmd|vrrpd|bfdd|sampled|kmd|l2ald|eswd|lacpd|rmopd|lmpd|fsad|spd|authd|jdhcpd|l2cpd|sflowd|lfmd|ksyncd|xntpd|ntpd|apsd|ilmid|irsd|nasd|fud|rdd|sdxd|jdiameterd|mcsnoopd|vccpd|sendd)\b/,
 
   // Routing table names: inet.0, inet6.0, bgp.l3vpn.0, mpls.0
-  'junos-table':
-    /\b(?:[\w-]+\.)?(?:inet6?|mpls|inetflow|iso|bgp\.l[23]vpn)\.\d+\b/,
+  'junos-table': /\b(?:[\w-]+\.)?(?:inet6?|mpls|inetflow|iso|bgp\.l[23]vpn)\.\d+\b/,
 
   // ASN references: AS64512, AS 174
   'junos-asn': /\bAS\s?\d{1,10}\b/,
@@ -54,19 +52,22 @@ Prism.languages.insertBefore('log', 'string', {
 
   // Good states: up, established, forwarding, online, etc.
   'state-good': {
-    pattern: /\b(?:up|Up|UP|Established|established|Establ|establ|Full|full|forwarding|Forwarding|learning|Learning|Master|master|Primary|primary|Enabled|enabled|online|Online|running|Running|ready|Ready|ok|OK|Ok|connected|Connected)\b/,
+    pattern:
+      /\b(?:up|Up|UP|Established|established|Establ|establ|Full|full|forwarding|Forwarding|learning|Learning|Master|master|Primary|primary|Enabled|enabled|online|Online|running|Running|ready|Ready|ok|OK|Ok|connected|Connected)\b/,
     alias: 'state-good',
   },
 
   // Bad states: down, idle, failed, error, disabled, etc.
   'state-bad': {
-    pattern: /\b(?:down|Down|DOWN|Idle|idle|failed|Failed|FAILED|error|Error|ERROR|offline|Offline|disabled|Disabled|OpenSent|OpenConfirm|flapping|Flapping|errdisabled|blocked|Blocked|unreachable|Unreachable)\b/,
+    pattern:
+      /\b(?:down|Down|DOWN|Idle|idle|failed|Failed|FAILED|error|Error|ERROR|offline|Offline|disabled|Disabled|OpenSent|OpenConfirm|flapping|Flapping|errdisabled|blocked|Blocked|unreachable|Unreachable)\b/,
     alias: 'state-bad',
   },
 
   // Warning/transitional states: discarding, init, exchange, etc.
   'state-warning': {
-    pattern: /\b(?:discarding|Discarding|ExStart|Exchange|Loading|2Way|Init|init|degraded|Degraded|standby|Standby|backup|Backup|inactive|Inactive|warning|Warning)\b/,
+    pattern:
+      /\b(?:discarding|Discarding|ExStart|Exchange|Loading|2Way|Init|init|degraded|Degraded|standby|Standby|backup|Backup|inactive|Inactive|warning|Warning)\b/,
     alias: 'state-warning',
   },
 

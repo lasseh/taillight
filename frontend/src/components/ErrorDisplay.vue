@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 
-withDefaults(defineProps<{
-  code?: number
-  title: string
-  message?: string
-  showBack?: boolean
-  listRoute?: string
-  listLabel?: string
-}>(), {
-  showBack: true,
-})
+withDefaults(
+  defineProps<{
+    code?: number
+    title: string
+    message?: string
+    showBack?: boolean
+    listRoute?: string
+    listLabel?: string
+  }>(),
+  {
+    showBack: true,
+  },
+)
 </script>
 
 <template>
@@ -27,7 +30,9 @@ withDefaults(defineProps<{
 
     <!-- Metadata grid (mirrors Details panel) -->
     <div v-if="code || message" class="bg-t-bg-dark border-t-border rounded border">
-      <h3 class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide">
+      <h3
+        class="text-t-fg-dark border-t-border border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide"
+      >
         Details
       </h3>
       <dl class="grid grid-cols-[auto_1fr] text-sm">

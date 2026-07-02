@@ -22,7 +22,10 @@ interface EventStoreConfig<TEvent extends { id: number }> {
   /** Route name to watch for filter changes. */
   routeName: string
   /** Fetch a page of events from the API. */
-  fetchEvents: (params: URLSearchParams, signal?: AbortSignal) => Promise<{ data: TEvent[]; cursor?: string; has_more: boolean }>
+  fetchEvents: (
+    params: URLSearchParams,
+    signal?: AbortSignal,
+  ) => Promise<{ data: TEvent[]; cursor?: string; has_more: boolean }>
   /** Get the SSE stream composable. */
   useStream: () => {
     connected: Ref<boolean>
@@ -39,9 +42,7 @@ interface EventStoreConfig<TEvent extends { id: number }> {
 /**
  * Creates a Pinia event store with SSE subscription, deduplication, and cursor-based pagination.
  */
-export function createEventStore<TEvent extends { id: number }>(
-  config: EventStoreConfig<TEvent>,
-) {
+export function createEventStore<TEvent extends { id: number }>(config: EventStoreConfig<TEvent>) {
   return defineStore(config.id, () => {
     const route = useRoute()
 

@@ -7,7 +7,13 @@ const props = defineProps<{
 }>()
 
 const features = getFeatures()
-const defaultRoute = features.netlog ? 'netlog' : features.srvlog ? 'srvlog' : features.applog ? 'applog' : 'home'
+const defaultRoute = features.netlog
+  ? 'netlog'
+  : features.srvlog
+    ? 'srvlog'
+    : features.applog
+      ? 'applog'
+      : 'home'
 </script>
 
 <template>

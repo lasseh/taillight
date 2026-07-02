@@ -17,7 +17,7 @@ interface ActivityRecord {
   count: number
 }
 const chartData = computed<ActivityRecord[]>(() =>
-  props.items.map(b => ({ x: new Date(b.time).getTime(), count: b.count })),
+  props.items.map((b) => ({ x: new Date(b.time).getTime(), count: b.count })),
 )
 const xAccessor = (d: ActivityRecord) => d.x
 const yAccessors = [(d: ActivityRecord) => d.count]
@@ -32,7 +32,9 @@ const tickFormat = (v: number) =>
 
 <template>
   <div v-if="chartData.length > 0" class="border-t-border mt-3 border-t pt-3">
-    <h4 class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+    <h4
+      class="text-t-fg-dark relative mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide"
+    >
       Log Activity
       <span class="text-t-fg-dark/70 font-normal normal-case">(24h)</span>
       <span
@@ -40,7 +42,9 @@ const tickFormat = (v: number) =>
         class="pointer-events-none absolute inset-x-0 text-center font-normal normal-case tracking-normal"
       >
         <span class="text-t-fg-dark">{{ tickFormat(hovered.x) }} - </span>
-        <span class="font-bold" :style="{ color: accentColors[0] }">{{ formatNumber(hovered.count) }}</span>
+        <span class="font-bold" :style="{ color: accentColors[0] }">{{
+          formatNumber(hovered.count)
+        }}</span>
       </span>
     </h4>
     <div class="hide-tooltip" @mouseleave="hovered = null">
@@ -53,7 +57,13 @@ const tickFormat = (v: number) =>
           :roundedCorners="2"
           :dataStep="900_000"
         />
-        <VisAxis type="x" :tickFormat="tickFormat" :numTicks="3" :gridLine="false" :tickLine="false" />
+        <VisAxis
+          type="x"
+          :tickFormat="tickFormat"
+          :numTicks="3"
+          :gridLine="false"
+          :tickLine="false"
+        />
         <VisAxis type="y" :gridLine="true" :tickLine="false" />
         <VisCrosshair :template="tracker" />
         <VisTooltip />
@@ -67,7 +77,7 @@ const tickFormat = (v: number) =>
   fill: var(--color-t-fg-dark);
 }
 
-:deep(.unovis-xy-container) path[class*="-bar"] {
+:deep(.unovis-xy-container) path[class*='-bar'] {
   opacity: 0.55;
 }
 

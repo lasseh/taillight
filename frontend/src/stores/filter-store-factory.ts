@@ -22,9 +22,7 @@ export function createFilterStore<K extends string>(
     const route = useRoute()
     const router = useRouter()
 
-    const filters = reactive(
-      Object.fromEntries(filterKeys.map((k) => [k, ''])),
-    ) as StringRecord<K>
+    const filters = reactive(Object.fromEntries(filterKeys.map((k) => [k, '']))) as StringRecord<K>
 
     /** Non-empty filter entries as a plain record for URLSearchParams. */
     const activeFilters = computed(() => {
@@ -41,7 +39,7 @@ export function createFilterStore<K extends string>(
 
     function clearAll() {
       for (const key of filterKeys) {
-        (filters as Record<string, string>)[key] = ''
+        ;(filters as Record<string, string>)[key] = ''
       }
     }
 
@@ -51,7 +49,7 @@ export function createFilterStore<K extends string>(
       for (const key of filterKeys) {
         const val = query[key as string]
         if (typeof val === 'string' && val) {
-          (filters as Record<string, string>)[key] = val
+          ;(filters as Record<string, string>)[key] = val
         }
       }
     }
@@ -77,16 +75,22 @@ export function createFilterStore<K extends string>(
     // Enforce mutually exclusive filter pairs.
     if (options?.conflicts) {
       for (const [a, b] of options.conflicts) {
-        watch(() => filters[a], (val) => {
-          if (val && filters[b]) {
-            (filters as Record<string, string>)[b] = ''
-          }
-        })
-        watch(() => filters[b], (val) => {
-          if (val && filters[a]) {
-            (filters as Record<string, string>)[a] = ''
-          }
-        })
+        watch(
+          () => filters[a],
+          (val) => {
+            if (val && filters[b]) {
+              ;(filters as Record<string, string>)[b] = ''
+            }
+          },
+        )
+        watch(
+          () => filters[b],
+          (val) => {
+            if (val && filters[a]) {
+              ;(filters as Record<string, string>)[a] = ''
+            }
+          },
+        )
       }
     }
 
@@ -103,7 +107,7 @@ export function createFilterStore<K extends string>(
           const val = query[key as string]
           const newVal = typeof val === 'string' ? val : ''
           if ((filters as Record<string, string>)[key] !== newVal) {
-            (filters as Record<string, string>)[key] = newVal
+            ;(filters as Record<string, string>)[key] = newVal
           }
         }
       },

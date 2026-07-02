@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { api, ApiError } from '@/lib/api'
-import type { NotificationLogEntry, NotificationChannel, NotificationRule } from '@/types/notification'
+import type {
+  NotificationLogEntry,
+  NotificationChannel,
+  NotificationRule,
+} from '@/types/notification'
 
 const entries = ref<NotificationLogEntry[]>([])
 const channels = ref<NotificationChannel[]>([])
@@ -24,27 +28,36 @@ const rangeOptions = [
 ]
 
 function channelName(id: number): string {
-  return channels.value.find(c => c.id === id)?.name || `#${id}`
+  return channels.value.find((c) => c.id === id)?.name || `#${id}`
 }
 
 function ruleName(id: number): string {
-  return rules.value.find(r => r.id === id)?.name || `#${id}`
+  return rules.value.find((r) => r.id === id)?.name || `#${id}`
 }
 
 function formatDate(ts: string): string {
   return new Date(ts).toLocaleString(undefined, {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
   })
 }
 
 function statusClass(status: string): string {
   switch (status) {
-    case 'sent': return 'bg-t-green/10 text-t-green'
-    case 'failed': return 'bg-t-red/10 text-t-red'
-    case 'rate_limited': return 'bg-t-yellow/10 text-t-yellow'
-    case 'circuit_open': return 'bg-t-yellow/10 text-t-yellow'
-    default: return 'bg-t-fg-gutter/10 text-t-fg-gutter'
+    case 'sent':
+      return 'bg-t-green/10 text-t-green'
+    case 'failed':
+      return 'bg-t-red/10 text-t-red'
+    case 'rate_limited':
+      return 'bg-t-yellow/10 text-t-yellow'
+    case 'circuit_open':
+      return 'bg-t-yellow/10 text-t-yellow'
+    default:
+      return 'bg-t-fg-gutter/10 text-t-fg-gutter'
   }
 }
 
@@ -57,12 +70,23 @@ function buildParams(): URLSearchParams {
   const now = new Date()
   let from: Date
   switch (filterRange.value) {
-    case '1h': from = new Date(now.getTime() - 3600000); break
-    case '6h': from = new Date(now.getTime() - 6 * 3600000); break
-    case '24h': from = new Date(now.getTime() - 24 * 3600000); break
-    case '7d': from = new Date(now.getTime() - 7 * 24 * 3600000); break
-    case '30d': from = new Date(now.getTime() - 30 * 24 * 3600000); break
-    default: from = new Date(now.getTime() - 24 * 3600000)
+    case '1h':
+      from = new Date(now.getTime() - 3600000)
+      break
+    case '6h':
+      from = new Date(now.getTime() - 6 * 3600000)
+      break
+    case '24h':
+      from = new Date(now.getTime() - 24 * 3600000)
+      break
+    case '7d':
+      from = new Date(now.getTime() - 7 * 24 * 3600000)
+      break
+    case '30d':
+      from = new Date(now.getTime() - 30 * 24 * 3600000)
+      break
+    default:
+      from = new Date(now.getTime() - 24 * 3600000)
   }
   p.set('from', from.toISOString())
   p.set('to', now.toISOString())
@@ -113,7 +137,9 @@ onMounted(fetchData)
 <template>
   <div class="space-y-4">
     <!-- Filters -->
-    <div class="bg-t-bg-dark border-t-border flex flex-wrap items-end gap-3 rounded border px-5 py-3">
+    <div
+      class="bg-t-bg-dark border-t-border flex flex-wrap items-end gap-3 rounded border px-5 py-3"
+    >
       <label class="block">
         <span class="text-t-fg-dark text-xs">Time Range</span>
         <div class="mt-1 flex gap-1">
@@ -121,7 +147,11 @@ onMounted(fetchData)
             v-for="opt in rangeOptions"
             :key="opt.value"
             class="border px-2 py-1 text-xs transition-all"
-            :class="filterRange === opt.value ? 'border-t-yellow text-t-yellow' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+            :class="
+              filterRange === opt.value
+                ? 'border-t-yellow text-t-yellow'
+                : 'border-t-border text-t-fg-dark hover:text-t-fg'
+            "
             @click="selectRange(opt.value)"
           >
             {{ opt.label }}
@@ -179,12 +209,17 @@ onMounted(fetchData)
         <div class="border-t-border border-b px-5 py-2.5">
           <h3 class="text-t-fg-dark text-xs font-semibold uppercase tracking-wide">
             Notification Log
-            <span class="text-t-fg-gutter ml-1 font-normal normal-case">{{ entries.length }} entries</span>
+            <span class="text-t-fg-gutter ml-1 font-normal normal-case"
+              >{{ entries.length }} entries</span
+            >
           </h3>
         </div>
 
         <!-- Table header -->
-        <div v-if="entries.length > 0" class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider">
+        <div
+          v-if="entries.length > 0"
+          class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider"
+        >
           <span class="w-40 shrink-0">Time</span>
           <span class="w-20 shrink-0">Status</span>
           <span class="w-36 shrink-0">Rule</span>
@@ -202,7 +237,9 @@ onMounted(fetchData)
             class="hover:bg-t-bg-hover flex items-center px-5 py-2.5 text-sm transition-colors"
           >
             <div class="w-40 shrink-0">
-              <span class="text-t-fg-dark text-xs" :title="entry.created_at">{{ formatDate(entry.created_at) }}</span>
+              <span class="text-t-fg-dark text-xs" :title="entry.created_at">{{
+                formatDate(entry.created_at)
+              }}</span>
             </div>
             <div class="w-20 shrink-0">
               <span

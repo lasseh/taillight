@@ -135,7 +135,9 @@ async function submitReset() {
 
 function showFeedback(msg: string, isError = false) {
   feedback.value = (isError ? '! ' : '') + msg
-  setTimeout(() => { feedback.value = '' }, 3000)
+  setTimeout(() => {
+    feedback.value = ''
+  }, 3000)
 }
 
 onMounted(loadUsers)
@@ -145,7 +147,6 @@ onMounted(loadUsers)
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="flex-1 overflow-y-auto px-4 py-6">
       <div class="mx-auto max-w-5xl space-y-5">
-
         <!-- Page header -->
         <div class="flex items-center justify-between">
           <div>
@@ -164,14 +165,20 @@ onMounted(loadUsers)
         <div
           v-if="feedback"
           class="text-xs px-3 py-2 rounded border"
-          :class="feedback.startsWith('!') ? 'text-t-red border-t-red/30 bg-t-red/5' : 'text-t-green border-t-green/30 bg-t-green/5'"
+          :class="
+            feedback.startsWith('!')
+              ? 'text-t-red border-t-red/30 bg-t-red/5'
+              : 'text-t-green border-t-green/30 bg-t-green/5'
+          "
         >
           {{ feedback.replace(/^! /, '') }}
         </div>
 
         <!-- Create user form -->
         <div v-if="showCreate" class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide">
+          <h3
+            class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide"
+          >
             Create User
           </h3>
           <div class="space-y-4 p-5">
@@ -227,13 +234,17 @@ onMounted(loadUsers)
 
         <!-- User table -->
         <div v-else class="bg-t-bg-dark border-t-border rounded border">
-          <h3 class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide">
+          <h3
+            class="text-t-fg-dark border-t-border border-b px-5 py-2.5 text-xs font-semibold uppercase tracking-wide"
+          >
             Users ({{ users.length }})
           </h3>
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-t-fg-dark border-t-border border-b text-left text-xs uppercase tracking-wide">
+                <tr
+                  class="text-t-fg-dark border-t-border border-b text-left text-xs uppercase tracking-wide"
+                >
                   <th class="px-5 py-2"></th>
                   <th class="px-3 py-2">Username</th>
                   <th class="px-3 py-2 hidden sm:table-cell">Email</th>
@@ -244,11 +255,7 @@ onMounted(loadUsers)
                 </tr>
               </thead>
               <tbody>
-                <tr
-                  v-for="u in users"
-                  :key="u.id"
-                  class="border-t-border border-b last:border-b-0"
-                >
+                <tr v-for="u in users" :key="u.id" class="border-t-border border-b last:border-b-0">
                   <!-- Avatar -->
                   <td class="px-5 py-2.5">
                     <img
@@ -257,7 +264,10 @@ onMounted(loadUsers)
                       alt=""
                       class="h-7 w-7 rounded-full border border-t-border"
                     />
-                    <div v-else class="bg-t-bg-highlight border-t-border flex h-7 w-7 items-center justify-center rounded-full border text-xs font-bold text-t-fg-dark">
+                    <div
+                      v-else
+                      class="bg-t-bg-highlight border-t-border flex h-7 w-7 items-center justify-center rounded-full border text-xs font-bold text-t-fg-dark"
+                    >
                       {{ u.username.charAt(0).toUpperCase() }}
                     </div>
                   </td>
@@ -266,14 +276,17 @@ onMounted(loadUsers)
                   <td class="px-3 py-2.5 text-t-fg font-mono">{{ u.username }}</td>
 
                   <!-- Email -->
-                  <td class="px-3 py-2.5 text-t-fg-dark hidden sm:table-cell">{{ u.email || '--' }}</td>
+                  <td class="px-3 py-2.5 text-t-fg-dark hidden sm:table-cell">
+                    {{ u.email || '--' }}
+                  </td>
 
                   <!-- Role -->
                   <td class="px-3 py-2.5">
                     <span
                       v-if="u.is_admin"
                       class="text-t-yellow border-t-yellow/30 bg-t-yellow/10 rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase"
-                    >admin</span>
+                      >admin</span
+                    >
                     <span v-else class="text-t-fg-dark text-xs">user</span>
                   </td>
 
@@ -287,7 +300,13 @@ onMounted(loadUsers)
                           : 'text-t-red border-t-red/30 bg-t-red/10 hover:bg-t-red/20'
                       "
                       :disabled="u.id === auth.user?.id"
-                      :title="u.id === auth.user?.id ? 'cannot toggle own account' : (u.is_active ? 'deactivate' : 'activate')"
+                      :title="
+                        u.id === auth.user?.id
+                          ? 'cannot toggle own account'
+                          : u.is_active
+                            ? 'deactivate'
+                            : 'activate'
+                      "
                       @click="toggleActive(u)"
                     >
                       {{ u.is_active ? 'active' : 'inactive' }}
@@ -295,7 +314,9 @@ onMounted(loadUsers)
                   </td>
 
                   <!-- Last login -->
-                  <td class="px-3 py-2.5 text-t-fg-dark text-xs hidden md:table-cell">{{ formatDate(u.last_login_at) }}</td>
+                  <td class="px-3 py-2.5 text-t-fg-dark text-xs hidden md:table-cell">
+                    {{ formatDate(u.last_login_at) }}
+                  </td>
 
                   <!-- Actions -->
                   <td class="px-3 py-2.5 text-right">
@@ -324,7 +345,7 @@ onMounted(loadUsers)
           <!-- Inline reset password form -->
           <div v-if="resetId" class="border-t-border border-t p-5">
             <h4 class="text-t-fg-dark mb-3 text-xs font-semibold uppercase tracking-wide">
-              Reset Password for {{ users.find(u => u.id === resetId)?.username }}
+              Reset Password for {{ users.find((u) => u.id === resetId)?.username }}
             </h4>
             <div class="flex flex-wrap items-end gap-3">
               <label class="block">

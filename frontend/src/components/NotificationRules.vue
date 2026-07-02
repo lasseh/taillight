@@ -46,8 +46,8 @@ useFocusTrap(modalEl)
 const confirmDelete = ref<number | null>(null)
 const deleteError = ref('')
 
-const enabledRules = computed(() => rules.value.filter(r => r.enabled))
-const disabledRules = computed(() => rules.value.filter(r => !r.enabled))
+const enabledRules = computed(() => rules.value.filter((r) => r.enabled))
+const disabledRules = computed(() => rules.value.filter((r) => !r.enabled))
 
 const severityOptions = [
   { value: '0', label: 'Emergency (0)' },
@@ -63,11 +63,11 @@ const severityOptions = [
 const levelOptions = ['FATAL', 'ERROR', 'WARN', 'INFO', 'DEBUG']
 
 function channelName(id: number): string {
-  return channels.value.find(c => c.id === id)?.name || `#${id}`
+  return channels.value.find((c) => c.id === id)?.name || `#${id}`
 }
 
 function channelType(id: number): string {
-  return channels.value.find(c => c.id === id)?.type || ''
+  return channels.value.find((c) => c.id === id)?.type || ''
 }
 
 function channelBadgeClass(type_: string): string {
@@ -90,10 +90,7 @@ function formatDuration(seconds: number): string {
 
 async function fetchData() {
   try {
-    const [rulesRes, channelsRes] = await Promise.all([
-      api.listRules(),
-      api.listChannels(),
-    ])
+    const [rulesRes, channelsRes] = await Promise.all([api.listRules(), api.listChannels()])
     rules.value = rulesRes.data
     channels.value = channelsRes.data
   } catch (e) {
@@ -218,7 +215,7 @@ async function saveRule() {
     const body = buildRule()
     if (editing.value) {
       const res = await api.updateRule(editing.value.id, body)
-      const idx = rules.value.findIndex(r => r.id === editing.value!.id)
+      const idx = rules.value.findIndex((r) => r.id === editing.value!.id)
       if (idx >= 0) rules.value[idx] = res.data
     } else {
       const res = await api.createRule(body)
@@ -236,7 +233,7 @@ async function deleteRule(id: number) {
   deleteError.value = ''
   try {
     await api.deleteRule(id)
-    rules.value = rules.value.filter(r => r.id !== id)
+    rules.value = rules.value.filter((r) => r.id !== id)
   } catch (e) {
     deleteError.value = e instanceof ApiError ? e.message : 'Failed to delete rule'
   }
@@ -276,7 +273,10 @@ onMounted(fetchData)
         </div>
 
         <!-- Table header -->
-        <div v-if="rules.length > 0" class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider">
+        <div
+          v-if="rules.length > 0"
+          class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider"
+        >
           <span class="w-8 shrink-0"></span>
           <span class="w-48 shrink-0">Name</span>
           <span class="w-24 shrink-0">Kind</span>
@@ -306,7 +306,13 @@ onMounted(fetchData)
             <div class="w-24 shrink-0">
               <span
                 class="inline-block rounded px-1.5 py-0.5 text-xs uppercase"
-                :class="rule.event_kind === 'applog' ? 'bg-t-magenta/10 text-t-magenta' : rule.event_kind === 'netlog' ? 'bg-t-fuchsia/10 text-t-fuchsia' : 'bg-t-teal/10 text-t-teal'"
+                :class="
+                  rule.event_kind === 'applog'
+                    ? 'bg-t-magenta/10 text-t-magenta'
+                    : rule.event_kind === 'netlog'
+                      ? 'bg-t-fuchsia/10 text-t-fuchsia'
+                      : 'bg-t-teal/10 text-t-teal'
+                "
               >
                 {{ rule.event_kind }}
               </span>
@@ -334,10 +340,17 @@ onMounted(fetchData)
             <div class="min-w-0 flex-1 truncate">
               <span class="text-t-fg-gutter text-xs">
                 <template v-if="rule.event_kind === 'srvlog' || rule.event_kind === 'netlog'">
-                  {{ [rule.hostname, rule.programname, rule.search].filter(Boolean).join(', ') || 'all events' }}
+                  {{
+                    [rule.hostname, rule.programname, rule.search].filter(Boolean).join(', ') ||
+                    'all events'
+                  }}
                 </template>
                 <template v-else>
-                  {{ [rule.service, rule.component, rule.level, rule.search].filter(Boolean).join(', ') || 'all events' }}
+                  {{
+                    [rule.service, rule.component, rule.level, rule.search]
+                      .filter(Boolean)
+                      .join(', ') || 'all events'
+                  }}
                 </template>
               </span>
             </div>
@@ -357,8 +370,18 @@ onMounted(fetchData)
                 </button>
               </template>
               <template v-else>
-                <button class="text-t-red hover:brightness-125 text-xs font-semibold" @click="deleteRule(rule.id)">yes</button>
-                <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="confirmDelete = null">no</button>
+                <button
+                  class="text-t-red hover:brightness-125 text-xs font-semibold"
+                  @click="deleteRule(rule.id)"
+                >
+                  yes
+                </button>
+                <button
+                  class="text-t-fg-dark hover:text-t-fg text-xs"
+                  @click="confirmDelete = null"
+                >
+                  no
+                </button>
               </template>
             </div>
           </div>
@@ -367,10 +390,7 @@ onMounted(fetchData)
         <!-- Empty state -->
         <div v-if="rules.length === 0" class="px-5 py-10 text-center">
           <p class="text-t-fg-dark text-sm">no notification rules configured</p>
-          <button
-            class="text-t-yellow mt-2 text-sm hover:brightness-125"
-            @click="openCreate"
-          >
+          <button class="text-t-yellow mt-2 text-sm hover:brightness-125" @click="openCreate">
             create your first rule
           </button>
         </div>
@@ -385,11 +405,18 @@ onMounted(fetchData)
           class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 pt-10 pb-10"
           @click.self="closeModal"
         >
-          <div ref="modalEl" class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl">
+          <div
+            ref="modalEl"
+            class="bg-t-bg-dark border-t-border w-full max-w-2xl rounded border shadow-xl"
+          >
             <!-- Modal header -->
             <div class="border-t-border flex items-center justify-between border-b px-5 py-3">
-              <h3 class="text-t-fg text-sm font-semibold">{{ editing ? 'Edit Rule' : 'Add Rule' }}</h3>
-              <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="closeModal">close</button>
+              <h3 class="text-t-fg text-sm font-semibold">
+                {{ editing ? 'Edit Rule' : 'Add Rule' }}
+              </h3>
+              <button class="text-t-fg-dark hover:text-t-fg text-xs" @click="closeModal">
+                close
+              </button>
             </div>
 
             <!-- Modal body -->
@@ -411,21 +438,33 @@ onMounted(fetchData)
                 <div class="mt-1.5 flex gap-2">
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formEventKind === 'srvlog' ? 'border-t-teal text-t-teal' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="
+                      formEventKind === 'srvlog'
+                        ? 'border-t-teal text-t-teal'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
                     @click="formEventKind = 'srvlog'"
                   >
                     Srvlog
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formEventKind === 'netlog' ? 'border-t-fuchsia text-t-fuchsia' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="
+                      formEventKind === 'netlog'
+                        ? 'border-t-fuchsia text-t-fuchsia'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
                     @click="formEventKind = 'netlog'"
                   >
                     Netlog
                   </button>
                   <button
                     class="border px-3 py-1.5 text-sm transition-all"
-                    :class="formEventKind === 'applog' ? 'border-t-magenta text-t-magenta' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
+                    :class="
+                      formEventKind === 'applog'
+                        ? 'border-t-magenta text-t-magenta'
+                        : 'border-t-border text-t-fg-dark hover:text-t-fg'
+                    "
                     @click="formEventKind = 'applog'"
                   >
                     AppLog
@@ -442,7 +481,9 @@ onMounted(fetchData)
               <!-- Srvlog/Netlog filters (shared syslog fields) -->
               <template v-if="formEventKind === 'srvlog' || formEventKind === 'netlog'">
                 <div class="border-t-border space-y-3 border-t pt-3">
-                  <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">{{ formEventKind === 'netlog' ? 'Netlog' : 'Srvlog' }} Filters</span>
+                  <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                    >{{ formEventKind === 'netlog' ? 'Netlog' : 'Srvlog' }} Filters</span
+                  >
                   <div class="grid grid-cols-2 gap-3">
                     <label class="block">
                       <span class="text-t-fg-dark text-xs">Hostname</span>
@@ -469,7 +510,9 @@ onMounted(fetchData)
                         class="bg-t-bg border-t-border text-t-fg focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
                       >
                         <option value="">any</option>
-                        <option v-for="opt in severityOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        <option v-for="opt in severityOptions" :key="opt.value" :value="opt.value">
+                          {{ opt.label }}
+                        </option>
                       </select>
                     </label>
                     <label class="block">
@@ -479,7 +522,9 @@ onMounted(fetchData)
                         class="bg-t-bg border-t-border text-t-fg focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
                       >
                         <option value="">any</option>
-                        <option v-for="opt in severityOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        <option v-for="opt in severityOptions" :key="opt.value" :value="opt.value">
+                          {{ opt.label }}
+                        </option>
                       </select>
                     </label>
                     <label class="block">
@@ -507,7 +552,9 @@ onMounted(fetchData)
               <!-- AppLog filters -->
               <template v-if="formEventKind === 'applog'">
                 <div class="border-t-border space-y-3 border-t pt-3">
-                  <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">AppLog Filters</span>
+                  <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                    >AppLog Filters</span
+                  >
                   <div class="grid grid-cols-2 gap-3">
                     <label class="block">
                       <span class="text-t-fg-dark text-xs">Service</span>
@@ -563,7 +610,9 @@ onMounted(fetchData)
 
               <!-- Channels -->
               <div class="border-t-border space-y-2 border-t pt-3">
-                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Channels</span>
+                <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                  >Channels</span
+                >
                 <div v-if="channels.length === 0" class="text-t-fg-gutter text-sm">
                   no channels configured — create one first
                 </div>
@@ -591,9 +640,13 @@ onMounted(fetchData)
               <!-- Silence / Coalesce -->
               <div class="border-t-border space-y-3 border-t pt-3">
                 <div>
-                  <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider">Suppression</span>
+                  <span class="text-t-fg-dark text-xs font-semibold uppercase tracking-wider"
+                    >Suppression</span
+                  >
                   <p class="text-t-fg-gutter mt-1 text-xs">
-                    First match fires immediately. Events during silence are counted and emitted as one digest when the window closes. Silence grows linearly (by the base value each flush) up to the cap.
+                    First match fires immediately. Events during silence are counted and emitted as
+                    one digest when the window closes. Silence grows linearly (by the base value
+                    each flush) up to the cap.
                   </p>
                 </div>
                 <div class="grid grid-cols-2 gap-3">
@@ -626,7 +679,10 @@ onMounted(fetchData)
                     min="0"
                     class="bg-t-bg border-t-border text-t-fg focus:border-t-yellow mt-1 block w-full border px-2 py-1.5 text-sm outline-none"
                   />
-                  <span class="text-t-fg-gutter text-xs">advanced · 0 = fire first match immediately. Small values (100–1000ms) fold batched log floods into the first alert.</span>
+                  <span class="text-t-fg-gutter text-xs"
+                    >advanced · 0 = fire first match immediately. Small values (100–1000ms) fold
+                    batched log floods into the first alert.</span
+                  >
                 </label>
               </div>
             </div>

@@ -61,5 +61,17 @@ export const useScrollStore = defineStore('scroll', () => {
     return newEventCounts.value[route] ?? 0
   }
 
-  return { positions, savePosition, getPosition, requestScrollToBottom, consumeScrollToBottom, setPinned, isPinned, triggerJump, getJumpSignal, addNewEvents, getNewEventCount }
+  return {
+    positions,
+    savePosition,
+    getPosition,
+    requestScrollToBottom,
+    consumeScrollToBottom,
+    setPinned,
+    isPinned,
+    triggerJump,
+    getJumpSignal,
+    addNewEvents,
+    getNewEventCount,
+  }
 })

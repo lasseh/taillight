@@ -49,10 +49,14 @@ const home = useHomeStore()
 // This prevents a race where auth resolves (triggering layout render)
 // before the router confirms the route (leaving <router-view> empty).
 const routerReady = ref(false)
-router.isReady().then(() => { routerReady.value = true })
+router.isReady().then(() => {
+  routerReady.value = true
+})
 
 const isLoginRoute = computed(() => route.name === 'login')
-const isLogRoute = computed(() => route.name === 'netlog' || route.name === 'srvlog' || route.name === 'applog')
+const isLogRoute = computed(
+  () => route.name === 'netlog' || route.name === 'srvlog' || route.name === 'applog',
+)
 const showJumpToLatest = computed(() => {
   if (!isLogRoute.value) return false
   return !scrollStore.isPinned(String(route.name))
@@ -65,12 +69,17 @@ const netlogStream = useNetlogStream()
 const applogStream = useAppLogStream()
 const { notifySrvlog, notifyNetlog, notifyApplog } = useNotifications()
 
-const connected = computed(() => srvlogStream.connected.value || netlogStream.connected.value || applogStream.connected.value)
+const connected = computed(
+  () =>
+    srvlogStream.connected.value || netlogStream.connected.value || applogStream.connected.value,
+)
 
 const isHistoricalMode = computed(() => {
-  if (route.name === 'netlog') return Boolean(netlogFilters.filters.from || netlogFilters.filters.to)
+  if (route.name === 'netlog')
+    return Boolean(netlogFilters.filters.from || netlogFilters.filters.to)
   if (route.name === 'srvlog') return Boolean(filters.filters.from || filters.filters.to)
-  if (route.name === 'applog') return Boolean(appLogFilters.filters.from || appLogFilters.filters.to)
+  if (route.name === 'applog')
+    return Boolean(appLogFilters.filters.from || appLogFilters.filters.to)
   return false
 })
 
@@ -176,11 +185,17 @@ onErrorCaptured((err) => {
 </script>
 
 <template>
-  <div v-if="fatalError" class="flex h-dvh items-center justify-center bg-neutral-900 text-neutral-200">
+  <div
+    v-if="fatalError"
+    class="flex h-dvh items-center justify-center bg-neutral-900 text-neutral-200"
+  >
     <div class="max-w-md space-y-4 text-center">
       <h1 class="text-xl font-semibold text-red-400">Something went wrong</h1>
       <p class="text-sm text-neutral-400">{{ fatalError }}</p>
-      <button class="rounded bg-neutral-700 px-4 py-2 text-sm hover:bg-neutral-600" @click="fatalError = null">
+      <button
+        class="rounded bg-neutral-700 px-4 py-2 text-sm hover:bg-neutral-600"
+        @click="fatalError = null"
+      >
         Try again
       </button>
     </div>
@@ -217,7 +232,10 @@ onErrorCaptured((err) => {
         class="text-t-magenta hover:text-t-fg absolute left-1/2 -translate-x-1/2 text-xs animate-subtle-pulse transition-colors"
         @click="scrollStore.triggerJump(String(route.name))"
       >
-        <span class="hidden md:inline">auto-scroll off{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to latest (esc)</span>
+        <span class="hidden md:inline"
+          >auto-scroll off{{ newEventCount > 0 ? ` · ${newEventCount} new` : '' }} — ↓ jump to
+          latest (esc)</span
+        >
         <span class="md:hidden">↓ latest{{ newEventCount > 0 ? ` (${newEventCount})` : '' }}</span>
       </button>
       <button
@@ -228,12 +246,30 @@ onErrorCaptured((err) => {
         @click="programColumn.toggle()"
       >
         <!-- Visible → inward chevrons ><  hint: click to collapse -->
-        <svg v-if="programColumn.visible.value" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg
+          v-if="programColumn.visible.value"
+          class="h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
           <polyline points="5 6 9 12 5 18" />
           <polyline points="19 6 15 12 19 18" />
         </svg>
         <!-- Hidden → outward chevrons <>  hint: click to expand -->
-        <svg v-else class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg
+          v-else
+          class="h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
           <polyline points="9 6 5 12 9 18" />
           <polyline points="15 6 19 12 15 18" />
         </svg>
@@ -246,13 +282,31 @@ onErrorCaptured((err) => {
         :title="fullscreenActive ? 'Exit focus mode (f)' : 'Focus mode (f)'"
         @click="toggleFullscreen()"
       >
-        <svg v-if="!fullscreenActive" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg
+          v-if="!fullscreenActive"
+          class="h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
           <path d="M8 3H5a2 2 0 0 0-2 2v3" />
           <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
           <path d="M3 16v3a2 2 0 0 0 2 2h3" />
           <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
         </svg>
-        <svg v-else class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg
+          v-else
+          class="h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
           <path d="M4 14h6v6" />
           <path d="M20 10h-6V4" />
           <path d="M14 10l7-7" />
@@ -265,8 +319,13 @@ onErrorCaptured((err) => {
 
 <style>
 @keyframes subtle-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 .animate-subtle-pulse {
   animation: subtle-pulse 3s ease-in-out infinite;

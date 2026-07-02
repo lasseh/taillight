@@ -23,7 +23,13 @@ vi.hoisted(() => {
 // with a fixed two-event live feed.
 vi.mock('@/composables/useAppLogDeviceLogs', async () => {
   const { ref } = await import('vue')
-  const e = (id: number) => ({ id, level: 'INFO', service: 'svc', component: 'comp', received_at: '2026-06-05T10:00:00Z' })
+  const e = (id: number) => ({
+    id,
+    level: 'INFO',
+    service: 'svc',
+    component: 'comp',
+    received_at: '2026-06-05T10:00:00Z',
+  })
   return { useAppLogDeviceLogs: () => ({ events: ref([e(10), e(11)]) }) }
 })
 
@@ -44,7 +50,13 @@ vi.mock('vue-router', () => ({
 }))
 
 function ev(id: number): AppLogEvent {
-  return { id, level: 'ERROR', service: 'svc', component: 'comp', received_at: '2026-06-05T10:00:00Z' } as unknown as AppLogEvent
+  return {
+    id,
+    level: 'ERROR',
+    service: 'svc',
+    component: 'comp',
+    received_at: '2026-06-05T10:00:00Z',
+  } as unknown as AppLogEvent
 }
 
 function makeSummary(): AppLogDeviceSummaryResponse {

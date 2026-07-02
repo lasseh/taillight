@@ -196,12 +196,16 @@ onMounted(fetchKeys)
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="flex-1 overflow-y-auto px-4 py-6">
       <div class="mx-auto max-w-5xl space-y-5">
-
         <!-- Page header -->
         <div class="flex items-center justify-between">
           <div>
             <h2 class="text-t-fg text-base font-semibold">API Keys</h2>
-            <p class="text-t-fg-dark mt-1 text-sm">manage keys used to authenticate with the api — <a href="/api/docs" target="_blank" class="text-t-blue hover:brightness-125">api docs</a></p>
+            <p class="text-t-fg-dark mt-1 text-sm">
+              manage keys used to authenticate with the api —
+              <a href="/api/docs" target="_blank" class="text-t-blue hover:brightness-125"
+                >api docs</a
+              >
+            </p>
           </div>
           <button
             v-if="!showCreate && !authDisabled"
@@ -214,45 +218,84 @@ onMounted(fetchKeys)
 
         <!-- Loading / error / auth disabled -->
         <div v-if="loading" class="text-t-fg-dark py-10 text-center text-sm">loading...</div>
-        <div v-else-if="loadError" class="text-t-red py-10 text-center text-sm">{{ loadError }}</div>
-        <div v-else-if="authDisabled" class="bg-t-bg-dark border-t-border rounded border px-5 py-10 text-center">
-          <svg class="text-t-fg-gutter mx-auto mb-3 h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <div v-else-if="loadError" class="text-t-red py-10 text-center text-sm">
+          {{ loadError }}
+        </div>
+        <div
+          v-else-if="authDisabled"
+          class="bg-t-bg-dark border-t-border rounded border px-5 py-10 text-center"
+        >
+          <svg
+            class="text-t-fg-gutter mx-auto mb-3 h-8 w-8"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
           <p class="text-t-fg-dark text-sm">authentication is disabled</p>
           <p class="text-t-fg-gutter mt-1 text-sm">enable auth in config.yml to manage API keys</p>
-          <code class="text-t-fg-dark bg-t-bg mt-3 inline-block rounded px-3 py-1.5 font-mono text-xs">auth_enabled: true</code>
+          <code
+            class="text-t-fg-dark bg-t-bg mt-3 inline-block rounded px-3 py-1.5 font-mono text-xs"
+            >auth_enabled: true</code
+          >
         </div>
 
         <template v-else>
           <!-- Created key banner -->
           <div v-if="createdKey" class="bg-t-bg-dark border-t-border rounded border p-5">
             <div class="flex items-start gap-3">
-              <svg class="text-t-yellow mt-0.5 h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+              <svg
+                class="text-t-yellow mt-0.5 h-5 w-5 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
               </svg>
               <div class="min-w-0 flex-1">
-                <p class="text-t-yellow text-sm font-semibold">copy your api key now — it won't be shown again</p>
+                <p class="text-t-yellow text-sm font-semibold">
+                  copy your api key now — it won't be shown again
+                </p>
                 <div class="mt-3 flex items-center gap-2">
-                  <code class="bg-t-bg border-t-border text-t-green min-w-0 flex-1 overflow-x-auto border px-3 py-2 font-mono text-sm">{{ createdKey }}</code>
+                  <code
+                    class="bg-t-bg border-t-border text-t-green min-w-0 flex-1 overflow-x-auto border px-3 py-2 font-mono text-sm"
+                    >{{ createdKey }}</code
+                  >
                   <button
                     class="border-t-border shrink-0 border px-4 py-2 text-sm transition-all"
-                    :class="copied ? 'text-t-green' : 'text-t-fg hover:brightness-125 bg-t-bg-highlight'"
+                    :class="
+                      copied ? 'text-t-green' : 'text-t-fg hover:brightness-125 bg-t-bg-highlight'
+                    "
                     @click="copyKey"
                   >
                     {{ copied ? 'copied' : 'copy' }}
                   </button>
                 </div>
-                <button class="text-t-fg-dark hover:text-t-fg mt-3 text-sm" @click="dismissCreated">dismiss</button>
+                <button class="text-t-fg-dark hover:text-t-fg mt-3 text-sm" @click="dismissCreated">
+                  dismiss
+                </button>
               </div>
             </div>
           </div>
 
           <!-- Create key form -->
           <Transition name="slide">
-            <div v-if="showCreate && !createdKey" class="bg-t-bg-dark border-t-border rounded border p-5">
+            <div
+              v-if="showCreate && !createdKey"
+              class="bg-t-bg-dark border-t-border rounded border p-5"
+            >
               <h3 class="text-t-fg mb-4 text-sm font-semibold">Create a new API key</h3>
               <div class="space-y-4">
                 <label class="block">
@@ -279,7 +322,9 @@ onMounted(fetchKeys)
                       "
                       @click="toggleScope(opt.value)"
                     >
-                      <span class="w-4 text-center text-xs">{{ newKeyScopes.includes(opt.value) ? '✓' : '' }}</span>
+                      <span class="w-4 text-center text-xs">{{
+                        newKeyScopes.includes(opt.value) ? '✓' : ''
+                      }}</span>
                       {{ opt.label }}
                       <span class="text-t-fg-gutter text-xs">{{ opt.desc }}</span>
                     </button>
@@ -331,12 +376,17 @@ onMounted(fetchKeys)
             <div class="border-t-border border-b px-5 py-2.5">
               <h3 class="text-t-fg-dark text-xs font-semibold uppercase tracking-wide">
                 Active Keys
-                <span class="text-t-fg-gutter ml-1 font-normal normal-case">{{ activeKeys.length }}</span>
+                <span class="text-t-fg-gutter ml-1 font-normal normal-case">{{
+                  activeKeys.length
+                }}</span>
               </h3>
             </div>
 
             <!-- Table header -->
-            <div v-if="activeKeys.length > 0" class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider">
+            <div
+              v-if="activeKeys.length > 0"
+              class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider"
+            >
               <span class="w-40 shrink-0">Name</span>
               <span class="w-32 shrink-0">Key</span>
               <span class="w-36 shrink-0">Scopes</span>
@@ -376,10 +426,17 @@ onMounted(fetchKeys)
                   </div>
                 </div>
                 <div class="w-28 shrink-0">
-                  <span class="text-t-fg-dark" :title="formatDate(key.created_at)">{{ timeAgo(key.created_at) }}</span>
+                  <span class="text-t-fg-dark" :title="formatDate(key.created_at)">{{
+                    timeAgo(key.created_at)
+                  }}</span>
                 </div>
                 <div class="w-28 shrink-0">
-                  <span v-if="key.last_used_at" class="text-t-fg-dark" :title="formatDate(key.last_used_at)">{{ timeAgo(key.last_used_at) }}</span>
+                  <span
+                    v-if="key.last_used_at"
+                    class="text-t-fg-dark"
+                    :title="formatDate(key.last_used_at)"
+                    >{{ timeAgo(key.last_used_at) }}</span
+                  >
                   <span v-else class="text-t-fg-gutter">never</span>
                 </div>
                 <div class="min-w-0 flex-1">
@@ -401,8 +458,18 @@ onMounted(fetchKeys)
                     revoke
                   </button>
                   <span v-else class="flex items-center justify-end gap-2">
-                    <button class="text-t-red hover:brightness-125 text-sm font-semibold" @click="revokeKey(key.id)">yes</button>
-                    <button class="text-t-fg-dark hover:text-t-fg text-sm" @click="confirmRevoke = null">no</button>
+                    <button
+                      class="text-t-red hover:brightness-125 text-sm font-semibold"
+                      @click="revokeKey(key.id)"
+                    >
+                      yes
+                    </button>
+                    <button
+                      class="text-t-fg-dark hover:text-t-fg text-sm"
+                      @click="confirmRevoke = null"
+                    >
+                      no
+                    </button>
                   </span>
                 </div>
               </div>
@@ -410,8 +477,18 @@ onMounted(fetchKeys)
 
             <!-- Empty state -->
             <div v-if="activeKeys.length === 0" class="px-5 py-10 text-center">
-              <svg class="text-t-fg-gutter mx-auto mb-3 h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+              <svg
+                class="text-t-fg-gutter mx-auto mb-3 h-8 w-8"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"
+                />
               </svg>
               <p class="text-t-fg-dark text-sm">no active api keys</p>
               <button
@@ -429,7 +506,9 @@ onMounted(fetchKeys)
             <div class="border-t-border border-b px-5 py-2.5">
               <h3 class="text-t-fg-dark text-xs font-semibold uppercase tracking-wide">
                 Inactive Keys
-                <span class="text-t-fg-gutter ml-1 font-normal normal-case">{{ inactiveKeys.length }}</span>
+                <span class="text-t-fg-gutter ml-1 font-normal normal-case">{{
+                  inactiveKeys.length
+                }}</span>
               </h3>
             </div>
 
@@ -449,13 +528,19 @@ onMounted(fetchKeys)
                   <span class="text-t-fg-dark">{{ timeAgo(key.created_at) }}</span>
                 </div>
                 <div class="w-36 shrink-0">
-                  <span v-if="key.last_used_at" class="text-t-fg-dark">{{ timeAgo(key.last_used_at) }}</span>
+                  <span v-if="key.last_used_at" class="text-t-fg-dark">{{
+                    timeAgo(key.last_used_at)
+                  }}</span>
                   <span v-else class="text-t-fg-gutter">never</span>
                 </div>
                 <div class="min-w-0 flex-1">
                   <span
                     class="inline-block rounded px-1.5 py-0.5 text-xs uppercase"
-                    :class="keyStatus(key) === 'expired' ? 'bg-t-yellow/10 text-t-yellow' : 'bg-t-red/10 text-t-red'"
+                    :class="
+                      keyStatus(key) === 'expired'
+                        ? 'bg-t-yellow/10 text-t-yellow'
+                        : 'bg-t-red/10 text-t-red'
+                    "
                   >
                     {{ keyStatus(key) }}
                   </span>
@@ -464,7 +549,6 @@ onMounted(fetchKeys)
             </div>
           </div>
         </template>
-
       </div>
     </div>
   </div>
@@ -473,7 +557,9 @@ onMounted(fetchKeys)
 <style scoped>
 .slide-enter-active,
 .slide-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .slide-enter-from,

@@ -13,14 +13,16 @@ const props = defineProps<{
 const emit = defineEmits<{ collapse: [] }>()
 
 const sorted = computed(() =>
-  [...props.items].sort((a, b) => (LEVEL_RANK[a.level] ?? 99) - (LEVEL_RANK[b.level] ?? 99))
+  [...props.items].sort((a, b) => (LEVEL_RANK[a.level] ?? 99) - (LEVEL_RANK[b.level] ?? 99)),
 )
 </script>
 
 <template>
   <div class="bg-t-bg-dark border-t-border rounded border p-4">
     <div class="mb-3 flex items-center justify-between">
-      <h3 class="text-t-teal text-xs font-semibold uppercase tracking-wide">{{ title ?? 'Level Distribution' }}</h3>
+      <h3 class="text-t-teal text-xs font-semibold uppercase tracking-wide">
+        {{ title ?? 'Level Distribution' }}
+      </h3>
       <button
         v-if="collapsible"
         type="button"
@@ -28,16 +30,26 @@ const sorted = computed(() =>
         aria-label="Collapse summary"
         @click="emit('collapse')"
       >
-        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15" /></svg>
+        <svg
+          class="h-4 w-4"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="18 15 12 9 6 15" />
+        </svg>
       </button>
     </div>
     <div class="space-y-2">
-      <div
-        v-for="item in sorted"
-        :key="item.level"
-        class="group flex items-center gap-2"
-      >
-        <span class="w-16 shrink-0 text-xs uppercase" :class="levelColorClass[item.level] ?? 'text-t-fg'">{{ item.level }}</span>
+      <div v-for="item in sorted" :key="item.level" class="group flex items-center gap-2">
+        <span
+          class="w-16 shrink-0 text-xs uppercase"
+          :class="levelColorClass[item.level] ?? 'text-t-fg'"
+          >{{ item.level }}</span
+        >
         <div class="bg-t-bg-highlight h-2 flex-1 overflow-hidden rounded">
           <div
             class="h-full rounded transition-all group-hover:opacity-80"

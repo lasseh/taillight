@@ -1,5 +1,14 @@
 <script setup lang="ts" generic="T extends { id: number }">
-import { ref, watch, nextTick, provide, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
+import {
+  ref,
+  watch,
+  nextTick,
+  provide,
+  onMounted,
+  onUnmounted,
+  onActivated,
+  onDeactivated,
+} from 'vue'
 import { useScrollStore } from '@/stores/scroll'
 import { useFullscreen } from '@/composables/useFullscreen'
 import { selectedRowsText } from '@/lib/copy'
@@ -28,7 +37,10 @@ provide('collapseSignal', collapseSignal)
 
 function preserveScrollForPrepend(mutate: () => void) {
   const el = scrollEl.value
-  if (!el) { mutate(); return }
+  if (!el) {
+    mutate()
+    return
+  }
   const prevHeight = el.scrollHeight
   const prevTop = el.scrollTop
   mutate()
@@ -241,13 +253,13 @@ function onCopy(e: ClipboardEvent) {
       <LoadingIndicator v-if="loading" />
 
       <div v-if="error" class="px-4 py-4">
-        <ErrorDisplay
-          title="something went wrong"
-          :message="error"
-        />
+        <ErrorDisplay title="something went wrong" :message="error" />
       </div>
 
-      <div v-if="events.length === 0 && !loading && !error" class="text-t-fg-dark px-4 py-4 text-center text-xs">
+      <div
+        v-if="events.length === 0 && !loading && !error"
+        class="text-t-fg-dark px-4 py-4 text-center text-xs"
+      >
         no events
       </div>
 
@@ -265,13 +277,13 @@ function onCopy(e: ClipboardEvent) {
           v-if="atCap"
           class="text-t-yellow border-t-yellow/30 bg-t-yellow/5 mx-2 my-1 rounded border px-3 py-2 text-center text-xs"
         >
-          scrollback buffer full ({{ events.length.toLocaleString() }} events) — jump to live to investigate further, or use a date filter for older logs
+          scrollback buffer full ({{ events.length.toLocaleString() }} events) — jump to live to
+          investigate further, or use a date filter for older logs
         </div>
         <div v-for="item in events" :key="item.id">
           <slot :item="item" />
         </div>
       </div>
     </div>
-
   </div>
 </template>

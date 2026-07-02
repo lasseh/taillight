@@ -33,7 +33,10 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
   RouterLink: defineComponent({
     name: 'RouterLink',
-    setup: (_, { slots }) => () => h('a', slots.default?.()),
+    setup:
+      (_, { slots }) =>
+      () =>
+        h('a', slots.default?.()),
   }),
 }))
 
@@ -52,7 +55,12 @@ const RowStub = markRaw(
 )
 
 function ev(id: number): SrvlogEvent {
-  return { id, programname: 'prog', severity: 6, received_at: '2026-06-05T10:00:00Z' } as unknown as SrvlogEvent
+  return {
+    id,
+    programname: 'prog',
+    severity: 6,
+    received_at: '2026-06-05T10:00:00Z',
+  } as unknown as SrvlogEvent
 }
 
 function makeSummary(): DeviceSummaryResponse {
@@ -114,7 +122,12 @@ describe('DeviceLogView (smoke)', () => {
     // Critical tab default renders the one seeded critical log (id 1).
     expect(wrapper.findAll('.row-stub').map((r) => r.text())).toEqual(['1'])
 
-    const crit = { id: 12, programname: 'prog', severity: 2, received_at: '2026-06-05T10:01:00Z' } as unknown as SrvlogEvent
+    const crit = {
+      id: 12,
+      programname: 'prog',
+      severity: 2,
+      received_at: '2026-06-05T10:01:00Z',
+    } as unknown as SrvlogEvent
     events.value.unshift(crit) // in-place, exactly like createDeviceLogStream
     await flushPromises()
 

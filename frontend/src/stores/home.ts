@@ -5,7 +5,12 @@ import { features as getFeatures } from '@/lib/features'
 import { useSrvlogStream } from '@/composables/useSrvlogStream'
 import { useNetlogStream } from '@/composables/useNetlogStream'
 import { useAppLogStream } from '@/composables/useAppLogStream'
-import type { SrvlogSummary, AppLogSummary, VolumeBucket, SeverityVolumeBucket } from '@/types/stats'
+import type {
+  SrvlogSummary,
+  AppLogSummary,
+  VolumeBucket,
+  SeverityVolumeBucket,
+} from '@/types/stats'
 import type { SrvlogEvent } from '@/types/srvlog'
 import type { NetlogEvent } from '@/types/netlog'
 import type { AppLogEvent } from '@/types/applog'
@@ -117,7 +122,7 @@ export const useHomeStore = defineStore('home', () => {
       }
     }
     return [...map.values()]
-      .map(s => ({ ...s, pct: total > 0 ? (s.count / total) * 100 : 0 }))
+      .map((s) => ({ ...s, pct: total > 0 ? (s.count / total) * 100 : 0 }))
       .sort((a, b) => a.severity - b.severity)
   })
 
@@ -126,7 +131,7 @@ export const useHomeStore = defineStore('home', () => {
     const srvlog = srvlogSummary.value?.top_hosts ?? []
     const netlog = netlogSummary.value?.top_hosts ?? []
     const total = syslogTotal.value
-    const srvlogNames = new Set(srvlog.map(h => h.name))
+    const srvlogNames = new Set(srvlog.map((h) => h.name))
     const map = new Map<string, number>()
     for (const h of [...srvlog, ...netlog]) {
       map.set(h.name, (map.get(h.name) ?? 0) + h.count)
@@ -136,7 +141,7 @@ export const useHomeStore = defineStore('home', () => {
         name,
         count,
         pct: total > 0 ? (count / total) * 100 : 0,
-        feed: srvlogNames.has(name) ? 'srvlog' : 'netlog' as 'srvlog' | 'netlog',
+        feed: srvlogNames.has(name) ? 'srvlog' : ('netlog' as 'srvlog' | 'netlog'),
       }))
       .sort((a, b) => b.count - a.count)
   })
@@ -247,8 +252,7 @@ export const useHomeStore = defineStore('home', () => {
     // Detect connection-level failures: network errors or gateway errors (502-504).
     const isConnectionErr = (e: unknown) =>
       !(e instanceof ApiError) || (e.status >= 502 && e.status <= 504)
-    const errMsg = (e: unknown) =>
-      (e instanceof Error && e.message) ? e.message : 'unknown error'
+    const errMsg = (e: unknown) => (e instanceof Error && e.message ? e.message : 'unknown error')
 
     // Collect all errors from enabled feeds.
     const feedErrors: { name: string; err: unknown }[] = []
@@ -258,13 +262,13 @@ export const useHomeStore = defineStore('home', () => {
 
     const enabledCount = [features.srvlog, features.netlog, features.applog].filter(Boolean).length
     const allFailed = feedErrors.length === enabledCount && enabledCount > 0
-    const allConnection = feedErrors.every(f => isConnectionErr(f.err))
+    const allConnection = feedErrors.every((f) => isConnectionErr(f.err))
 
     if (allFailed && allConnection) {
       error.value = 'connection'
       startReconnect()
     } else if (feedErrors.length > 0) {
-      error.value = feedErrors.map(f => `${f.name}: ${errMsg(f.err)}`).join('; ')
+      error.value = feedErrors.map((f) => `${f.name}: ${errMsg(f.err)}`).join('; ')
     } else {
       error.value = null
     }
@@ -280,7 +284,11 @@ export const useHomeStore = defineStore('home', () => {
     if (features.srvlog) {
       try {
         const srvlogEventsRes = await api.getSrvlogs(
-          new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS), from }),
+          new URLSearchParams({
+            severity_max: String(HIGH_SEVERITY_MAX),
+            limit: String(MAX_RECENT_EVENTS),
+            from,
+          }),
         )
         if (version !== fetchVersion) return
         const events = (srvlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)
@@ -295,7 +303,11 @@ export const useHomeStore = defineStore('home', () => {
     if (features.netlog) {
       try {
         const netlogEventsRes = await api.getNetlogs(
-          new URLSearchParams({ severity_max: String(HIGH_SEVERITY_MAX), limit: String(MAX_RECENT_EVENTS), from }),
+          new URLSearchParams({
+            severity_max: String(HIGH_SEVERITY_MAX),
+            limit: String(MAX_RECENT_EVENTS),
+            from,
+          }),
         )
         if (version !== fetchVersion) return
         const events = (netlogEventsRes.data ?? []).slice(-MAX_RECENT_EVENTS)

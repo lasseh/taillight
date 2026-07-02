@@ -12,15 +12,18 @@ import { formatTime } from '@/lib/format'
 // props from the thin per-feed wrappers (SrvlogRow, NetlogRow).
 type LogEvent = SrvlogEvent | NetlogEvent
 
-const props = withDefaults(defineProps<{
-  event: LogEvent
-  showProgram?: boolean
-  detail: Component
-  filterStore: { filters: { hostname: string } }
-  highlightPrefix: string
-}>(), {
-  showProgram: true,
-})
+const props = withDefaults(
+  defineProps<{
+    event: LogEvent
+    showProgram?: boolean
+    detail: Component
+    filterStore: { filters: { hostname: string } }
+    highlightPrefix: string
+  }>(),
+  {
+    showProgram: true,
+  },
+)
 
 const filterStore = props.filterStore
 
@@ -28,7 +31,9 @@ const expanded = ref(false)
 const rowEl = ref<HTMLElement | null>(null)
 const collapseSignal = inject<Ref<number>>('collapseSignal')
 if (collapseSignal) {
-  watch(collapseSignal, () => { expanded.value = false })
+  watch(collapseSignal, () => {
+    expanded.value = false
+  })
 }
 
 function toggle() {
@@ -43,7 +48,9 @@ function toggle() {
 const event = toRef(props, 'event')
 const sevClass = computed(() => severityColorClass[event.value.severity] ?? 'text-t-fg')
 const sevBgClass = computed(() => severityBgClass[event.value.severity] ?? '')
-const sevBarClass = computed(() => severityBgClassByLabel[event.value.severity_label] ?? 'bg-sev-info')
+const sevBarClass = computed(
+  () => severityBgClassByLabel[event.value.severity_label] ?? 'bg-sev-info',
+)
 
 const highlightedMessage = computed(() =>
   highlightMessage(`${props.highlightPrefix}:${event.value.id}`, event.value.message),
@@ -98,7 +105,12 @@ const copyText = computed(() => {
       >
         {{ event.hostname }}
       </button>
-      <span v-if="props.showProgram" class="text-t-purple shrink-0 truncate" :style="{ width: 'var(--col-prog, 14ch)' }">{{ event.programname }}</span>
+      <span
+        v-if="props.showProgram"
+        class="text-t-purple shrink-0 truncate"
+        :style="{ width: 'var(--col-prog, 14ch)' }"
+        >{{ event.programname }}</span
+      >
       <span class="min-w-0 flex-1 truncate" v-html="highlightedMessage" />
     </div>
     <component :is="props.detail" v-if="expanded" :event="event" />

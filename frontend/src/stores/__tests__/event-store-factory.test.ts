@@ -19,9 +19,7 @@ interface TestEvent {
 }
 
 function makeStore(
-  fetchEvents = vi.fn(() =>
-    Promise.resolve({ data: [] as TestEvent[], has_more: false }),
-  ),
+  fetchEvents = vi.fn(() => Promise.resolve({ data: [] as TestEvent[], has_more: false })),
 ) {
   return createEventStore<TestEvent>({
     id: `test-events-${Math.random()}`,
@@ -58,9 +56,7 @@ describe('createEventStore', () => {
       { id: 2, message: 'newer' },
       { id: 1, message: 'older' },
     ]
-    const fetchEvents = vi.fn(() =>
-      Promise.resolve({ data: events, has_more: false }),
-    )
+    const fetchEvents = vi.fn(() => Promise.resolve({ data: events, has_more: false }))
     const useStore = makeStore(fetchEvents)
     const store = useStore()
 
@@ -106,9 +102,7 @@ describe('createEventStore', () => {
       { id: 2, message: 'newer' },
       { id: 1, message: 'older' },
     ]
-    const fetchEvents = vi.fn(() =>
-      Promise.resolve({ data: events, cursor: 'c1', has_more: true }),
-    )
+    const fetchEvents = vi.fn(() => Promise.resolve({ data: events, cursor: 'c1', has_more: true }))
     const useStore = makeStore(fetchEvents)
     const store = useStore()
 
