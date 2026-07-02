@@ -3,5 +3,5 @@
 // run before prismjs sets the global. Importing this module first ensures
 // the global is available.
 import Prism from 'prismjs'
-;(globalThis as any).Prism = Prism
+;(globalThis as typeof globalThis & { Prism?: typeof Prism }).Prism = Prism
 export { Prism }

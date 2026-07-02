@@ -220,6 +220,11 @@ watch(
   },
 )
 
+function cancelCreate() {
+  showCreate.value = false
+  createError.value = ''
+}
+
 async function createReport() {
   createError.value = ''
   creating.value = true
@@ -487,7 +492,7 @@ onMounted(async () => {
               </button>
               <button
                 class="text-t-fg-dark hover:text-t-fg text-sm transition-colors"
-                @click="showCreate = false; createError = ''"
+                @click="cancelCreate"
               >
                 cancel
               </button>

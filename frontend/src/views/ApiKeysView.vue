@@ -166,6 +166,12 @@ async function copyKey() {
   }
 }
 
+function cancelCreate() {
+  showCreate.value = false
+  newKeyName.value = ''
+  newKeyError.value = ''
+}
+
 function dismissCreated() {
   createdKey.value = ''
   showCreate.value = false
@@ -307,7 +313,7 @@ onMounted(fetchKeys)
                   </button>
                   <button
                     class="text-t-fg-dark hover:text-t-fg text-sm transition-colors"
-                    @click="showCreate = false; newKeyName = ''; newKeyError = ''"
+                    @click="cancelCreate"
                   >
                     cancel
                   </button>

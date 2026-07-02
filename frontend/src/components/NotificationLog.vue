@@ -102,6 +102,11 @@ async function applyFilters() {
   }
 }
 
+function selectRange(value: string) {
+  filterRange.value = value
+  applyFilters()
+}
+
 onMounted(fetchData)
 </script>
 
@@ -117,7 +122,7 @@ onMounted(fetchData)
             :key="opt.value"
             class="border px-2 py-1 text-xs transition-all"
             :class="filterRange === opt.value ? 'border-t-yellow text-t-yellow' : 'border-t-border text-t-fg-dark hover:text-t-fg'"
-            @click="filterRange = opt.value; applyFilters()"
+            @click="selectRange(opt.value)"
           >
             {{ opt.label }}
           </button>
