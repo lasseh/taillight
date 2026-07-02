@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,8 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/lasseh/taillight/internal/broker"
+	"github.com/lasseh/taillight/internal/ingestbridge"
 	"github.com/lasseh/taillight/internal/model"
 )
 
@@ -356,5 +359,186 @@ func TestIntegration_ListenerShutdownWhileListening(t *testing.T) {
 	// signalling done — so the channel must already be closed.
 	if _, ok := <-ch; ok {
 		t.Fatal("notification channel still open after shutdown")
+	}
+}
+
+// TestIntegration_ListenerToBrokerDelivery exercises the ingest fan-out path
+// end to end: an INSERT into srvlog_events fires the pg_notify trigger, the
+// Listener receives the notification, and ingestbridge.Dispatch fetches the
+// row and broadcasts it to a subscribed broker client — the same wiring
+// serve.go's startBackgroundWorkers builds in production.
+func TestIntegration_ListenerToBrokerDelivery(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "srvlog_events")
+	store := NewStore(pool)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	ctx := context.Background()
+
+	srvlogBroker := broker.NewSrvlogBroker(logger)
+	sub, err := srvlogBroker.Subscribe(model.SrvlogFilter{}, "")
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	l := NewListener(os.Getenv("TEST_DATABASE_URL"), pool, 16, logger, []string{"srvlog_ingest"})
+	notifications, err := l.Listen(ctx)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	// Mirror the serve.go worker: fetch each notified row by ID and
+	// broadcast the full event to SSE subscribers.
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		for n := range notifications {
+			ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID},
+				store, srvlogBroker.Broadcast, nil, logger, 5*time.Second)
+		}
+	}()
+
+	// Ordered teardown, mirroring serve.go shutdown: listener first (closes
+	// the notifications channel, which stops the worker), then the broker.
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := l.Shutdown(shutdownCtx); err != nil {
+			t.Errorf("shutdown listener: %v", err)
+		}
+		select {
+		case <-workerDone:
+		case <-time.After(5 * time.Second):
+			t.Error("dispatch worker did not exit after listener shutdown")
+		}
+		srvlogBroker.Shutdown()
+	})
+
+	var insertedID int64
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO srvlog_events (received_at, reported_at, hostname, fromhost_ip, severity, facility, message)
+		 VALUES (now(), now(), 'edge-r1', '10.0.0.1'::inet, 3, 1, 'link flap on ge-0/0/0')
+		 RETURNING id`).Scan(&insertedID); err != nil {
+		t.Fatalf("insert event: %v", err)
+	}
+
+	select {
+	case msg, ok := <-sub.Chan():
+		if !ok {
+			t.Fatal("subscription channel closed before delivery")
+		}
+		if msg.ID != insertedID {
+			t.Errorf("message ID = %d, want %d", msg.ID, insertedID)
+		}
+		var event model.SrvlogEvent
+		if err := json.Unmarshal(msg.Data, &event); err != nil {
+			t.Fatalf("unmarshal broadcast event: %v", err)
+		}
+		if event.ID != insertedID {
+			t.Errorf("event.ID = %d, want %d", event.ID, insertedID)
+		}
+		if event.Hostname != "edge-r1" {
+			t.Errorf("event.Hostname = %q, want edge-r1", event.Hostname)
+		}
+		if event.Message != "link flap on ge-0/0/0" {
+			t.Errorf("event.Message = %q, want link flap on ge-0/0/0", event.Message)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for broker delivery")
+	}
+}
+
+// TestIntegration_ListenerGapFillAfterReconnect kills the LISTEN connection
+// server-side, inserts a row while the listener is disconnected (that row's
+// pg_notify is lost), and verifies the row ID is still delivered after
+// reconnect via the gap-fill query. The test waits for the terminated
+// backend's PID to disappear from pg_stat_activity before inserting, so the
+// notification is provably lost rather than racing the disconnect.
+func TestIntegration_ListenerGapFillAfterReconnect(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "srvlog_events")
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	ctx := context.Background()
+
+	l := NewListener(os.Getenv("TEST_DATABASE_URL"), pool, 16, logger, []string{"srvlog_ingest"})
+	ch, err := l.Listen(ctx)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := l.Shutdown(shutdownCtx); err != nil {
+			t.Errorf("shutdown listener: %v", err)
+		}
+	})
+
+	insertEvent := func(msg string) int64 {
+		t.Helper()
+		var id int64
+		if err := pool.QueryRow(ctx,
+			`INSERT INTO srvlog_events (received_at, reported_at, hostname, fromhost_ip, severity, facility, message)
+			 VALUES (now(), now(), 'host1', '10.0.0.1'::inet, 6, 1, $1)
+			 RETURNING id`, msg).Scan(&id); err != nil {
+			t.Fatalf("insert event %q: %v", msg, err)
+		}
+		return id
+	}
+
+	// Deliver one event normally so the listener records a last-seen ID —
+	// the baseline the gap-fill query resumes from.
+	baselineID := insertEvent("baseline")
+	select {
+	case n := <-ch:
+		if n.Channel != "srvlog_ingest" || n.ID != baselineID {
+			t.Fatalf("notification = %+v, want srvlog_ingest/%d", n, baselineID)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for baseline notification")
+	}
+
+	// Find and terminate the dedicated LISTEN backend. Tracking its PID lets
+	// us distinguish the dead connection from the reconnected one.
+	var listenPID int
+	if err := pool.QueryRow(ctx,
+		`SELECT pid FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND query LIKE 'LISTEN %'`,
+	).Scan(&listenPID); err != nil {
+		t.Fatalf("find LISTEN backend: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `SELECT pg_terminate_backend($1)`, listenPID); err != nil {
+		t.Fatalf("terminate LISTEN backend: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var alive int
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM pg_stat_activity WHERE pid = $1`, listenPID,
+		).Scan(&alive); err != nil {
+			t.Fatalf("poll terminated backend: %v", err)
+		}
+		if alive == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("LISTEN backend %d still alive after terminate", listenPID)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// This row's pg_notify has no listener to reach; only the gap fill (or a
+	// re-established LISTEN, if reconnect won the race) can deliver its ID.
+	missedID := insertEvent("missed while disconnected")
+
+	// Reconnect backoff starts at 1s, then the gap fill replays IDs above
+	// the baseline. Generous timeout for slow CI.
+	select {
+	case n, ok := <-ch:
+		if !ok {
+			t.Fatal("notification channel closed before gap-fill delivery")
+		}
+		if n.Channel != "srvlog_ingest" || n.ID != missedID {
+			t.Fatalf("notification = %+v, want srvlog_ingest/%d", n, missedID)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("timed out waiting for gap-fill delivery after reconnect")
 	}
 }
