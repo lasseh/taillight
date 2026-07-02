@@ -24,6 +24,7 @@ linters:
     - errorlint
     - exhaustive
     - godot
+    - gosec
     - misspell
     - noctx
     - prealloc
@@ -52,6 +53,13 @@ linters:
         - appendCombine
     exhaustive:
       default-signifies-exhaustive: true
+    gosec:
+      # Scoped to the SQL-injection detectors (defense-in-depth); the full
+      # ruleset is too noisy to be a blocking gate. Note: gosec only
+      # recognizes database/sql sinks, so pgx query sites are not inspected.
+      includes:
+        - G201
+        - G202
 
 issues:
   max-issues-per-linter: 0
