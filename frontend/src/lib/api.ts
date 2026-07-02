@@ -1,4 +1,4 @@
-import type { SrvlogListResponse, JuniperNetlogRef, MetaResponse, SingleSrvlogResponse } from '@/types/srvlog'
+import type { SrvlogListResponse, MetaResponse, SingleSrvlogResponse } from '@/types/srvlog'
 import type { NetlogListResponse, SingleNetlogResponse } from '@/types/netlog'
 import type { NetboxEnrichmentResponse } from '@/types/netbox'
 import type { AppLogListResponse, SingleAppLogResponse } from '@/types/applog'
@@ -193,10 +193,6 @@ export const api = {
 
   getSrvlogVolume(params: URLSearchParams): Promise<VolumeResponse> {
     return fetchAPI(`/api/v1/srvlog/stats/volume?${params}`)
-  },
-
-  getJuniperLookup(name: string): Promise<MetaResponse<JuniperNetlogRef>> {
-    return fetchAPI(`/api/v1/juniper/lookup?name=${encodeURIComponent(name)}`)
   },
 
   // Netlog

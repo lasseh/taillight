@@ -680,6 +680,13 @@ select {
   --vis-crosshair-circle-stroke-color: var(--color-t-blue);
 }
 
+/* Shared highlight flash for freshly-arrived rows (used from scoped styles;
+   unrewritten keyframe references fall through to this global definition). */
+@keyframes row-flash {
+  0% { background-color: var(--color-t-bg-highlight); }
+  100% { background-color: transparent; }
+}
+
 /* Respect the user's reduced-motion preference: near-instant animations and
    transitions, no infinite pulsing/looping, instant scroll. Additive — only
    applies when the OS-level "reduce motion" setting is enabled. */

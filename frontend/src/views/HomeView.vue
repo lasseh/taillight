@@ -541,9 +541,4 @@ function getSeverityBgClass(level: string): string {
 .row-flash {
   animation: row-flash 1s ease-out;
 }
-
-@keyframes row-flash {
-  0% { background-color: var(--color-t-bg-highlight); }
-  100% { background-color: transparent; }
-}
 </style>
