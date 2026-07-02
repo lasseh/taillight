@@ -47,6 +47,7 @@ type AnalysisScheduler struct {
 	store    AnalysisScheduleStore
 	enqueuer AnalysisEnqueuer
 	logger   *slog.Logger
+	now      func() time.Time // injectable clock for tests
 }
 
 // NewAnalysisScheduler constructs an analysis scheduler.
@@ -55,6 +56,7 @@ func NewAnalysisScheduler(store AnalysisScheduleStore, enqueuer AnalysisEnqueuer
 		store:    store,
 		enqueuer: enqueuer,
 		logger:   logger.With("component", "analysis-scheduler"),
+		now:      time.Now,
 	}
 }
 
@@ -109,7 +111,7 @@ func (s *AnalysisScheduler) isDue(sched model.AnalysisSchedule) bool {
 		return false
 	}
 
-	now := time.Now().In(loc)
+	now := s.now().In(loc)
 	scheduled := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, loc)
 	if now.Before(scheduled) || now.Sub(scheduled) > analysisFiringWindow {
 		return false
@@ -128,7 +130,7 @@ func (s *AnalysisScheduler) isDue(sched model.AnalysisSchedule) bool {
 
 	if sched.LastRunAt != nil {
 		minInterval := periodDuration(sched.Frequency) / 2
-		if time.Since(*sched.LastRunAt) < minInterval {
+		if now.Sub(*sched.LastRunAt) < minInterval {
 			return false
 		}
 	}
@@ -140,7 +142,7 @@ func (s *AnalysisScheduler) isDue(sched model.AnalysisSchedule) bool {
 // scheduled wall-clock time in the schedule's timezone, expressed in UTC and
 // truncated to the minute. Used so retries within the firing window all land
 // on the same period_end (and therefore the same slug + duplicate-active key).
-func scheduledPeriodEnd(sched model.AnalysisSchedule) (time.Time, error) {
+func scheduledPeriodEnd(sched model.AnalysisSchedule, now time.Time) (time.Time, error) {
 	loc, err := time.LoadLocation(sched.Timezone)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid timezone %q: %w", sched.Timezone, err)
@@ -149,13 +151,13 @@ func scheduledPeriodEnd(sched model.AnalysisSchedule) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	now := time.Now().In(loc)
-	return time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, loc).UTC().Truncate(time.Minute), nil
+	local := now.In(loc)
+	return time.Date(local.Year(), local.Month(), local.Day(), hour, minute, 0, 0, loc).UTC().Truncate(time.Minute), nil
 }
 
 func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.AnalysisSchedule) {
 	period := periodDuration(sched.Frequency)
-	periodEnd, err := scheduledPeriodEnd(sched)
+	periodEnd, err := scheduledPeriodEnd(sched, s.now())
 	if err != nil {
 		s.logger.Error("scheduled period_end failed", "schedule", sched.Name, "err", err)
 		return
@@ -187,7 +189,7 @@ func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.Analysi
 		return
 	}
 
-	if err := s.store.UpdateAnalysisScheduleLastRun(ctx, sched.ID, time.Now().UTC()); err != nil {
+	if err := s.store.UpdateAnalysisScheduleLastRun(ctx, sched.ID, s.now().UTC()); err != nil {
 		s.logger.Error("failed to update analysis schedule last_run_at",
 			"schedule", sched.Name, "err", err)
 	}
@@ -203,7 +205,7 @@ func (s *AnalysisScheduler) RunNow(ctx context.Context, id int64) error {
 		return fmt.Errorf("get schedule: %w", err)
 	}
 
-	periodEnd, err := scheduledPeriodEnd(sched)
+	periodEnd, err := scheduledPeriodEnd(sched, s.now())
 	if err != nil {
 		return err
 	}

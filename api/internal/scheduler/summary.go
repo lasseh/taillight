@@ -38,6 +38,7 @@ type SummaryScheduler struct {
 	store  SummaryStore
 	sender SummarySender
 	logger *slog.Logger
+	now    func() time.Time // injectable clock for tests
 }
 
 // NewSummaryScheduler creates a new SummaryScheduler.
@@ -46,6 +47,7 @@ func NewSummaryScheduler(store SummaryStore, sender SummarySender, logger *slog.
 		store:  store,
 		sender: sender,
 		logger: logger.With("component", "summary-scheduler"),
+		now:    time.Now,
 	}
 }
 
@@ -94,7 +96,7 @@ func (s *SummaryScheduler) isDue(sched notification.SummarySchedule) bool {
 		return false
 	}
 
-	now := time.Now().In(loc)
+	now := s.now().In(loc)
 	hour, minute, err := parseTime(sched.TimeOfDay)
 	if err != nil {
 		s.logger.Error("invalid time_of_day", "schedule", sched.Name, "time_of_day", sched.TimeOfDay, "err", err)
@@ -121,7 +123,7 @@ func (s *SummaryScheduler) isDue(sched notification.SummarySchedule) bool {
 	// Prevent double-fire: last_run_at must be at least half the period ago.
 	if sched.LastRunAt != nil {
 		minInterval := periodDuration(sched.Frequency) / 2
-		if time.Since(*sched.LastRunAt) < minInterval {
+		if now.Sub(*sched.LastRunAt) < minInterval {
 			return false
 		}
 	}
@@ -131,7 +133,7 @@ func (s *SummaryScheduler) isDue(sched notification.SummarySchedule) bool {
 
 func (s *SummaryScheduler) runSchedule(ctx context.Context, sched notification.SummarySchedule) {
 	period := periodDuration(sched.Frequency)
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	since := now.Add(-period)
 
 	s.logger.Info("running summary schedule",
