@@ -4,15 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-This project is deployed continuously and does not cut tagged, versioned
-releases. The **[Unreleased]** section below is therefore a permanent running
-log of everything shipped since `0.1.0` — it is intentional, not a backlog of
-work waiting for a release.
+Releases are tagged `vX.Y.Z` ([semver](https://semver.org/)). The
+**[Unreleased]** section accumulates changes as they land on `main`; cutting a
+release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
+`make release` drives the process — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## [Unreleased]
 
-<!-- Continuous deploy: add entries here under Added/Changed/Fixed/Security.
-     Do not rename this section to a version or create release tags. -->
+<!-- Add entries here under Added/Changed/Fixed/Security. When cutting a
+     release, move them under a new "## [vX.Y.Z] - YYYY-MM-DD" heading. -->
 
 > The terminal UI (`taillight-tui`) and the SSH server that hosts it
 > (`taillight-wish`) were extracted into a separate repository —

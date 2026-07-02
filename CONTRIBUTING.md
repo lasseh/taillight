@@ -85,6 +85,24 @@ Use the format `type/short-description`:
 4. Fill out the PR template with a summary and test plan
 5. A maintainer will review and merge your PR
 
+## Cutting a Release (maintainers)
+
+Releases are semver tags (`vX.Y.Z`); CI builds all artifacts on tag push.
+
+1. In `CHANGELOG.md`, move the `[Unreleased]` entries under a new
+   `## [vX.Y.Z] - YYYY-MM-DD` heading and commit on `main`.
+2. Run `make release` from the repo root. It verifies a clean tree and the
+   CHANGELOG section, runs the test suite, then tags `vX.Y.Z` and pushes the
+   tag.
+3. The tag triggers `.github/workflows/release.yml`, which cross-builds the
+   `taillight` and `taillight-shipper` binaries, creates the GitHub release
+   with generated notes, and publishes the Docker image to
+   `ghcr.io/lasseh/taillight`.
+
+The Python SDK releases separately: bump the version in
+`sdk/python/pyproject.toml`, then tag `py-vX.Y.Z` —
+`.github/workflows/python-publish.yml` publishes it to PyPI.
+
 ## Code Style
 
 ### Go

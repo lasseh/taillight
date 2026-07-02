@@ -47,12 +47,18 @@ jobs:
             -ldflags="-s -w -X main.Version=${TAG_NAME}" \
             -o "../taillight-${GOOS}-${GOARCH}" \
             ./cmd/taillight
+          CGO_ENABLED=0 go build \
+            -ldflags="-s -w" \
+            -o "../taillight-shipper-${GOOS}-${GOARCH}" \
+            ./cmd/taillight-shipper
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: taillight-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: taillight-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            taillight-${{ matrix.goos }}-${{ matrix.goarch }}
+            taillight-shipper-${{ matrix.goos }}-${{ matrix.goarch }}
 
   release:
     name: Create Release

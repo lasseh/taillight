@@ -1,8 +1,7 @@
 .PHONY: up down build logs ps help test lint api-test api-lint frontend-dev rsyslog-test rsyslog-reload psql python-test python-lint release
 
-# Cross-compile matrix and remote for release binaries.
-RELEASE_PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
-RELEASE_REMOTE    ?= origin
+# Remote that release tags are pushed to.
+RELEASE_REMOTE ?= origin
 
 ##@ General
 help: ## Show this help
@@ -60,9 +59,7 @@ psql: ## Connect to the database via psql
 	docker compose exec postgres psql -U taillight -d taillight
 
 ##@ Release
-release: ## Cut a GitHub release (prompts for version; tags, cross-builds binaries, generates notes)
-	@command -v gh >/dev/null 2>&1 || { echo "error: gh CLI not found (https://cli.github.com)"; exit 1; }
-	@gh auth status >/dev/null 2>&1 || { echo "error: not logged in to GitHub (run: gh auth login)"; exit 1; }
+release: ## Cut a release (prompts for vX.Y.Z; tests, tags, pushes — CI builds binaries, release, and image)
 	@if [ -n "$$(git status --porcelain)" ]; then echo "error: working tree not clean — commit or stash first"; exit 1; fi
 	@branch=$$(git rev-parse --abbrev-ref HEAD); \
 	last=$$(git tag -l 'v*' --sort=-v:refname | head -n1); \
@@ -75,25 +72,14 @@ release: ## Cut a GitHub release (prompts for version; tags, cross-builds binari
 		*) echo "error: version must look like vX.Y.Z"; exit 1 ;; \
 	esac; \
 	if git rev-parse "$$version" >/dev/null 2>&1; then echo "error: tag $$version already exists"; exit 1; fi; \
+	if ! grep -q "^## \[$$version\]" CHANGELOG.md; then \
+		echo "error: CHANGELOG.md has no '## [$$version]' section — move the [Unreleased] entries first"; exit 1; \
+	fi; \
 	echo "==> running tests"; \
-	$(MAKE) -C api test || exit 1; \
-	echo "==> building release binaries for $$version"; \
-	rm -rf dist && mkdir -p dist; \
-	for platform in $(RELEASE_PLATFORMS); do \
-		os=$${platform%/*}; arch=$${platform#*/}; \
-		echo "    taillight $$os/$$arch"; \
-		(cd api && GOOS=$$os GOARCH=$$arch go build -trimpath \
-			-ldflags="-X main.Version=$$version" \
-			-o "../dist/taillight-$$version-$$os-$$arch" ./cmd/taillight) || exit 1; \
-		echo "    taillight-shipper $$os/$$arch"; \
-		(cd api && GOOS=$$os GOARCH=$$arch go build -trimpath \
-			-o "../dist/taillight-shipper-$$version-$$os-$$arch" ./cmd/taillight-shipper) || exit 1; \
-	done; \
+	$(MAKE) test || exit 1; \
 	echo "==> tagging $$version and pushing to $(RELEASE_REMOTE)"; \
 	git tag -a "$$version" -m "Release $$version" || exit 1; \
 	git push $(RELEASE_REMOTE) "$$version" || exit 1; \
-	echo "==> creating GitHub release"; \
-	gh release create "$$version" dist/* --title "$$version" --generate-notes || exit 1; \
-	echo "==> released $$version"
+	echo "==> pushed $$version — release.yml now builds binaries, the GitHub release, and the Docker image"
 
 .DEFAULT_GOAL := help

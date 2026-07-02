@@ -351,6 +351,15 @@ Response: `{"parsed": N, "upserted": M}`. Max request size is 10 MiB.
 - [rsyslog Config](rsyslog/README.md) — rsyslog deployment and filtering
 - [nginx Examples](docs/nginx-reverse-proxy.conf.example) — production reverse proxy config
 
+## Releases
+
+Taillight is versioned with [semver](https://semver.org/) tags (`vX.Y.Z`). Each
+release on the [releases page](https://github.com/lasseh/taillight/releases)
+ships cross-compiled `taillight` and `taillight-shipper` binaries
+(linux/darwin, amd64/arm64) and a multi-arch Docker image at
+`ghcr.io/lasseh/taillight`. The Python SDK (`taillight-sdk`) releases
+independently to PyPI via its own `py-vX.Y.Z` tags.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commit conventions, and PR guidelines.
