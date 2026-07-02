@@ -171,3 +171,107 @@ func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval 
 
 	return buckets, nil
 }
+
+// getSyslogSummary returns summary statistics for a syslog-plane event feed
+// over the given range, reading from its hourly continuous aggregate. The
+// srvlog and netlog summaries were identical apart from the aggregate table,
+// so the query/scan body lives here once (mirrors getVolume); callers pass
+// their feed's *_summary_hourly view.
+func (s *Store) getSyslogSummary(ctx context.Context, aggTable string, rangeDur time.Duration) (model.SyslogSummary, error) {
+	since := time.Now().UTC().Add(-rangeDur)
+	prevStart := since.Add(-rangeDur)
+
+	// Get current totals by severity from the continuous aggregate.
+	query := fmt.Sprintf(
+		`SELECT severity, SUM(cnt) AS cnt
+		 FROM %s
+		 WHERE bucket >= $1
+		 GROUP BY severity
+		 ORDER BY severity`, aggTable)
+
+	rows, err := s.pool.Query(ctx, query, since)
+	if err != nil {
+		return model.SyslogSummary{}, fmt.Errorf("%s summary query: %w", aggTable, err)
+	}
+	defer rows.Close()
+
+	var summary model.SyslogSummary
+	summary.SeverityBreakdown = make([]model.SeverityCount, 0)
+	summary.TopHosts = make([]model.TopSource, 0)
+
+	for rows.Next() {
+		var sev int
+		var cnt int64
+		if err := rows.Scan(&sev, &cnt); err != nil {
+			return model.SyslogSummary{}, fmt.Errorf("scan %s severity: %w", aggTable, err)
+		}
+		summary.Total += cnt
+		if sev <= model.SeverityErr {
+			summary.Errors += cnt
+		}
+		if sev == model.SeverityWarning {
+			summary.Warnings += cnt
+		}
+		summary.SeverityBreakdown = append(summary.SeverityBreakdown, model.SeverityCount{
+			Severity: sev,
+			Label:    model.SeverityLabel(sev),
+			Count:    cnt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return model.SyslogSummary{}, fmt.Errorf("%s severity rows: %w", aggTable, err)
+	}
+
+	// Get previous period total for trend calculation.
+	var prevTotal int64
+	err = s.pool.QueryRow(ctx,
+		fmt.Sprintf("SELECT COALESCE(SUM(cnt), 0) FROM %s WHERE bucket >= $1 AND bucket < $2", aggTable),
+		prevStart, since).Scan(&prevTotal)
+	if err != nil {
+		return model.SyslogSummary{}, fmt.Errorf("%s prev total query: %w", aggTable, err)
+	}
+
+	if prevTotal > 0 {
+		summary.Trend = float64(summary.Total-prevTotal) / float64(prevTotal) * 100
+	}
+
+	// Get top hosts from the continuous aggregate.
+	hostQuery := fmt.Sprintf(
+		`SELECT hostname, SUM(cnt) AS cnt
+		 FROM %s
+		 WHERE bucket >= $1
+		 GROUP BY hostname
+		 ORDER BY cnt DESC
+		 LIMIT $2`, aggTable)
+
+	hostRows, err := s.pool.Query(ctx, hostQuery, since, topSourcesLimit)
+	if err != nil {
+		return model.SyslogSummary{}, fmt.Errorf("%s top hosts query: %w", aggTable, err)
+	}
+
+	hosts, err := pgx.CollectRows(hostRows, func(row pgx.CollectableRow) (model.TopSource, error) {
+		var ts model.TopSource
+		err := row.Scan(&ts.Name, &ts.Count)
+		return ts, err
+	})
+	if err != nil {
+		return model.SyslogSummary{}, fmt.Errorf("scan %s host: %w", aggTable, err)
+	}
+	summary.TopHosts = append(summary.TopHosts, hosts...)
+
+	// Calculate percentages for top hosts.
+	for i := range summary.TopHosts {
+		if summary.Total > 0 {
+			summary.TopHosts[i].Pct = float64(summary.TopHosts[i].Count) / float64(summary.Total) * 100
+		}
+	}
+
+	// Calculate percentages for severity breakdown.
+	for i := range summary.SeverityBreakdown {
+		if summary.Total > 0 {
+			summary.SeverityBreakdown[i].Pct = float64(summary.SeverityBreakdown[i].Count) / float64(summary.Total) * 100
+		}
+	}
+
+	return summary, nil
+}
