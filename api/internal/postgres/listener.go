@@ -61,8 +61,8 @@ type Listener struct {
 	lastSeenNetlogID atomic.Int64
 
 	mu     sync.Mutex
-	conn   *pgx.Conn
 	cancel context.CancelFunc
+	done   chan struct{} // closed when the listen goroutine (sole conn owner) exits
 }
 
 // NewListener creates a new Listener with the given notification buffer size.
@@ -89,14 +89,19 @@ func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
 
 	// Create a cancellable context for shutdown.
 	listenCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
 	l.mu.Lock()
-	l.conn = conn
 	l.cancel = cancel
+	l.done = done
 	l.mu.Unlock()
 
 	ch := make(chan Notification, l.bufferSize)
 
+	// The listen goroutine is the connection's single owner: it alone calls
+	// Close, so Shutdown never touches the conn (pgx.Conn is not safe for
+	// concurrent use).
 	go func() {
+		defer close(done)
 		defer close(ch)
 		c := conn
 
@@ -113,9 +118,6 @@ func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
 				if c == nil {
 					return
 				}
-				l.mu.Lock()
-				l.conn = c
-				l.mu.Unlock()
 
 				// Fill gap: push any events missed while disconnected.
 				l.fillGap(listenCtx, ch)
@@ -145,19 +147,23 @@ func (l *Listener) Listen(ctx context.Context) (<-chan Notification, error) {
 	return ch, nil
 }
 
-// Shutdown gracefully stops the listener and closes the connection.
+// Shutdown gracefully stops the listener. Cancelling the listen context
+// unblocks WaitForNotification; the listen goroutine then closes its own
+// connection. Shutdown waits for that goroutine to exit, bounded by ctx.
 func (l *Listener) Shutdown(ctx context.Context) error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	cancel, done := l.cancel, l.done
+	l.mu.Unlock()
 
-	if l.cancel != nil {
-		l.cancel()
+	if cancel != nil {
+		cancel()
 	}
-	if l.conn != nil {
-		if err := l.conn.Close(ctx); err != nil {
-			return fmt.Errorf("close listener connection: %w", err)
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return fmt.Errorf("wait for listen goroutine: %w", ctx.Err())
 		}
-		l.conn = nil
 	}
 	l.logger.Info("listener shut down")
 	return nil

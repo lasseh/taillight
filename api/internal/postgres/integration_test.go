@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"strings"
@@ -314,5 +315,46 @@ func TestIntegration_AnalysisScheduleNotifyChannels(t *testing.T) {
 	}
 	if len(readBack.NotifyChannelIDs) != 2 || readBack.NotifyChannelIDs[0] != 7 || readBack.NotifyChannelIDs[1] != 42 {
 		t.Fatalf("report NotifyChannelIDs = %v, want [7 42]", readBack.NotifyChannelIDs)
+	}
+}
+
+// TestIntegration_ListenerShutdownWhileListening exercises Listen followed by
+// Shutdown while the recv goroutine is blocked in WaitForNotification. Under
+// -race this verifies the listen goroutine is the connection's single owner —
+// Shutdown must never Close the conn itself (audit issue 05).
+func TestIntegration_ListenerShutdownWhileListening(t *testing.T) {
+	pool := testPool(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	l := NewListener(os.Getenv("TEST_DATABASE_URL"), pool, 16, logger, []string{"srvlog_ingest"})
+
+	ctx := context.Background()
+	ch, err := l.Listen(ctx)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	// Prove the recv loop is live before shutting down mid-listen.
+	if _, err := pool.Exec(ctx, "SELECT pg_notify('srvlog_ingest', '1')"); err != nil {
+		t.Fatalf("pg_notify: %v", err)
+	}
+	select {
+	case n := <-ch:
+		if n.Channel != "srvlog_ingest" || n.ID != 1 {
+			t.Fatalf("notification = %+v, want srvlog_ingest/1", n)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for notification")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := l.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	// Shutdown waits for the listen goroutine, which closes ch before
+	// signalling done — so the channel must already be closed.
+	if _, ok := <-ch; ok {
+		t.Fatal("notification channel still open after shutdown")
 	}
 }
