@@ -191,7 +191,26 @@ func runServe(_ *cobra.Command, _ []string) error {
 		go summaryScheduler.Start(ctx)
 	}
 
-	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler)
+	// Netbox enrichment client (optional — requires netlog).
+	var nbClient *netbox.Client
+	if cfg.Netbox.Enabled && cfg.Features.Netlog {
+		var err error
+		nbClient, err = netbox.NewClient(netbox.Config{
+			URL:           cfg.Netbox.URL,
+			Token:         cfg.Netbox.Token,
+			AuthScheme:    cfg.Netbox.AuthScheme,
+			Timeout:       cfg.Netbox.Timeout,
+			CacheTTL:      cfg.Netbox.CacheTTL,
+			TLSSkipVerify: cfg.Netbox.TLSSkipVerify,
+			Logger:        logger,
+		})
+		if err != nil {
+			logger.Warn("netbox enrichment disabled: client init failed", "err", err)
+			nbClient = nil
+		}
+	}
+
+	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler, nbClient)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -269,6 +288,11 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// No requests are in flight now — drain the auth touch worker.
 	authStore.Stop()
+
+	// Stop the netbox cache janitor.
+	if nbClient != nil {
+		nbClient.Close()
+	}
 
 	return srvErr
 }
@@ -525,6 +549,7 @@ func setupRouter(
 	analysis *analysisWiring,
 	notifEngine *notification.Engine,
 	summaryScheduler *scheduler.SummaryScheduler,
+	nbClient *netbox.Client,
 ) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -605,21 +630,8 @@ func setupRouter(
 
 	// Netbox enrichment handler (only enabled when configured and netlog is on).
 	var netboxHandler *handler.NetboxHandler
-	if cfg.Netbox.Enabled && cfg.Features.Netlog && netlogHandler != nil {
-		nbClient, err := netbox.NewClient(netbox.Config{
-			URL:           cfg.Netbox.URL,
-			Token:         cfg.Netbox.Token,
-			AuthScheme:    cfg.Netbox.AuthScheme,
-			Timeout:       cfg.Netbox.Timeout,
-			CacheTTL:      cfg.Netbox.CacheTTL,
-			TLSSkipVerify: cfg.Netbox.TLSSkipVerify,
-			Logger:        logger,
-		})
-		if err != nil {
-			logger.Warn("netbox enrichment disabled: client init failed", "err", err)
-		} else {
-			netboxHandler = handler.NewNetboxHandler(nbClient, store, logger)
-		}
+	if nbClient != nil && netlogHandler != nil {
+		netboxHandler = handler.NewNetboxHandler(nbClient, store, logger)
 	}
 
 	// AppLog handlers.
