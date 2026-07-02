@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useNotifications } from '@/composables/useNotifications'
 import { useTheme } from '@/composables/useTheme'
 import { useScrollStore } from '@/stores/scroll'
 import { useDashboardLayout } from '@/composables/useDashboardLayout'
 import { features as getFeatures } from '@/lib/features'
+import MenuItem from '@/components/MenuItem.vue'
+import NavLink from '@/components/NavLink.vue'
+import MenuIcon from '@/components/MenuIcon.vue'
+import type { IconName } from '@/components/MenuIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,60 +47,22 @@ function closeMobileMenu() {
   mobileMenuOpen.value = false
 }
 
-function mobileNavigateToLog(routeName: 'netlog' | 'srvlog' | 'applog') {
+function closeMenus() {
+  menuOpen.value = false
   closeMobileMenu()
-  navigateToLog(routeName)
+}
+
+function go(to: RouteLocationRaw) {
+  closeMenus()
+  router.push(to)
 }
 
 function pick(id: string) {
   setTheme(id)
 }
 
-function goToUsers() {
-  menuOpen.value = false
-  closeMobileMenu()
-  router.push({ name: 'admin-users' })
-}
-
-function goToSettings() {
-  menuOpen.value = false
-  closeMobileMenu()
-  router.push({ name: 'settings' })
-}
-
-function goToApiKeys() {
-  menuOpen.value = false
-  closeMobileMenu()
-  router.push({ name: 'api-keys' })
-}
-
-function goToAnalysis() {
-  menuOpen.value = false
-  closeMobileMenu()
-  router.push({ name: 'analysis' })
-}
-
-function goToHosts() {
-  menuOpen.value = false
-  closeMobileMenu()
-  router.push({ name: 'hosts' })
-}
-
-function goToVolume() {
-  menuOpen.value = false
-  closeMobileMenu()
-  router.push({ path: '/volume', query: { tab: volumeTab.value } })
-}
-
-function goToNotifications() {
-  menuOpen.value = false
-  closeMobileMenu()
-  router.push({ name: 'notifications' })
-}
-
 function handleEditDashboard() {
-  menuOpen.value = false
-  closeMobileMenu()
+  closeMenus()
   if (route.name !== 'home') {
     router.push('/')
   }
@@ -104,13 +70,145 @@ function handleEditDashboard() {
 }
 
 async function handleLogout() {
-  menuOpen.value = false
-  closeMobileMenu()
+  closeMenus()
   try {
     await auth.logout()
   } catch (e) {
     console.error('logout failed', e)
   }
+}
+
+// --- Nav data. Each entry (label, icon, action, visibility) is authored once
+// and rendered by both the desktop and mobile menus.
+
+/** DASHBOARD/NETLOG/SRVLOG/APPLOG strip. Feature flags are resolved before mount. */
+interface FeedLink {
+  id: 'home' | 'netlog' | 'srvlog' | 'applog'
+  label: string
+  title: string
+  to?: string
+  activeClass: string
+  inactiveClass: string
+}
+
+const navLinks: FeedLink[] = (
+  [
+    {
+      id: 'home',
+      label: 'DASHBOARD',
+      title: 'Dashboard (1)',
+      to: '/',
+      activeClass: 'bg-t-bg-highlight text-t-blue',
+      inactiveClass: 'text-t-blue/50 hover:text-t-blue',
+    },
+    {
+      id: 'netlog',
+      label: 'NETLOG',
+      title: 'Netlog (2)',
+      activeClass: 'bg-t-bg-highlight text-t-fuchsia',
+      inactiveClass: 'text-t-fuchsia/50 hover:text-t-fuchsia',
+    },
+    {
+      id: 'srvlog',
+      label: 'SRVLOG',
+      title: 'Srvlog (3)',
+      activeClass: 'bg-t-bg-highlight text-t-teal',
+      inactiveClass: 'text-t-teal/50 hover:text-t-teal',
+    },
+    {
+      id: 'applog',
+      label: 'APPLOG',
+      title: 'Applog (4)',
+      activeClass: 'bg-t-bg-highlight text-t-magenta',
+      inactiveClass: 'text-t-magenta/50 hover:text-t-magenta',
+    },
+  ] satisfies FeedLink[]
+).filter((l) => l.id === 'home' || features[l.id])
+
+function isFeedActive(id: FeedLink['id']): boolean {
+  if (id === 'home') return route.name === 'home'
+  return String(route.name).startsWith(id)
+}
+
+function onFeedClick(link: FeedLink, mobile = false) {
+  if (mobile) closeMobileMenu()
+  if (link.id !== 'home') navigateToLog(link.id)
+}
+
+/** Settings-menu entries, grouped into the menus' bordered sections. */
+interface MenuEntry {
+  id: string
+  label: string
+  icon: IconName
+  action: () => void
+  show?: () => boolean
+}
+
+const menuSections: { id: string; items: MenuEntry[] }[] = [
+  {
+    id: 'general',
+    items: [
+      { id: 'hosts', label: 'Hosts', icon: 'hosts', action: () => go({ name: 'hosts' }) },
+      {
+        id: 'volume',
+        label: 'Volume',
+        icon: 'volume',
+        action: () => go({ path: '/volume', query: { tab: volumeTab.value } }),
+      },
+      {
+        id: 'alerts',
+        label: 'Alerts',
+        icon: 'alerts',
+        action: () => go({ name: 'notifications' }),
+      },
+      {
+        id: 'analysis',
+        label: 'Analysis Reports',
+        icon: 'analysis',
+        action: () => go({ name: 'analysis' }),
+        show: () => features.analysis,
+      },
+      {
+        id: 'edit-dashboard',
+        label: 'Edit Dashboard',
+        icon: 'edit-dashboard',
+        action: handleEditDashboard,
+      },
+    ],
+  },
+  {
+    id: 'admin',
+    items: [
+      {
+        id: 'api-keys',
+        label: 'API Keys',
+        icon: 'api-keys',
+        action: () => go({ name: 'api-keys' }),
+        show: () => isAuthenticated.value,
+      },
+      {
+        id: 'users',
+        label: 'Manage Users',
+        icon: 'users',
+        action: () => go({ name: 'admin-users' }),
+        show: () => isAuthenticated.value && !!auth.user?.is_admin,
+      },
+    ],
+  },
+]
+
+const visibleSections = computed(() =>
+  menuSections
+    .map((s) => ({ ...s, items: s.items.filter((i) => i.show?.() ?? true) }))
+    .filter((s) => s.items.length > 0),
+)
+
+/** Logout is rendered outside the shared sections (own desktop section, mobile footer). */
+const logoutItem: MenuEntry = {
+  id: 'logout',
+  label: 'Logout',
+  icon: 'logout',
+  action: handleLogout,
 }
 
 function onClickOutside(e: MouseEvent) {
@@ -164,57 +262,17 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
       <!-- Desktop: nav links -->
       <div class="hidden gap-1 md:flex">
-        <router-link
-          to="/"
-          title="Dashboard (1)"
-          class="px-2 py-0.5 text-xs transition-colors"
-          :class="
-            route.name === 'home'
-              ? 'bg-t-bg-highlight text-t-blue'
-              : 'text-t-blue/50 hover:text-t-blue'
-          "
-        >
-          DASHBOARD
-        </router-link>
-        <button
-          v-if="features.netlog"
-          title="Netlog (2)"
-          class="px-2 py-0.5 text-xs transition-colors"
-          :class="
-            String(route.name).startsWith('netlog')
-              ? 'bg-t-bg-highlight text-t-fuchsia'
-              : 'text-t-fuchsia/50 hover:text-t-fuchsia'
-          "
-          @click="navigateToLog('netlog')"
-        >
-          NETLOG
-        </button>
-        <button
-          v-if="features.srvlog"
-          title="Srvlog (3)"
-          class="px-2 py-0.5 text-xs transition-colors"
-          :class="
-            String(route.name).startsWith('srvlog')
-              ? 'bg-t-bg-highlight text-t-teal'
-              : 'text-t-teal/50 hover:text-t-teal'
-          "
-          @click="navigateToLog('srvlog')"
-        >
-          SRVLOG
-        </button>
-        <button
-          v-if="features.applog"
-          title="Applog (4)"
-          class="px-2 py-0.5 text-xs transition-colors"
-          :class="
-            String(route.name).startsWith('applog')
-              ? 'bg-t-bg-highlight text-t-magenta'
-              : 'text-t-magenta/50 hover:text-t-magenta'
-          "
-          @click="navigateToLog('applog')"
-        >
-          APPLOG
-        </button>
+        <NavLink
+          v-for="l in navLinks"
+          :key="l.id"
+          :label="l.label"
+          :title="l.title"
+          :to="l.to"
+          :active="isFeedActive(l.id)"
+          :active-class="l.activeClass"
+          :inactive-class="l.inactiveClass"
+          @click="onFeedClick(l)"
+        />
       </div>
 
       <!-- Desktop: settings menu -->
@@ -264,7 +322,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
             <!-- User label (clickable → user settings) -->
             <button
               class="border-t-border hover:bg-t-bg-hover flex w-full items-center gap-2 border-b px-3 py-2 text-left transition-colors"
-              @click="goToSettings"
+              @click="go({ name: 'settings' })"
             >
               <img
                 v-if="auth.user?.gravatar_url"
@@ -275,150 +333,19 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
               <span class="text-t-fg-dark text-xs">{{ auth.user?.username }}</span>
             </button>
 
-            <!-- Menu items -->
-            <div class="border-t-border border-b py-1">
-              <button
-                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="goToHosts"
-              >
-                <svg
-                  class="h-3 w-3"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-                  <line x1="6" y1="6" x2="6.01" y2="6" />
-                  <line x1="6" y1="18" x2="6.01" y2="18" />
-                </svg>
-                <span>Hosts</span>
-              </button>
-              <button
-                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="goToVolume"
-              >
-                <svg
-                  class="h-3 w-3"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <line x1="18" y1="20" x2="18" y2="10" />
-                  <line x1="12" y1="20" x2="12" y2="4" />
-                  <line x1="6" y1="20" x2="6" y2="14" />
-                </svg>
-                <span>Volume</span>
-              </button>
-              <button
-                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="goToNotifications"
-              >
-                <svg
-                  class="h-3 w-3"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                </svg>
-                <span>Alerts</span>
-              </button>
-              <button
-                v-if="features.analysis"
-                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="goToAnalysis"
-              >
-                <svg
-                  class="h-3 w-3"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="16" y1="13" x2="8" y2="13" />
-                  <line x1="16" y1="17" x2="8" y2="17" />
-                </svg>
-                <span>Analysis Reports</span>
-              </button>
-              <button
-                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="handleEditDashboard"
-              >
-                <svg
-                  class="h-3 w-3"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <rect x="3" y="3" width="7" height="7" />
-                  <rect x="14" y="3" width="7" height="7" />
-                  <rect x="3" y="14" width="7" height="7" />
-                  <rect x="14" y="14" width="7" height="7" />
-                </svg>
-                <span>Edit Dashboard</span>
-              </button>
-            </div>
-
-            <!-- Admin items (authenticated only) -->
-            <div v-if="isAuthenticated" class="border-t-border border-b py-1">
-              <button
-                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="goToApiKeys"
-              >
-                <svg
-                  class="h-3 w-3"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path
-                    d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"
-                  />
-                </svg>
-                <span>API Keys</span>
-              </button>
-              <button
-                v-if="auth.user?.is_admin"
-                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-fg flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="goToUsers"
-              >
-                <svg
-                  class="h-3 w-3"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-                <span>Manage Users</span>
-              </button>
+            <!-- Menu sections (admin section renders only when authenticated) -->
+            <div
+              v-for="section in visibleSections"
+              :key="section.id"
+              class="border-t-border border-b py-1"
+            >
+              <MenuItem
+                v-for="item in section.items"
+                :key="item.id"
+                :icon="item.icon"
+                :label="item.label"
+                @click="item.action()"
+              />
             </div>
 
             <!-- Themes section -->
@@ -453,25 +380,12 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
             <!-- Logout (authenticated only) -->
             <div v-if="isAuthenticated" class="border-t-border border-t py-1">
-              <button
-                class="text-t-fg-dark hover:bg-t-bg-hover hover:text-t-red flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
-                @click="handleLogout"
-              >
-                <svg
-                  class="h-3 w-3"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <polyline points="16 17 21 12 16 7" />
-                  <line x1="21" y1="12" x2="9" y2="12" />
-                </svg>
-                <span>Logout</span>
-              </button>
+              <MenuItem
+                :icon="logoutItem.icon"
+                :label="logoutItem.label"
+                danger
+                @click="logoutItem.action()"
+              />
             </div>
           </div>
         </Transition>
@@ -521,61 +435,24 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
       <div v-if="mobileMenuOpen" class="bg-t-bg-dark border-t-border border-t px-4 py-3 md:hidden">
         <!-- Nav links -->
         <div class="flex flex-col gap-1">
-          <router-link
-            to="/"
-            class="px-2 py-1.5 text-xs transition-colors"
-            :class="
-              route.name === 'home'
-                ? 'bg-t-bg-highlight text-t-blue'
-                : 'text-t-blue/50 hover:text-t-blue'
-            "
-            @click="closeMobileMenu"
-          >
-            DASHBOARD
-          </router-link>
-          <button
-            v-if="features.netlog"
-            class="px-2 py-1.5 text-left text-xs transition-colors"
-            :class="
-              String(route.name).startsWith('netlog')
-                ? 'bg-t-bg-highlight text-t-fuchsia'
-                : 'text-t-fuchsia/50 hover:text-t-fuchsia'
-            "
-            @click="mobileNavigateToLog('netlog')"
-          >
-            NETLOG
-          </button>
-          <button
-            v-if="features.srvlog"
-            class="px-2 py-1.5 text-left text-xs transition-colors"
-            :class="
-              String(route.name).startsWith('srvlog')
-                ? 'bg-t-bg-highlight text-t-teal'
-                : 'text-t-teal/50 hover:text-t-teal'
-            "
-            @click="mobileNavigateToLog('srvlog')"
-          >
-            SRVLOG
-          </button>
-          <button
-            v-if="features.applog"
-            class="px-2 py-1.5 text-left text-xs transition-colors"
-            :class="
-              String(route.name).startsWith('applog')
-                ? 'bg-t-bg-highlight text-t-magenta'
-                : 'text-t-magenta/50 hover:text-t-magenta'
-            "
-            @click="mobileNavigateToLog('applog')"
-          >
-            APPLOG
-          </button>
+          <NavLink
+            v-for="l in navLinks"
+            :key="l.id"
+            mobile
+            :label="l.label"
+            :to="l.to"
+            :active="isFeedActive(l.id)"
+            :active-class="l.activeClass"
+            :inactive-class="l.inactiveClass"
+            @click="onFeedClick(l, true)"
+          />
         </div>
 
         <!-- User label (clickable → user settings) -->
         <div class="bg-t-border my-3 h-px"></div>
         <button
           class="hover:text-t-fg flex w-full items-center gap-2 px-2 py-1 text-left transition-colors"
-          @click="goToSettings"
+          @click="go({ name: 'settings' })"
         >
           <img
             v-if="auth.user?.gravatar_url"
@@ -586,153 +463,18 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           <span class="text-t-fg-dark text-xs">{{ auth.user?.username }}</span>
         </button>
 
-        <!-- Menu items -->
-        <div class="bg-t-border my-3 h-px"></div>
-        <div class="flex flex-col gap-1">
-          <button
-            class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
-            @click="goToHosts"
-          >
-            <svg
-              class="h-3 w-3"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-              <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-              <line x1="6" y1="6" x2="6.01" y2="6" />
-              <line x1="6" y1="18" x2="6.01" y2="18" />
-            </svg>
-            <span>Hosts</span>
-          </button>
-          <button
-            class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
-            @click="goToVolume"
-          >
-            <svg
-              class="h-3 w-3"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <line x1="18" y1="20" x2="18" y2="10" />
-              <line x1="12" y1="20" x2="12" y2="4" />
-              <line x1="6" y1="20" x2="6" y2="14" />
-            </svg>
-            <span>Volume</span>
-          </button>
-          <button
-            class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
-            @click="goToNotifications"
-          >
-            <svg
-              class="h-3 w-3"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-            </svg>
-            <span>Alerts</span>
-          </button>
-          <button
-            v-if="features.analysis"
-            class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
-            @click="goToAnalysis"
-          >
-            <svg
-              class="h-3 w-3"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-            </svg>
-            <span>Analysis Reports</span>
-          </button>
-          <button
-            class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
-            @click="handleEditDashboard"
-          >
-            <svg
-              class="h-3 w-3"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <rect x="3" y="3" width="7" height="7" />
-              <rect x="14" y="3" width="7" height="7" />
-              <rect x="3" y="14" width="7" height="7" />
-              <rect x="14" y="14" width="7" height="7" />
-            </svg>
-            <span>Edit Dashboard</span>
-          </button>
-        </div>
-
-        <!-- Admin items (authenticated only) -->
-        <template v-if="isAuthenticated">
+        <!-- Menu sections (admin section renders only when authenticated) -->
+        <template v-for="section in visibleSections" :key="section.id">
           <div class="bg-t-border my-3 h-px"></div>
           <div class="flex flex-col gap-1">
-            <button
-              class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
-              @click="goToApiKeys"
-            >
-              <svg
-                class="h-3 w-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path
-                  d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"
-                />
-              </svg>
-              <span>API Keys</span>
-            </button>
-            <button
-              v-if="auth.user?.is_admin"
-              class="text-t-fg-dark hover:text-t-fg flex items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors"
-              @click="goToUsers"
-            >
-              <svg
-                class="h-3 w-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              <span>Manage Users</span>
-            </button>
+            <MenuItem
+              v-for="item in section.items"
+              :key="item.id"
+              mobile
+              :icon="item.icon"
+              :label="item.label"
+              @click="item.action()"
+            />
           </div>
         </template>
 
@@ -786,22 +528,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
           <button
             v-if="isAuthenticated"
             class="text-t-fg-dark hover:text-t-red flex items-center gap-1 text-xs transition-colors"
-            @click="handleLogout"
+            @click="logoutItem.action()"
           >
-            <svg
-              class="h-3 w-3"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            <span>Logout</span>
+            <MenuIcon :name="logoutItem.icon" />
+            <span>{{ logoutItem.label }}</span>
           </button>
         </div>
       </div>
