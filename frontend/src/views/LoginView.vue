@@ -3,6 +3,8 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/lib/api'
+import { config } from '@/lib/config'
+import { features } from '@/lib/features'
 
 const router = useRouter()
 const route = useRoute()
@@ -15,10 +17,25 @@ const redirectTarget = (() => {
   return typeof r === 'string' && r.startsWith('/') ? r : '/'
 })()
 
+// Messages for the coarse error codes the OIDC callback redirects back with.
+const ssoErrorMessages: Record<string, string> = {
+  sso_failed: 'SSO login failed — try again or contact your administrator',
+  sso_denied: 'SSO login was cancelled or denied by the identity provider',
+  sso_forbidden: 'Your account is not authorized to access taillight',
+  sso_expired: 'SSO login expired — please try again',
+}
+
 const username = ref('')
 const password = ref('')
-const error = ref('')
+const error = ref(
+  typeof route.query.error === 'string' ? (ssoErrorMessages[route.query.error] ?? '') : '',
+)
 const loading = ref(false)
+
+const oidcEnabled = features().oidc
+// Full-page navigation: the backend redirects to the identity provider and
+// eventually back with the session cookie set — the SPA never sees tokens.
+const oidcLoginUrl = `${config.apiUrl}/api/v1/auth/oidc/login?redirect=${encodeURIComponent(redirectTarget)}`
 
 // Re-check auth periodically while on the login page. Handles auth-disabled
 // mode where the API was temporarily unreachable on first load: once the API
@@ -142,6 +159,11 @@ async function handleSubmit() {
             {{ loading ? 'Signing in...' : 'Sign in' }}
           </button>
         </form>
+
+        <template v-if="oidcEnabled">
+          <div class="divider"><span>or</span></div>
+          <a class="btn btn-sso" :href="oidcLoginUrl">Sign in with SSO</a>
+        </template>
       </template>
     </div>
 
@@ -310,6 +332,32 @@ async function handleSubmit() {
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.25rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-t-fg-gutter);
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--color-t-border);
+}
+
+.btn-sso {
+  display: block;
+  width: 100%;
+  margin-top: 1.25rem;
+  text-align: center;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 
 .footer-text {
