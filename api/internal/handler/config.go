@@ -14,26 +14,29 @@ type ConfigHandler struct {
 // `frontend/src/config.ts` implementation.
 //
 // The three feed keys are always true — feeds are no longer gated — and are
-// kept only so the response shape stays stable for the frontend. Analysis is
-// the one real flag (config.Analysis.Enabled); it ships here so the frontend
-// can hide the analysis nav when the feature is off without a separate request.
+// kept only so the response shape stays stable for the frontend. Analysis
+// (config.Analysis.Enabled) and OIDC (config.OIDC.Enabled) are the real
+// flags; they ship here so the frontend can hide the analysis nav and show
+// the SSO login button without a separate request.
 type FeaturesResponse struct {
 	Netlog   bool `json:"netlog"`
 	Srvlog   bool `json:"srvlog"`
 	Applog   bool `json:"applog"`
 	Analysis bool `json:"analysis"`
+	OIDC     bool `json:"oidc"`
 }
 
 // NewConfigHandler creates a ConfigHandler with a cached snapshot of the
 // feature flags. Flags are set at startup and don't change at runtime,
 // so we copy once to avoid re-reading config on every request.
-func NewConfigHandler(analysisEnabled bool) *ConfigHandler {
+func NewConfigHandler(analysisEnabled, oidcEnabled bool) *ConfigHandler {
 	return &ConfigHandler{
 		features: FeaturesResponse{
 			Netlog:   true,
 			Srvlog:   true,
 			Applog:   true,
 			Analysis: analysisEnabled,
+			OIDC:     oidcEnabled,
 		},
 	}
 }

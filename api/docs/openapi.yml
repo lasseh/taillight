@@ -136,6 +136,61 @@ paths:
               schema:
                 $ref: "#/components/schemas/StatusOK"
 
+  /auth/oidc/login:
+    get:
+      operationId: oidcLogin
+      x-required-scope: none
+      tags: [Auth]
+      summary: Start OIDC single sign-on
+      description: |
+        Begins the OIDC Authorization Code flow (PKCE). Seals the in-flight
+        login state into a signed short-TTL cookie and redirects the browser
+        to the identity provider's authorization endpoint. Registered only
+        when `oidc.enabled` is set. Browser navigation endpoint, not an API
+        call.
+      security: []
+      parameters:
+        - name: redirect
+          in: query
+          required: false
+          description: Same-origin path to land on after login (default `/`).
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to the identity provider (or to `/login?error=<code>` on failure)
+
+  /auth/oidc/callback:
+    get:
+      operationId: oidcCallback
+      x-required-scope: none
+      tags: [Auth]
+      summary: OIDC callback
+      description: |
+        Completes the OIDC flow: verifies the signed state cookie, exchanges
+        the authorization code, validates the ID token, provisions or
+        refreshes the user (keyed on issuer+subject), and establishes an
+        ordinary `tl_session` session. Failures redirect to
+        `/login?error=<sso_failed|sso_denied|sso_forbidden|sso_expired>`.
+        Registered only when `oidc.enabled` is set.
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: false
+          description: Authorization code from the identity provider.
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          description: Anti-CSRF state echoed by the identity provider.
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to the requested page with `tl_session` set (or to `/login?error=<code>`)
+
   /auth/me:
     get:
       operationId: me
@@ -3491,6 +3546,9 @@ components:
         analysis:
           type: boolean
           description: True when LLM analysis is enabled
+        oidc:
+          type: boolean
+          description: True when OIDC single sign-on is enabled
 
     HostEntry:
       type: object

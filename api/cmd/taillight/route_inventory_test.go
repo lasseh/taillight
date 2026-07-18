@@ -15,6 +15,7 @@ import (
 	"github.com/lasseh/taillight/internal/config"
 	"github.com/lasseh/taillight/internal/handler"
 	"github.com/lasseh/taillight/internal/netbox"
+	oidcauth "github.com/lasseh/taillight/internal/oidc"
 	"github.com/lasseh/taillight/internal/postgres"
 )
 
@@ -40,7 +41,7 @@ func buildFullRouter() chi.Router {
 		reports:   handler.NewAnalysisHandler(store, nil),
 		schedules: handler.NewAnalysisScheduleHandler(store, nil),
 	}
-	return setupRouter(cfg, logger, store, authStore, nil,
+	return setupRouter(cfg, logger, store, authStore, nil, oidcauth.New(oidcauth.Config{}, logger),
 		broker.NewSrvlogBroker(logger), broker.NewNetlogBroker(logger), broker.NewAppLogBroker(logger),
 		analysis, nil, nil, &netbox.Client{})
 }

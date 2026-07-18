@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"crypto/md5" //nolint:gosec
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,10 +22,12 @@ import (
 	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/ldap"
 	"github.com/lasseh/taillight/internal/model"
+	oidcauth "github.com/lasseh/taillight/internal/oidc"
 )
 
 const (
 	authSourceLDAP     = "ldap"
+	authSourceOIDC     = "oidc"
 	sessionCookieName  = "tl_session"
 	sessionDuration    = 30 * 24 * time.Hour // 30 days.
 	maxSessionsPerUser = 10
@@ -115,19 +118,33 @@ type AuthStore interface {
 	RevokeAPIKey(ctx context.Context, id [16]byte) error
 	GetAPIKeyByID(ctx context.Context, id [16]byte) (model.APIKeyRow, error)
 	UpsertLDAPUser(ctx context.Context, username, email string, isAdmin bool) (model.User, error)
+	UpsertOIDCUser(ctx context.Context, issuer, subject, username, email string, isAdmin bool) (model.User, error)
 }
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
 	store        AuthStore
 	ldap         ldap.Authenticator // nil when LDAP is disabled.
+	oidc         *oidcauth.Provider // nil when OIDC is disabled.
+	oidcStateKey []byte             // Per-process HMAC key for the OIDC state cookie.
 	cookieSecure bool               // Force Secure flag on session cookies.
 }
 
 // NewAuthHandler creates a new AuthHandler.
-// Pass nil for ldapAuth to disable LDAP authentication.
-func NewAuthHandler(store AuthStore, ldapAuth ldap.Authenticator, cookieSecure bool) *AuthHandler {
-	return &AuthHandler{store: store, ldap: ldapAuth, cookieSecure: cookieSecure}
+// Pass nil for ldapAuth/oidcAuth to disable LDAP/OIDC authentication.
+func NewAuthHandler(store AuthStore, ldapAuth ldap.Authenticator, oidcAuth *oidcauth.Provider, cookieSecure bool) *AuthHandler {
+	h := &AuthHandler{store: store, ldap: ldapAuth, oidc: oidcAuth, cookieSecure: cookieSecure}
+	if oidcAuth != nil {
+		// Per-process key: an in-flight login does not survive a restart,
+		// which is acceptable for a 10-minute artifact — the user just
+		// clicks the SSO button again.
+		h.oidcStateKey = make([]byte, 32)
+		if _, err := rand.Read(h.oidcStateKey); err != nil {
+			// crypto/rand.Read never fails on supported platforms (Go 1.24+).
+			panic("generate oidc state key: " + err.Error())
+		}
+	}
+	return h
 }
 
 type loginRequest struct {
@@ -278,10 +295,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Block local password auth for LDAP-sourced users.
-		if user.AuthSource == authSourceLDAP {
+		// Block local password auth for externally managed (LDAP/OIDC) users.
+		if externalAuthSource(user.AuthSource) {
 			auth.DummyCheckPassword(req.Password) // timing safety
-			logger.Warn("login failed: LDAP user attempted local auth", "username", req.Username, "ip", ip)
+			logger.Warn("login failed: external-auth user attempted local auth",
+				"username", req.Username, "auth_source", user.AuthSource, "ip", ip)
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 			return
 		}
@@ -301,21 +319,35 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create session.
-	rawToken, tokenHash, err := auth.GenerateSessionToken()
-	if err != nil {
-		logger.Error("login: generate session token", "err", err)
+	if err := h.establishSession(w, r, user); err != nil {
+		logger.Error("login: establish session", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
 		return
 	}
+	logger.Info("login succeeded", "username", user.Username, "auth_source", user.AuthSource, "ip", ip)
+
+	writeJSON(w, loginResponse{
+		User: buildUserInfo(user),
+	})
+}
+
+// establishSession creates a DB session for an authenticated user and sets
+// the session cookie. Shared by password login and the OIDC callback so their
+// sessions are indistinguishable downstream. Session-cap pruning and
+// last-login bookkeeping failures are logged, not fatal.
+func (h *AuthHandler) establishSession(w http.ResponseWriter, r *http.Request, user model.User) error {
+	logger := LoggerFromContext(r.Context())
+
+	rawToken, tokenHash, err := auth.GenerateSessionToken()
+	if err != nil {
+		return fmt.Errorf("generate session token: %w", err)
+	}
 
 	expiresAt := time.Now().Add(sessionDuration)
-	ua := r.UserAgent()
+	ip := middleware.GetClientIP(r.Context())
 
-	if err := h.store.CreateSession(r.Context(), tokenHash, user.ID.Bytes, expiresAt, ip, ua); err != nil {
-		logger.Error("login: create session", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
-		return
+	if err := h.store.CreateSession(r.Context(), tokenHash, user.ID.Bytes, expiresAt, ip, r.UserAgent()); err != nil {
+		return fmt.Errorf("create session: %w", err)
 	}
 
 	// Cap sessions per user to prevent unbounded growth.
@@ -327,7 +359,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.UpdateLastLogin(r.Context(), user.ID.Bytes); err != nil {
 		logger.Warn("login: update last login", "err", err)
 	}
-	logger.Info("login succeeded", "username", user.Username, "auth_source", user.AuthSource, "ip", ip)
 
 	secure := h.cookieSecure || isSecureRequest(r)
 	if !secure {
@@ -345,10 +376,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
+	return nil
+}
 
-	writeJSON(w, loginResponse{
-		User: buildUserInfo(user),
-	})
+// externalAuthSource reports whether an auth source is managed outside
+// taillight (LDAP directory or OIDC provider) and therefore carries no local
+// password.
+func externalAuthSource(source string) bool {
+	return source == authSourceLDAP || source == authSourceOIDC
 }
 
 // Logout handles POST /api/v1/auth/logout.
@@ -777,15 +812,15 @@ func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Block password changes for LDAP-managed users.
-	if isSelf && user.AuthSource == authSourceLDAP {
-		writeError(w, http.StatusForbidden, "forbidden", "password is managed by your LDAP directory")
+	// Block password changes for externally managed (LDAP/OIDC) users.
+	if isSelf && externalAuthSource(user.AuthSource) {
+		writeError(w, http.StatusForbidden, "forbidden", "password is managed by your identity provider")
 		return
 	}
 	if !isSelf {
 		target, err := h.store.GetUserByID(r.Context(), id)
-		if err == nil && target.AuthSource == authSourceLDAP {
-			writeError(w, http.StatusForbidden, "forbidden", "cannot set password for LDAP-managed user")
+		if err == nil && externalAuthSource(target.AuthSource) {
+			writeError(w, http.StatusForbidden, "forbidden", "cannot set password for externally managed user")
 			return
 		}
 	}

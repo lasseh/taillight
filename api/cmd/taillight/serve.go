@@ -35,6 +35,7 @@ import (
 	"github.com/lasseh/taillight/internal/netbox"
 	"github.com/lasseh/taillight/internal/notification"
 	"github.com/lasseh/taillight/internal/notification/backend"
+	oidcauth "github.com/lasseh/taillight/internal/oidc"
 	"github.com/lasseh/taillight/internal/ollama"
 	"github.com/lasseh/taillight/internal/postgres"
 	"github.com/lasseh/taillight/internal/scheduler"
@@ -172,6 +173,32 @@ func runServe(_ *cobra.Command, _ []string) error {
 		logger.Info("LDAP authentication enabled", "url", cfg.LDAP.URL)
 	}
 
+	// OIDC single sign-on (optional). Construction is network-free: discovery
+	// runs lazily on the first login attempt, so an unreachable IdP at boot
+	// does not keep taillight down.
+	var oidcAuth *oidcauth.Provider
+	if cfg.OIDC.Enabled {
+		if err := cfg.OIDC.Validate(); err != nil {
+			return err
+		}
+		oidcAuth = oidcauth.New(oidcauth.Config{
+			IssuerURL:             cfg.OIDC.IssuerURL,
+			ClientID:              cfg.OIDC.ClientID,
+			ClientSecret:          cfg.OIDC.ClientSecret,
+			RedirectURL:           cfg.OIDC.RedirectURL,
+			Scopes:                cfg.OIDC.Scopes,
+			UsernameClaim:         cfg.OIDC.UsernameClaim,
+			EmailClaim:            cfg.OIDC.EmailClaim,
+			GroupsClaim:           cfg.OIDC.GroupsClaim,
+			AllowedDomains:        cfg.OIDC.AllowedDomains,
+			AllowedUsers:          cfg.OIDC.AllowedUsers,
+			AllowedGroups:         cfg.OIDC.AllowedGroups,
+			AdminGroups:           cfg.OIDC.AdminGroups,
+			EmailVerifiedRequired: cfg.OIDC.EmailVerifiedRequired,
+		}, logger)
+		logger.Info("OIDC authentication enabled", "issuer", cfg.OIDC.IssuerURL)
+	}
+
 	// Summary scheduler (optional — requires notification engine).
 	var summaryScheduler *scheduler.SummaryScheduler
 	if notifEngine != nil {
@@ -182,7 +209,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Netbox enrichment client (optional).
 	nbClient := setupNetbox(cfg, logger)
 
-	r := setupRouter(cfg, logger, store, authStore, ldapAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler, nbClient)
+	r := setupRouter(cfg, logger, store, authStore, ldapAuth, oidcAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler, nbClient)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -520,6 +547,7 @@ func setupRouter(
 	store *postgres.Store,
 	authStore *postgres.AuthStore,
 	ldapAuth ldapauth.Authenticator,
+	oidcAuth *oidcauth.Provider,
 	srvlogBroker *broker.SrvlogBroker,
 	netlogBroker *broker.NetlogBroker,
 	applogBroker *broker.AppLogBroker,
@@ -613,12 +641,12 @@ func setupRouter(
 	applogSSEHandler := handler.NewAppLogSSEHandler(applogBroker, store, logger)
 	applogMetaHandler := handler.NewAppLogMetaHandler(store)
 	applogDeviceHandler := handler.NewAppLogDeviceHandler(store)
-	authHandler := handler.NewAuthHandler(authStore, ldapAuth, cfg.CookieSecure)
+	authHandler := handler.NewAuthHandler(authStore, ldapAuth, oidcAuth, cfg.CookieSecure)
 	notifHandler := handler.NewNotificationHandler(store, notifEngine)
 	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
 	exportHandler := handler.NewExportHandler(store, store, store)
 	juniperRefHandler := handler.NewJuniperRefHandler(store)
-	configHandler := handler.NewConfigHandler(cfg.Analysis.Enabled)
+	configHandler := handler.NewConfigHandler(cfg.Analysis.Enabled, cfg.OIDC.Enabled)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Runtime config — unauthenticated so the frontend can fetch feature
@@ -634,6 +662,10 @@ func setupRouter(
 				r.Use(middleware.Timeout(30 * time.Second))
 				r.Post("/auth/login", authHandler.Login)
 				r.Post("/auth/logout", authHandler.Logout)
+				if oidcAuth != nil {
+					r.Get("/auth/oidc/login", authHandler.OIDCLogin)
+					r.Get("/auth/oidc/callback", authHandler.OIDCCallback)
+				}
 			})
 
 			// Authenticated auth endpoints (session or API key).

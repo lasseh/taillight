@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -223,6 +224,71 @@ func (s *AuthStore) UpsertLDAPUser(ctx context.Context, username, email string, 
 		return model.User{}, fmt.Errorf("upsert ldap user: %w", err)
 	}
 	return u, nil
+}
+
+// maxOIDCUsernameAttempts bounds the numeric-suffix search when provisioning
+// an OIDC user whose preferred username is already taken.
+const maxOIDCUsernameAttempts = 5
+
+// UpsertOIDCUser creates or updates a user sourced from an OIDC provider,
+// keyed on the (issuer, subject) claim pair — deliberately not username,
+// which is mutable profile data at the IdP. On subsequent logins email and
+// is_admin are refreshed; the username stays as provisioned. The is_active
+// field is NOT touched — it remains under local admin control.
+//
+// On first login the preferred username may collide with an existing
+// local/LDAP account; the identity is then provisioned under a
+// numeric-suffixed username instead. IdP-controlled claims never link to or
+// take over a pre-existing account.
+func (s *AuthStore) UpsertOIDCUser(ctx context.Context, issuer, subject, username, email string, isAdmin bool) (model.User, error) {
+	var emailArg *string
+	if email != "" {
+		emailArg = &email
+	}
+
+	// Returning login: refresh profile data on the existing identity.
+	var u model.User
+	err := s.pool.QueryRow(ctx,
+		`UPDATE users SET
+		     email = $3,
+		     is_admin = $4,
+		     auth_source = 'oidc',
+		     updated_at = now()
+		 WHERE oidc_issuer = $1 AND oidc_subject = $2
+		 RETURNING id, username, email, password_hash, is_active, is_admin, auth_source, preferences, created_at, updated_at, last_login_at`,
+		issuer, subject, emailArg, isAdmin,
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.AuthSource, &u.Preferences, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
+	if err == nil {
+		return u, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, fmt.Errorf("update oidc user: %w", err)
+	}
+
+	// First login: provision. ON CONFLICT DO NOTHING on the username index
+	// yields no row when the name is taken; try a numeric suffix instead.
+	// (A concurrent first login for the same identity fails the unique
+	// (issuer, subject) index instead — surfaced as an error, retry logs in.)
+	for attempt := range maxOIDCUsernameAttempts {
+		candidate := username
+		if attempt > 0 {
+			candidate = fmt.Sprintf("%s-%d", username, attempt+1)
+		}
+		err := s.pool.QueryRow(ctx,
+			`INSERT INTO users (username, email, password_hash, is_admin, auth_source, oidc_issuer, oidc_subject)
+			 VALUES (LOWER($1), $2, '', $3, 'oidc', $4, $5)
+			 ON CONFLICT (LOWER(username)) DO NOTHING
+			 RETURNING id, username, email, password_hash, is_active, is_admin, auth_source, preferences, created_at, updated_at, last_login_at`,
+			candidate, emailArg, isAdmin, issuer, subject,
+		).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.AuthSource, &u.Preferences, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
+		if err == nil {
+			return u, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return model.User{}, fmt.Errorf("provision oidc user: %w", err)
+		}
+	}
+	return model.User{}, fmt.Errorf("provision oidc user: no free username for %q after %d attempts", username, maxOIDCUsernameAttempts)
 }
 
 // --- Sessions ---

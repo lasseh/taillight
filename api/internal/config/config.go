@@ -36,6 +36,7 @@ type Config struct {
 	Retention              RetentionConfig
 	SMTP                   SMTPConfig
 	LDAP                   LDAPConfig
+	OIDC                   OIDCConfig
 	Netbox                 NetboxConfig
 }
 
@@ -57,6 +58,60 @@ type LDAPConfig struct {
 	// is_admin; any other value authorizes a regular user. A user in no mapped
 	// group is denied login.
 	GroupRoleMap map[string]string
+}
+
+// OIDCConfig configures OIDC single sign-on against one external identity
+// provider (Authorization Code + PKCE). Endpoints are resolved via OIDC
+// discovery from the issuer URL. Users are provisioned on first login, keyed
+// on the (issuer, subject) claim pair, and carry no local password.
+type OIDCConfig struct {
+	Enabled      bool   // Enable OIDC login.
+	IssuerURL    string // Provider issuer URL (e.g. "https://login.example.com/realms/ops").
+	ClientID     string // OAuth2 client ID registered at the provider.
+	ClientSecret string // OAuth2 client secret (override via env OIDC_CLIENT_SECRET).
+	RedirectURL  string // Public callback URL: "https://taillight.example.com/api/v1/auth/oidc/callback".
+	// Scopes are extra scopes requested beyond openid/profile/email
+	// (e.g. "groups" for providers that gate the groups claim behind it).
+	Scopes []string
+
+	UsernameClaim string // Claim mapped to the local username (default "preferred_username").
+	EmailClaim    string // Claim mapped to the email address (default "email").
+	GroupsClaim   string // Claim holding group memberships (default "groups").
+
+	AllowedDomains []string // Allow logins whose email domain matches (OR'd with allowed_users). Empty = no domain gating.
+	AllowedUsers   []string // Allow logins whose email matches exactly (OR'd with allowed_domains).
+	AllowedGroups  []string // When set, require membership in at least one of these groups.
+	AdminGroups    []string // Membership in any of these groups grants is_admin. Empty = no admin via OIDC.
+
+	// EmailVerifiedRequired rejects logins whose email_verified claim is not
+	// true (default true). Disable only for providers that omit the claim.
+	EmailVerifiedRequired bool
+}
+
+// Validate returns an error when OIDC is enabled with an incomplete
+// configuration, so a half-configured deployment fails at startup instead of
+// at first login.
+func (c OIDCConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	missing := []string{}
+	if c.IssuerURL == "" {
+		missing = append(missing, "oidc.issuer_url")
+	}
+	if c.ClientID == "" {
+		missing = append(missing, "oidc.client_id")
+	}
+	if c.ClientSecret == "" {
+		missing = append(missing, "oidc.client_secret")
+	}
+	if c.RedirectURL == "" {
+		missing = append(missing, "oidc.redirect_url")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("oidc.enabled is true but required settings are missing: %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // RetentionConfig controls how long data is kept in each hypertable.
@@ -193,6 +248,20 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("ldap.user_search_base", "cn=users,cn=accounts,dc=example,dc=com")
 	v.SetDefault("ldap.user_filter", "(&(objectClass=person)(uid=%s))")
 	v.SetDefault("ldap.group_role_map", map[string]string{})
+	v.SetDefault("oidc.enabled", false)
+	v.SetDefault("oidc.issuer_url", "")
+	v.SetDefault("oidc.client_id", "")
+	v.SetDefault("oidc.client_secret", "")
+	v.SetDefault("oidc.redirect_url", "")
+	v.SetDefault("oidc.scopes", []string{})
+	v.SetDefault("oidc.username_claim", "preferred_username")
+	v.SetDefault("oidc.email_claim", "email")
+	v.SetDefault("oidc.groups_claim", "groups")
+	v.SetDefault("oidc.allowed_domains", []string{})
+	v.SetDefault("oidc.allowed_users", []string{})
+	v.SetDefault("oidc.allowed_groups", []string{})
+	v.SetDefault("oidc.admin_groups", []string{})
+	v.SetDefault("oidc.email_verified_required", true)
 	v.SetDefault("notification.enabled", false)
 	v.SetDefault("notification.rule_refresh_interval", "30s")
 	v.SetDefault("notification.dispatch_workers", 4)
@@ -238,6 +307,7 @@ func Load(configFile ...string) (Config, error) {
 	for _, key := range []string{
 		"logshipper.api_key",
 		"ldap.bind_password",
+		"oidc.client_secret",
 		"smtp.username",
 		"smtp.password",
 		"netbox.token",
@@ -311,6 +381,22 @@ func Load(configFile ...string) (Config, error) {
 			UserSearchBase: v.GetString("ldap.user_search_base"),
 			UserFilter:     v.GetString("ldap.user_filter"),
 			GroupRoleMap:   v.GetStringMapString("ldap.group_role_map"),
+		},
+		OIDC: OIDCConfig{
+			Enabled:               v.GetBool("oidc.enabled"),
+			IssuerURL:             v.GetString("oidc.issuer_url"),
+			ClientID:              v.GetString("oidc.client_id"),
+			ClientSecret:          v.GetString("oidc.client_secret"),
+			RedirectURL:           v.GetString("oidc.redirect_url"),
+			Scopes:                v.GetStringSlice("oidc.scopes"),
+			UsernameClaim:         v.GetString("oidc.username_claim"),
+			EmailClaim:            v.GetString("oidc.email_claim"),
+			GroupsClaim:           v.GetString("oidc.groups_claim"),
+			AllowedDomains:        v.GetStringSlice("oidc.allowed_domains"),
+			AllowedUsers:          v.GetStringSlice("oidc.allowed_users"),
+			AllowedGroups:         v.GetStringSlice("oidc.allowed_groups"),
+			AdminGroups:           v.GetStringSlice("oidc.admin_groups"),
+			EmailVerifiedRequired: v.GetBool("oidc.email_verified_required"),
 		},
 		SMTP: SMTPConfig{
 			Host:     v.GetString("smtp.host"),

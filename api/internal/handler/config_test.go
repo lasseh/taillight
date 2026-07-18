@@ -11,6 +11,7 @@ func TestConfigHandler_Features(t *testing.T) {
 	tests := []struct {
 		name     string
 		analysis bool
+		oidc     bool
 		want     FeaturesResponse
 	}{
 		{
@@ -23,11 +24,16 @@ func TestConfigHandler_Features(t *testing.T) {
 			analysis: false,
 			want:     FeaturesResponse{Srvlog: true, Netlog: true, Applog: true, Analysis: false},
 		},
+		{
+			name: "oidc enabled",
+			oidc: true,
+			want: FeaturesResponse{Srvlog: true, Netlog: true, Applog: true, OIDC: true},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewConfigHandler(tt.analysis)
+			h := NewConfigHandler(tt.analysis, tt.oidc)
 
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/config/features", nil)
 			w := httptest.NewRecorder()
