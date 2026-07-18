@@ -176,6 +176,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Fixed
 
+- Cross-origin PUT requests were blocked by CORS (`AllowedMethods` omitted PUT), breaking the four admin update endpoints under split-origin dev — salvaged from the stranded June hardening branch
 - SMTP notification sends are bounded by the send deadline — a stalled server fails fast instead of hanging the conversation
 - LISTEN/NOTIFY connection close race on shutdown removed — the listen goroutine is the connection's single owner
 - Notification suppressor memory is bounded: global fingerprint ceiling plus digest-payload trimming for oversized applog events
@@ -218,6 +219,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Security
 
+- Malformed webhook/Slack URLs no longer leak the secret URL into the notification log via the wrapped parse error (extends the existing transport-error redaction); CSP gains `base-uri 'self'` and `form-action 'self'` on the API/docs/print surfaces; `bodyclose`/`nilerr`/`sqlclosecheck`/`rowserrcheck` added to the lint gate (salvaged from the stranded June hardening branch)
 - Auth-UX hardening: a mid-session 401 invalidates auth state and redirects to `/login` instead of leaving stale authenticated UI rendered; logout clears in-memory log buffers and stream cursors; the `/notifications` page requires login (was publicly reachable); admin routes get a router-level guard
 - Analyzer prompts delimit and sanitize untrusted log text (prompt-injection hardening); failed analysis reports no longer expose the internal Ollama URL or upstream error body
 - `trusted_proxies` CIDR allowlist for real-IP resolution; login rate limiting keys on the raw TCP peer
