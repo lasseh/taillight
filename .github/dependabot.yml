@@ -17,6 +17,11 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    groups:
+      # @unovis/vue pins an exact peer dep on @unovis/ts — must bump together
+      unovis:
+        patterns:
+          - "@unovis/*"
 
   # Python SDK (sdk/python/pyproject.toml)
   - package-ecosystem: "pip"
