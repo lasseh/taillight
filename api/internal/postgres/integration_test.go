@@ -256,6 +256,95 @@ func TestIntegration_GetAPIKeyByHash(t *testing.T) {
 	}
 }
 
+// TestIntegration_UpsertOIDCUser proves the (issuer, subject) upsert semantics
+// against real constraints: provision-on-first-login, profile refresh on
+// return (email/is_admin, username stable), is_active left under local admin
+// control, numeric-suffix fallback when the preferred username is held by an
+// existing account, and issuer-scoped subject uniqueness.
+func TestIntegration_UpsertOIDCUser(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "sessions", "api_keys", "users")
+	authStore := NewAuthStore(pool)
+	defer authStore.Stop()
+	ctx := context.Background()
+
+	const issuer = "https://login.example.com/realms/ops"
+
+	// First login provisions.
+	u, err := authStore.UpsertOIDCUser(ctx, issuer, "sub-1", "amelie", "amelie@example.com", false)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser (provision): %v", err)
+	}
+	if u.Username != "amelie" || u.AuthSource != "oidc" || u.PasswordHash != "" {
+		t.Errorf("provisioned user = %q/%q/pw %q, want amelie/oidc/empty", u.Username, u.AuthSource, u.PasswordHash)
+	}
+	if u.Email == nil || *u.Email != "amelie@example.com" {
+		t.Errorf("provisioned email = %v, want amelie@example.com", u.Email)
+	}
+	if u.IsAdmin || !u.IsActive {
+		t.Errorf("provisioned flags admin=%v active=%v, want false/true", u.IsAdmin, u.IsActive)
+	}
+
+	// Returning login refreshes email and is_admin, keeps identity and username.
+	u2, err := authStore.UpsertOIDCUser(ctx, issuer, "sub-1", "amelie-renamed", "new@example.com", true)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser (refresh): %v", err)
+	}
+	if u2.ID.Bytes != u.ID.Bytes {
+		t.Error("returning login created a new user, want same row")
+	}
+	if u2.Username != "amelie" {
+		t.Errorf("username changed to %q on refresh, want stable amelie", u2.Username)
+	}
+	if u2.Email == nil || *u2.Email != "new@example.com" {
+		t.Errorf("refreshed email = %v, want new@example.com", u2.Email)
+	}
+	if !u2.IsAdmin {
+		t.Error("is_admin not refreshed to true")
+	}
+
+	// Local deactivation survives a refreshing login (is_active untouched).
+	if err := authStore.SetUserActive(ctx, u.ID.Bytes, false); err != nil {
+		t.Fatalf("SetUserActive: %v", err)
+	}
+	u3, err := authStore.UpsertOIDCUser(ctx, issuer, "sub-1", "amelie", "new@example.com", true)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser (after deactivate): %v", err)
+	}
+	if u3.IsActive {
+		t.Error("is_active flipped back to true by upsert, want it under local admin control")
+	}
+
+	// Username collision with an existing local account gets a numeric suffix
+	// instead of linking or overwriting.
+	if _, err := authStore.CreateUser(ctx, "bob", "password-hash", false); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	ub, err := authStore.UpsertOIDCUser(ctx, issuer, "sub-2", "bob", "bob@example.com", false)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser (collision): %v", err)
+	}
+	if ub.Username != "bob-2" {
+		t.Errorf("collision username = %q, want bob-2", ub.Username)
+	}
+	local, err := authStore.GetUserByUsername(ctx, "bob")
+	if err != nil {
+		t.Fatalf("GetUserByUsername: %v", err)
+	}
+	if local.AuthSource != "local" || local.PasswordHash != "password-hash" {
+		t.Errorf("local account mutated by OIDC collision: source=%q pw=%q", local.AuthSource, local.PasswordHash)
+	}
+
+	// Same subject under a different issuer is a distinct identity.
+	uo, err := authStore.UpsertOIDCUser(ctx, "https://other-idp.example.com", "sub-1", "carol", "carol@example.com", false)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser (other issuer): %v", err)
+	}
+	if uo.ID.Bytes == u.ID.Bytes {
+		t.Error("same subject under different issuer reused the row, want distinct user")
+	}
+}
+
 // TestIntegration_AnalysisScheduleNotifyChannels verifies the notify_channel_ids
 // BIGINT[] column round-trips through pgx as []int64 on both the schedule and
 // the report — the encode/scan path that compiles but can only be proven
