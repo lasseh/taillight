@@ -32,6 +32,27 @@ ldap:
   #   "cn=admins,cn=groups,cn=accounts,dc=example,dc=com": admin
   #   "cn=users,cn=groups,cn=accounts,dc=example,dc=com": user
 
+# OIDC single sign-on (any OpenID Connect provider: Entra ID, Okta, Keycloak,
+# Authentik, PocketID, ...). Authorization Code flow with PKCE; endpoints are
+# discovered from the issuer URL. Users are provisioned on first login, keyed
+# on the (issuer, subject) claims, and carry no local password. Coexists with
+# local and LDAP auth — the login page shows an SSO button when enabled.
+oidc:
+  enabled: false
+  # issuer_url: "https://login.example.com/realms/ops"  # OIDC discovery base (serves /.well-known/openid-configuration).
+  # client_id: "taillight"
+  # client_secret: "changeme"                # Prefer the OIDC_CLIENT_SECRET env var over the file.
+  # redirect_url: "https://taillight.example.com/api/v1/auth/oidc/callback"  # Must be registered at the provider.
+  # scopes: ["groups"]                       # Extra scopes beyond openid/profile/email.
+  # username_claim: "preferred_username"     # Claim mapped to the local username.
+  # email_claim: "email"
+  # groups_claim: "groups"
+  # allowed_domains: ["example.com"]         # Allow by email domain (OR'd with allowed_users). Empty = no gating.
+  # allowed_users: ["amelie@other.org"]      # Allow specific emails.
+  # allowed_groups: ["netops"]               # Require membership in at least one group.
+  # admin_groups: ["netops-admins"]          # Members get is_admin on every login. Empty = no admin via OIDC.
+  # email_verified_required: true            # Reject unverified emails (disable only for IdPs that omit the claim).
+
 # CORS allowed origins. Defaults to localhost dev origins when empty.
 # For production, specify the allowed origins explicitly.
 cors_allowed_origins:

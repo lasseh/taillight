@@ -411,6 +411,27 @@ Optional. When enabled, logins are first verified against the directory (Active 
 | `ldap.user_filter` | `"(&(objectClass=person)(uid=%s))"` | Filter with `%s` username placeholder (AD: `(sAMAccountName=%s)`) |
 | `ldap.group_role_map` | `{}` | Map of group (full DN or bare CN) to role. `admin` grants is_admin; any other value authorizes a regular user. A user in no mapped group is denied login. |
 
+#### OIDC single sign-on
+
+Optional. Authorization Code + PKCE against any OpenID Connect provider, with endpoints discovered from the issuer URL. Users are provisioned on first login, keyed on the `(issuer, subject)` claims, carry no local password, and never link to existing local/LDAP accounts (a colliding username gets a numeric suffix). The login page shows a "Sign in with SSO" button when enabled; local and LDAP login keep working.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `oidc.enabled` | `false` | Enable OIDC single sign-on |
+| `oidc.issuer_url` | `""` | Provider issuer URL (serves `/.well-known/openid-configuration`) |
+| `oidc.client_id` | `""` | OAuth2 client ID registered at the provider |
+| `oidc.client_secret` | `""` | OAuth2 client secret (override via env `OIDC_CLIENT_SECRET`) |
+| `oidc.redirect_url` | `""` | Public callback URL: `https://<host>/api/v1/auth/oidc/callback` |
+| `oidc.scopes` | `[]` | Extra scopes beyond `openid profile email` (e.g. `groups`) |
+| `oidc.username_claim` | `"preferred_username"` | Claim mapped to the local username |
+| `oidc.email_claim` | `"email"` | Claim mapped to the email address |
+| `oidc.groups_claim` | `"groups"` | Claim holding group memberships |
+| `oidc.allowed_domains` | `[]` | Allow logins whose email domain matches (OR'd with `allowed_users`); empty = no domain gating |
+| `oidc.allowed_users` | `[]` | Allow logins whose email matches exactly |
+| `oidc.allowed_groups` | `[]` | When set, require membership in at least one of these groups |
+| `oidc.admin_groups` | `[]` | Membership in any of these groups grants is_admin on every login; empty = no admin via OIDC |
+| `oidc.email_verified_required` | `true` | Reject logins whose `email_verified` claim is not true (disable only for providers that omit it) |
+
 #### Notification engine
 
 Channels and rules are managed via the API or the ALERTS tab in the UI. See [NOTIFICATIONS.md](NOTIFICATIONS.md) for the delivery model.

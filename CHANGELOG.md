@@ -20,6 +20,9 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Added
 
+#### Auth
+- OIDC single sign-on (`oidc.` config block, default off): Authorization Code + PKCE against any OpenID Connect provider, with endpoint discovery, ID-token validation, allowed-domain/user/group gating, and admin-group mapping. Users provision on first login keyed on the `(issuer, subject)` claims — never linked to existing local/LDAP accounts — carry no local password, and get an ordinary `tl_session` session; API-key auth is untouched. The login page shows a "Sign in with SSO" button when the `oidc` feature flag is on
+
 #### Analysis
 - Email completed analysis reports by selecting email notification channels on a schedule (`notify_channel_ids`); channel ids are validated as existing email-type channels and snapshotted onto each report at enqueue time
 

@@ -266,6 +266,8 @@ Authentication is handled by `internal/auth/middleware.go`:
 
 **LDAP (optional):** when `ldap.enabled` is set, login attempts first bind a service account, search for the user, bind as the user, and map the user's groups to a role via `ldap.group_role_map` (`admin` grants is_admin; a user in no mapped group is denied). LDAP users are synced into `users` with `auth_source='ldap'`; local bcrypt users keep working. An internal CA can be trusted via `ldap.ca_bundle` without disabling verification.
 
+**OIDC (optional):** when `oidc.enabled` is set, `GET /auth/oidc/login` starts an Authorization Code + PKCE flow against the configured issuer (endpoints via OIDC discovery, lazily on first login). In-flight state (state, nonce, PKCE verifier, redirect target) travels in an HMAC-signed 10-minute cookie scoped to the OIDC endpoints. The callback validates the ID token (JWKS signature, issuer, audience, expiry, nonce), applies gating (`allowed_domains`/`allowed_users`/`allowed_groups`, verified email) and admin-group mapping, then upserts the user keyed on the `(issuer, subject)` claims (`auth_source='oidc'`, no password, username collisions get a numeric suffix — never linked to an existing account) and establishes an ordinary `tl_session` session. Failures redirect to `/login?error=<sso_*>`. Password login and password change are refused for externally managed (LDAP/OIDC) users.
+
 **Security measures:**
 
 - Passwords hashed with bcrypt (cost 12)
@@ -394,7 +396,8 @@ CREATE TABLE applog_events (
 ```sql
 -- users: bcrypt password hashes, admin flag, active status, auth source, UI prefs
 users (id UUID PK, username TEXT UNIQUE (case-insensitive), password_hash, email,
-    is_active, is_admin, preferences JSONB, auth_source ['local','ldap'], ...)
+    is_active, is_admin, preferences JSONB, auth_source ['local','ldap','oidc'],
+    oidc_issuer, oidc_subject (UNIQUE pair when set), ...)
 
 -- sessions: SHA-256 hashed tokens, expiry, last-seen tracking
 sessions (token_hash TEXT PK, user_id FK, expires_at, last_seen_at, ip_address, user_agent)

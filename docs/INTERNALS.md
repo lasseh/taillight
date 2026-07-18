@@ -432,6 +432,20 @@ When `ldap.enabled` is set, `internal/ldap` verifies logins against a directory 
 4. Map the user's groups through `group_role_map` (full DN or bare CN): `admin` grants is_admin, any other value authorizes a regular user, and a user in **no** mapped group is denied.
 5. Upsert the user locally (`UpsertLDAPUser`, `auth_source='ldap'`) so sessions and API keys work identically for LDAP and local users.
 
+### OIDC single sign-on (optional)
+
+When `oidc.enabled` is set, `internal/oidc` runs an Authorization Code + PKCE flow against the configured provider (`GET /auth/oidc/login` → IdP → `GET /auth/oidc/callback`):
+
+1. Discovery is lazy: provider metadata and JWKS are fetched from `issuer_url` on the first login attempt (a 10s-timeout HTTP client bounds every call), so an unreachable IdP at boot never keeps taillight down.
+2. `BeginLogin` generates state, nonce, and a PKCE S256 verifier; the handler seals them (plus the post-login redirect path) into an HMAC-signed, HttpOnly, 10-minute cookie scoped to the OIDC endpoints, then redirects to the provider's authorization endpoint.
+3. The callback verifies and clears the state cookie, checks the echoed `state`, and exchanges the code (with the PKCE verifier) at the token endpoint.
+4. The ID token is validated — JWKS signature, issuer, audience, expiry, nonce — and its claims mapped to a normalized identity (`username_claim`/`email_claim`/`groups_claim`).
+5. Gating runs in `internal/oidc`: verified email (unless `email_verified_required=false`), `allowed_domains`/`allowed_users` (OR'd), `allowed_groups` membership, and `admin_groups` → is_admin.
+6. Upsert keyed on the `(issuer, subject)` claims (`UpsertOIDCUser`, `auth_source='oidc'`, empty password): first login provisions (username collisions get a numeric suffix — an IdP-controlled claim never links to an existing account), later logins refresh email and is_admin. `is_active` stays under local admin control.
+7. The shared session tail (`establishSession`) issues an ordinary `tl_session` cookie; downstream middleware cannot tell OIDC sessions from password sessions. Failures redirect to `/login?error=<sso_failed|sso_denied|sso_forbidden|sso_expired>` with details only in the server log.
+
+Password login and password change are refused for externally managed (LDAP/OIDC) users.
+
 ### Middleware chain
 
 The `SessionOrAPIKey` middleware tries authentication in order:
