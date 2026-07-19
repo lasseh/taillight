@@ -160,6 +160,16 @@ function applyFilter(field: Field) {
       }}</span>
     </div>
 
+    <!-- source ip (only present when captured at ingest) -->
+    <div
+      v-if="event.source_ip"
+      class="flex gap-2 py-0.5 text-sm"
+      :data-copytext="`source ip: ${event.source_ip}`"
+    >
+      <span class="text-t-fg-dark w-24 shrink-0 text-right">source ip</span>
+      <span class="text-t-teal min-w-0 break-all">{{ event.source_ip }}</span>
+    </div>
+
     <!-- message -->
     <div class="flex gap-2 py-0.5 text-sm" :data-copytext="`message: ${event.msg}`">
       <span class="text-t-fg-dark w-24 shrink-0 text-right">message</span>

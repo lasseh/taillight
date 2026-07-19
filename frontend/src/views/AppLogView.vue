@@ -190,6 +190,14 @@ watch(
               <span class="text-t-fg-dark w-24 shrink-0 text-right">source</span>
               <span class="text-t-blue font-mono">{{ event.source || '–' }}</span>
             </div>
+            <div
+              v-if="event.source_ip"
+              class="flex gap-2 px-4 py-1.5"
+              :data-copytext="`source ip: ${event.source_ip}`"
+            >
+              <span class="text-t-fg-dark w-24 shrink-0 text-right">source ip</span>
+              <span class="text-t-teal font-mono">{{ event.source_ip }}</span>
+            </div>
           </div>
         </div>
       </div>
