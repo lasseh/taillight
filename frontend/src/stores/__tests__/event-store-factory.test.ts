@@ -12,6 +12,7 @@ vi.mock('vue-router', () => ({
 import { createApp } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 import { createEventStore } from '../event-store-factory'
+import { useScrollStore } from '../scroll'
 
 interface TestEvent {
   id: number
@@ -21,18 +22,24 @@ interface TestEvent {
 function makeStore(
   fetchEvents = vi.fn(() => Promise.resolve({ data: [] as TestEvent[], has_more: false })),
 ) {
-  return createEventStore<TestEvent>({
+  // Captures the SSE callback so tests can push events into the store.
+  let emit: ((event: TestEvent) => void) | null = null
+  const useStore = createEventStore<TestEvent>({
     id: `test-events-${Math.random()}`,
     routeName: 'srvlog',
     fetchEvents,
     useStream: () => ({
       connected: ref(true),
       reconnectAfterGap: ref(0),
-      subscribe: () => () => {},
+      subscribe: (cb) => {
+        emit = cb
+        return () => {}
+      },
     }),
     useFilterStore: () => ({ activeFilters: {} }),
     matchesFilters: () => true,
   })
+  return { useStore, emit: (event: TestEvent) => emit!(event) }
 }
 
 describe('createEventStore', () => {
@@ -44,7 +51,7 @@ describe('createEventStore', () => {
   })
 
   it('starts with empty events', () => {
-    const useStore = makeStore()
+    const { useStore } = makeStore()
     const store = useStore()
     expect(store.events).toEqual([])
     expect(store.loading).toBe(false)
@@ -57,7 +64,7 @@ describe('createEventStore', () => {
       { id: 1, message: 'older' },
     ]
     const fetchEvents = vi.fn(() => Promise.resolve({ data: events, has_more: false }))
-    const useStore = makeStore(fetchEvents)
+    const { useStore } = makeStore(fetchEvents)
     const store = useStore()
 
     await store.enter()
@@ -85,7 +92,7 @@ describe('createEventStore', () => {
       return Promise.resolve({ data: page2, has_more: false })
     })
 
-    const useStore = makeStore(fetchEvents)
+    const { useStore } = makeStore(fetchEvents)
     const store = useStore()
 
     await store.enter()
@@ -103,7 +110,7 @@ describe('createEventStore', () => {
       { id: 1, message: 'older' },
     ]
     const fetchEvents = vi.fn(() => Promise.resolve({ data: events, cursor: 'c1', has_more: true }))
-    const useStore = makeStore(fetchEvents)
+    const { useStore } = makeStore(fetchEvents)
     const store = useStore()
 
     await store.enter()
@@ -116,6 +123,64 @@ describe('createEventStore', () => {
     expect(store.hasMore).toBe(false)
     expect(store.error).toBeNull()
     // No refetch on reset — only the enter() call hit the API.
+    expect(fetchEvents).toHaveBeenCalledOnce()
+  })
+
+  it('caps SSE appends while detached and counts the rest as missed', async () => {
+    const { useStore, emit } = makeStore()
+    const store = useStore()
+    const scrollStore = useScrollStore()
+
+    await store.enter()
+    scrollStore.setPinned('srvlog', false)
+
+    for (let i = 1; i <= 600; i++) {
+      emit({ id: i, message: `e${i}` })
+    }
+
+    // Only the first 500 append; the remaining 100 are dropped but counted.
+    expect(store.events).toHaveLength(500)
+    expect(scrollStore.getNewEventCount('srvlog')).toBe(100)
+  })
+
+  it('reattach() refetches when events were dropped while detached', async () => {
+    const fetchEvents = vi.fn(() => Promise.resolve({ data: [] as TestEvent[], has_more: false }))
+    const { useStore, emit } = makeStore(fetchEvents)
+    const store = useStore()
+    const scrollStore = useScrollStore()
+
+    await store.enter()
+    scrollStore.setPinned('srvlog', false)
+
+    for (let i = 1; i <= 501; i++) {
+      emit({ id: i, message: `e${i}` })
+    }
+
+    store.reattach()
+    await vi.waitFor(() => expect(store.loading).toBe(false))
+
+    // enter() ran again to close the gap left by the dropped event.
+    expect(fetchEvents).toHaveBeenCalledTimes(2)
+    expect(store.events).toEqual([])
+  })
+
+  it('reattach() only trims when nothing was dropped', async () => {
+    const fetchEvents = vi.fn(() => Promise.resolve({ data: [] as TestEvent[], has_more: false }))
+    const { useStore, emit } = makeStore(fetchEvents)
+    const store = useStore()
+    const scrollStore = useScrollStore()
+
+    await store.enter()
+    scrollStore.setPinned('srvlog', false)
+
+    for (let i = 1; i <= 10; i++) {
+      emit({ id: i, message: `e${i}` })
+    }
+
+    store.reattach()
+
+    // Buffer kept (under MAX_EVENTS), no refetch beyond the initial enter().
+    expect(store.events).toHaveLength(10)
     expect(fetchEvents).toHaveBeenCalledOnce()
   })
 })

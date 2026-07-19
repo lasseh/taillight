@@ -14,7 +14,16 @@ const MAX_EVENTS = 2000
 // loaded but cannot fetch more older pages without first re-attaching to
 // live (Esc / jump-to-latest / organic scroll-to-bottom), which trims the
 // buffer back to MAX_EVENTS.
-const MAX_EVENTS_DETACHED = 20_000
+const MAX_EVENTS_DETACHED = 10_000
+
+// Live SSE events allowed to append after detaching. Without this bound, a
+// tab left scrolled-up passively accumulates events to MAX_EVENTS_DETACHED
+// per feed — un-virtualized DOM rows made that multi-GB in long sessions.
+// Beyond the limit, events are dropped and the jump-to-latest pill keeps
+// counting; re-attaching refetches the latest page to close the gap. Counts
+// appends (not buffer length) so paging back older events doesn't consume
+// the live allowance.
+const DETACHED_SSE_APPEND_LIMIT = 500
 
 interface EventStoreConfig<TEvent extends { id: number }> {
   /** Pinia store identifier. */
@@ -62,6 +71,10 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
     const _knownIds = new Set<number>()
     const _initialLoadComplete = ref(false)
 
+    // Detached live-tail bookkeeping (plain lets — nothing renders them).
+    let _detachedAppends = 0
+    let _droppedWhileDetached = false
+
     // Subscribe to the global SSE stream.
     const stream = config.useStream()
 
@@ -86,21 +99,29 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
       }
       if (scrollStore.isPinned(config.routeName)) {
         // Live-tail: append with cap, oldest trimmed.
+        _detachedAppends = 0
         const next = [...events.value, event]
         events.value = next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
-      } else if (!atCap.value) {
+      } else if (
+        !atCap.value &&
+        _detachedAppends < DETACHED_SSE_APPEND_LIMIT &&
+        events.value.length < MAX_EVENTS_DETACHED
+      ) {
         // Scrollback mode: append without trimming so the user keeps both
         // their historical context and the live tail accumulating below.
+        _detachedAppends++
         events.value = [...events.value, event]
         if (events.value.length >= MAX_EVENTS_DETACHED) {
           atCap.value = true
           hasMore.value = false
         }
       } else {
-        // Cap reached and unpinned: drop the event from the buffer but keep
-        // the counter ticking so the user knows how many they've missed.
-        // EventTable's watch on events.value can't see this since we don't
-        // mutate, so increment directly.
+        // Append limit or cap reached while unpinned: drop the event from
+        // the buffer but keep the counter ticking so the user knows how many
+        // they've missed. EventTable's watch on events.value can't see this
+        // since we don't mutate, so increment directly. reattach() closes
+        // the resulting gap with a refetch.
+        _droppedWhileDetached = true
         scrollStore.addNewEvents(config.routeName, 1)
       }
     })
@@ -194,6 +215,8 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
       atCap.value = false
       _knownIds.clear()
       _initialLoadComplete.value = false
+      _detachedAppends = 0
+      _droppedWhileDetached = false
       error.value = null
     }
 
@@ -205,21 +228,35 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
       atCap.value = false
       _knownIds.clear()
       _initialLoadComplete.value = false
+      _detachedAppends = 0
+      _droppedWhileDetached = false
 
       await loadHistory(true)
       _initialLoadComplete.value = true
     }
 
     /**
-     * Trim the scrollback buffer back to MAX_EVENTS and reset pagination
-     * state. Called on the rising edge of isPinned (Esc, jump-to-latest,
-     * organic scroll-to-bottom). The cursor is nulled because it points to
-     * events older than the buffer's previous top, which after trimming is
-     * no longer adjacent to anything in the buffer — the next paginate-back
-     * will fetch the latest 100 with no cursor and use the response's fresh
-     * cursor for subsequent pages.
+     * Return to live-tail mode. Called on the rising edge of isPinned (Esc,
+     * jump-to-latest, organic scroll-to-bottom). If live events were dropped
+     * while detached (DETACHED_SSE_APPEND_LIMIT), the tail has a gap and the
+     * buffer is refetched via enter(). Otherwise the scrollback buffer is
+     * trimmed back to MAX_EVENTS and pagination state reset. The cursor is
+     * nulled because it points to events older than the buffer's previous
+     * top, which after trimming is no longer adjacent to anything in the
+     * buffer — the next paginate-back will fetch the latest 100 with no
+     * cursor and use the response's fresh cursor for subsequent pages.
      */
     function reattach() {
+      _detachedAppends = 0
+      if (_droppedWhileDetached) {
+        // Live events were dropped while detached, so the buffered tail has
+        // an invisible gap — trimming isn't enough, refetch the latest page.
+        // enter() empties the buffer; EventTable's 0→N watch re-pins and
+        // scrolls to bottom when the fresh page lands.
+        _droppedWhileDetached = false
+        void enter()
+        return
+      }
       if (events.value.length > MAX_EVENTS) {
         events.value = events.value.slice(-MAX_EVENTS)
       }
