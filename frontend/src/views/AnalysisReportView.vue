@@ -193,7 +193,7 @@ onMounted(refresh)
         <div v-if="loading" class="text-t-fg-dark py-20 text-center text-sm">loading...</div>
 
         <div v-else-if="loadError" class="space-y-3">
-          <router-link :to="{ name: 'analysis' }" class="text-t-fg-dark hover:text-t-fg text-sm"
+          <router-link :to="{ name: 'analysis' }" class="text-t-teal text-sm hover:underline"
             >← back to analysis</router-link
           >
           <div
@@ -206,7 +206,7 @@ onMounted(refresh)
         <template v-else-if="report">
           <div class="flex items-center justify-between gap-4">
             <div class="flex items-center gap-3">
-              <router-link :to="{ name: 'analysis' }" class="text-t-fg-dark hover:text-t-fg text-sm"
+              <router-link :to="{ name: 'analysis' }" class="text-t-teal text-sm hover:underline"
                 >← back</router-link
               >
             </div>

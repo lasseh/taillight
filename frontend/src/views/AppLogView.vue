@@ -74,10 +74,7 @@ watch(
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="flex-1 overflow-y-auto px-4 py-4">
-      <button
-        class="text-t-fg-dark hover:text-t-fg mb-4 text-xs transition-colors"
-        @click="router.back()"
-      >
+      <button class="text-t-teal mb-4 text-xs hover:underline" @click="router.back()">
         &larr; back
       </button>
 

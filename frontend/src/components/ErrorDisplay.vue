@@ -50,11 +50,7 @@ withDefaults(
 
     <!-- Navigation link below panels (mirrors back button style) -->
     <div v-if="listRoute" class="flex items-center gap-4 text-xs">
-      <button
-        v-if="showBack"
-        class="text-t-fg-dark hover:text-t-fg transition-colors"
-        @click="$router.back()"
-      >
+      <button v-if="showBack" class="text-t-teal hover:underline" @click="$router.back()">
         &larr; go back
       </button>
       <RouterLink
