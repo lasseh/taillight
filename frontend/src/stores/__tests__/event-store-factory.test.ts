@@ -164,6 +164,35 @@ describe('createEventStore', () => {
     expect(store.events).toEqual([])
   })
 
+  it('clear() empties the buffer but keeps live streaming', async () => {
+    const events = [
+      { id: 2, message: 'newer' },
+      { id: 1, message: 'older' },
+    ]
+    const fetchEvents = vi.fn(() => Promise.resolve({ data: events, cursor: 'c1', has_more: true }))
+    const { useStore, emit } = makeStore(fetchEvents)
+    const store = useStore()
+    const scrollStore = useScrollStore()
+
+    await store.enter()
+    scrollStore.setPinned('srvlog', false)
+    expect(store.events).toHaveLength(2)
+
+    store.clear()
+
+    expect(store.events).toEqual([])
+    // Scroll-up must not refill history after a clear.
+    expect(store.hasMore).toBe(false)
+    // Re-pinned, so the pill counter is reset and the next event lands live.
+    expect(scrollStore.isPinned('srvlog')).toBe(true)
+    // No refetch — only the enter() call hit the API.
+    expect(fetchEvents).toHaveBeenCalledOnce()
+
+    // SSE keeps flowing into the emptied buffer.
+    emit({ id: 3, message: 'after clear' })
+    expect(store.events.map((e) => e.id)).toEqual([3])
+  })
+
   it('reattach() only trims when nothing was dropped', async () => {
     const fetchEvents = vi.fn(() => Promise.resolve({ data: [] as TestEvent[], has_more: false }))
     const { useStore, emit } = makeStore(fetchEvents)

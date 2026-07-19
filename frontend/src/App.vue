@@ -100,6 +100,13 @@ const programColumn = computed(() => {
   return null
 })
 
+// Clear button: wipe the current feed's buffer but keep filters and live tail.
+function clearEvents() {
+  if (route.name === 'srvlog') srvlogEvents.clear()
+  else if (route.name === 'netlog') netlogEvents.clear()
+  else if (route.name === 'applog') applogEvents.clear()
+}
+
 // Auto-exit fullscreen when navigating away from log routes.
 watch(isLogRoute, (isLog) => {
   if (!isLog && fullscreenActive.value) {
@@ -237,8 +244,29 @@ onErrorCaptured((err) => {
         <span class="md:hidden">↓ latest{{ newEventCount > 0 ? ` (${newEventCount})` : '' }}</span>
       </button>
       <button
+        v-if="isLogRoute"
+        class="text-t-fg-dark hover:text-t-red ml-auto p-1 transition-colors"
+        aria-label="Clear displayed events"
+        title="Clear displayed events (filters kept)"
+        @click="clearEvents()"
+      >
+        <!-- Circle-slash, devtools "clear console" metaphor -->
+        <svg
+          class="h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <line x1="5.6" y1="5.6" x2="18.4" y2="18.4" />
+        </svg>
+      </button>
+      <button
         v-if="programColumn"
-        class="text-t-fg-dark hover:text-t-fg ml-auto p-1 transition-colors"
+        class="text-t-fg-dark hover:text-t-fg p-1 transition-colors"
         :aria-label="programColumn.visible.value ? 'Hide program column' : 'Show program column'"
         :title="programColumn.visible.value ? 'Hide program column' : 'Show program column'"
         @click="programColumn.toggle()"
@@ -275,7 +303,6 @@ onErrorCaptured((err) => {
       <button
         v-if="isLogRoute"
         class="text-t-fg-dark hover:text-t-fg p-1 transition-colors"
-        :class="{ 'ml-auto': !programColumn }"
         :aria-label="fullscreenActive ? 'Exit focus mode (f)' : 'Focus mode (f)'"
         :title="fullscreenActive ? 'Exit focus mode (f)' : 'Focus mode (f)'"
         @click="toggleFullscreen()"

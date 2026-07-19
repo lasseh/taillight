@@ -267,6 +267,30 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
       for (const e of events.value) _knownIds.add(e.id)
     }
 
+    /**
+     * Empty the buffer but keep filters and live streaming — "wipe the
+     * terminal" so only new events show. Re-pins so the next SSE event lands
+     * in the empty list. hasMore stays false on purpose: with cursor=null,
+     * scroll-up would otherwise refetch the latest page and undo the clear.
+     * History becomes reachable again on the next filter change or enter().
+     */
+    function clear() {
+      if (_abortController) {
+        _abortController.abort()
+        _abortController = null
+      }
+      events.value = []
+      cursor.value = null
+      hasMore.value = false
+      atCap.value = false
+      error.value = null
+      loading.value = false
+      _knownIds.clear()
+      _detachedAppends = 0
+      _droppedWhileDetached = false
+      scrollStore.setPinned(config.routeName, true)
+    }
+
     // Reconnect / refetch when filters change.
     const _stopFilterWatch = watch(
       activeFilters,
@@ -316,6 +340,7 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
       loadHistory,
       reattach,
       reset,
+      clear,
     }
   })
 }
