@@ -1,5 +1,6 @@
 export interface TaillightMetricsSummary {
   sse_clients_srvlog: number
+  sse_clients_netlog: number
   sse_clients_applog: number
   db_pool_active: number
   db_pool_idle: number

@@ -245,14 +245,22 @@ const tlEventsData = computed<TlDualRecord[]>(() => {
     .sort((a, b) => a.x - b.x)
 })
 
-const tlSseData = computed<TlDualRecord[]>(() => {
-  const m = mergeTwoLines(
-    taillightMetrics.sseClientsSrvlogLine,
-    taillightMetrics.sseClientsApplogLine,
-  )
-  return [...m.entries()]
-    .map(([x, [srvlog, applog]]) => ({ x, srvlog, applog }))
-    .sort((a, b) => a.x - b.x)
+type TlSseRecord = { x: number; srvlog: number; netlog: number; applog: number }
+
+const tlSseData = computed<TlSseRecord[]>(() => {
+  const m = new Map<number, TlSseRecord>()
+  const at = (x: number): TlSseRecord => {
+    let e = m.get(x)
+    if (!e) {
+      e = { x, srvlog: 0, netlog: 0, applog: 0 }
+      m.set(x, e)
+    }
+    return e
+  }
+  for (const p of taillightMetrics.sseClientsSrvlogLine) at(p.x).srvlog = p.y
+  for (const p of taillightMetrics.sseClientsNetlogLine) at(p.x).netlog = p.y
+  for (const p of taillightMetrics.sseClientsApplogLine) at(p.x).applog = p.y
+  return [...m.values()].sort((a, b) => a.x - b.x)
 })
 
 const tlPoolData = computed<TlPoolRecord[]>(() => {
@@ -277,6 +285,10 @@ const tlPoolData = computed<TlPoolRecord[]>(() => {
 const tlDualX = (d: TlDualRecord) => d.x
 const tlSrvlogY = (d: TlDualRecord) => d.srvlog
 const tlApplogY = (d: TlDualRecord) => d.applog
+const tlSseX = (d: TlSseRecord) => d.x
+const tlSseSrvlogY = (d: TlSseRecord) => d.srvlog
+const tlSseNetlogY = (d: TlSseRecord) => d.netlog
+const tlSseApplogY = (d: TlSseRecord) => d.applog
 const tlPoolX = (d: TlPoolRecord) => d.x
 const tlActiveY = (d: TlPoolRecord) => d.active
 const tlIdleY = (d: TlPoolRecord) => d.idle
@@ -290,10 +302,11 @@ function tlEventsTooltip(d: TlDualRecord) {
   </div>`
 }
 
-function tlSseTooltip(d: TlDualRecord) {
+function tlSseTooltip(d: TlSseRecord) {
   return `<div style="font-family:var(--font-mono);font-size:11px;padding:4px 8px">
     <div style="color:var(--color-t-fg-dark)">${formatHoverTime(d.x)}</div>
     <div><span style="color:${accentColors.value[0]}">●</span> Srvlog: <b>${d.srvlog}</b></div>
+    <div><span style="color:${accentColors.value[2]}">●</span> Netlog: <b>${d.netlog}</b></div>
     <div><span style="color:${accentColors.value[1]}">●</span> Applog: <b>${d.applog}</b></div>
   </div>`
 }
@@ -751,11 +764,13 @@ onUnmounted(() => {
           <div class="text-t-fg mt-1 text-xl font-bold">
             {{
               taillightMetrics.summary.sse_clients_srvlog +
+              taillightMetrics.summary.sse_clients_netlog +
               taillightMetrics.summary.sse_clients_applog
             }}
           </div>
           <div class="text-t-fg-dark text-xs">
             {{ taillightMetrics.summary.sse_clients_srvlog }} srvlog &middot;
+            {{ taillightMetrics.summary.sse_clients_netlog }} netlog &middot;
             {{ taillightMetrics.summary.sse_clients_applog }} applog
           </div>
         </div>
@@ -901,15 +916,22 @@ onUnmounted(() => {
             :padding="{ top: 8, right: 8 }"
           >
             <VisLine
-              :x="tlDualX"
-              :y="tlSrvlogY"
+              :x="tlSseX"
+              :y="tlSseSrvlogY"
               :color="accentColors[0]"
               :curveType="'monotoneX'"
               :lineWidth="2"
             />
             <VisLine
-              :x="tlDualX"
-              :y="tlApplogY"
+              :x="tlSseX"
+              :y="tlSseNetlogY"
+              :color="accentColors[2]"
+              :curveType="'monotoneX'"
+              :lineWidth="2"
+            />
+            <VisLine
+              :x="tlSseX"
+              :y="tlSseApplogY"
               :color="accentColors[1]"
               :curveType="'monotoneX'"
               :lineWidth="2"
@@ -927,6 +949,13 @@ onUnmounted(() => {
               :style="{ backgroundColor: accentColors[0] }"
             />
             <span class="text-t-fg-dark">Srvlog Clients</span>
+          </span>
+          <span class="flex items-center gap-1 text-xs">
+            <span
+              class="inline-block h-2.5 w-2.5 rounded-sm"
+              :style="{ backgroundColor: accentColors[2] }"
+            />
+            <span class="text-t-fg-dark">Netlog Clients</span>
           </span>
           <span class="flex items-center gap-1 text-xs">
             <span
