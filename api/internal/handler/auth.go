@@ -114,7 +114,7 @@ type AuthStore interface {
 	CleanExpiredSessions(ctx context.Context) (int64, error)
 	CreateAPIKey(ctx context.Context, userID [16]byte, name, keyHash, keyPrefix string, scopes []string, expiresAt *time.Time) (model.APIKeyRow, error)
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (model.APIKeyWithUser, error)
-	ListAPIKeysByUser(ctx context.Context, userID [16]byte) ([]model.APIKeyRow, error)
+	ListAllAPIKeys(ctx context.Context) ([]model.APIKeyRow, error)
 	RevokeAPIKey(ctx context.Context, id [16]byte) error
 	GetAPIKeyByID(ctx context.Context, id [16]byte) (model.APIKeyRow, error)
 	UpsertLDAPUser(ctx context.Context, username, email string, isAdmin bool) (model.User, error)
@@ -591,6 +591,7 @@ func (h *AuthHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to create key")
 		return
 	}
+	keyRow.Owner = user.Username
 
 	writeJSONStatus(w, http.StatusCreated, createKeyResponse{
 		Key:     fullKey,
@@ -598,7 +599,8 @@ func (h *AuthHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListKeys handles GET /api/v1/auth/keys.
+// ListKeys handles GET /api/v1/auth/keys. All authenticated users see every
+// key (with owner attribution); revocation stays owner-or-admin.
 func (h *AuthHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
@@ -606,7 +608,7 @@ func (h *AuthHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keys, err := h.store.ListAPIKeysByUser(r.Context(), user.ID.Bytes)
+	keys, err := h.store.ListAllAPIKeys(r.Context())
 	if err != nil {
 		LoggerFromContext(r.Context()).Error("list keys", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list keys")

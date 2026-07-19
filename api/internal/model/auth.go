@@ -35,8 +35,11 @@ type Session struct {
 
 // APIKeyRow represents a row from the api_keys table.
 type APIKeyRow struct {
-	ID         pgtype.UUID        `json:"id"`
-	UserID     pgtype.UUID        `json:"user_id"`
+	ID     pgtype.UUID `json:"id"`
+	UserID pgtype.UUID `json:"user_id"`
+	// Owner is the owning user's username. Populated by ListAllAPIKeys (and
+	// stamped on create responses); empty on plain api_keys row lookups.
+	Owner      string             `json:"owner,omitempty"`
 	Name       string             `json:"name"`
 	KeyHash    string             `json:"-"`
 	KeyPrefix  string             `json:"key_prefix"`

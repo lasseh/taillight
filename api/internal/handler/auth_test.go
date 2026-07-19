@@ -110,7 +110,7 @@ func (m *mockAuthStore) GetAPIKeyByHash(_ context.Context, _ string) (model.APIK
 	return model.APIKeyWithUser{}, nil
 }
 
-func (m *mockAuthStore) ListAPIKeysByUser(_ context.Context, _ [16]byte) ([]model.APIKeyRow, error) {
+func (m *mockAuthStore) ListAllAPIKeys(_ context.Context) ([]model.APIKeyRow, error) {
 	return m.keys, m.keysErr
 }
 
@@ -586,17 +586,30 @@ func TestCreateKey(t *testing.T) {
 func TestListKeys(t *testing.T) {
 	user := &model.User{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, Username: "testuser"}
 
+	otherKeys := []model.APIKeyRow{
+		{ID: pgtype.UUID{Bytes: [16]byte{10}, Valid: true}, UserID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, Owner: "testuser", Name: "mine"},
+		{ID: pgtype.UUID{Bytes: [16]byte{11}, Valid: true}, UserID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}, Owner: "otheruser", Name: "theirs"},
+	}
+
 	tests := []struct {
 		name       string
 		user       *model.User
 		store      *mockAuthStore
 		wantStatus int
+		wantKeys   int
 	}{
 		{
 			name:       "success",
 			user:       user,
 			store:      &mockAuthStore{keys: []model.APIKeyRow{}},
 			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "returns all users' keys with owner",
+			user:       user,
+			store:      &mockAuthStore{keys: otherKeys},
+			wantStatus: http.StatusOK,
+			wantKeys:   2,
 		},
 		{
 			name:       "not authenticated",
@@ -625,6 +638,22 @@ func TestListKeys(t *testing.T) {
 
 			if rec.Code != tt.wantStatus {
 				t.Errorf("got status %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if tt.wantKeys > 0 {
+				var resp struct {
+					Data []model.APIKeyRow `json:"data"`
+				}
+				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("decode response: %v", err)
+				}
+				if len(resp.Data) != tt.wantKeys {
+					t.Errorf("got %d keys, want %d", len(resp.Data), tt.wantKeys)
+				}
+				for _, k := range resp.Data {
+					if k.Owner == "" {
+						t.Errorf("key %q missing owner", k.Name)
+					}
+				}
 			}
 		})
 	}

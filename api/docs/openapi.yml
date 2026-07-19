@@ -270,7 +270,7 @@ paths:
       operationId: listKeys
       x-required-scope: authenticated
       tags: [Auth]
-      summary: List API keys
+      summary: List API keys (all users, with owner)
       responses:
         "200":
           description: API key list
@@ -2681,6 +2681,9 @@ components:
         user_id:
           type: string
           format: uuid
+        owner:
+          type: string
+          description: Username of the key's owner
         name:
           type: string
         key_prefix:

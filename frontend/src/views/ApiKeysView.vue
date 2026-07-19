@@ -388,6 +388,7 @@ onMounted(fetchKeys)
               class="text-t-fg-gutter border-t-border flex border-b px-5 py-2 text-xs uppercase tracking-wider"
             >
               <span class="w-40 shrink-0">Name</span>
+              <span class="w-24 shrink-0">Owner</span>
               <span class="w-32 shrink-0">Key</span>
               <span class="w-36 shrink-0">Scopes</span>
               <span class="w-28 shrink-0">Created</span>
@@ -405,6 +406,9 @@ onMounted(fetchKeys)
               >
                 <div class="w-40 shrink-0">
                   <span class="text-t-fg font-medium">{{ key.name }}</span>
+                </div>
+                <div class="w-24 shrink-0">
+                  <span class="text-t-fg-dark">{{ key.owner || '—' }}</span>
                 </div>
                 <div class="w-32 shrink-0">
                   <span class="text-t-teal font-mono">{{ key.key_prefix }}...</span>
@@ -520,6 +524,9 @@ onMounted(fetchKeys)
               >
                 <div class="w-44 shrink-0">
                   <span class="text-t-fg">{{ key.name }}</span>
+                </div>
+                <div class="w-24 shrink-0">
+                  <span class="text-t-fg-dark">{{ key.owner || '—' }}</span>
                 </div>
                 <div class="w-36 shrink-0">
                   <span class="text-t-fg-dark font-mono">{{ key.key_prefix }}...</span>

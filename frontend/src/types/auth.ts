@@ -48,6 +48,7 @@ export interface MeResponse {
 export interface ApiKeyInfo {
   id: string
   user_id: string
+  owner?: string
   name: string
   key_prefix: string
   scopes: string[]

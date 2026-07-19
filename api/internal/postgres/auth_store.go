@@ -436,19 +436,23 @@ func (s *AuthStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (model.
 	return kw, nil
 }
 
-// ListAPIKeysByUser returns all API keys for a user, including revoked ones.
-func (s *AuthStore) ListAPIKeysByUser(ctx context.Context, userID [16]byte) ([]model.APIKeyRow, error) {
+// ListAllAPIKeys returns every API key with its owner's username, including
+// revoked ones. Visibility is deliberately global: any authenticated user can
+// see who owns which key (revocation stays owner-or-admin).
+func (s *AuthStore) ListAllAPIKeys(ctx context.Context) ([]model.APIKeyRow, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, key_hash, key_prefix, scopes, expires_at, revoked_at, last_used_at, created_at
-		 FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`,
-		userID)
+		`SELECT k.id, k.user_id, u.username, k.name, k.key_hash, k.key_prefix, k.scopes,
+		        k.expires_at, k.revoked_at, k.last_used_at, k.created_at
+		 FROM api_keys k
+		 JOIN users u ON u.id = k.user_id
+		 ORDER BY k.created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
 	}
 
 	keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.APIKeyRow, error) {
 		var k model.APIKeyRow
-		err := row.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Scopes,
+		err := row.Scan(&k.ID, &k.UserID, &k.Owner, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Scopes,
 			&k.ExpiresAt, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt)
 		return k, err
 	})
