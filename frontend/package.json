@@ -24,7 +24,7 @@
     "dompurify": "^3.4.11",
     "focus-trap": "^8.2.2",
     "marked": "^18.0.6",
-    "pinia": "^3.0.4",
+    "pinia": "^4.0.2",
     "prismjs": "^1.30.0",
     "vue": "^3.5.39",
     "vue-router": "^5.1.0"
