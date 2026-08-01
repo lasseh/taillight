@@ -211,8 +211,7 @@ watch(
           <pre
             class="text-t-fg overflow-x-auto p-4 font-mono text-xs leading-relaxed"
             :data-copytext="`structured data: ${event.structured_data}`"
-            >{{ event.structured_data }}</pre
-          >
+            >{{ event.structured_data }}</pre>
         </div>
 
         <!-- Raw message -->

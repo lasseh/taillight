@@ -1,14 +1,7 @@
 <script lang="ts">
 /** Names of the nav-menu icons rendered by this sprite. */
 export type IconName =
-  | 'hosts'
-  | 'volume'
-  | 'alerts'
-  | 'analysis'
-  | 'edit-dashboard'
-  | 'api-keys'
-  | 'users'
-  | 'logout'
+  'hosts' | 'volume' | 'alerts' | 'analysis' | 'edit-dashboard' | 'api-keys' | 'users' | 'logout'
 </script>
 
 <script setup lang="ts">
