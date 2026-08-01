@@ -1,0 +1,52 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Fill in what you can — only the
+        problem and proposed solution are required.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Taillight does this touch?
+      options:
+        - Netlog (network device syslog)
+        - Srvlog (server syslog)
+        - Applog (application logs)
+        - Notifications / alerting
+        - AI analysis / reports
+        - Frontend / UI
+        - Log shipper
+        - API / backend
+        - Deployment / Docker
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem or limitation are you running into?
+      placeholder: When I ... I can't ... because ...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or change you'd like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions or workarounds you've tried or considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, mockups, log samples, or links.
