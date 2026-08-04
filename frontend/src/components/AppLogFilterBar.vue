@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useDebounceFn } from '@vueuse/core'
+import { useDebounceFn } from '@/composables/useDebounceFn'
 import { useAppLogFilterStore } from '@/stores/applog-filters'
 import { useAppLogMetaStore } from '@/stores/applog-meta'
 import { levelOptions } from '@/lib/applog-constants'

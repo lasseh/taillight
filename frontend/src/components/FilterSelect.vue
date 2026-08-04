@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
-import { onClickOutside } from '@vueuse/core'
+import { useClickOutside } from '@/composables/useClickOutside'
 import type { FilterOption } from '@/types/srvlog'
 import { wildcardMatch } from '@/lib/wildcard'
 
@@ -22,7 +22,7 @@ const searchInput = ref<HTMLInputElement | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
 
-onClickOutside(dropdownRef, () => {
+useClickOutside(dropdownRef, () => {
   open.value = false
 })
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { onClickOutside } from '@vueuse/core'
+import { useClickOutside } from '@/composables/useClickOutside'
 
 const props = defineProps<{
   from: string
@@ -15,7 +15,7 @@ const emit = defineEmits<{
 const open = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 
-onClickOutside(dropdownRef, () => {
+useClickOutside(dropdownRef, () => {
   open.value = false
 })
 

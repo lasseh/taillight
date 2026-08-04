@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { useElementSize } from '@vueuse/core'
+import { useElementSize } from '@/composables/useElementSize'
 import { useHomeStore } from '@/stores/home'
 import { useTheme } from '@/composables/useTheme'
 import { useDashboardLayout } from '@/composables/useDashboardLayout'

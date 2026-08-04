@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useDebounceFn } from '@vueuse/core'
+import { useDebounceFn } from '@/composables/useDebounceFn'
 import { facilityLabels, severityOptions } from '@/lib/constants'
 import FilterSelect from '@/components/FilterSelect.vue'
 import DateRangePicker from '@/components/DateRangePicker.vue'
