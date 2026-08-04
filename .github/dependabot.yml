@@ -5,32 +5,67 @@ updates:
     directory: "/api"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   # Go logshipper module (pkg/logshipper/go.mod)
   - package-ecosystem: "gomod"
     directory: "/pkg/logshipper"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   # TypeScript frontend (frontend/package.json)
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       # @unovis/vue pins an exact peer dep on @unovis/ts — must bump together
+      # (listed first so it wins over minor-and-patch and also covers majors)
       unovis:
         patterns:
           - "@unovis/*"
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   # Python SDK (sdk/python/pyproject.toml)
   - package-ecosystem: "pip"
     directory: "/sdk/python"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
