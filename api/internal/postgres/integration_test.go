@@ -911,3 +911,68 @@ func TestIntegration_GetNewMsgIDsAcrossFeeds(t *testing.T) {
 		}
 	}
 }
+
+// TestIntegration_RetentionPoliciesMatchIntent asserts every hypertable ends up
+// with the retention window its migration intended.
+//
+// This is the check that was missing when a production database ran for months
+// with a drifted policy: `add_retention_policy(..., if_not_exists => true)` is
+// a no-op when a policy already exists with different arguments, so the
+// migrations could not correct it and nothing verified the result. Comparing
+// the whole set also catches a new hypertable that forgets retention entirely,
+// or one that quietly gains it.
+func TestIntegration_RetentionPoliciesMatchIntent(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	want := map[string]string{
+		"srvlog_events":     "90 days",
+		"netlog_events":     "90 days",
+		"applog_events":     "90 days",
+		"notification_log":  "30 days",
+		"rsyslog_stats":     "30 days",
+		"taillight_metrics": "30 days",
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT hypertable_name, config->>'drop_after'
+		FROM timescaledb_information.jobs
+		WHERE proc_name = 'policy_retention'`)
+	if err != nil {
+		t.Fatalf("query retention policies: %v", err)
+	}
+	defer rows.Close()
+
+	got := make(map[string]string)
+	for rows.Next() {
+		var table string
+		var dropAfter *string
+		if err := rows.Scan(&table, &dropAfter); err != nil {
+			t.Fatalf("scan retention policy: %v", err)
+		}
+		if dropAfter == nil {
+			// drop_created_before instead of drop_after retires chunks by
+			// creation time, which does not track the data's age at all.
+			t.Errorf("retention policy on %s has no drop_after", table)
+			continue
+		}
+		got[table] = *dropAfter
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("retention policy rows: %v", err)
+	}
+
+	for table, wantAfter := range want {
+		switch gotAfter, ok := got[table]; {
+		case !ok:
+			t.Errorf("%s has no retention policy; want drop_after %s", table, wantAfter)
+		case gotAfter != wantAfter:
+			t.Errorf("%s drop_after = %s, want %s", table, gotAfter, wantAfter)
+		}
+	}
+	for table := range got {
+		if _, ok := want[table]; !ok {
+			t.Errorf("unexpected retention policy on %s (drop_after %s); add it to want if intended", table, got[table])
+		}
+	}
+}
