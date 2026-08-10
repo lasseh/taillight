@@ -33,7 +33,23 @@ type analysisData struct {
 	VolumePeaks        []string // pre-formatted peak descriptions.
 	VolumeBucketLabel  string   // e.g. "1 hour", "5 minutes" — describes one sparkline cell.
 	JuniperRefs        map[string]model.JuniperNetlogRef
+
+	// Unavailable marks sections whose lookup failed, keyed by the section
+	// names in unavailable*. A best-effort failure leaves the section empty,
+	// which is indistinguishable from a genuinely quiet period — so without
+	// this the prompt would render "_None._" and assert something we never
+	// established. The templates branch on it to say "unavailable" instead.
+	Unavailable map[string]bool
 }
+
+// Section keys for analysisData.Unavailable. These are referenced by name in
+// the prompt templates, so renaming one silently changes rendering — grep
+// prompts/*/user.md before touching them.
+const (
+	unavailableTopErrorHosts = "top_error_hosts"
+	unavailableEventClusters = "event_clusters"
+	unavailableNewMsgIDs     = "new_msgids"
+)
 
 const (
 	topMsgIDLimit    = 25
@@ -193,16 +209,20 @@ func periodLabel(d time.Duration) string {
 // missing one section beats no report: these lookups used to be fatal, and a
 // single slow query cost a production deployment 46 consecutive daily reports.
 //
+// The failed section is recorded in data.Unavailable so the prompt can
+// distinguish it from a section that was queried and came back empty.
+//
 // A failure on an expired context is different. Every step after it would fail
 // too, and the model call at the end would be handed a hollow data set, so the
 // context error propagates and the run fails loudly instead.
-func bestEffort[T any](ctx context.Context, log *slog.Logger, section string, fn func() (T, error)) (T, error) {
+func bestEffort[T any](ctx context.Context, log *slog.Logger, data *analysisData, section string, fn func() (T, error)) (T, error) {
 	var zero T
 	v, err := fn()
 	if err == nil {
 		return v, nil
 	}
-	log.Warn(section+" lookup failed, continuing without", "err", err)
+	log.Warn("gather lookup failed, continuing without", "section", section, "err", err)
+	data.Unavailable[section] = true
 	return zero, ctx.Err()
 }
 
@@ -220,6 +240,8 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 		PeriodLabel: periodLabel(period),
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
+		// Must exist before the first bestEffort call, which writes to it.
+		Unavailable: make(map[string]bool),
 	}
 
 	var err error
@@ -275,7 +297,7 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	// from a dead context.
 	if scope.IsAllHosts() {
 		a.logger.Info("gathering top error hosts", "feed", feed)
-		data.TopErrorHosts, err = bestEffort(ctx, a.logger, "top error hosts",
+		data.TopErrorHosts, err = bestEffort(ctx, a.logger, &data, unavailableTopErrorHosts,
 			func() ([]model.HostErrorCount, error) {
 				return a.store.GetTopErrorHosts(ctx, scope, periodStart, topHostLimit)
 			})
@@ -284,7 +306,7 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 		}
 
 		a.logger.Info("gathering event clusters", "feed", feed)
-		data.EventClusters, err = bestEffort(ctx, a.logger, "event clusters",
+		data.EventClusters, err = bestEffort(ctx, a.logger, &data, unavailableEventClusters,
 			func() ([]model.EventCluster, error) {
 				return a.store.GetEventClusters(ctx, scope, periodStart, clusterWindowMin)
 			})
@@ -297,7 +319,7 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	}
 
 	a.logger.Info("gathering new msgids", "feed", feed)
-	data.NewMsgIDs, err = bestEffort(ctx, a.logger, "new msgids",
+	data.NewMsgIDs, err = bestEffort(ctx, a.logger, &data, unavailableNewMsgIDs,
 		func() ([]string, error) {
 			return a.store.GetNewMsgIDs(ctx, scope, periodStart, baselineStart)
 		})

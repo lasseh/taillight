@@ -53,12 +53,20 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 {{ end }}
 {{- end }}
 {{- if not .IsScoped }}
+{{- if index .Unavailable "top_error_hosts" }}
+## Hosts with Most Errors in this window
+_Unavailable — this lookup failed for this run. Do not read it as "no host had errors."_
+{{- else if .TopErrorHosts }}
 ## Hosts with Most Errors in this window (severity ≤ 3, max 15)
 {{ range .TopErrorHosts -}}
 - `{{ sanitize .Hostname }}` — {{ .Count }} errors · top msgid: `{{ truncate (sanitize .TopMsgID) 80 }}`
 {{ end }}
 {{- end }}
-{{- if .NewMsgIDs }}
+{{- end }}
+{{- if index .Unavailable "new_msgids" }}
+## New Event Signatures
+_Unavailable — this lookup failed for this run. Do not read it as "no new signatures."_
+{{- else if .NewMsgIDs }}
 ## New Event Signatures (not seen in the 7 days prior to this window)
 {{ range .NewMsgIDs -}}
 - `{{ truncate (sanitize .) 80 }}`{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ if (index $.JuniperRefs .).Cause }} · Cause: {{ (index $.JuniperRefs .).Cause }}{{ end }}{{ end }}
@@ -71,7 +79,10 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 _None in this window._
 {{- end }}
 {{- if not .IsScoped }}
-{{ if .EventClusters }}
+{{ if index .Unavailable "event_clusters" }}
+## Cross-Host Event Clusters
+_Unavailable — this lookup failed for this run. Do not read it as "no clusters."_
+{{- else if .EventClusters }}
 ## Cross-Host Event Clusters (5-minute windows in this incident period; ≥2 hosts firing the same msgid; max 8)
 {{ range .EventClusters -}}
 - {{ .Bucket.Format "2006-01-02 15:04 UTC" }} — {{ .Total }} events across [{{ join (sanitizeAll .Hosts) ", " }}]; msgids: [{{ join (truncateAll (sanitizeAll .MsgIDs) 60) ", " }}]

@@ -463,3 +463,71 @@ func TestBuildPromptEmptyData(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildPromptMarksUnavailableSections is the guard against a failed
+// lookup being narrated as a confirmed absence. These sections are
+// best-effort: when the query fails they come back empty, which is
+// indistinguishable from a quiet period. Rendering "_None._" there would tell
+// the model something we never established.
+func TestBuildPromptMarksUnavailableSections(t *testing.T) {
+	for _, mode := range []string{modeDaily, modeWeekly, modeIncident} {
+		t.Run(mode, func(t *testing.T) {
+			data := fixtureData(t)
+			// The failure path leaves the sections empty and flags them.
+			data.TopErrorHosts = nil
+			data.EventClusters = nil
+			data.NewMsgIDs = nil
+			data.Unavailable = map[string]bool{
+				unavailableTopErrorHosts: true,
+				unavailableEventClusters: true,
+				unavailableNewMsgIDs:     true,
+			}
+
+			_, usr, err := buildPrompt(data, "", mode)
+			if err != nil {
+				t.Fatalf("buildPrompt(%s): %v", mode, err)
+			}
+
+			if got := strings.Count(usr, "_Unavailable —"); got != 3 {
+				t.Errorf("got %d unavailable markers, want 3 (error hosts, new signatures, clusters); prompt:\n%s", got, usr)
+			}
+			for _, absent := range []string{"_None._", "_None in this period._", "_None in this window._"} {
+				if strings.Contains(usr, absent) {
+					t.Errorf("prompt claims %q for a section whose lookup failed:\n%s", absent, usr)
+				}
+			}
+		})
+	}
+}
+
+// TestBuildPromptStillReportsGenuineAbsence is the other half: when the
+// lookups succeeded and simply found nothing, "none" is the honest answer and
+// must survive.
+func TestBuildPromptStillReportsGenuineAbsence(t *testing.T) {
+	for _, mode := range []string{modeDaily, modeWeekly, modeIncident} {
+		t.Run(mode, func(t *testing.T) {
+			data := fixtureData(t)
+			data.TopErrorHosts = nil
+			data.EventClusters = nil
+			data.NewMsgIDs = nil
+			data.Unavailable = map[string]bool{} // queried, nothing found
+
+			_, usr, err := buildPrompt(data, "", mode)
+			if err != nil {
+				t.Fatalf("buildPrompt(%s): %v", mode, err)
+			}
+
+			if strings.Contains(usr, "_Unavailable —") {
+				t.Errorf("prompt marks a section unavailable when the lookup succeeded:\n%s", usr)
+			}
+			if !strings.Contains(usr, "## New Event Signatures") || !strings.Contains(usr, "## Cross-Host Event Clusters") {
+				t.Errorf("empty-but-successful sections should still be reported as none:\n%s", usr)
+			}
+			// An empty error-host table has no rows to show, so the heading
+			// is dropped rather than left dangling.
+			if strings.Contains(usr, "## Hosts with Most Errors") {
+				t.Errorf("empty error-host section should be omitted, not left as a bare heading:\n%s", usr)
+			}
+		})
+	}
+}

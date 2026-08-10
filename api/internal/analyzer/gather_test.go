@@ -224,6 +224,13 @@ func TestGatherSurvivesOptionalLookupFailures(t *testing.T) {
 	if len(data.TopErrorHosts) != 0 || len(data.EventClusters) != 0 || len(data.NewMsgIDs) != 0 {
 		t.Errorf("failed lookups should leave their sections empty, got %+v", data)
 	}
+	// Empty alone is ambiguous — the prompt needs to know these were empty
+	// because the lookup failed, not because the period was quiet.
+	for _, section := range []string{unavailableTopErrorHosts, unavailableEventClusters, unavailableNewMsgIDs} {
+		if !data.Unavailable[section] {
+			t.Errorf("section %q not marked unavailable after its lookup failed", section)
+		}
+	}
 	// The rest of the gather still has to have run.
 	if data.PeriodLabel != "24 hours" {
 		t.Errorf("PeriodLabel = %q, want %q", data.PeriodLabel, "24 hours")
