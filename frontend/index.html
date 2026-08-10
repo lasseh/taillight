@@ -4,14 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Taillight</title>
+    <!-- Declared so browsers stop requesting /favicon.ico (which 404s).
+         useFavicon() reuses this element to signal stream connectivity. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta
       name="description"
       content="Real-time syslog and application log viewer for network operations. Stream logs to your browser with a single Go binary and PostgreSQL."
     />
-    <script>
-      const t = localStorage.getItem('taillight-theme')
-      if (t && t !== 'tokyonight') document.documentElement.dataset.theme = t
-    </script>
+    <!-- Both must run before the deferred module script. Kept as files, not
+         inline scripts, so the CSP needs no 'unsafe-inline' (see nginx.conf). -->
+    <script src="/config.js"></script>
+    <script src="/theme-init.js"></script>
   </head>
   <body class="theme-dark">
     <div id="app"></div>

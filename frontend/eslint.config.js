@@ -36,5 +36,10 @@ export default tseslint.config(
     files: ['*.{js,ts}', 'vite.config.ts'],
     languageOptions: { globals: { ...globals.node } },
   },
+  {
+    // Classic scripts loaded from index.html before the app bundle.
+    files: ['public/*.js'],
+    languageOptions: { globals: { ...globals.browser } },
+  },
   configPrettier,
 )
