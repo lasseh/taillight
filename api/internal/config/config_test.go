@@ -82,14 +82,14 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Analysis.Enabled {
 		t.Error("Analysis.Enabled should be false by default")
 	}
-	if cfg.Analysis.Model != "llama3" {
-		t.Errorf("Analysis.Model = %q, want %q", cfg.Analysis.Model, "llama3")
+	if cfg.Analysis.Model != "gpt-oss:20b" {
+		t.Errorf("Analysis.Model = %q, want %q", cfg.Analysis.Model, "gpt-oss:20b")
 	}
 	if cfg.Analysis.Temperature != 0.3 {
 		t.Errorf("Analysis.Temperature = %f, want %f", cfg.Analysis.Temperature, 0.3)
 	}
-	if cfg.Analysis.NumCtx != 8192 {
-		t.Errorf("Analysis.NumCtx = %d, want %d", cfg.Analysis.NumCtx, 8192)
+	if cfg.Analysis.NumCtx != 32768 {
+		t.Errorf("Analysis.NumCtx = %d, want %d", cfg.Analysis.NumCtx, 32768)
 	}
 	if cfg.Analysis.OllamaTimeout != 2*time.Hour {
 		t.Errorf("Analysis.OllamaTimeout = %s, want 2h", cfg.Analysis.OllamaTimeout)

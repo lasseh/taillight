@@ -58,17 +58,16 @@ func (f *fakeOllamaServer) Close() { f.srv.Close() }
 const chatReplyDaily = `## TL;DR
 **Status: NOMINAL** — nothing of concern observed in the period.
 
-## Top Incidents
-None worth surfacing.
+## Needs Action
+_Nothing of concern this period._
 
-## Anomalies
-None.
+## What Happened
+_Nothing of concern this period._
 
-## Correlations
-None.
+## Watch
+_Nothing of concern this period._
 
-## Action Queue
-None.
+*Baseline: sev≤3 0/day vs 7-day 0/day (0%)*
 `
 
 // TestRunShortCircuitsOnEmptyData proves the analyzer skips the LLM when

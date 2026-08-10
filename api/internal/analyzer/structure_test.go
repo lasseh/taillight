@@ -16,26 +16,26 @@ func TestExtractH2Headers(t *testing.T) {
 		{
 			name: "well-formed daily report",
 			in: "## TL;DR\n> **Status: WATCH** — foo\n\n" +
-				"## Top Incidents\nstuff\n\n" +
-				"## Anomalies\n_Nothing of concern this period._\n\n" +
-				"## Correlations\n- 12:34 UTC — x\n\n" +
-				"## Action Queue\n1. do thing\n",
-			want: []string{"TL;DR", "Top Incidents", "Anomalies", "Correlations", "Action Queue"},
+				"## Needs Action\nstuff\n\n" +
+				"## What Happened\n- 12:34 — x\n\n" +
+				"## Watch\n_Nothing of concern this period._\n\n" +
+				"*Baseline: sev≤3 12/day vs 7-day 10/day (+20%)*\n",
+			want: []string{"TL;DR", "Needs Action", "What Happened", "Watch"},
 		},
 		{
 			name: "ignores h3 and deeper",
-			in:   "## TL;DR\n### sub\n#### deeper\n## Top Incidents\n",
-			want: []string{"TL;DR", "Top Incidents"},
+			in:   "## TL;DR\n### sub\n#### deeper\n## Needs Action\n",
+			want: []string{"TL;DR", "Needs Action"},
 		},
 		{
 			name: "ignores headers inside fenced code blocks",
-			in:   "## TL;DR\n```\n## fake header in fence\n```\n## Top Incidents\n",
-			want: []string{"TL;DR", "Top Incidents"},
+			in:   "## TL;DR\n```\n## fake header in fence\n```\n## Needs Action\n",
+			want: []string{"TL;DR", "Needs Action"},
 		},
 		{
 			name: "tolerates leading whitespace",
-			in:   "  ## TL;DR\n## Top Incidents\n",
-			want: []string{"TL;DR", "Top Incidents"},
+			in:   "  ## TL;DR\n## Needs Action\n",
+			want: []string{"TL;DR", "Needs Action"},
 		},
 		{
 			name: "empty input",
@@ -81,42 +81,42 @@ func TestValidateStructure(t *testing.T) {
 	}{
 		{
 			name:     "well-formed daily passes",
-			report:   body("TL;DR", "Top Incidents", "Anomalies", "Correlations", "Action Queue"),
+			report:   body("TL;DR", "Needs Action", "What Happened", "Watch"),
 			required: daily,
 			wantErr:  false,
 		},
 		{
 			name:      "missing section fails",
-			report:    body("TL;DR", "Top Incidents", "Anomalies", "Action Queue"),
+			report:    body("TL;DR", "Needs Action", "Watch"),
 			required:  daily,
 			wantErr:   true,
-			errSubstr: "expected 5 H2 sections",
+			errSubstr: "expected 4 H2 sections",
 		},
 		{
 			name:      "reordered section fails",
-			report:    body("TL;DR", "Anomalies", "Top Incidents", "Correlations", "Action Queue"),
+			report:    body("TL;DR", "What Happened", "Needs Action", "Watch"),
 			required:  daily,
 			wantErr:   true,
 			errSubstr: "section 2",
 		},
 		{
 			name: "extra appendix fails",
-			report: body("TL;DR", "Top Incidents", "Anomalies", "Correlations", "Action Queue",
+			report: body("TL;DR", "Needs Action", "What Happened", "Watch",
 				"Appendix A"),
 			required:  daily,
 			wantErr:   true,
-			errSubstr: "expected 5 H2 sections",
+			errSubstr: "expected 4 H2 sections",
 		},
 		{
 			name:      "renamed section fails",
-			report:    body("Summary", "Top Incidents", "Anomalies", "Correlations", "Action Queue"),
+			report:    body("Summary", "Needs Action", "What Happened", "Watch"),
 			required:  daily,
 			wantErr:   true,
 			errSubstr: "section 1",
 		},
 		{
 			name:     "trailing colon tolerated",
-			report:   body("TL;DR:", "Top Incidents", "Anomalies", "Correlations", "Action Queue"),
+			report:   body("TL;DR:", "Needs Action", "What Happened", "Watch"),
 			required: daily,
 			wantErr:  false,
 		},
@@ -183,8 +183,8 @@ func TestExtractSection(t *testing.T) {
 	t.Parallel()
 
 	report := "## TL;DR\n> **Status: WATCH** — bgp churn\n\n" +
-		"## Top Incidents\n- one\n- two\n\n" +
-		"## Anomalies\n_Nothing of concern this period._\n"
+		"## Needs Action\n- one\n- two\n\n" +
+		"## Watch\n_Nothing of concern this period._\n"
 
 	tests := []struct {
 		name   string
@@ -192,8 +192,8 @@ func TestExtractSection(t *testing.T) {
 		want   string
 	}{
 		{"tldr body", "TL;DR", "> **Status: WATCH** — bgp churn\n"},
-		{"top incidents body", "Top Incidents", "- one\n- two\n"},
-		{"trailing section to end", "Anomalies", "_Nothing of concern this period._\n"},
+		{"needs action body", "Needs Action", "- one\n- two\n"},
+		{"trailing section to end", "Watch", "_Nothing of concern this period._\n"},
 		{"missing section", "Nonexistent", ""},
 		{"punctuation-tolerant header lookup", "TL;DR:", "> **Status: WATCH** — bgp churn\n"},
 	}
@@ -209,16 +209,18 @@ func TestExtractSection(t *testing.T) {
 	}
 }
 
-// validBody renders a 5-section daily report whose TL;DR body is supplied
-// by the caller — used to isolate the first-section validator from the
-// header-set validator.
+// dailyReportWithTLDR renders a 4-section daily report whose TL;DR body is
+// supplied by the caller — used to isolate the first-section validator from
+// the header-set validator. The trailing italic baseline footer mirrors what
+// the prompt mandates, so these cases also prove the footer doesn't confuse
+// header extraction.
 func dailyReportWithTLDR(t *testing.T, tldr string) string {
 	t.Helper()
 	return "## TL;DR\n" + tldr + "\n\n" +
-		"## Top Incidents\n- foo\n\n" +
-		"## Anomalies\n_Nothing of concern this period._\n\n" +
-		"## Correlations\n_Nothing of concern this period._\n\n" +
-		"## Action Queue\n_Nothing of concern this period._\n"
+		"## Needs Action\n- foo\n\n" +
+		"## What Happened\n_Nothing of concern this period._\n\n" +
+		"## Watch\n_Nothing of concern this period._\n\n" +
+		"*Baseline: sev≤3 12/day vs 7-day 10/day (+20%) · top error host `edge1-syd` (9 errors)*\n"
 }
 
 func TestValidateReportFirstSection(t *testing.T) {
@@ -323,6 +325,83 @@ func TestValidateReportFirstSection(t *testing.T) {
 				"## Standing Down\n_No active anomaly visible in this window._\n",
 			wantErr:   true,
 			errSubstr: "missing `**STAND DOWN",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateReport(tc.report, tc.mode)
+			if tc.wantErr && err == nil {
+				t.Fatalf("validateReport returned nil, want error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("validateReport returned %v, want nil", err)
+			}
+			if tc.wantErr && tc.errSubstr != "" && !strings.Contains(err.Error(), tc.errSubstr) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.errSubstr)
+			}
+		})
+	}
+}
+
+// TestValidateReportLength proves the daily line cap rejects a bloated reply
+// (so the corrective retry regenerates it shorter), while blank lines stay
+// free and uncapped modes (weekly) accept arbitrarily long reports.
+func TestValidateReportLength(t *testing.T) {
+	t.Parallel()
+
+	pad := func(n int) string {
+		return strings.Repeat("- padding bullet\n", n)
+	}
+
+	dailyCap := reportLineCap[modeDaily]
+	if dailyCap == 0 {
+		t.Fatal("reportLineCap[modeDaily] is unset — test cannot run")
+	}
+
+	tests := []struct {
+		name      string
+		mode      string
+		report    string
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "compact daily passes",
+			mode:    modeDaily,
+			report:  dailyReportWithTLDR(t, "> **Status: NOMINAL** — quiet day."),
+			wantErr: false,
+		},
+		{
+			name: "over-cap daily fails",
+			mode: modeDaily,
+			report: "## TL;DR\n> **Status: WATCH** — noisy day.\n\n" +
+				"## Needs Action\n" + pad(20) + "\n" +
+				"## What Happened\n" + pad(30) + "\n" +
+				"## Watch\n" + pad(20) + "\n",
+			wantErr:   true,
+			errSubstr: "70-line cap",
+		},
+		{
+			name: "blank lines do not count toward the cap",
+			mode: modeDaily,
+			report: "## TL;DR\n> **Status: NOMINAL** — quiet.\n" + strings.Repeat("\n", 100) +
+				"## Needs Action\n- foo\n\n" +
+				"## What Happened\n- bar\n\n" +
+				"## Watch\n- baz\n",
+			wantErr: false,
+		},
+		{
+			name: "weekly is uncapped",
+			mode: modeWeekly,
+			report: "## TL;DR\n> **Trend: STEADY** — typical week.\n\n" +
+				"## Trend Movers\n" + pad(40) + "\n" +
+				"## Chronic Hosts\n" + pad(40) + "\n" +
+				"## New Surface Area\n- x\n\n" +
+				"## Correlations Worth Naming\n- y\n\n" +
+				"## Engineering Focus\n1. z\n",
+			wantErr: false,
 		},
 	}
 

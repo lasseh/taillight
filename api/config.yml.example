@@ -166,9 +166,10 @@ netbox:
 analysis:
   enabled: false
   ollama_url: "http://localhost:11434"
-  model: "llama3.1:8b"          # Also try: mixtral:8x7b, llama3.1:70b
+  model: "gpt-oss:20b"          # The model the prompts are tuned against. Also try: qwen3:32b, gpt-oss:120b
   temperature: 0.3              # Low temperature for factual/deterministic output.
-  num_ctx: 8192                 # Context window size in tokens.
+  num_ctx: 32768                # Context window size in tokens. Real daily prompts run 15-17k tokens —
+                                # values below that make Ollama silently truncate the data block.
   prompts_dir: ""               # Optional: dir holding system.md/user.md. Empty = use embedded defaults.
                                 # Files are reloaded on every analysis run — edits take effect without restart.
   ollama_timeout: "2h"          # Per-request HTTP timeout for Ollama chat calls. Bump for very large models

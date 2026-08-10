@@ -162,7 +162,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 			Model: a.cfg.Model,
 			Messages: append(messages,
 				ollama.ChatMessage{Role: "assistant", Content: resp.Message.Content},
-				ollama.ChatMessage{Role: "user", Content: structureCorrection(vErr, requiredHeaders[mode])},
+				ollama.ChatMessage{Role: "user", Content: structureCorrection(vErr, mode)},
 			),
 			Options: options,
 		})
@@ -196,6 +196,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 
 	metrics.AnalysisRunsTotal.WithLabelValues("completed").Inc()
 	metrics.AnalysisDurationSeconds.Observe(time.Since(start).Seconds())
+	metrics.AnalysisCompletionTokens.Observe(float64(resp.EvalCount))
 
 	a.logger.Info("analysis complete",
 		"feed", params.Feed,

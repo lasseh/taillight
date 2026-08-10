@@ -6,8 +6,9 @@ local LLM (Ollama). One run = one report.
 The core idea: **we never hand raw log lines to the model.** Postgres does the
 heavy lifting first — grouping thousands of events into a few dozen ranked,
 domain-aware aggregates — and the LLM only narrates that compact summary. This
-keeps prompts small (~4–6K tokens against an 8192 window), keeps the numbers
-exact, and stops the model from hallucinating over a wall of text.
+keeps prompts bounded (~15–17K tokens on a busy production day, against a 32768
+window), keeps the numbers exact, and stops the model from hallucinating over a
+wall of text.
 
 ## The flow
 
@@ -35,7 +36,7 @@ RunParams{Feed, Hosts, Period, Mode}
         ├─ buildPrompt ──────────► render system.md + user.md templates (prompt.go)
         │                          (+ scoped anti-hallucination guard in code)
         │
-        ├─ client.Chat ──────────► Ollama (llama3.1:8b, temp 0.3, num_ctx 8192)
+        ├─ client.Chat ──────────► Ollama (gpt-oss:20b, temp 0.3, num_ctx 32768)
         │
         ├─ validateReport ─── bad ─► one corrective retry, keep best   (structure.go)
         │
@@ -80,9 +81,10 @@ window — no second compression pass, no extra dependency.
 
 - **Structure validation + one retry** (`structure.go`). Each mode must emit an
   exact set of H2 headers in order (no "Recommendations"/"Appendix" padding) and
-  a bolded status/trend/verdict token in the first section. On violation we send
-  one corrective follow-up and keep whichever reply validates — we never make
-  the report worse.
+  a bolded status/trend/verdict token in the first section; the daily brief is
+  additionally capped at 70 non-blank lines so it stays a one-screen read. On
+  violation we send one corrective follow-up and keep whichever reply validates
+  — we never make the report worse.
 
 - **Hot-reloadable prompts** (`prompt.go`). System/user templates live in
   `prompts/<mode>/{system,user}.md`, embedded by default but overridable via
@@ -105,9 +107,9 @@ Required section sets per mode live in `requiredHeaders` (`structure.go`).
 analysis:
   enabled: true
   ollama_url: "http://localhost:11434"
-  model: "llama3.1:8b"     # also tried: mixtral:8x7b, llama3.1:70b
+  model: "gpt-oss:20b"     # the model the prompts are tuned against
   temperature: 0.3         # low = factual/deterministic
-  num_ctx: 8192            # context window (tokens)
+  num_ctx: 32768           # context window (tokens); real prompts run 15-17k
   prompts_dir: ""          # empty = embedded defaults; set to override + hot-reload
 ```
 

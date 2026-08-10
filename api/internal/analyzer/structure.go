@@ -10,9 +10,17 @@ import (
 // emit, in order. The validator forbids extra headers as well, so the model
 // can't pad with "Appendix" or "Recommendations" sections.
 var requiredHeaders = map[string][]string{
-	modeDaily:    {"TL;DR", "Top Incidents", "Anomalies", "Correlations", "Action Queue"},
+	modeDaily:    {"TL;DR", "Needs Action", "What Happened", "Watch"},
 	modeWeekly:   {"TL;DR", "Trend Movers", "Chronic Hosts", "New Surface Area", "Correlations Worth Naming", "Engineering Focus"},
 	modeIncident: {"Verdict", "What's Happening", "Likely Cause", "Immediate Actions", "Standing Down"},
+}
+
+// reportLineCap bounds the reply length per mode, counted in non-blank
+// lines. The daily brief is a one-screen morning read (~35-line target in
+// the prompt); a reply past the cap fails validation so the corrective
+// retry regenerates it shorter. Modes absent from the map are uncapped.
+var reportLineCap = map[string]int{
+	modeDaily: 70,
 }
 
 // firstSectionRule defines the regex each mode's first section (TL;DR or
@@ -118,9 +126,10 @@ func normalizeHeader(s string) string {
 
 // structureCorrection composes the corrective user message sent to the model
 // after a structure-validation failure. It names the specific deviation,
-// re-states the required header sequence, and forbids the usual drift modes
-// ("Appendix", "Recommendations", etc.).
-func structureCorrection(cause error, required []string) string {
+// re-states the required header sequence (and line cap, for capped modes),
+// and forbids the usual drift modes ("Appendix", "Recommendations", etc.).
+func structureCorrection(cause error, mode string) string {
+	required := requiredHeaders[mode]
 	var b strings.Builder
 	b.WriteString("Your previous reply did not match the required output rules: ")
 	b.WriteString(cause.Error())
@@ -133,13 +142,17 @@ func structureCorrection(cause error, required []string) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\nDo not add `Key Findings`, `Summary`, `Recommendations`, `Next Steps`, `Conclusion`, `Appendix`, or any other heading. The first section must contain a bolded status/trend/verdict line as described in the system message — never just the placeholder.")
+	if lineCap, ok := reportLineCap[mode]; ok {
+		fmt.Fprintf(&b, " Keep the whole reply under %d non-blank lines.", lineCap)
+	}
 	return b.String()
 }
 
 // validateReport runs every output rule for the given mode and returns the
 // first violation found, or nil if the report is well-formed. Order:
 // headers (must be exact set + order) → first-section content (must contain
-// the mode's status/trend/verdict token).
+// the mode's status/trend/verdict token) → total length (modes with a line
+// cap).
 func validateReport(report, mode string) error {
 	required := requiredHeaders[mode]
 	if len(required) == 0 {
@@ -150,6 +163,30 @@ func validateReport(report, mode string) error {
 	}
 	if err := validateFirstSection(report, mode, required[0]); err != nil {
 		return err
+	}
+	if err := validateLength(report, mode); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateLength enforces the mode's reply-length cap, counted in non-blank
+// lines so markdown spacing doesn't penalize a well-formed report. The error
+// text doubles as the corrective instruction — structureCorrection quotes it
+// verbatim to the model.
+func validateLength(report, mode string) error {
+	lineCap, ok := reportLineCap[mode]
+	if !ok {
+		return nil
+	}
+	n := 0
+	for _, line := range strings.Split(report, "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	if n > lineCap {
+		return fmt.Errorf("reply is %d non-blank lines, over the %d-line cap — rewrite shorter: keep the most actionable items and collapse each section's tail into a single `(+N more, mostly <family>)` clause", n, lineCap)
 	}
 	return nil
 }

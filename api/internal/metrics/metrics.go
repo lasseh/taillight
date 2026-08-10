@@ -215,6 +215,17 @@ var (
 		Buckets: []float64{30, 60, 120, 300, 600, 1200, 1800, 3600},
 	})
 
+	// AnalysisCompletionTokens tracks report completion size per run so length
+	// drift shows up in dashboards — the daily brief targets a one-screen read
+	// and a rising completion-token trend means the prompt's brevity rules are
+	// losing their grip.
+	AnalysisCompletionTokens = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "taillight",
+		Name:      "analysis_completion_tokens",
+		Help:      "Completion tokens per analysis run.",
+		Buckets:   []float64{250, 500, 1000, 2000, 4000, 8000, 16000},
+	})
+
 	// AnalysisStructureRetriesTotal counts structure-validation retries by outcome:
 	// "fixed" when the corrective follow-up produced a valid reply, "still_invalid"
 	// when the retry also failed (and we kept the first reply), "retry_error"
