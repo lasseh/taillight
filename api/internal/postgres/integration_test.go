@@ -631,3 +631,172 @@ func TestIntegration_ListenerGapFillAfterReconnect(t *testing.T) {
 		t.Fatal("timed out waiting for gap-fill delivery after reconnect")
 	}
 }
+
+// insertNetlogEvent seeds one netlog row. msg_pattern is not written here: a
+// BEFORE INSERT trigger computes it from message, which is why an empty
+// message is how a row ends up with no usable event signature at all.
+func insertNetlogEvent(t *testing.T, pool *pgxpool.Pool, at time.Time, host, msgid string, severity int, message string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO netlog_events (received_at, reported_at, hostname, fromhost_ip, msgid, severity, facility, message)
+		 VALUES ($1, $1, $2, '10.0.0.1'::inet, $3, $4, 1, $5)`,
+		at, host, msgid, severity, message); err != nil {
+		t.Fatalf("insert netlog event: %v", err)
+	}
+}
+
+// TestIntegration_GetTopErrorHosts covers the query rewritten to drop its
+// materialized-CTE fence: host ordering, the msgid-or-msg_pattern signature
+// fallback, the LEFT JOIN that keeps a host with no usable signature, and both
+// filters (severity and window) that the fence used to defeat.
+func TestIntegration_GetTopErrorHosts(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "netlog_events")
+	store := NewStore(pool)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	inWindow := now.Add(-time.Hour)
+	beforeWindow := now.Add(-48 * time.Hour)
+	since := now.Add(-24 * time.Hour)
+
+	// host-a: 5 errors in window; AAA is the most common signature.
+	for range 3 {
+		insertNetlogEvent(t, pool, inWindow, "host-a", "AAA", 3, "cpu threshold exceeded")
+	}
+	for range 2 {
+		insertNetlogEvent(t, pool, inWindow, "host-a", "BBB", 3, "bgp peer down")
+	}
+	// ...plus 4 errors before the window, which must not be counted.
+	for range 4 {
+		insertNetlogEvent(t, pool, beforeWindow, "host-a", "AAA", 3, "cpu threshold exceeded")
+	}
+
+	// host-b: msgid is the RFC 5424 NILVALUE, so the signature falls back to
+	// the trigger-computed msg_pattern.
+	for range 3 {
+		insertNetlogEvent(t, pool, inWindow, "host-b", "-", 3, "link down on ge-0/0/1")
+	}
+
+	// host-c: empty message => empty msg_pattern => no signature to report.
+	insertNetlogEvent(t, pool, inWindow, "host-c", "", 3, "")
+
+	// host-d: informational only, below the severity <= 3 error bar.
+	for range 10 {
+		insertNetlogEvent(t, pool, inWindow, "host-d", "INFO", 6, "interface up")
+	}
+
+	got, err := store.GetTopErrorHosts(ctx, model.AnalysisScope{Feed: "netlog"}, since, 15)
+	if err != nil {
+		t.Fatalf("GetTopErrorHosts: %v", err)
+	}
+
+	want := []model.HostErrorCount{
+		{Hostname: "host-a", Count: 5, TopMsgID: "AAA"},
+		{Hostname: "host-b", Count: 3, TopMsgID: "link down on ge-<n>/<n>/<n>"},
+		{Hostname: "host-c", Count: 1, TopMsgID: ""},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d hosts (%+v), want %d", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("host %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestIntegration_GetNewMsgIDs covers the NOT EXISTS -> EXCEPT rewrite: a
+// signature counts as new only when it appears in the current window and not
+// in the baseline window.
+func TestIntegration_GetNewMsgIDs(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "netlog_events")
+	store := NewStore(pool)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	since := now.Add(-24 * time.Hour)
+	baselineSince := since.Add(-7 * 24 * time.Hour)
+	current := now.Add(-time.Hour)
+	baseline := now.Add(-72 * time.Hour)
+
+	insertNetlogEvent(t, pool, current, "host-a", "NEW_ONE", 4, "first time seen")
+	insertNetlogEvent(t, pool, current, "host-a", "BOTH", 4, "seen before")
+	insertNetlogEvent(t, pool, baseline, "host-a", "BOTH", 4, "seen before")
+	insertNetlogEvent(t, pool, baseline, "host-a", "OLD_ONE", 4, "only in baseline")
+	// Empty signature in the current window must not surface as "new".
+	insertNetlogEvent(t, pool, current, "host-b", "", 4, "")
+
+	got, err := store.GetNewMsgIDs(ctx, model.AnalysisScope{Feed: "netlog"}, since, baselineSince)
+	if err != nil {
+		t.Fatalf("GetNewMsgIDs: %v", err)
+	}
+
+	want := []string{"NEW_ONE"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("GetNewMsgIDs = %v, want %v", got, want)
+	}
+}
+
+// TestIntegration_AnalysisQueriesHaveNoCTEScan is the regression guard for the
+// production outage: a CTE read more than once is materialized, which fences
+// the time predicate off from the scan and makes the query read every chunk in
+// the hypertable. A CTE Scan in either plan means that fence is back.
+func TestIntegration_AnalysisQueriesHaveNoCTEScan(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "netlog_events")
+	ctx := context.Background()
+
+	// Spread rows over several days so there are chunks to exclude.
+	now := time.Now().UTC()
+	for i := range 10 {
+		insertNetlogEvent(t, pool, now.Add(-time.Duration(i)*24*time.Hour),
+			"host-a", "AAA", 3, "cpu threshold exceeded")
+	}
+
+	since := now.Add(-24 * time.Hour)
+	baselineSince := since.Add(-7 * 24 * time.Hour)
+
+	for _, tc := range []struct {
+		name  string
+		scope model.AnalysisScope
+	}{
+		{"all hosts", model.AnalysisScope{Feed: "netlog"}},
+		{"scoped", model.AnalysisScope{Feed: "netlog", Hosts: []string{"host-a"}}},
+	} {
+		for _, q := range []struct {
+			name string
+			sql  string
+			args []any
+		}{
+			{"topErrorHostsQuery", topErrorHostsQuery(tc.scope), appendHostsArg([]any{since, 15}, tc.scope)},
+			{"newMsgIDsQuery", newMsgIDsQuery(tc.scope), appendHostsArg([]any{since, baselineSince}, tc.scope)},
+		} {
+			t.Run(tc.name+"/"+q.name, func(t *testing.T) {
+				rows, err := pool.Query(ctx, "EXPLAIN "+q.sql, q.args...)
+				if err != nil {
+					t.Fatalf("explain: %v", err)
+				}
+				defer rows.Close()
+
+				var plan strings.Builder
+				for rows.Next() {
+					var line string
+					if err := rows.Scan(&line); err != nil {
+						t.Fatalf("scan plan row: %v", err)
+					}
+					plan.WriteString(line)
+					plan.WriteByte('\n')
+				}
+				if err := rows.Err(); err != nil {
+					t.Fatalf("plan rows: %v", err)
+				}
+				if strings.Contains(plan.String(), "CTE Scan") {
+					t.Errorf("plan contains a CTE Scan — the event source is materialized "+
+						"and chunk exclusion is lost:\n%s", plan.String())
+				}
+			})
+		}
+	}
+}

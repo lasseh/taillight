@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"math"
@@ -179,5 +180,69 @@ func TestGatherSeverityNormalization(t *testing.T) {
 				t.Errorf("ChangePct: got %.2f, want in [%.2f, %.2f]", got.ChangePct, tc.wantChangePctMin, tc.wantChangePctMax)
 			}
 		})
+	}
+}
+
+// failingStore makes the three optional cross-section lookups fail so
+// gather's degradation path can be exercised. The load-bearing lookups
+// (top msgids, severity comparison) still succeed via the embedded stub.
+type failingStore struct {
+	stubStore
+	err error
+}
+
+func (s failingStore) GetTopErrorHosts(context.Context, model.AnalysisScope, time.Time, int) ([]model.HostErrorCount, error) {
+	return nil, s.err
+}
+
+func (s failingStore) GetNewMsgIDs(context.Context, model.AnalysisScope, time.Time, time.Time) ([]string, error) {
+	return nil, s.err
+}
+
+func (s failingStore) GetEventClusters(context.Context, model.AnalysisScope, time.Time, int) ([]model.EventCluster, error) {
+	return nil, s.err
+}
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// TestGatherSurvivesOptionalLookupFailures pins the reason these lookups were
+// made best-effort: when they were fatal, one slow query cost a production
+// deployment 46 consecutive daily reports. A failing section must cost its own
+// section and nothing more.
+func TestGatherSurvivesOptionalLookupFailures(t *testing.T) {
+	a := &Analyzer{
+		store:  failingStore{err: errors.New("statement timeout")},
+		logger: discardLogger(),
+	}
+
+	data, err := a.gather(context.Background(), model.AnalysisScope{Feed: feedNetlog}, 24*time.Hour, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("gather = %v, want nil: an optional lookup must not fail the run", err)
+	}
+	if len(data.TopErrorHosts) != 0 || len(data.EventClusters) != 0 || len(data.NewMsgIDs) != 0 {
+		t.Errorf("failed lookups should leave their sections empty, got %+v", data)
+	}
+	// The rest of the gather still has to have run.
+	if data.PeriodLabel != "24 hours" {
+		t.Errorf("PeriodLabel = %q, want %q", data.PeriodLabel, "24 hours")
+	}
+}
+
+// TestGatherPropagatesDeadContext is the other half of the contract: once the
+// context is done every later step fails too, so continuing would hand the
+// model a hollow data set. That case must fail loudly.
+func TestGatherPropagatesDeadContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	a := &Analyzer{
+		store:  failingStore{err: context.Canceled},
+		logger: discardLogger(),
+	}
+
+	if _, err := a.gather(ctx, model.AnalysisScope{Feed: feedNetlog}, 24*time.Hour, time.Now().UTC()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("gather = %v, want context.Canceled", err)
 	}
 }

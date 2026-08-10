@@ -362,24 +362,35 @@ func (s *Store) GetSeverityComparison(ctx context.Context, scope model.AnalysisS
 	return model.SeverityComparison{Levels: levels}, nil
 }
 
-// GetTopErrorHosts returns hosts with the most errors (severity <= 3).
-// The scope parameter selects which feed and (optionally) which hosts to
-// query. Note: the analyzer skips this query when the scope already
-// restricts to specific hosts (the aggregation is degenerate), but the
-// method honors the filter anyway for callers that invoke it directly.
-// The "top msgid" per host is the most common event signature (msgid when
-// present, otherwise msg_pattern) — see eventKeyExpr.
-func (s *Store) GetTopErrorHosts(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.HostErrorCount, error) {
-	// Hosts param is $3 (existing args: since, limit).
+// Never wrap an event table in a CTE that more than one part of the query
+// reads from. Postgres inlines a CTE only when it is referenced exactly once;
+// a second reference makes it MATERIALIZED, which is an optimization fence.
+// The `received_at >= $1` predicate then never reaches the scan, so the
+// planner loses chunk exclusion and reads — and decompresses — every chunk in
+// the hypertable instead of the two or three the window covers.
+//
+// That is not a micro-optimization. It took netlog's daily analysis from 4ms
+// to over the 60s statement_timeout once the table had grown, and every run
+// failed for 46 days straight. Repeat the source in each scan, with its own
+// time predicate, so both reach idx_*_severity_received. The queries below
+// are built by dedicated functions purely so tests can assert this without a
+// database — see TestTopErrorHostsQueryHasNoCTEFence.
+
+// topErrorHostsQuery builds the GetTopErrorHosts SQL. host_counts stays a CTE
+// because it is read exactly once (and so gets inlined); the event source is
+// repeated in the LATERAL rather than shared, per the note above.
+func topErrorHostsQuery(scope model.AnalysisScope) string {
+	// Hosts param is $3 (existing args: since, limit). The source embeds $3
+	// under a host scope, so it appears twice in the SQL while
+	// appendHostsArg still supplies it once — reusing a parameter across
+	// scans is fine.
 	source := scopedSource(scope, "received_at, hostname, severity, msgid, msg_pattern", 3)
 	keyExpr := eventKeyExpr(scope.Feed)
 
-	query := fmt.Sprintf(`
-		WITH events AS (
-			SELECT * FROM %s
-		), host_counts AS (
+	return fmt.Sprintf(`
+		WITH host_counts AS (
 			SELECT hostname, count(*) AS cnt
-			FROM events
+			FROM %s
 			WHERE received_at >= $1 AND severity <= 3
 			GROUP BY hostname
 			ORDER BY cnt DESC
@@ -389,15 +400,24 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, scope model.AnalysisScope,
 		FROM host_counts hc
 		LEFT JOIN LATERAL (
 			SELECT %s AS event_key
-			FROM events
+			FROM %s
 			WHERE hostname = hc.hostname AND received_at >= $1 AND severity <= 3 AND %s <> ''
 			GROUP BY event_key
 			ORDER BY count(*) DESC
 			LIMIT 1
 		) tm ON true
-		ORDER BY hc.cnt DESC`, source, keyExpr, keyExpr)
+		ORDER BY hc.cnt DESC`, source, keyExpr, source, keyExpr)
+}
 
-	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{since, limit}, scope)...)
+// GetTopErrorHosts returns hosts with the most errors (severity <= 3).
+// The scope parameter selects which feed and (optionally) which hosts to
+// query. Note: the analyzer skips this query when the scope already
+// restricts to specific hosts (the aggregation is degenerate), but the
+// method honors the filter anyway for callers that invoke it directly.
+// The "top msgid" per host is the most common event signature (msgid when
+// present, otherwise msg_pattern) — see eventKeyExpr.
+func (s *Store) GetTopErrorHosts(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.HostErrorCount, error) {
+	rows, err := s.pool.Query(ctx, topErrorHostsQuery(scope), appendHostsArg([]any{since, limit}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("top error hosts query: %w", err)
 	}
@@ -419,32 +439,45 @@ func (s *Store) GetTopErrorHosts(ctx context.Context, scope model.AnalysisScope,
 	return results, nil
 }
 
+// newMsgIDsQuery builds the GetNewMsgIDs SQL as a set difference between the
+// current window and the baseline window.
+//
+// The obvious shape — one CTE of (event_key, received_at) read by both a
+// current-window SELECT and a correlated NOT EXISTS — carries the fence
+// described above, and un-fencing it alone would not be enough: NOT EXISTS
+// correlates on a computed event_key that no index can serve, so it degrades
+// into a self-join over the whole window. EXCEPT lets each side aggregate its
+// own window independently, with chunk exclusion intact on both.
+//
+// EXCEPT is EXCEPT DISTINCT, which preserves the original SELECT DISTINCT.
+// It also treats NULL as equal to NULL where the old `base.event_key =
+// curr.event_key` did not, but eventKeyExpr can never yield NULL: msg_pattern
+// is NOT NULL DEFAULT ” on both event tables, so the COALESCE always lands on
+// a non-null column. The baseline side needs no `<> ”` filter — it can only
+// match a current-side key, which is already non-empty.
+func newMsgIDsQuery(scope model.AnalysisScope) string {
+	// Hosts param is $3 (existing args: since, baselineSince).
+	source := scopedSource(scope, "received_at, hostname, msgid, msg_pattern", 3)
+	keyExpr := eventKeyExpr(scope.Feed)
+
+	return fmt.Sprintf(`
+		SELECT %s AS event_key
+		FROM %s
+		WHERE received_at >= $1 AND %s <> ''
+		EXCEPT
+		SELECT %s
+		FROM %s
+		WHERE received_at >= $2 AND received_at < $1
+		ORDER BY event_key`, keyExpr, source, keyExpr, keyExpr, source)
+}
+
 // GetNewMsgIDs returns event signatures seen in the current period but not in
 // the baseline period. The scope parameter selects which feed and (optionally)
 // which hosts to query; both the current and baseline windows are filtered by
 // the same host scope. The signature is msgid when present and msg_pattern
 // otherwise — see eventKeyExpr.
 func (s *Store) GetNewMsgIDs(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time) ([]string, error) {
-	// Hosts param is $3 (existing args: since, baselineSince).
-	source := scopedSource(scope, "received_at, hostname, msgid, msg_pattern", 3)
-	keyExpr := eventKeyExpr(scope.Feed)
-
-	query := fmt.Sprintf(`
-		WITH events AS (
-			SELECT %s AS event_key, received_at FROM %s
-		)
-		SELECT DISTINCT event_key
-		FROM events curr
-		WHERE curr.received_at >= $1 AND curr.event_key <> ''
-		  AND NOT EXISTS (
-		    SELECT 1 FROM events base
-		    WHERE base.event_key = curr.event_key
-		      AND base.received_at >= $2 AND base.received_at < $1
-		      AND base.event_key <> ''
-		  )
-		ORDER BY event_key`, keyExpr, source)
-
-	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{since, baselineSince}, scope)...)
+	rows, err := s.pool.Query(ctx, newMsgIDsQuery(scope), appendHostsArg([]any{since, baselineSince}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("new msgids query: %w", err)
 	}

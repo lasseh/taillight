@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -187,6 +188,24 @@ func periodLabel(d time.Duration) string {
 	}
 }
 
+// bestEffort runs a gather step that enriches the prompt but is not
+// load-bearing, returning the zero value when the lookup fails. A report
+// missing one section beats no report: these lookups used to be fatal, and a
+// single slow query cost a production deployment 46 consecutive daily reports.
+//
+// A failure on an expired context is different. Every step after it would fail
+// too, and the model call at the end would be handed a hollow data set, so the
+// context error propagates and the run fails loudly instead.
+func bestEffort[T any](ctx context.Context, log *slog.Logger, section string, fn func() (T, error)) (T, error) {
+	var zero T
+	v, err := fn()
+	if err == nil {
+		return v, nil
+	}
+	log.Warn(section+" lookup failed, continuing without", "err", err)
+	return zero, ctx.Err()
+}
+
 // gather collects all aggregated data for the analysis period ending at periodEnd.
 func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period time.Duration, periodEnd time.Time) (analysisData, error) {
 	periodStart := periodEnd.Add(-period)
@@ -243,15 +262,32 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	// correlated across hosts" is degraded to "correlated across the small
 	// set you picked." Skipping saves DB roundtrips and avoids feeding the
 	// prompt with sections the model would either skip or narrate emptily.
+	//
+	// The next three lookups are best-effort, like the volume timeline and
+	// program/facility breakdowns below. Each enriches the prompt but none is
+	// load-bearing: a report missing its error-host table is far better than
+	// no report at all. They used to be fatal, and one slow query cost a
+	// production deployment 46 consecutive daily reports.
+	//
+	// A failure on an expired context is different — everything after it will
+	// fail too, and the model call at the end would be handed a hollow data
+	// set. Bail loudly in that case rather than shipping a report assembled
+	// from a dead context.
 	if scope.IsAllHosts() {
 		a.logger.Info("gathering top error hosts", "feed", feed)
-		data.TopErrorHosts, err = a.store.GetTopErrorHosts(ctx, scope, periodStart, topHostLimit)
+		data.TopErrorHosts, err = bestEffort(ctx, a.logger, "top error hosts",
+			func() ([]model.HostErrorCount, error) {
+				return a.store.GetTopErrorHosts(ctx, scope, periodStart, topHostLimit)
+			})
 		if err != nil {
 			return data, err
 		}
 
 		a.logger.Info("gathering event clusters", "feed", feed)
-		data.EventClusters, err = a.store.GetEventClusters(ctx, scope, periodStart, clusterWindowMin)
+		data.EventClusters, err = bestEffort(ctx, a.logger, "event clusters",
+			func() ([]model.EventCluster, error) {
+				return a.store.GetEventClusters(ctx, scope, periodStart, clusterWindowMin)
+			})
 		if err != nil {
 			return data, err
 		}
@@ -261,7 +297,10 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	}
 
 	a.logger.Info("gathering new msgids", "feed", feed)
-	data.NewMsgIDs, err = a.store.GetNewMsgIDs(ctx, scope, periodStart, baselineStart)
+	data.NewMsgIDs, err = bestEffort(ctx, a.logger, "new msgids",
+		func() ([]string, error) {
+			return a.store.GetNewMsgIDs(ctx, scope, periodStart, baselineStart)
+		})
 	if err != nil {
 		return data, err
 	}
