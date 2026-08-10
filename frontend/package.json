@@ -39,7 +39,7 @@
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-vue": "10.10.0",
     "globals": "17.8.0",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "prettier": "3.9.6",
     "tailwindcss": "^4.3.2",
     "typescript": "~6.0",
