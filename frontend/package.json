@@ -19,7 +19,7 @@
   "dependencies": {
     "@unovis/ts": "^1.6.7",
     "@unovis/vue": "^1.6.7",
-    "dompurify": "^3.4.12",
+    "dompurify": "^3.4.13",
     "focus-trap": "^8.2.2",
     "marked": "^18.0.9",
     "pinia": "^4.0.2",
