@@ -261,7 +261,7 @@ smtp:
   auth_type: "plain"              # plain | crammd5 | "" — ignored when username is unset
 ```
 
-Rule-level fields override the `default_*` values. Environment variables follow viper conventions (`NOTIFICATION_DEFAULT_SILENCE=10m`). The email backend is only registered when `smtp.host` is set — leave it empty to disable email channels entirely.
+Rule-level fields override the `default_*` values. Environment variables follow viper conventions (`NOTIFICATION_DEFAULT_SILENCE=10m`). The email backend is registered whenever `notification.enabled` is true, so email channels can be created before SMTP exists; with `smtp.host` unset every send fails with `email backend is not configured`.
 
 ---
 
