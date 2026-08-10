@@ -38,16 +38,16 @@
     "eslint": "10.8.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-vue": "10.10.0",
-    "globals": "17.8.0",
+    "globals": "17.9.0",
     "jsdom": "^30.0.1",
     "prettier": "3.9.6",
     "tailwindcss": "^4.3.2",
     "typescript": "~6.0",
     "typescript-eslint": "8.65.0",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vitest": "^4.1.8",
     "vue-eslint-parser": "10.4.1",
-    "vue-tsc": "^3.3.8"
+    "vue-tsc": "^3.3.9"
   },
   "overrides": {
     "glob": "^13.0.0",
