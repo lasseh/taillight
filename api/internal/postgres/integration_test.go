@@ -745,7 +745,7 @@ func TestIntegration_GetNewMsgIDs(t *testing.T) {
 // the hypertable. A CTE Scan in either plan means that fence is back.
 func TestIntegration_AnalysisQueriesHaveNoCTEScan(t *testing.T) {
 	pool := testPool(t)
-	truncate(t, pool, "netlog_events")
+	truncate(t, pool, "netlog_events", "srvlog_events")
 	ctx := context.Background()
 
 	// Spread rows over several days so there are chunks to exclude.
@@ -764,6 +764,8 @@ func TestIntegration_AnalysisQueriesHaveNoCTEScan(t *testing.T) {
 	}{
 		{"all hosts", model.AnalysisScope{Feed: "netlog"}},
 		{"scoped", model.AnalysisScope{Feed: "netlog", Hosts: []string{"host-a"}}},
+		{"all feeds", model.AnalysisScope{Feed: "all"}},
+		{"all feeds scoped", model.AnalysisScope{Feed: "all", Hosts: []string{"host-a"}}},
 	} {
 		for _, q := range []struct {
 			name string
@@ -797,6 +799,115 @@ func TestIntegration_AnalysisQueriesHaveNoCTEScan(t *testing.T) {
 						"and chunk exclusion is lost:\n%s", plan.String())
 				}
 			})
+		}
+	}
+}
+
+// insertSrvlogEvent mirrors insertNetlogEvent for the other feed, so the
+// feed="all" union path can be exercised with rows on both sides.
+func insertSrvlogEvent(t *testing.T, pool *pgxpool.Pool, at time.Time, host, msgid string, severity int, message string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO srvlog_events (received_at, reported_at, hostname, fromhost_ip, msgid, severity, facility, message)
+		 VALUES ($1, $1, $2, '10.0.0.2'::inet, $3, $4, 1, $5)`,
+		at, host, msgid, severity, message); err != nil {
+		t.Fatalf("insert srvlog event: %v", err)
+	}
+}
+
+// TestIntegration_GetTopErrorHostsAcrossFeeds exercises the feed="all" union
+// path, which is where the rewrite changed shape the most: the union subquery
+// is now emitted twice under the same alias at two query levels, with the
+// LATERAL correlating a hostname into it. Legal SQL and correct SQL can
+// diverge there, so this runs it against a real database rather than
+// asserting on the generated string.
+func TestIntegration_GetTopErrorHostsAcrossFeeds(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "netlog_events", "srvlog_events")
+	store := NewStore(pool)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	inWindow := now.Add(-time.Hour)
+	since := now.Add(-24 * time.Hour)
+
+	// host-shared appears on both feeds; its counts must add up across them
+	// and its top signature must be the srvlog one, which is more frequent.
+	for range 2 {
+		insertNetlogEvent(t, pool, inWindow, "host-shared", "NET_KEY", 3, "netlog error")
+	}
+	for range 3 {
+		insertSrvlogEvent(t, pool, inWindow, "host-shared", "SRV_KEY", 3, "srvlog error")
+	}
+	for range 2 {
+		insertNetlogEvent(t, pool, inWindow, "host-net", "NET_KEY", 3, "netlog error")
+	}
+	insertSrvlogEvent(t, pool, inWindow, "host-srv", "SRV_ONLY", 3, "srvlog error")
+
+	got, err := store.GetTopErrorHosts(ctx, model.AnalysisScope{Feed: "all"}, since, 15)
+	if err != nil {
+		t.Fatalf("GetTopErrorHosts(all): %v", err)
+	}
+
+	want := []model.HostErrorCount{
+		{Hostname: "host-shared", Count: 5, TopMsgID: "SRV_KEY"},
+		{Hostname: "host-net", Count: 2, TopMsgID: "NET_KEY"},
+		{Hostname: "host-srv", Count: 1, TopMsgID: "SRV_ONLY"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d hosts (%+v), want %d", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("host %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	// Same union, host-scoped: the source subquery carries $3 at both levels.
+	scoped, err := store.GetTopErrorHosts(ctx,
+		model.AnalysisScope{Feed: "all", Hosts: []string{"host-shared"}}, since, 15)
+	if err != nil {
+		t.Fatalf("GetTopErrorHosts(all, scoped): %v", err)
+	}
+	if len(scoped) != 1 || scoped[0] != want[0] {
+		t.Fatalf("scoped union query = %+v, want exactly %+v", scoped, want[0])
+	}
+}
+
+// TestIntegration_GetNewMsgIDsAcrossFeeds covers the EXCEPT rewrite on the
+// union path: both sides of the set difference read the same twice-emitted
+// union subquery.
+func TestIntegration_GetNewMsgIDsAcrossFeeds(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "netlog_events", "srvlog_events")
+	store := NewStore(pool)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	since := now.Add(-24 * time.Hour)
+	baselineSince := since.Add(-7 * 24 * time.Hour)
+	current := now.Add(-time.Hour)
+	baseline := now.Add(-72 * time.Hour)
+
+	insertNetlogEvent(t, pool, current, "host-a", "NET_NEW", 4, "new on netlog")
+	insertSrvlogEvent(t, pool, current, "host-b", "SRV_NEW", 4, "new on srvlog")
+	// Seen on netlog now but on srvlog in the baseline: the union makes this
+	// one signature, so it is not new.
+	insertNetlogEvent(t, pool, current, "host-a", "CROSS_FEED", 4, "seen elsewhere")
+	insertSrvlogEvent(t, pool, baseline, "host-b", "CROSS_FEED", 4, "seen elsewhere")
+
+	got, err := store.GetNewMsgIDs(ctx, model.AnalysisScope{Feed: "all"}, since, baselineSince)
+	if err != nil {
+		t.Fatalf("GetNewMsgIDs(all): %v", err)
+	}
+
+	want := []string{"NET_NEW", "SRV_NEW"} // ORDER BY event_key
+	if len(got) != len(want) {
+		t.Fatalf("GetNewMsgIDs(all) = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("GetNewMsgIDs(all) = %v, want %v", got, want)
 		}
 	}
 }
