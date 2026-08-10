@@ -46,5 +46,9 @@ func NewConfigHandler(analysisEnabled, oidcEnabled bool) *ConfigHandler {
 // unauthenticated — flag state is not secret and the frontend must fetch it
 // before any auth UI can render.
 func (h *ConfigHandler) Features(w http.ResponseWriter, _ *http.Request) {
+	// The frontend builds its router from this response once per page load, so a
+	// stale cached copy would hide (or advertise) a feature for the life of the
+	// page. Set before writeJSON, which writes the body and locks the headers.
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, h.features)
 }

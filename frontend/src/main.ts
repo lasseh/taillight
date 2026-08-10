@@ -8,7 +8,9 @@ import './lib/prism-junos.css'
 
 async function bootstrap() {
   // Features are loaded before the router is built so feature-gated routes see
-  // real values. Defaults (all enabled) are used if the fetch fails.
+  // real values. If the fetch fails after retries the defaults in lib/features
+  // stand (feeds on, analysis and oidc off) and featuresLoaded() reports false,
+  // which is how the gated views tell "disabled" from "never found out".
   await loadFeatures()
 
   const app = createApp(App)

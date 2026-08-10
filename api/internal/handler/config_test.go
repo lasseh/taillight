@@ -45,6 +45,11 @@ func TestConfigHandler_Features(t *testing.T) {
 			if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 				t.Errorf("Content-Type = %q, want %q", ct, "application/json")
 			}
+			// The frontend gates routes on this response for the life of a page
+			// load, so a cached copy must never be reused.
+			if cc := w.Header().Get("Cache-Control"); cc != "no-store" {
+				t.Errorf("Cache-Control = %q, want %q", cc, "no-store")
+			}
 
 			var got FeaturesResponse
 			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
