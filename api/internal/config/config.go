@@ -133,7 +133,7 @@ type SMTPConfig struct {
 	Password string // SMTP password.
 	From     string // Sender address (default "taillight@localhost").
 	TLS      bool   // Use STARTTLS (default true).
-	AuthType string // Auth mechanism: "plain", "crammd5", or "" (no auth).
+	AuthType string // Auth mechanism: "plain", "crammd5", or "" (no auth). Ignored when Username is empty.
 }
 
 // NotificationConfig configures the pluggable notification engine.

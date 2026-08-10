@@ -258,7 +258,7 @@ smtp:
   password: "secret"
   from: "taillight@example.com"
   tls: true
-  auth_type: "plain"              # plain | crammd5 | ""
+  auth_type: "plain"              # plain | crammd5 | "" — ignored when username is unset
 ```
 
 Rule-level fields override the `default_*` values. Environment variables follow viper conventions (`NOTIFICATION_DEFAULT_SILENCE=10m`). The email backend is only registered when `smtp.host` is set — leave it empty to disable email channels entirely.
@@ -396,6 +396,7 @@ The **Notifications → Log** UI shows the same data per-send, with the rendered
 | SMTP connection refused | `smtp.host` / `smtp.port` unreachable from the Taillight server. |
 | SMTP TLS errors | Server doesn't support STARTTLS — set `smtp.tls: false`. Self-signed certs are rejected; use a real CA. |
 | SMTP auth failures | Try switching `smtp.auth_type` to `plain`, `crammd5`, or `""` per your provider's requirements. |
+| `SMTP auth: 504 Unrecognized authentication type` | The relay accepts mail anonymously (IP-allowlisted) and advertises no `AUTH` — check its `EHLO` reply for a `250-AUTH` line. Leave `smtp.username` unset and no AUTH is attempted. |
 
 ### Slow dispatch / backed-up queue
 

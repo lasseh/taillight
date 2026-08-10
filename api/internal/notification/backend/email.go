@@ -172,7 +172,18 @@ func (e *Email) sendSMTP(ctx context.Context, to []string, msg []byte) error {
 }
 
 // smtpAuth returns the appropriate smtp.Auth based on the configured auth type.
+//
+// No username means the relay authorizes by source IP (the common internal-relay
+// setup), so no AUTH is attempted whatever auth_type says. This guard matters
+// because net/smtp sends the AUTH command without checking whether the server
+// advertised the capability: against an anonymous relay it answers 5xx and the
+// send dies before MAIL FROM. Since auth_type defaults to "plain", a config that
+// sets only host/port/from would otherwise never deliver.
 func (e *Email) smtpAuth() (smtp.Auth, error) {
+	if e.cfg.Username == "" {
+		return nil, nil
+	}
+
 	switch strings.ToLower(e.cfg.AuthType) {
 	case "plain":
 		return smtp.PlainAuth("", e.cfg.Username, e.cfg.Password, e.cfg.Host), nil

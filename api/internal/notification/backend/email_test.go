@@ -338,14 +338,20 @@ func TestSmtpAuth(t *testing.T) {
 	tests := []struct {
 		name     string
 		authType string
+		username string
 		wantNil  bool
 		wantErr  bool
 	}{
-		{name: "plain", authType: "plain", wantNil: false},
-		{name: "crammd5", authType: "crammd5", wantNil: false},
-		{name: "empty", authType: "", wantNil: true},
-		{name: "none", authType: "none", wantNil: true},
-		{name: "unsupported", authType: "oauth2", wantErr: true},
+		{name: "plain", authType: "plain", username: "user", wantNil: false},
+		{name: "crammd5", authType: "crammd5", username: "user", wantNil: false},
+		{name: "empty", authType: "", username: "user", wantNil: true},
+		{name: "none", authType: "none", username: "user", wantNil: true},
+		{name: "unsupported", authType: "oauth2", username: "user", wantErr: true},
+		// An anonymous relay (no username) must never see an AUTH command, even
+		// though auth_type defaults to "plain" — net/smtp would send it blindly
+		// and the relay would reject the send with 5xx before MAIL FROM.
+		{name: "plain default without username", authType: "plain", username: "", wantNil: true},
+		{name: "crammd5 without username", authType: "crammd5", username: "", wantNil: true},
 	}
 
 	for _, tt := range tests {
@@ -353,7 +359,7 @@ func TestSmtpAuth(t *testing.T) {
 			e := &Email{cfg: EmailGlobalConfig{
 				AuthType: tt.authType,
 				Host:     "smtp.example.com",
-				Username: "user",
+				Username: tt.username,
 				Password: "pass",
 			}}
 			auth, err := e.smtpAuth()

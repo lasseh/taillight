@@ -392,7 +392,7 @@ The email backend delivers only when `smtp.host` is set; channels can be created
 | `smtp.password` | `""` | SMTP password |
 | `smtp.from` | `"taillight@localhost"` | Sender address |
 | `smtp.tls` | `true` | Use STARTTLS |
-| `smtp.auth_type` | `"plain"` | Auth method: `"plain"`, `"crammd5"`, or `""` (no auth) |
+| `smtp.auth_type` | `"plain"` | Auth method: `"plain"`, `"crammd5"`, or `""` (no auth). Ignored when `smtp.username` is empty — an anonymous relay never sees an `AUTH` command |
 
 #### LDAP authentication
 

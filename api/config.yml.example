@@ -130,7 +130,7 @@ smtp:
   # password: ""              # SMTP password.
   # from: "taillight@localhost"  # Sender address.
   # tls: true                 # Use STARTTLS (default true).
-  # auth_type: "plain"        # Auth: "plain", "crammd5", or "" (no auth).
+  # auth_type: "plain"        # Auth: "plain", "crammd5", or "" (no auth). Ignored if username is unset.
 
 # Notification system — alert operators when log events match configurable rules.
 # Channels (Slack, webhooks) and rules are managed via the API or the ALERTS UI tab.
