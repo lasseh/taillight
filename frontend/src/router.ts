@@ -1,8 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { features as getFeatures } from '@/lib/features'
-
-const features = getFeatures()
+import { features } from '@/lib/features'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -81,29 +79,31 @@ const router = createRouter({
       name: 'notifications',
       component: () => import('@/views/NotificationsView.vue'),
     },
-    // Analysis routes (feature-gated)
-    ...(features.analysis
-      ? [
-          {
-            path: '/analysis',
-            name: 'analysis',
-            component: () => import('@/views/AnalysisView.vue'),
-          },
-          {
-            path: '/analysis/reports/:slug',
-            name: 'analysis-report',
-            component: () => import('@/views/AnalysisReportView.vue'),
-            props: true,
-          },
-        ]
-      : [
-          {
-            path: '/analysis/:pathMatch(.*)*',
-            name: 'analysis-disabled',
-            component: () => import('@/views/FeatureDisabledView.vue'),
-            props: { feature: 'analysis' },
-          },
-        ]),
+    // Analysis routes. Feature-gated, but the route *table* must not be: this
+    // module is evaluated as part of the initial static import graph (stores/auth
+    // imports the router, so the bundler hoists both into one statically-imported
+    // chunk) — that is before main.ts awaits loadFeatures(). Branching the table
+    // here baked in the fallback flags, leaving no route named 'analysis' even
+    // when the feature was on, so nav to it threw MATCHER_NOT_FOUND. Reading the
+    // flag inside these callbacks defers it to navigation time instead.
+    {
+      path: '/analysis',
+      name: 'analysis',
+      component: () =>
+        features().analysis
+          ? import('@/views/AnalysisView.vue')
+          : import('@/views/FeatureDisabledView.vue'),
+      props: () => (features().analysis ? {} : { feature: 'analysis' }),
+    },
+    {
+      path: '/analysis/reports/:slug',
+      name: 'analysis-report',
+      component: () =>
+        features().analysis
+          ? import('@/views/AnalysisReportView.vue')
+          : import('@/views/FeatureDisabledView.vue'),
+      props: (to) => (features().analysis ? { slug: to.params.slug } : { feature: 'analysis' }),
+    },
     {
       path: '/settings',
       name: 'settings',
