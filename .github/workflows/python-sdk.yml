@@ -8,6 +8,9 @@ on:
     branches: [main]
     paths: ["sdk/python/**"]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test
