@@ -68,6 +68,13 @@ func GenerateSessionToken() (raw, hash string, err error) {
 }
 
 // HashToken returns the SHA-256 hex digest of a raw token string.
+//
+// SHA-256 (not bcrypt) is deliberate: the inputs are session tokens and API
+// keys generated here with 256 bits of entropy, so there is no limited input
+// space to brute-force, and the digest must stay cheap and deterministic to
+// serve as an indexed lookup key on every authenticated request.
+// Passwords, which do have a limited input space, go through bcrypt in
+// HashPassword instead.
 func HashToken(raw string) string {
 	h := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(h[:])
