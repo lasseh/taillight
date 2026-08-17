@@ -34,6 +34,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26"
+          # Release binaries must not ship a stdlib that a patch release has
+          # already fixed; the runner image's preinstalled Go lags those.
+          check-latest: true
           cache-dependency-path: api/go.sum
 
       - name: Build
