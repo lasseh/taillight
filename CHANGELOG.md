@@ -180,6 +180,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Fixed
 
+- **Analysis reports were near-unreadable in email**: findings are now separated into one block each (the models emit them on bare consecutive lines, which every renderer collapsed into a single paragraph), inline code dropped its bordered-chip styling (a hostname or signature in nearly every clause turned the brief into a mosaic of boxes), `[CRIT]`/`[WARN]` and the TL;DR status word are tinted, and the email ships a real dark palette plus a `color-scheme` declaration instead of being force-inverted by dark-mode clients. Normalizing the markdown in the analyzer rather than in a renderer means the email, the printed PDF, and the web report view all pick up the fix
 - Cross-origin PUT requests were blocked by CORS (`AllowedMethods` omitted PUT), breaking the four admin update endpoints under split-origin dev — salvaged from the stranded June hardening branch
 - SMTP notification sends are bounded by the send deadline — a stalled server fails fast instead of hanging the conversation
 - LISTEN/NOTIFY connection close race on shutdown removed — the listen goroutine is the connection's single owner

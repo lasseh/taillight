@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"fmt"
 	"html"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,8 +25,7 @@ type Variant int
 
 const (
 	// VariantEmail renders the email body: gray page, dark masthead bar, white
-	// card. Output is kept byte-for-byte stable so the email backend test
-	// continues to guard it.
+	// card, plus a dark palette for clients that honour prefers-color-scheme.
 	VariantEmail Variant = iota
 	// VariantPrint renders a paper-friendly document for browser print-to-PDF:
 	// white page, ink-light masthead (browsers drop backgrounds when printing,
@@ -43,19 +43,28 @@ func RenderHTML(r *model.AnalysisReport, v Variant) string {
 }
 
 // bodyCSS is the inline stylesheet for the rendered report body. Shared by both
-// variants so mail and print share heading colors and code-chip treatment.
+// variants so mail and print share heading colors and inline-code treatment.
 // Kept email-safe (no CSS variables, no flexbox, no oklch) so Gmail / Apple
 // Mail render it cleanly; Outlook desktop degrades gracefully.
+//
+// Inline code carries no fill and no border on purpose. These reports name a
+// hostname or a signature in nearly every clause, so a bordered chip per mention
+// turns a paragraph into a mosaic of boxes — and a mail client that force-
+// inverts the (light) email turns each of those boxes into a high-contrast
+// rectangle. Monospace alone is enough to mark a token as literal, and a
+// fill-less span has nothing for an inversion to make ugly. word-break keeps the
+// long truncated Junos message templates from blowing out the line.
 const bodyCSS = `
 .taillight-report { color: #111827; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.55; }
 .taillight-report h1 { font-size: 20px; font-weight: 700; color: #111827; margin: 16px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #d97706; }
 .taillight-report h2 { font-size: 16px; font-weight: 600; color: #111827; margin: 24px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #d1d5db; }
 .taillight-report h3 { font-size: 14px; font-weight: 600; color: #1f2937; margin: 18px 0 6px; }
-.taillight-report p, .taillight-report li { font-size: 13px; color: #111827; margin: 6px 0; }
+.taillight-report p { font-size: 13px; color: #111827; margin: 10px 0; }
+.taillight-report li { font-size: 13px; color: #111827; margin: 6px 0; }
 .taillight-report ul, .taillight-report ol { padding-left: 22px; }
 .taillight-report em { color: #6b7280; font-style: italic; }
 .taillight-report strong { color: #111827; font-weight: 600; }
-.taillight-report code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; padding: 1px 5px; border: 1px solid #d1d5db; border-radius: 3px; background: #f9fafb; color: #111827; }
+.taillight-report code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #374151; word-break: break-word; }
 .taillight-report pre { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; padding: 10px 12px; overflow-x: auto; font-size: 12px; }
 .taillight-report pre code { border: none; background: none; padding: 0; }
 .taillight-report blockquote { border-left: 3px solid #6b7280; padding-left: 12px; color: #4b5563; margin: 10px 0; }
@@ -87,6 +96,46 @@ const printCSS = `
 }
 `
 
+// emailDarkCSS is the dark palette for the email variant, and is deliberately
+// not part of bodyCSS: the print variant must stay ink-on-paper.
+//
+// Without it a dark-mode client force-inverts the light design — which is how a
+// #1f2937 masthead ends up rendering lighter than the card beneath it, and how
+// every inline-code span becomes a high-contrast box. Declaring color-scheme
+// support in the head plus shipping real dark styles is what stops that
+// transform; clients that honour neither (Outlook, parts of Gmail) fall back to
+// the light design, which is why the light design also has to survive inversion
+// on its own.
+//
+// The wrapper elements carry inline backgrounds, so every override here needs
+// !important to win. The class hooks exist purely for this block.
+const emailDarkCSS = `
+@media (prefers-color-scheme: dark) {
+  .tl-page { background: #0f1216 !important; }
+  .tl-card { background: #1a1e24 !important; box-shadow: none !important; }
+  .tl-masthead { background: #272e37 !important; }
+  .tl-footer { background: #151920 !important; color: #8b949e !important; }
+  .tl-meta-label { color: #8b949e !important; }
+  .tl-meta-value, .tl-openin { color: #e6edf3 !important; }
+  .tl-openin { border-top-color: #30363d !important; }
+  .taillight-report, .taillight-report p, .taillight-report li, .taillight-report strong { color: #e6edf3 !important; }
+  .taillight-report h1, .taillight-report h2, .taillight-report h3 { color: #e6edf3 !important; }
+  .taillight-report h2 { border-bottom-color: #30363d !important; }
+  .taillight-report em { color: #8b949e !important; }
+  .taillight-report code { color: #a5b6c7 !important; }
+  .taillight-report pre { background: #12161c !important; border-color: #30363d !important; }
+  .taillight-report blockquote { border-left-color: #6b7280 !important; color: #a5b6c7 !important; }
+  .taillight-report hr { border-top-color: #30363d !important; }
+  .taillight-report table { border-color: #30363d !important; }
+  .taillight-report th { background: #21262d !important; color: #e6edf3 !important; border-bottom-color: #30363d !important; }
+  .taillight-report td { border-bottom-color: #30363d !important; }
+  .taillight-report a { color: #6ea8fe !important; }
+  .tl-sev-crit { color: #f85149 !important; }
+  .tl-sev-warn { color: #d29922 !important; }
+  .tl-sev-ok { color: #3fb950 !important; }
+}
+`
+
 // scopeLabel renders the host scope for the metadata strip.
 func scopeLabel(r *model.AnalysisReport) string {
 	if len(r.Hosts) > 0 {
@@ -115,7 +164,56 @@ func renderMarkdown(md string) string {
 		// Fallback to escaped <pre> so the document still renders intact.
 		return "<pre>" + html.EscapeString(md) + "</pre>"
 	}
-	return buf.String()
+	return colorizeSeverity(buf.String())
+}
+
+// codeSpan matches a rendered inline-code or fenced-code element.
+var codeSpan = regexp.MustCompile(`(?s)<code[^>]*>.*?</code>`)
+
+// severityToken matches the bracketed severity tags the Needs Action items lead
+// with, and the status word the TL;DR commits to.
+var severityToken = regexp.MustCompile(`\[(?:CRIT|WARN)\]|\b(?:ACT NOW|NOMINAL|WATCH)\b`)
+
+// colorizeSeverity tints the severity tags and the TL;DR status word so a
+// reader scanning the brief lands on the [CRIT] items first.
+//
+// Colored text rather than a filled badge, for two reasons: a fill is what a
+// dark-mode mail client inverts into a shouting rectangle, and background colors
+// are dropped when a browser prints, so a badge would vanish from the PDF.
+//
+// Runs on goldmark's output rather than on the markdown, so it only ever sees
+// already-escaped text and cannot promote model output into markup. Matches
+// inside a code element are skipped — a signature or a quoted sample message may
+// legitimately contain one of these tokens, and tinting it mid-chip looks wrong.
+func colorizeSeverity(body string) string {
+	var b strings.Builder
+	b.Grow(len(body))
+	last := 0
+	for _, m := range codeSpan.FindAllStringIndex(body, -1) {
+		b.WriteString(severityToken.ReplaceAllStringFunc(body[last:m[0]], severitySpan))
+		b.WriteString(body[m[0]:m[1]])
+		last = m[1]
+	}
+	b.WriteString(severityToken.ReplaceAllStringFunc(body[last:], severitySpan))
+	return b.String()
+}
+
+// severitySpan wraps a matched severity token in its color. The class carries
+// no styling of its own — it exists so emailDarkCSS can re-tint these to their
+// dark-background equivalents, which the inline style alone would win against.
+func severitySpan(token string) string {
+	var class, color string
+	switch token {
+	case "[CRIT]", "ACT NOW":
+		class, color = "tl-sev-crit", "#b91c1c"
+	case "[WARN]", "WATCH":
+		class, color = "tl-sev-warn", "#b45309"
+	case "NOMINAL":
+		class, color = "tl-sev-ok", "#15803d"
+	default:
+		return token
+	}
+	return `<span class="` + class + `" style="color: ` + color + `; font-weight: 600;">` + token + `</span>`
 }
 
 // generatedAt prefers completed_at over created_at so a finished report stamps
@@ -136,37 +234,42 @@ func generatedAtHuman(r *model.AnalysisReport) string {
 	return ts.UTC().Format("Jan 2, 2006 15:04 UTC")
 }
 
-// renderEmail renders the email body. Kept byte-for-byte identical to the
-// previous backend.buildEmailAnalysisReport output (dark masthead, white card,
-// gray page) so the email backend test continues to guard it.
+// renderEmail renders the email body: dark masthead, white card, gray page,
+// with emailDarkCSS layered on for dark-mode clients. Guarded by TestRenderEmail
+// here and TestBuildEmailAnalysisReport in the notification backend — both are
+// substring checks, not byte-equality, so structural edits are free as long as
+// the asserted markers survive.
 func renderEmail(r *model.AnalysisReport) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <style>%s</style>
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <style>%s%s</style>
 </head>
-<body style="margin: 0; padding: 20px; background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-  <div style="max-width: 760px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-    <div style="background: #1f2937; padding: 14px 20px; color: #fff;">
+<body class="tl-page" style="margin: 0; padding: 20px; background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <div class="tl-card" style="max-width: 760px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+    <div class="tl-masthead" style="background: #1f2937; padding: 14px 20px; color: #fff;">
       <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7;">Taillight — Analysis Report</div>
       <div style="font-size: 12px; opacity: 0.85; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">%s</div>
     </div>
     <div style="padding: 18px 22px;">
       <table style="font-size: 12px; margin-bottom: 14px; border: none;">
-        <tr><td style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Source</td><td style="font-weight: 600; border: none;">%s</td><td style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Mode</td><td style="font-weight: 600; border: none;">%s</td></tr>
-        <tr><td style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Scope</td><td style="font-weight: 600; border: none;">%s</td><td style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Model</td><td style="font-weight: 600; border: none;">%s</td></tr>
+        <tr><td class="tl-meta-label" style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Source</td><td class="tl-meta-value" style="font-weight: 600; border: none;">%s</td><td class="tl-meta-label" style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Mode</td><td class="tl-meta-value" style="font-weight: 600; border: none;">%s</td></tr>
+        <tr><td class="tl-meta-label" style="padding: 2px 14px 2px 0; color: #6b7280; border: none;">Scope</td><td class="tl-meta-value" style="font-weight: 600; border: none;">%s</td><td class="tl-meta-label" style="padding: 2px 14px 2px 22px; color: #6b7280; border: none;">Model</td><td class="tl-meta-value" style="font-weight: 600; border: none;">%s</td></tr>
       </table>
       <div class="taillight-report">%s</div>
-      <div style="margin-top: 18px; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 10px;">Open in Taillight: <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">/analysis/reports/%s</code></div>
+      <div class="tl-openin" style="margin-top: 18px; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 10px;">Open in Taillight: <code style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">/analysis/reports/%s</code></div>
     </div>
-    <div style="padding: 10px 22px; background: #f8f9fa; color: #888; font-size: 11px;">
+    <div class="tl-footer" style="padding: 10px 22px; background: #f8f9fa; color: #888; font-size: 11px;">
       Generated %s
     </div>
   </div>
 </body>
 </html>`,
 		bodyCSS,
+		emailDarkCSS,
 		html.EscapeString(r.Slug),
 		html.EscapeString(r.Feed),
 		html.EscapeString(r.PromptMode),

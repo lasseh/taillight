@@ -80,9 +80,9 @@ func TestRenderPrint(t *testing.T) {
 }
 
 // TestRenderEmail guards the email variant: dark masthead, metadata strip, and
-// the full report body. Byte-for-byte email stability is additionally covered
-// by the email backend's TestBuildEmailAnalysisReport, which calls through to
-// this renderer.
+// the full report body. The email backend's TestBuildEmailAnalysisReport calls
+// through to this renderer and asserts a superset of the markdown checks below,
+// so a change to the rendered body needs both files updated in lockstep.
 func TestRenderEmail(t *testing.T) {
 	body := RenderHTML(sampleReport(), VariantEmail)
 
@@ -103,6 +103,85 @@ func TestRenderEmail(t *testing.T) {
 	// The email variant must not pull in print-only page geometry.
 	if strings.Contains(body, "@page") {
 		t.Error("email variant should not carry @page print geometry")
+	}
+}
+
+// TestRenderSeverityTinting covers the severity/status coloring applied to
+// goldmark's output, including the carve-out for tokens quoted from device logs.
+func TestRenderSeverityTinting(t *testing.T) {
+	r := sampleReport()
+	r.Report = "## TL;DR\n\n**Status: ACT NOW** — critical routing failures.\n\n" +
+		"## Needs Action\n\n" +
+		"**[CRIT]** `BRCM_SALM` on `00a-leaf-d6e24-13` — 694 events.\n\n" +
+		"**[WARN]** `RPD_OSPF_NBRDOWN` on `00a-core-3` — 226 events.\n\n" +
+		"A sample reading `[CRIT] raised by fpc0` is evidence, not our tag.\n"
+
+	body := RenderHTML(r, VariantEmail)
+
+	checks := []string{
+		`<span class="tl-sev-crit" style="color: #b91c1c; font-weight: 600;">[CRIT]</span>`,
+		`<span class="tl-sev-warn" style="color: #b45309; font-weight: 600;">[WARN]</span>`,
+		`<span class="tl-sev-crit" style="color: #b91c1c; font-weight: 600;">ACT NOW</span>`,
+	}
+	for _, c := range checks {
+		if !strings.Contains(body, c) {
+			t.Errorf("severity tinting missing %q", c)
+		}
+	}
+
+	// A severity token inside a code span came from a device, not from our
+	// Needs Action shape — tinting it mid-chip would be wrong.
+	if !strings.Contains(body, `<code>[CRIT] raised by fpc0</code>`) {
+		t.Error("severity token inside a code span was rewritten")
+	}
+}
+
+// TestRenderSeparatesFindings guards the reason the analyzer normalizes report
+// markdown: each finding must land in its own block element, not share one
+// paragraph with the next.
+func TestRenderSeparatesFindings(t *testing.T) {
+	r := sampleReport()
+	r.Report = "## Needs Action\n\nfirst finding\n\nsecond finding\n"
+
+	body := RenderHTML(r, VariantEmail)
+
+	for _, c := range []string{"<p>first finding</p>", "<p>second finding</p>"} {
+		if !strings.Contains(body, c) {
+			t.Errorf("findings not separated into blocks, missing %q", c)
+		}
+	}
+}
+
+// TestRenderInlineCodeIsUnboxed pins the fill-less inline-code treatment. A
+// bordered chip per hostname is what made the emailed brief unreadable, and it
+// is also what a dark-mode client inverts into a high-contrast rectangle.
+func TestRenderInlineCodeIsUnboxed(t *testing.T) {
+	for name, v := range map[string]Variant{"email": VariantEmail, "print": VariantPrint} {
+		body := RenderHTML(sampleReport(), v)
+		if !strings.Contains(body, ".taillight-report code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #374151; word-break: break-word; }") {
+			t.Errorf("%s variant: inline code rule is not the unboxed one", name)
+		}
+	}
+}
+
+// TestRenderEmailDarkPalette checks the dark block ships with the email and
+// never leaks into print, where a dark background would either be dropped by
+// the browser or waste toner.
+func TestRenderEmailDarkPalette(t *testing.T) {
+	email := RenderHTML(sampleReport(), VariantEmail)
+	for _, c := range []string{
+		`<meta name="color-scheme" content="light dark">`,
+		"@media (prefers-color-scheme: dark)",
+		".tl-card { background: #1a1e24 !important; box-shadow: none !important; }",
+		`class="tl-page"`,
+	} {
+		if !strings.Contains(email, c) {
+			t.Errorf("email variant missing %q", c)
+		}
+	}
+
+	if paper := RenderHTML(sampleReport(), VariantPrint); strings.Contains(paper, "prefers-color-scheme") {
+		t.Error("print variant should not carry the email dark palette")
 	}
 }
 

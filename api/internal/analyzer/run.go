@@ -207,11 +207,20 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		"completion_bytes", len(resp.Message.Content),
 	)
 
+	// Normalize before persisting so every finding is its own markdown block —
+	// the models emit one finding per line with no blank line between them,
+	// which every renderer collapses into a single wall of text. Doing it here
+	// rather than in a renderer means email, printed PDF, and the web report
+	// view all read the same from one implementation.
+	//
 	// Prepend the deterministic briefing header so the markdown body starts
 	// with the title block instead of `## TL;DR`. The header lives in code
 	// rather than the prompt — dates don't need a model, and a fixed format
 	// keeps the H1 stable across reports.
-	report := prependReportHeader(resp.Message.Content, mode, data.PeriodStart, data.PeriodEnd)
+	report := prependReportHeader(
+		normalizeReportMarkdown(resp.Message.Content),
+		mode, data.PeriodStart, data.PeriodEnd,
+	)
 
 	return Result{
 		PeriodStart:      data.PeriodStart,

@@ -411,13 +411,14 @@ onMounted(refresh)
   color: var(--color-t-fg-dark);
   font-style: italic;
 }
+/* No fill and no border: these reports name a hostname or a signature in
+ * nearly every clause, so a bordered chip per mention turns a paragraph into a
+ * mosaic of boxes. Monospace plus the teal accent is enough to mark a token as
+ * literal. Mirrors the same decision in api/internal/report/render.go. */
 .prose :deep(code) {
   color: var(--color-t-teal);
-  background: var(--color-t-bg-highlight);
-  padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
   font-size: 0.75rem;
-  border: 1px solid var(--color-t-border);
+  word-break: break-word;
 }
 .prose :deep(pre) {
   background: var(--color-t-bg-dark);
