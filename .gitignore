@@ -65,3 +65,8 @@ sdk/python/.venv/
 
 # Docker
 docker-compose.override.yml
+
+# GitLab CI caches (must live inside the project dir to be cacheable)
+.go/
+.cache/
+frontend/.npm/
