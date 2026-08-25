@@ -121,7 +121,7 @@ Every filter that drops messages has exception keywords checked via `re_match(to
 - **Add a new daemon filter**: Add a block to `filters/10-by-programname.conf`
 - **Filter specific hosts**: Uncomment and edit examples in `filters/50-by-hostname.conf`
 - **Enable PostgreSQL output**: Uncomment `module(load="ompgsql")` in `conf.d/00-modules.conf`, the `PgSQLSrvlogInsert` template in `conf.d/01-templates.conf`, the `output_pgsql_srvlog` ruleset in `conf.d/02-outputs.conf`, and `call output_pgsql_srvlog` in `conf.d/20-ruleset.conf`. Requires `rsyslog-pgsql` package and the DDL below.
-- **Enable remote forwarding**: Uncomment `call output_remote` in `conf.d/20-ruleset.conf`
+- **Enable remote forwarding**: Uncomment `call output_remote` in `conf.d/20-ruleset.conf` and set `target`/`port` in `conf.d/02-outputs.conf`. Keep the `RSYSLOG_SyslogProtocol23Format` template — the file templates carry no `<PRI>`, so a receiver mis-parses severity, facility and hostname.
 - **Enable JSON output**: Add `call output_json` to the output phase in `conf.d/20-ruleset.conf`
 - **Enable Prometheus stats**: Uncomment `impstats` and `rsyslog_stats` in `conf.d/00-modules.conf` (requires [rsyslog_exporter](https://github.com/digitalocean/rsyslog_exporter))
 - **Log dropped messages**: Uncomment `output_dropped` in `conf.d/02-outputs.conf`, then replace `stop` with `call output_dropped` in any filter to log what it discards to `/var/log/network/dropped.log`. See the example in `filters/40-by-severity.conf`. High-volume — use temporarily for tuning only.
