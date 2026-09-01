@@ -176,7 +176,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 ### Removed
 
 - **Feed feature flags** (`features.srvlog`, `features.netlog`, `features.applog`) — all three log feeds are now always enabled. The flags had three different meanings (only netlog was fully gated) and no known deployment disabled a feed. `GET /api/v1/config/features` keeps its response shape: the feed keys now always report `true`, and `analysis` remains the one real flag. Deployed configs with a `features:` block are unaffected — unknown keys are ignored
-- Dormant `attach_pdf` email plumbing (channel config flag, `PDFRenderer` interface, multipart/mixed attachment path) — removed before ever being wired to a renderer; an `attach_pdf` key in existing channel configs is now silently ignored. Design preserved in `.scratch/email-analysis-reports/PRD.md` and git history
+- Dormant `attach_pdf` email plumbing (channel config flag, `PDFRenderer` interface, multipart/mixed attachment path) — removed before ever being wired to a renderer; an `attach_pdf` key in existing channel configs is now silently ignored. Design preserved in git history
 
 ### Fixed
 
