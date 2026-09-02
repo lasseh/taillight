@@ -16,7 +16,20 @@ import (
 // tests. Only ListAnalysisHosts and DeleteReport are exercised here; the read
 // methods are not invoked on the create code path so they return zero values.
 type stubAnalysisStore struct {
-	knownHosts map[string][]string // feed → host list
+	knownHosts    map[string][]string // feed → host list
+	knownServices []string            // applog services
+}
+
+func (s *stubAnalysisStore) ListServices(context.Context) ([]string, error) {
+	return s.knownServices, nil
+}
+
+func (s *stubAnalysisStore) ListAnalysisServiceEntries(context.Context) ([]model.AnalysisServiceEntry, error) {
+	out := make([]model.AnalysisServiceEntry, len(s.knownServices))
+	for i, svc := range s.knownServices {
+		out[i] = model.AnalysisServiceEntry{Service: svc}
+	}
+	return out, nil
 }
 
 func (s *stubAnalysisStore) ListReports(context.Context, int) ([]model.AnalysisReportSummary, error) {

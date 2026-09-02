@@ -37,7 +37,7 @@ INTEGRATION_PORT  ?= 55432
 
 test-integration: ## Run DB integration tests in an ephemeral TimescaleDB (or against $$TEST_DATABASE_URL)
 ifdef TEST_DATABASE_URL
-	$(TEST_CMD) -race -run Integration ./internal/postgres/...
+	$(TEST_CMD) -race -run Integration ./internal/postgres/... ./cmd/taillight/
 else
 	@echo "starting ephemeral $(INTEGRATION_IMAGE) on port $(INTEGRATION_PORT)..."
 	@cid=$$(docker run -d --rm -e POSTGRES_USER=taillight -e POSTGRES_PASSWORD=taillight \
@@ -48,7 +48,7 @@ else
 		docker exec $$cid pg_isready -U taillight -d taillight_test >/dev/null 2>&1 && break; sleep 1; \
 	done; \
 	TEST_DATABASE_URL="postgres://taillight:taillight@127.0.0.1:$(INTEGRATION_PORT)/taillight_test?sslmode=disable" \
-		$(TEST_CMD) -race -run Integration ./internal/postgres/...
+		$(TEST_CMD) -race -run Integration ./internal/postgres/... ./cmd/taillight/
 endif
 
 lint: ## Run linter (includes vet, fmt, imports via golangci-lint)

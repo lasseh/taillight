@@ -102,8 +102,9 @@ The SDK maps Python logging levels to Taillight's five canonical levels:
 
 Any unmapped numeric level defaults to `INFO`.
 
-The server also accepts these aliases (case-insensitive): `TRACE` → `DEBUG`,
-`WARNING` → `WARN`, `CRITICAL` → `FATAL`, `PANIC` → `FATAL`.
+The server also accepts these aliases (case-insensitive): `TRACE`, `D` → `DEBUG`;
+`NOTICE`, `I` → `INFO`; `WARNING`, `W` → `WARN`; `ERR`, `E` → `ERROR`;
+`CRITICAL`, `CRIT`, `EMERG`, `ALERT`, `SEVERE`, `PANIC` → `FATAL`.
 
 ## Structured logging
 

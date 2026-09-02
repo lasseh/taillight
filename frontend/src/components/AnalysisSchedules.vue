@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { useFocusTrap } from '@/composables/useFocusTrap'
-import { feedBadgeClass, feedDisplayLabel } from '@/lib/analysis-format'
+import { feedBadgeClass } from '@/lib/analysis-format'
 import type {
   AnalysisFeed,
   AnalysisFrequency,
@@ -98,8 +98,15 @@ const dayOfWeekLabels = [
 const feedOptions: { value: AnalysisFeed; label: string }[] = [
   { value: 'netlog', label: 'Netlog' },
   { value: 'srvlog', label: 'Srvlog' },
-  { value: 'all', label: 'All syslog' },
+  { value: 'applog', label: 'Applog' },
 ]
+
+// Applog has a daily prompt only, so its schedules are daily only; the
+// server rejects anything else. Snap the cadence back when the feed flips.
+const dailyOnly = computed(() => formFeed.value === 'applog')
+watch(formFeed, (feed) => {
+  if (feed === 'applog') formFrequency.value = 'daily'
+})
 
 async function fetchData() {
   try {
@@ -328,7 +335,7 @@ onMounted(() => {
                 class="inline-block rounded px-1.5 py-0.5 text-xs"
                 :class="feedBadgeClass(sched.feed)"
               >
-                {{ feedDisplayLabel(sched.feed) }}
+                {{ sched.feed }}
               </span>
             </div>
             <div class="w-24 shrink-0">
@@ -482,31 +489,38 @@ onMounted(() => {
                     Daily
                   </button>
                   <button
-                    class="border px-3 py-1.5 text-sm transition-all"
+                    class="border px-3 py-1.5 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                     :class="
                       formFrequency === 'weekly'
                         ? 'border-t-blue text-t-blue'
                         : 'border-t-border text-t-fg-dark hover:text-t-fg'
                     "
+                    :disabled="dailyOnly"
+                    :title="dailyOnly ? 'applog schedules are daily only' : ''"
                     @click="formFrequency = 'weekly'"
                   >
                     Weekly
                   </button>
                   <button
-                    class="border px-3 py-1.5 text-sm transition-all"
+                    class="border px-3 py-1.5 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                     :class="
                       formFrequency === 'monthly'
                         ? 'border-t-purple text-t-purple'
                         : 'border-t-border text-t-fg-dark hover:text-t-fg'
                     "
+                    :disabled="dailyOnly"
+                    :title="dailyOnly ? 'applog schedules are daily only' : ''"
                     @click="formFrequency = 'monthly'"
                   >
                     Monthly
                   </button>
                 </div>
                 <p class="text-t-fg-gutter text-xs">
-                  daily cadence uses the daily prompt; weekly and monthly both use the weekly trend
-                  prompt.
+                  {{
+                    dailyOnly
+                      ? 'applog has a daily prompt only, so its schedules run daily.'
+                      : 'daily cadence uses the daily prompt; weekly and monthly both use the weekly trend prompt.'
+                  }}
                 </p>
 
                 <div class="grid grid-cols-2 gap-3">

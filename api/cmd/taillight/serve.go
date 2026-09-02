@@ -474,6 +474,7 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 		Temperature: cfg.Analysis.Temperature,
 		NumCtx:      cfg.Analysis.NumCtx,
 		PromptsDir:  cfg.Analysis.PromptsDir,
+		AppLog:      analyzer.AppLogCaps(cfg.Analysis.AppLog),
 	}, logger)
 
 	// Reconcile orphaned pending/running rows left by a previous crash before
@@ -807,6 +808,7 @@ func setupRouter(
 					r.Get("/analysis/reports/{slug}", analysis.reports.Get)
 					r.Get("/analysis/reports/{slug}/print", analysis.reports.Print)
 					r.Get("/analysis/hosts", analysis.reports.Hosts)
+					r.Get("/analysis/services", analysis.reports.Services)
 					r.Get("/analysis/schedules", analysis.schedules.List)
 					r.Get("/analysis/schedules/{id}", analysis.schedules.Get)
 				})

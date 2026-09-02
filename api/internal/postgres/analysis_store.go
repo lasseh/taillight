@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -13,14 +12,12 @@ import (
 )
 
 const (
-	// feedAll indicates analysis should query both srvlog and netlog tables.
-	feedAll    = "all"
 	feedNetlog = "netlog"
 	feedSrvlog = "srvlog"
 )
 
-// analysisTableName returns the table name for the given feed.
-// Valid feeds: "srvlog", "netlog". For "all", use analysisUnionSource instead.
+// analysisTableName returns the events table for the given feed.
+// Valid feeds: "srvlog", "netlog".
 func analysisTableName(feed string) string {
 	switch feed {
 	case feedNetlog:
@@ -32,31 +29,11 @@ func analysisTableName(feed string) string {
 	}
 }
 
-// analysisUnionSource returns a SQL subquery expression that unions
-// the given columns from both srvlog_events and netlog_events.
-// The result can be used as a FROM source: `FROM (... ) AS combined`.
-func analysisUnionSource(columns string) string {
-	return fmt.Sprintf(
-		"(SELECT %s FROM srvlog_events UNION ALL SELECT %s FROM netlog_events) AS combined",
-		columns, columns,
-	)
-}
-
-// analysisSource picks between a single table and the unioned subquery
-// depending on feed. cols is the projected column list — only used for the
-// union case but accepted uniformly so call sites stay symmetric.
-func analysisSource(feed, cols string) string {
-	if feed == feedAll {
-		return analysisUnionSource(cols)
-	}
-	return analysisTableName(feed)
-}
-
 // scopedSource returns the SQL FROM expression for the analyzer's source,
 // pre-filtered by hostname when the scope carries a host filter. When the
-// scope is unrestricted the base source (single table or union) is returned
-// as-is; when it carries hostnames, the source is wrapped in a subquery that
-// applies `WHERE hostname = ANY($hostsParam)`.
+// scope is unrestricted the feed's events table is returned as-is; when it
+// carries hostnames, the table is wrapped in a subquery that applies
+// `WHERE hostname = ANY($hostsParam)`.
 //
 // The caller is responsible for appending scope.Hosts to its query args at
 // position hostsParam — the helper only owns the SQL fragment, not the args
@@ -67,7 +44,7 @@ func analysisSource(feed, cols string) string {
 // the scope is non-empty. Existing call sites already project hostname for
 // the scoped tables; nothing new is required of the schema.
 func scopedSource(scope model.AnalysisScope, cols string, hostsParam int) string {
-	base := analysisSource(scope.Feed, cols)
+	base := analysisTableName(scope.Feed)
 	if scope.IsAllHosts() {
 		return base
 	}
@@ -253,9 +230,7 @@ const eventClusterLimit = 8
 // The baseline is filtered by the same host scope as the current window so
 // percentage comparisons stay like-vs-like under a narrow scope.
 func (s *Store) GetSeverityComparison(ctx context.Context, scope model.AnalysisScope, currentSince, baselineSince time.Time) (model.SeverityComparison, error) {
-	// Project hostname into the source so the optional host filter below
-	// has a column to reference; harmless when there's no filter.
-	table := analysisSource(scope.Feed, "received_at, hostname, severity")
+	table := analysisTableName(scope.Feed)
 
 	// Current period counts.
 	curBuilder := psq.
@@ -590,10 +565,9 @@ func (s *Store) GetMsgIDSamples(ctx context.Context, scope model.AnalysisScope, 
 }
 
 // GetTopPrograms returns the top srvlog programnames by total count with an
-// errors (severity ≤ 3) breakdown alongside. Only meaningful for srvlog (and
-// "all" if it contains srvlog rows); netlog rows have no programname so this
-// will return empty. The caller is expected to skip rendering when feed is
-// pure netlog.
+// errors (severity ≤ 3) breakdown alongside. Only meaningful for srvlog;
+// netlog rows have no programname so this returns empty. The caller is
+// expected to skip rendering when feed is netlog.
 func (s *Store) GetTopPrograms(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.ProgramCount, error) {
 	// netlog_events doesn't carry programname — skip the union and just
 	// return empty rather than emitting a no-op query.
@@ -769,15 +743,13 @@ func (s *Store) GetVolumeTimeline(ctx context.Context, scope model.AnalysisScope
 }
 
 // analysisAggregateSource returns the hourly continuous-aggregate source
-// for the given feed. For "all", srvlog and netlog summaries are unioned.
+// for the given feed.
 func analysisAggregateSource(feed string) string {
 	switch feed {
 	case feedNetlog:
 		return "netlog_summary_hourly"
 	case feedSrvlog:
 		return "srvlog_summary_hourly"
-	case feedAll:
-		return "(SELECT bucket, severity, cnt FROM srvlog_summary_hourly UNION ALL SELECT bucket, severity, cnt FROM netlog_summary_hourly) AS combined_hourly"
 	default:
 		return "srvlog_summary_hourly"
 	}
@@ -787,10 +759,9 @@ func analysisAggregateSource(feed string) string {
 // given feed, sorted alphabetically. Used by the analysis handler to validate
 // caller-supplied host scopes before enqueueing a report.
 //
-// "all" returns the deduped union of srvlog and netlog hostnames; "srvlog"
-// and "netlog" return their respective meta caches; anything else returns an
-// empty slice without error so callers don't need to special-case feed
-// validation that already happened upstream.
+// "srvlog" and "netlog" return their respective meta caches; anything else
+// returns an empty slice without error so callers don't need to special-case
+// feed validation that already happened upstream.
 //
 // Delegates to the existing ListSrvlogHosts / ListNetlogHosts helpers, which
 // know the meta-cache schema is (column_name, value) rather than a bare
@@ -802,31 +773,6 @@ func (s *Store) ListAnalysisHosts(ctx context.Context, feed string) ([]string, e
 		return s.ListSrvlogHosts(ctx)
 	case feedNetlog:
 		return s.ListNetlogHosts(ctx)
-	case feedAll:
-		srvlog, err := s.ListSrvlogHosts(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("list srvlog hosts: %w", err)
-		}
-		netlog, err := s.ListNetlogHosts(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("list netlog hosts: %w", err)
-		}
-		// Merge + dedup. Both inputs are individually sorted; a small map
-		// is simpler than a merge-sort here and the lists are tiny.
-		seen := make(map[string]struct{}, len(srvlog)+len(netlog))
-		out := make([]string, 0, len(srvlog)+len(netlog))
-		for _, h := range srvlog {
-			seen[h] = struct{}{}
-			out = append(out, h)
-		}
-		for _, h := range netlog {
-			if _, ok := seen[h]; ok {
-				continue
-			}
-			out = append(out, h)
-		}
-		sort.Strings(out)
-		return out, nil
 	default:
 		return nil, nil
 	}
@@ -837,9 +783,6 @@ func (s *Store) ListAnalysisHosts(ctx context.Context, feed string) ([]string, e
 // ever logged on the feed); last_seen comes from a LEFT JOIN against the
 // hourly continuous aggregate so a host appears even when it has no recent
 // activity (LastSeen is nil in that case).
-//
-// For feed=all the union de-dupes on hostname and takes the maximum
-// last_seen across both feeds.
 func (s *Store) ListAnalysisHostEntries(ctx context.Context, feed string) ([]model.AnalysisHostEntry, error) {
 	var query string
 	switch feed {
@@ -865,30 +808,6 @@ func (s *Store) ListAnalysisHostEntries(ctx context.Context, feed string) ([]mod
 			) ls ON ls.hostname = mc.value
 			WHERE mc.column_name = 'hostname'
 			ORDER BY mc.value`
-	case feedAll:
-		// One row per hostname appearing in either meta cache; last_seen is
-		// the max across feeds so a host that's quiet on one feed but
-		// active on the other still surfaces a useful timestamp.
-		query = `
-			WITH hostnames AS (
-				SELECT value AS hostname FROM srvlog_meta_cache WHERE column_name = 'hostname'
-				UNION
-				SELECT value AS hostname FROM netlog_meta_cache WHERE column_name = 'hostname'
-			), srvlog_ls AS (
-				SELECT hostname, MAX(bucket) AS last_seen
-				FROM srvlog_summary_hourly
-				GROUP BY hostname
-			), netlog_ls AS (
-				SELECT hostname, MAX(bucket) AS last_seen
-				FROM netlog_summary_hourly
-				GROUP BY hostname
-			)
-			SELECT h.hostname,
-			       GREATEST(s.last_seen, n.last_seen) AS last_seen
-			FROM hostnames h
-			LEFT JOIN srvlog_ls s ON s.hostname = h.hostname
-			LEFT JOIN netlog_ls n ON n.hostname = h.hostname
-			ORDER BY h.hostname`
 	default:
 		return nil, nil
 	}

@@ -22,6 +22,13 @@ var (
 	applogLoadgenAPIKey   string
 	applogLoadgenBatch    int
 	applogLoadgenInsecure bool
+
+	// Scenario mode writes a planted data set straight to the database
+	// instead of posting random events; see applog_scenario.go.
+	applogScenario         string
+	applogScenarioServices int
+	applogScenarioPerDay   int
+	applogScenarioSeed     int64
 )
 
 var applogLoadgenCmd = &cobra.Command{
@@ -38,6 +45,10 @@ func init() {
 	applogLoadgenCmd.Flags().StringVar(&applogLoadgenAPIKey, "api-key", "", "bearer token for API authentication")
 	applogLoadgenCmd.Flags().IntVar(&applogLoadgenBatch, "batch", 50, "events per API request (max 1000)")
 	applogLoadgenCmd.Flags().BoolVarP(&applogLoadgenInsecure, "insecure", "k", false, "skip TLS certificate verification")
+	applogLoadgenCmd.Flags().StringVar(&applogScenario, "scenario", "", "write a planted data set straight to the database instead of posting random events (\"analysis\": ~300 services over a 7-day baseline plus a 24h window with known signals; needs database_url from config)")
+	applogLoadgenCmd.Flags().IntVar(&applogScenarioServices, "services", 300, "scenario: number of services (max 300)")
+	applogLoadgenCmd.Flags().IntVar(&applogScenarioPerDay, "per-day", 10000, "scenario: events per day across all services")
+	applogLoadgenCmd.Flags().Int64Var(&applogScenarioSeed, "seed", 1, "scenario: random seed for a repeatable data set")
 }
 
 // serviceWeightTotal is the sum of all service weights, computed at init.
@@ -148,6 +159,9 @@ func sendBatch(ctx context.Context, client *http.Client, entries []ingestEntry) 
 }
 
 func runApplogLoadgen(cmd *cobra.Command, _ []string) error {
+	if applogScenario != "" {
+		return runApplogScenario(cmd.Context())
+	}
 	if applogLoadgenBatch < 1 || applogLoadgenBatch > 1000 {
 		return fmt.Errorf("batch size must be between 1 and 1000")
 	}

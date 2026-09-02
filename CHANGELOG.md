@@ -24,6 +24,8 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 - OIDC single sign-on (`oidc.` config block, default off): Authorization Code + PKCE against any OpenID Connect provider, with endpoint discovery, ID-token validation, allowed-domain/user/group gating, and admin-group mapping. Users provision on first login keyed on the `(issuer, subject)` claims — never linked to existing local/LDAP accounts — carry no local password, and get an ordinary `tl_session` session; API-key auth is untouched. The login page shows a "Sign in with SSO" button when the `oidc` feature flag is on
 
 #### Analysis
+- Applog is a third analysis feed: a daily brief for the developers who own a service. Its own gather ranks services by new templates, then error-rate change, then warning-rate change; raw-row queries read WARN and above only, while volume and silent-service detection use the hourly aggregate. Reports take a `services` scope (`GET /api/v1/analysis/services` feeds the picker), the daily prompt only, and caps under `analysis.applog` sized for a 32k context (ADR 0006)
+- `loadgen-applog --scenario analysis` writes a repeatable 300-service, 8-day data set with planted signals straight to the database, and `make test-integration` runs the applog analyzer over it against a fake Ollama (set `APPLOG_PROMPT_OUT` to keep the prompts for tuning)
 - Email completed analysis reports by selecting email notification channels on a schedule (`notify_channel_ids`); channel ids are validated as existing email-type channels and snapshotted onto each report at enqueue time
 
 #### Netlog feed
@@ -136,12 +138,13 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Changed
 
+- Applog ingest accepts more level aliases (syslog-style `EMERG`/`ALERT`/`CRIT`/`ERR`/`NOTICE`, Java `SEVERE`, single-letter glog prefixes), all normalised to the five canonical levels at ingest; the applog summary rollups now classify levels through the same normaliser instead of ad hoc string matches
 - Restructured the daily analysis brief from five sections (TL;DR / Top Incidents / Anomalies / Correlations / Action Queue) to a lean one-screen read: TL;DR / Needs Action (≤3 two-line items, merging incidents with their actions) / What Happened (≤6 one-line bullets, change events first, clusters collapsed to single lines — no more correlations table or `<details>` HTML, which the email/print renderer dropped anyway) / Watch (≤3 bullets), closed by an italic baseline footer. The validator now also rejects daily replies over 70 non-blank lines (triggering the existing corrective retry), and a new `analysis_completion_tokens` histogram tracks length drift. Default `analysis.model` is now `gpt-oss:20b` (what the prompts are tuned against) and `analysis.num_ctx` 32768 — the old 8192 default silently truncated real 15-17k-token prompts
 - Store files realigned to consumer-interface clusters — one `Store` type, ~13 domain files, zero signature changes (ADR-0003); identical srvlog/netlog summary queries folded into a shared helper
 - Merged the srvlog/netlog presentational clones (filter bar, row, detail, table) into shared components with thin per-feed bindings; VolumeView feed tabs render through one `VolumeChartPanel`; AppHeader menus are data-driven from a single `navItems` source
 - Ingest clients enforce the server contract client-side: `pkg/logshipper` and the Python SDK fail loud on a missing service and truncate oversized messages instead of silently losing whole batches
 - Frontend blocking gate grew from type-check-only to type-check + ESLint (errors-only) + Prettier check, after a mechanical bulk-format of the codebase
-- Analysis feed `all` is labeled "all syslog" in the UI — it covers srvlog+netlog; applog analysis is declared out of scope
+- Analysis feed `all` (the srvlog+netlog union) is removed; a run targets exactly one feed. Migration 22 deletes any `all` schedules and reports (ADR 0006)
 - SSE search filtering is allocation-free on the broadcast hot path
 
 - LDAP auth: replace the single `admin_group` DN with a `group_role_map` (group full-DN or bare CN → `admin`/regular role; matched case-insensitively, highest role wins, membership in no mapped group denies login), add an optional `ca_bundle` to trust an internal CA without `tls_skip_verify`, and drop the FreeIPA-only `nsAccountLock` account-lock check now that AD is supported

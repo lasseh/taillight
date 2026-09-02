@@ -7,17 +7,19 @@ import (
 )
 
 // briefingTitle returns the long-form title used at the top of a rendered
-// report. It mirrors the frontend briefingTitle() label so an operator
-// reading the markdown directly (curl, PDF export, copy-paste) sees the
-// same heading the UI shows.
-func briefingTitle(mode string) string {
-	switch mode {
+// report, keyed by report kind (see reportKind). It mirrors the frontend
+// briefingTitle() label so an operator reading the markdown directly (curl,
+// PDF export, copy-paste) sees the same heading the UI shows.
+func briefingTitle(kind string) string {
+	switch kind {
 	case modeDaily:
 		return "Daily Operations Briefing"
 	case modeWeekly:
 		return "Weekly Operations Briefing"
 	case modeIncident:
 		return "Incident Briefing"
+	case kindApplogDaily:
+		return "Daily Application Log Briefing"
 	default:
 		return "Operations Briefing"
 	}

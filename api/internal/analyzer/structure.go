@@ -6,21 +6,38 @@ import (
 	"strings"
 )
 
-// requiredHeaders enumerates the H2 section headers each prompt mode must
+// kindApplogDaily is the report kind for the applog feed's daily brief. The
+// syslog feeds share one shape per mode, keyed by the mode itself; applog has
+// its own sections, so it gets its own key (see reportKind).
+const kindApplogDaily = "applog-" + modeDaily
+
+// reportKind returns the key into the shape tables below for a feed and
+// prompt mode: the mode for the syslog feeds, applog-<mode> for applog.
+func reportKind(feed, mode string) string {
+	if feed == feedApplog {
+		return "applog-" + mode
+	}
+	return mode
+}
+
+// requiredHeaders enumerates the H2 section headers each report kind must
 // emit, in order. The validator forbids extra headers as well, so the model
 // can't pad with "Appendix" or "Recommendations" sections.
 var requiredHeaders = map[string][]string{
-	modeDaily:    {"TL;DR", "Needs Action", "What Happened", "Watch"},
-	modeWeekly:   {"TL;DR", "Trend Movers", "Chronic Hosts", "New Surface Area", "Correlations Worth Naming", "Engineering Focus"},
-	modeIncident: {"Verdict", "What's Happening", "Likely Cause", "Immediate Actions", "Standing Down"},
+	modeDaily:       {"TL;DR", "Needs Action", "What Happened", "Watch"},
+	modeWeekly:      {"TL;DR", "Trend Movers", "Chronic Hosts", "New Surface Area", "Correlations Worth Naming", "Engineering Focus"},
+	modeIncident:    {"Verdict", "What's Happening", "Likely Cause", "Immediate Actions", "Standing Down"},
+	kindApplogDaily: {"New errors and warnings", "Top recurring errors and warnings", "Volume vs last week", "Silent and new services", "Log hygiene"},
 }
 
-// reportLineCap bounds the reply length per mode, counted in non-blank
-// lines. The daily brief is a one-screen morning read (~35-line target in
-// the prompt); a reply past the cap fails validation so the corrective
-// retry regenerates it shorter. Modes absent from the map are uncapped.
+// reportLineCap bounds the reply length per report kind, counted in
+// non-blank lines. The daily brief is a one-screen morning read (~35-line
+// target in the prompt); a reply past the cap fails validation so the
+// corrective retry regenerates it shorter. The applog daily gets ten more
+// lines for its long-tail table. Kinds absent from the map are uncapped.
 var reportLineCap = map[string]int{
-	modeDaily: 70,
+	modeDaily:       70,
+	kindApplogDaily: 80,
 }
 
 // firstSectionRule defines the regex each mode's first section (TL;DR or
@@ -49,6 +66,10 @@ var firstSectionRule = map[string]struct {
 	modeIncident: {
 		pattern: regexp.MustCompile(`\*\*(STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE)\*\*`),
 		desc:    "`**STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE**` token",
+	},
+	kindApplogDaily: {
+		pattern: regexp.MustCompile(`\*\*Status:\s+(NOMINAL|WATCH|ACT NOW)\*\*`),
+		desc:    "`**Status: NOMINAL|WATCH|ACT NOW**` line",
 	},
 }
 

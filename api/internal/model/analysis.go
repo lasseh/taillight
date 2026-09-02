@@ -1,21 +1,24 @@
 package model
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
 )
 
 // Analysis feed constants — the data sources an analysis run can target.
-// "all" means all syslog feeds (srvlog + netlog, a UNION ALL of the two
-// syslog tables); applog is excluded by design (architecture review D3).
-// The wire value stays "all" because it is persisted in analysis report
-// and schedule rows — the UI labels it "all syslog" instead.
+// Each feed reads exactly one events table; the former "all" syslog union
+// was removed (ADR 0006).
 const (
 	AnalysisFeedNetlog = "netlog"
 	AnalysisFeedSrvlog = "srvlog"
-	AnalysisFeedAll    = "all"
+	AnalysisFeedApplog = "applog"
 )
+
+// AnalysisFeeds lists every valid feed in display order. Handlers derive
+// their validation message from it so the set is defined in one place.
+var AnalysisFeeds = []string{AnalysisFeedNetlog, AnalysisFeedSrvlog, AnalysisFeedApplog}
 
 // Analysis report lifecycle statuses.
 const (
@@ -27,11 +30,7 @@ const (
 
 // IsValidAnalysisFeed reports whether s is a recognized feed.
 func IsValidAnalysisFeed(s string) bool {
-	switch s {
-	case AnalysisFeedNetlog, AnalysisFeedSrvlog, AnalysisFeedAll:
-		return true
-	}
-	return false
+	return slices.Contains(AnalysisFeeds, s)
 }
 
 // Analysis prompt modes — which prompt set frames the report.
@@ -48,6 +47,27 @@ func IsValidAnalysisMode(s string) bool {
 		return true
 	}
 	return false
+}
+
+// IsValidAnalysisModeForFeed reports whether the feed has a prompt set for
+// the mode. The syslog feeds accept every mode; applog is daily only until
+// its weekly prompt exists.
+func IsValidAnalysisModeForFeed(feed, mode string) bool {
+	if feed == AnalysisFeedApplog {
+		return mode == AnalysisModeDaily
+	}
+	return IsValidAnalysisMode(mode)
+}
+
+// IsValidAnalysisFrequencyForFeed reports whether a schedule frequency is
+// allowed for the feed. Applog schedules are daily only: weekly and monthly
+// cadences map to the weekly prompt, which the feed does not have. The
+// caller validates the frequency itself separately.
+func IsValidAnalysisFrequencyForFeed(feed, frequency string) bool {
+	if feed == AnalysisFeedApplog {
+		return frequency == "daily"
+	}
+	return true
 }
 
 // AnalysisModeForFrequency maps a schedule frequency to the prompt mode that
@@ -70,7 +90,8 @@ func AnalysisModeForFrequency(frequency string) string {
 // the feed"; a non-empty slice restricts every aggregation (and the baseline
 // comparison) to that exact set. The slice is normalized — sorted and deduped
 // — before persistence so two requests with the same set collide on the
-// active-report uniqueness constraint.
+// active-report uniqueness constraint. Services is the applog counterpart;
+// each feed uses one of the two and rejects the other.
 //
 // Token-count contract: PromptTokens=0 && CompletionTokens=0 on a row with
 // Status="completed" means the analyzer short-circuited because the gathered
@@ -83,6 +104,7 @@ type AnalysisReport struct {
 	Feed             string     `json:"feed"`
 	PromptMode       string     `json:"prompt_mode"`
 	Hosts            []string   `json:"hosts"`
+	Services         []string   `json:"services"`
 	Model            string     `json:"model"`
 	PeriodStart      time.Time  `json:"period_start"`
 	PeriodEnd        time.Time  `json:"period_end"`
@@ -107,6 +129,7 @@ type AnalysisReportSummary struct {
 	Feed             string     `json:"feed"`
 	PromptMode       string     `json:"prompt_mode"`
 	Hosts            []string   `json:"hosts"`
+	Services         []string   `json:"services"`
 	Model            string     `json:"model"`
 	PeriodStart      time.Time  `json:"period_start"`
 	PeriodEnd        time.Time  `json:"period_end"`
@@ -118,16 +141,19 @@ type AnalysisReportSummary struct {
 	CompletedAt      *time.Time `json:"completed_at,omitempty"`
 }
 
-// AnalysisScope is the (feed, hosts) pair that selects which events an
-// analyzer query reads from. Replacing a bare `feed string` parameter with
-// this struct keeps the analyzer Store interface stable as new dimensions
-// (today: hosts; later perhaps severity floor or program filter) get added.
+// AnalysisScope is the (feed, hosts, services) triple that selects which
+// events an analyzer query reads from. Replacing a bare `feed string`
+// parameter with this struct keeps the analyzer Store interface stable as
+// new dimensions get added.
 //
-// Hosts is canonical: empty means "all hosts on the feed," and non-empty
-// must already be sorted + deduped (use NormalizeHosts before constructing).
+// Hosts is the syslog scope and Services the applog scope; each feed ignores
+// the other list. Both are canonical: empty means "everything on the feed,"
+// and non-empty must already be sorted + deduped (NormalizeHosts works for
+// either list).
 type AnalysisScope struct {
-	Feed  string
-	Hosts []string
+	Feed     string
+	Hosts    []string
+	Services []string
 }
 
 // IsAllHosts reports whether the scope applies to every host on the feed
@@ -136,6 +162,12 @@ type AnalysisScope struct {
 // host-comparison aggregations that are degenerate under a narrow scope.
 func (s AnalysisScope) IsAllHosts() bool {
 	return len(s.Hosts) == 0
+}
+
+// IsAllServices reports whether the scope applies to every service on the
+// applog feed (i.e. no service filter).
+func (s AnalysisScope) IsAllServices() bool {
+	return len(s.Services) == 0
 }
 
 // NormalizeHosts returns a sorted, deduped, trimmed copy of hosts so that
@@ -201,6 +233,14 @@ type AnalysisSchedule struct {
 // not yet produced an aggregated row (very freshly onboarded hosts).
 type AnalysisHostEntry struct {
 	Hostname string     `json:"hostname"`
+	LastSeen *time.Time `json:"last_seen,omitempty"`
+}
+
+// AnalysisServiceEntry is one row returned by the analysis services endpoint
+// (GET /api/v1/analysis/services), the applog counterpart of
+// AnalysisHostEntry for the create-report picker.
+type AnalysisServiceEntry struct {
+	Service  string     `json:"service"`
 	LastSeen *time.Time `json:"last_seen,omitempty"`
 }
 

@@ -63,6 +63,30 @@ func (s stubStore) LookupJuniperRefs(context.Context, []string) (map[string]mode
 	return nil, nil
 }
 
+func (s stubStore) GetAppLogServiceStats(context.Context, model.AnalysisScope, time.Time, time.Time) ([]model.AppLogServiceStats, error) {
+	return nil, nil
+}
+
+func (s stubStore) GetAppLogTopTemplates(context.Context, time.Time, []string, int, int) ([]model.AppLogTemplate, error) {
+	return nil, nil
+}
+
+func (s stubStore) GetAppLogNewTemplates(context.Context, model.AnalysisScope, time.Time, time.Time) ([]model.AppLogTemplate, error) {
+	return nil, nil
+}
+
+func (s stubStore) GetAppLogTemplateSamples(context.Context, time.Time, []model.AppLogTemplateKey, int) (map[model.AppLogTemplateKey]model.AppLogSample, error) {
+	return nil, nil
+}
+
+func (s stubStore) GetAppLogVolumeTimeline(context.Context, model.AnalysisScope, time.Time, time.Time, int) ([]model.AnalysisVolumeBucket, error) {
+	return nil, nil
+}
+
+func (s stubStore) GetAppLogHygiene(context.Context, model.AnalysisScope, time.Time, float64, int64, int) (model.AppLogHygiene, error) {
+	return model.AppLogHygiene{}, nil
+}
+
 // TestSparklineMath spot-checks the ceil-scaling behavior. The crucial
 // property: the single max value in the input must map to the tallest
 // block, and zeros must map to the blank cell — otherwise the model

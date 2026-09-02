@@ -22,12 +22,12 @@ var ErrDuplicateActiveReport = errors.New("analysis report already active for fe
 const pgUniqueViolation = "23505"
 
 // analysisReportColumns lists the columns selected for full report reads.
-const analysisReportColumns = "id, slug, feed, prompt_mode, hosts, model, period_start, period_end, " +
+const analysisReportColumns = "id, slug, feed, prompt_mode, hosts, services, model, period_start, period_end, " +
 	"report, prompt_tokens, completion_tokens, status, error, " +
 	"created_at, started_at, completed_at, notify_channel_ids"
 
 // analysisReportSummaryColumns lists the columns selected for list reads.
-const analysisReportSummaryColumns = "id, slug, feed, prompt_mode, hosts, model, period_start, period_end, " +
+const analysisReportSummaryColumns = "id, slug, feed, prompt_mode, hosts, services, model, period_start, period_end, " +
 	"prompt_tokens, completion_tokens, status, " +
 	"created_at, started_at, completed_at"
 
@@ -68,6 +68,12 @@ func (s *Store) InsertPendingReport(ctx context.Context, r model.AnalysisReport)
 	if hostsArg == nil {
 		hostsArg = []string{}
 	}
+	// Services is the applog scope and gets the same treatment.
+	r.Services = model.NormalizeHosts(r.Services)
+	servicesArg := r.Services
+	if servicesArg == nil {
+		servicesArg = []string{}
+	}
 
 	// Try the natural slug first, then -2, -3, ... if another completed report
 	// happens to share the same minute. Capped to avoid runaway loops.
@@ -81,8 +87,8 @@ func (s *Store) InsertPendingReport(ctx context.Context, r model.AnalysisReport)
 
 		query, args, err := psq.
 			Insert("analysis_reports").
-			Columns("slug", "feed", "prompt_mode", "hosts", "model", "period_start", "period_end", "status", "notify_channel_ids").
-			Values(r.Slug, r.Feed, r.PromptMode, hostsArg, r.Model, r.PeriodStart, r.PeriodEnd, r.Status, channelIDsOrEmpty(r.NotifyChannelIDs)).
+			Columns("slug", "feed", "prompt_mode", "hosts", "services", "model", "period_start", "period_end", "status", "notify_channel_ids").
+			Values(r.Slug, r.Feed, r.PromptMode, hostsArg, servicesArg, r.Model, r.PeriodStart, r.PeriodEnd, r.Status, channelIDsOrEmpty(r.NotifyChannelIDs)).
 			Suffix("RETURNING id, created_at").
 			ToSql()
 		if err != nil {
@@ -243,7 +249,7 @@ func (s *Store) ListReports(ctx context.Context, limit int) ([]model.AnalysisRep
 	reports, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.AnalysisReportSummary, error) {
 		var r model.AnalysisReportSummary
 		err := row.Scan(
-			&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Hosts, &r.Model, &r.PeriodStart, &r.PeriodEnd,
+			&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Hosts, &r.Services, &r.Model, &r.PeriodStart, &r.PeriodEnd,
 			&r.PromptTokens, &r.CompletionTokens, &r.Status,
 			&r.CreatedAt, &r.StartedAt, &r.CompletedAt,
 		)
@@ -260,7 +266,7 @@ func scanAnalysisReport(row pgx.Row) (model.AnalysisReport, error) {
 	var r model.AnalysisReport
 	var body, errMsg *string
 	if err := row.Scan(
-		&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Hosts, &r.Model, &r.PeriodStart, &r.PeriodEnd,
+		&r.ID, &r.Slug, &r.Feed, &r.PromptMode, &r.Hosts, &r.Services, &r.Model, &r.PeriodStart, &r.PeriodEnd,
 		&body, &r.PromptTokens, &r.CompletionTokens, &r.Status, &errMsg,
 		&r.CreatedAt, &r.StartedAt, &r.CompletedAt, &r.NotifyChannelIDs,
 	); err != nil {

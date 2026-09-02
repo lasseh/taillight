@@ -187,7 +187,7 @@ func (h *AnalysisScheduleHandler) decodeAndValidateSchedule(w http.ResponseWrite
 		return model.AnalysisSchedule{}, false
 	}
 	if !model.IsValidAnalysisFeed(sched.Feed) {
-		writeError(w, http.StatusBadRequest, "validation_failed", "feed must be netlog, srvlog, or all")
+		writeError(w, http.StatusBadRequest, "validation_failed", invalidFeedMessage)
 		return model.AnalysisSchedule{}, false
 	}
 	switch sched.Frequency {
@@ -204,6 +204,10 @@ func (h *AnalysisScheduleHandler) decodeAndValidateSchedule(w http.ResponseWrite
 		}
 	default:
 		writeError(w, http.StatusBadRequest, "validation_failed", "frequency must be daily, weekly, or monthly")
+		return model.AnalysisSchedule{}, false
+	}
+	if !model.IsValidAnalysisFrequencyForFeed(sched.Feed, sched.Frequency) {
+		writeError(w, http.StatusBadRequest, "validation_failed", "applog schedules support only the daily frequency")
 		return model.AnalysisSchedule{}, false
 	}
 	if _, _, err := splitTimeOfDay(sched.TimeOfDay); err != nil {

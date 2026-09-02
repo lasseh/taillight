@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -20,6 +21,10 @@ import (
 
 const analysisDefaultLimit = 30
 
+// invalidFeedMessage is the validation error for an unrecognized feed. Built
+// from model.AnalysisFeeds so adding a feed never leaves a stale list here.
+var invalidFeedMessage = "feed must be one of: " + strings.Join(model.AnalysisFeeds, ", ")
+
 // AnalysisReportStore is the persistence interface for the analysis handler.
 type AnalysisReportStore interface {
 	ListReports(ctx context.Context, limit int) ([]model.AnalysisReportSummary, error)
@@ -27,6 +32,8 @@ type AnalysisReportStore interface {
 	DeleteReport(ctx context.Context, id int64) error
 	ListAnalysisHosts(ctx context.Context, feed string) ([]string, error)
 	ListAnalysisHostEntries(ctx context.Context, feed string) ([]model.AnalysisHostEntry, error)
+	ListServices(ctx context.Context) ([]string, error)
+	ListAnalysisServiceEntries(ctx context.Context) ([]model.AnalysisServiceEntry, error)
 }
 
 // AnalysisEnqueuer accepts new report runs.
@@ -136,15 +143,17 @@ func (h *AnalysisHandler) Print(w http.ResponseWriter, r *http.Request) {
 // window; empty/zero picks a mode-aware default (24h for daily/weekly, 60min
 // for incident). Bounds: 5 ≤ period_minutes ≤ 43200 (5min..30d).
 //
-// Hosts optionally restricts the report to an explicit set of hostnames.
-// Empty/missing means "all hosts on the feed." Names that don't exist for
-// the selected feed are rejected up-front rather than producing a thin
-// report at worker time.
+// Hosts optionally restricts a syslog report to an explicit set of
+// hostnames; Services does the same for an applog report. Empty/missing
+// means "everything on the feed." Names that don't exist for the selected
+// feed are rejected up-front rather than producing a thin report at worker
+// time, and each feed rejects the other feed's scope field.
 type createReportRequest struct {
 	Feed          string   `json:"feed"`
 	PromptMode    string   `json:"prompt_mode,omitempty"`
 	PeriodMinutes int      `json:"period_minutes,omitempty"`
 	Hosts         []string `json:"hosts,omitempty"`
+	Services      []string `json:"services,omitempty"`
 }
 
 // requestBodyLimit caps the JSON request body. Picked to comfortably hold a
@@ -198,7 +207,7 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !model.IsValidAnalysisFeed(req.Feed) {
-		writeError(w, http.StatusBadRequest, "invalid_feed", "feed must be netlog, srvlog, or all")
+		writeError(w, http.StatusBadRequest, "invalid_feed", invalidFeedMessage)
 		return
 	}
 
@@ -208,6 +217,10 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if !model.IsValidAnalysisMode(mode) {
 		writeError(w, http.StatusBadRequest, "invalid_prompt_mode", "prompt_mode must be daily, weekly, or incident")
+		return
+	}
+	if !model.IsValidAnalysisModeForFeed(req.Feed, mode) {
+		writeError(w, http.StatusBadRequest, "invalid_prompt_mode", "applog reports support only the daily prompt mode")
 		return
 	}
 
@@ -226,22 +239,20 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normalize hosts (sort + dedup + trim) before validation so the response
-	// error message — and the persisted row — both reflect the canonical set
-	// the caller actually meant.
+	// Normalize both scopes (sort + dedup + trim) before validation so the
+	// response error message — and the persisted row — both reflect the
+	// canonical set the caller actually meant.
 	hosts := model.NormalizeHosts(req.Hosts)
-	if len(hosts) > 0 {
-		unknown, validateErr := h.validateHostsForFeed(r.Context(), req.Feed, hosts)
-		if validateErr != nil {
-			LoggerFromContext(r.Context()).Error("validate hosts failed", "feed", req.Feed, "err", validateErr)
-			writeError(w, http.StatusInternalServerError, "validate_failed", "failed to validate host scope")
-			return
-		}
-		if len(unknown) > 0 {
-			writeError(w, http.StatusBadRequest, "unknown_hosts",
-				fmt.Sprintf("hosts not found for feed %s: %v", req.Feed, unknown))
-			return
-		}
+	services := model.NormalizeHosts(req.Services)
+	code, msg, validateErr := h.validateScope(r.Context(), req.Feed, hosts, services)
+	if validateErr != nil {
+		LoggerFromContext(r.Context()).Error("validate scope failed", "feed", req.Feed, "err", validateErr)
+		writeError(w, http.StatusInternalServerError, "validate_failed", "failed to validate report scope")
+		return
+	}
+	if code != "" {
+		writeError(w, http.StatusBadRequest, code, msg)
+		return
 	}
 
 	// period_end is minute-truncated so rapid clicks resolve to the same window
@@ -254,6 +265,7 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Feed:        req.Feed,
 		PromptMode:  mode,
 		Hosts:       hosts,
+		Services:    services,
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 	})
@@ -274,18 +286,46 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSONStatus(w, http.StatusCreated, itemResponse{Data: report})
 }
 
-// validateHostsForFeed returns the subset of candidates that are not present
-// in the feed's host metadata. An empty result means every candidate is
-// known; a non-empty result is the list to surface back to the caller as
-// the "unknown_hosts" error.
-//
-// For feed=all the union of srvlog and netlog hosts is used: a hostname only
-// has to appear in at least one source to be considered known.
-func (h *AnalysisHandler) validateHostsForFeed(ctx context.Context, feed string, candidates []string) ([]string, error) {
+// validateScope applies the per-feed scope rules: applog takes services and
+// rejects hosts, the syslog feeds take hosts and reject services, and every
+// name must exist in the feed's metadata. It returns a 400 error code and
+// message for the caller to send, or an error when a lookup failed.
+func (h *AnalysisHandler) validateScope(ctx context.Context, feed string, hosts, services []string) (code, msg string, err error) {
+	if feed == model.AnalysisFeedApplog {
+		if len(hosts) > 0 {
+			return "invalid_scope", "applog reports are scoped by services, not hosts", nil
+		}
+		if len(services) == 0 {
+			return "", "", nil
+		}
+		known, err := h.store.ListServices(ctx)
+		if err != nil {
+			return "", "", err
+		}
+		if unknown := unknownNames(known, services); len(unknown) > 0 {
+			return "unknown_services", fmt.Sprintf("services not found: %v", unknown), nil
+		}
+		return "", "", nil
+	}
+	if len(services) > 0 {
+		return "invalid_scope", "services scope applies to the applog feed only", nil
+	}
+	if len(hosts) == 0 {
+		return "", "", nil
+	}
 	known, err := h.store.ListAnalysisHosts(ctx, feed)
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
+	if unknown := unknownNames(known, hosts); len(unknown) > 0 {
+		return "unknown_hosts", fmt.Sprintf("hosts not found for feed %s: %v", feed, unknown), nil
+	}
+	return "", "", nil
+}
+
+// unknownNames returns the candidates absent from known, in input order. An
+// empty result means every candidate is known.
+func unknownNames(known, candidates []string) []string {
 	knownSet := make(map[string]struct{}, len(known))
 	for _, k := range known {
 		knownSet[k] = struct{}{}
@@ -296,18 +336,19 @@ func (h *AnalysisHandler) validateHostsForFeed(ctx context.Context, feed string,
 			unknown = append(unknown, c)
 		}
 	}
-	return unknown, nil
+	return unknown
 }
 
-// Hosts handles GET /api/v1/analysis/hosts?feed={srvlog|netlog|all}. The
+// Hosts handles GET /api/v1/analysis/hosts?feed={srvlog|netlog}. The
 // frontend picker loads this once per feed-selection to populate its
 // autocomplete suggestions; the response is intentionally minimal (no per-host
 // stats — those live on /api/v1/hosts) so the call is cheap to fire on every
-// open of the create-report panel.
+// open of the create-report panel. The applog feed has no host scope and
+// returns an empty list; its picker uses Services.
 func (h *AnalysisHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 	feed := r.URL.Query().Get("feed")
 	if !model.IsValidAnalysisFeed(feed) {
-		writeError(w, http.StatusBadRequest, "invalid_feed", "feed must be netlog, srvlog, or all")
+		writeError(w, http.StatusBadRequest, "invalid_feed", invalidFeedMessage)
 		return
 	}
 
@@ -318,6 +359,23 @@ func (h *AnalysisHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 		}
 		LoggerFromContext(r.Context()).Error("list analysis host entries failed", "feed", feed, "err", err)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list hosts")
+		return
+	}
+
+	writeJSON(w, itemResponse{Data: emptySlice(entries)})
+}
+
+// Services handles GET /api/v1/analysis/services: every service known to
+// the applog feed, for the create-report service picker. Applog is the only
+// feed with a service scope, so there is no feed parameter.
+func (h *AnalysisHandler) Services(w http.ResponseWriter, r *http.Request) {
+	entries, err := h.store.ListAnalysisServiceEntries(r.Context())
+	if err != nil {
+		if isClientGone(r) {
+			return
+		}
+		LoggerFromContext(r.Context()).Error("list analysis service entries failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list services")
 		return
 	}
 

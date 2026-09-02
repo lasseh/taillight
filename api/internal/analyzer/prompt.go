@@ -15,13 +15,15 @@ import (
 
 // Embedded default prompts. The directory tree is:
 //
-//	prompts/<mode>/system.md
+//	prompts/<mode>/system.md          syslog feeds (netlog, srvlog)
 //	prompts/<mode>/user.md
+//	prompts/applog/<mode>/system.md   applog feed
+//	prompts/applog/<mode>/user.md
 //
-// where <mode> is one of "daily", "weekly", or "incident". Override by setting
-// analysis.prompts_dir in config.yml to a directory with the same layout
-// (<dir>/<mode>/system.md and <dir>/<mode>/user.md). Files are reloaded on
-// every analysis run, so prompt edits take effect without a rebuild or restart.
+// where <mode> is one of "daily", "weekly", or "incident" for the syslog
+// feeds and "daily" for applog. Override by setting analysis.prompts_dir in
+// config.yml to a directory with the same layout. Files are reloaded on every
+// analysis run, so prompt edits take effect without a rebuild or restart.
 //
 //go:embed prompts
 var embeddedPrompts embed.FS
@@ -41,11 +43,33 @@ const (
 	embedRoot = "prompts"
 )
 
-// validModes enumerates the prompt modes accepted by buildPrompt.
+// validModes enumerates the prompt modes accepted for the syslog feeds.
 var validModes = map[string]struct{}{
 	modeDaily:    {},
 	modeWeekly:   {},
 	modeIncident: {},
+}
+
+// applogModes enumerates the prompt modes accepted for the applog feed.
+// Weekly follows once the daily prompt has been tuned on real data.
+var applogModes = map[string]struct{}{
+	modeDaily: {},
+}
+
+// promptSubdir returns the directory (under the embedded root or
+// analysis.prompts_dir) holding the prompt files for a feed and mode, or an
+// error for a mode the feed does not support.
+func promptSubdir(feed, mode string) (string, error) {
+	if feed == feedApplog {
+		if _, ok := applogModes[mode]; !ok {
+			return "", fmt.Errorf("unknown prompt mode %q for applog (want: daily)", mode)
+		}
+		return feedApplog + "/" + mode, nil
+	}
+	if _, ok := validModes[mode]; !ok {
+		return "", fmt.Errorf("unknown prompt mode %q (want one of: daily, weekly, incident)", mode)
+	}
+	return mode, nil
 }
 
 // logDataBegin / logDataEnd are the sentinel markers that fence the
@@ -69,6 +93,7 @@ var promptFuncs = template.FuncMap{
 	"truncateAll":   truncatePromptStrings,
 	"sanitize":      sanitizeLogText,
 	"sanitizeAll":   sanitizeLogTexts,
+	"add":           func(a, b int) int { return a + b },
 }
 
 // sanitizeLogText neutralizes attacker-controlled log text (sample
@@ -149,16 +174,22 @@ func truncatePromptStrings(ss []string, n int) []string {
 // the model and a human reader confirm at a glance how many hosts the
 // report covers without counting commas.
 func formatScopeLabel(hosts []string) string {
-	if len(hosts) == 0 {
+	return formatScopeLabelNoun(hosts, "host", "hosts")
+}
+
+// formatScopeLabelNoun is formatScopeLabel with the noun supplied, so the
+// applog feed can label a service scope the same way.
+func formatScopeLabelNoun(names []string, singular, plural string) string {
+	if len(names) == 0 {
 		return ""
 	}
-	noun := "host"
-	if len(hosts) > 1 {
-		noun = "hosts"
+	noun := singular
+	if len(names) > 1 {
+		noun = plural
 	}
-	// Hostnames originate from log data, so they get the same
-	// neutralization as the sample text they came from.
-	return fmt.Sprintf("%s (%d %s)", strings.Join(sanitizeLogTexts(hosts), ", "), len(hosts), noun)
+	// Names originate from log data, so they get the same neutralization
+	// as the sample text they came from.
+	return fmt.Sprintf("%s (%d %s)", strings.Join(sanitizeLogTexts(names), ", "), len(names), noun)
 }
 
 // feedDescription returns a human-readable description of the feed for use in prompts.
@@ -168,8 +199,6 @@ func feedDescription(feed string) string {
 		return "network device syslog data (routers, switches, firewalls)"
 	case feedSrvlog:
 		return "server syslog data (Linux, Windows servers)"
-	case feedAll:
-		return "combined syslog data from both network devices and servers"
 	default:
 		return "syslog data"
 	}
@@ -182,8 +211,6 @@ func feedTitle(feed string) string {
 		return "Netlog"
 	case feedSrvlog:
 		return "Srvlog"
-	case feedAll:
-		return "All Feeds"
 	default:
 		return "Log"
 	}
@@ -222,29 +249,63 @@ const scopedGuardSystemPreamble = "# Scope restriction\n\n" +
 	"(the baseline in the data block has already been filtered to the same hosts). " +
 	"\"Top Error Hosts\" and \"Cross-Host Event Clusters\" sections are intentionally absent — do not invent them."
 
-// loadPromptSource returns the raw template text for the given prompt file and
-// mode. When dir is empty, the embedded default is read; otherwise the file is
-// read from <dir>/<mode>/<file> on every call so edits take effect without
-// restarting the server. Unknown modes return an error rather than silently
-// falling back to a default.
-func loadPromptSource(dir, mode, file string) (string, error) {
-	if _, ok := validModes[mode]; !ok {
-		return "", fmt.Errorf("unknown prompt mode %q (want one of: daily, weekly, incident)", mode)
-	}
+// loadPromptSource returns the raw template text for the given prompt file
+// under subdir (from promptSubdir). When dir is empty, the embedded default
+// is read; otherwise the file is read from <dir>/<subdir>/<file> on every
+// call so edits take effect without restarting the server.
+func loadPromptSource(dir, subdir, file string) (string, error) {
 	if dir == "" {
-		path := embedRoot + "/" + mode + "/" + file
+		path := embedRoot + "/" + subdir + "/" + file
 		b, err := embeddedPrompts.ReadFile(path)
 		if err != nil {
 			return "", fmt.Errorf("load embedded prompt %s: %w", path, err)
 		}
 		return string(b), nil
 	}
-	path := filepath.Join(dir, mode, file)
+	path := filepath.Join(dir, filepath.FromSlash(subdir), file)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("load prompt %s: %w", path, err)
 	}
 	return string(b), nil
+}
+
+// renderPrompts loads, parses, and executes the system and user templates
+// for a feed and mode against pd, the feed's prompt data.
+func renderPrompts(pd any, promptsDir, feed, mode string) (string, string, error) {
+	subdir, err := promptSubdir(feed, mode)
+	if err != nil {
+		return "", "", err
+	}
+
+	sysSrc, err := loadPromptSource(promptsDir, subdir, systemPromptFile)
+	if err != nil {
+		return "", "", err
+	}
+	sysTmpl, err := parsePrompt("system", sysSrc)
+	if err != nil {
+		return "", "", err
+	}
+
+	userSrc, err := loadPromptSource(promptsDir, subdir, userPromptFile)
+	if err != nil {
+		return "", "", err
+	}
+	userTmpl, err := parsePrompt("user", userSrc)
+	if err != nil {
+		return "", "", err
+	}
+
+	var sysBuf bytes.Buffer
+	if err := sysTmpl.Execute(&sysBuf, pd); err != nil {
+		return "", "", fmt.Errorf("render system prompt: %w", err)
+	}
+
+	var userBuf bytes.Buffer
+	if err := userTmpl.Execute(&userBuf, pd); err != nil {
+		return "", "", fmt.Errorf("render user prompt: %w", err)
+	}
+	return sysBuf.String(), userBuf.String(), nil
 }
 
 // parsePrompt parses one template, registering the shared FuncMap.
@@ -274,40 +335,60 @@ func buildPrompt(data analysisData, promptsDir, mode string) (string, string, er
 		LogDataEnd:      logDataEnd,
 	}
 
-	sysSrc, err := loadPromptSource(promptsDir, mode, systemPromptFile)
+	sys, user, err := renderPrompts(pd, promptsDir, data.Feed, mode)
 	if err != nil {
 		return "", "", err
 	}
-	sysTmpl, err := parsePrompt("system", sysSrc)
-	if err != nil {
-		return "", "", err
-	}
-
-	userSrc, err := loadPromptSource(promptsDir, mode, userPromptFile)
-	if err != nil {
-		return "", "", err
-	}
-	userTmpl, err := parsePrompt("user", userSrc)
-	if err != nil {
-		return "", "", err
-	}
-
-	var sysBuf bytes.Buffer
-	if err := sysTmpl.Execute(&sysBuf, pd); err != nil {
-		return "", "", fmt.Errorf("render system prompt: %w", err)
-	}
-
-	var userBuf bytes.Buffer
-	if err := userTmpl.Execute(&userBuf, pd); err != nil {
-		return "", "", fmt.Errorf("render user prompt: %w", err)
-	}
-
-	sys := sysBuf.String()
 	if pd.IsScoped {
 		// Prepended in code, not in the template, so a prompt edit can't
 		// silently drop the anti-fleet-language guard. The two newlines
 		// separate the preamble from the existing system prompt cleanly.
 		sys = scopedGuardSystemPreamble + "\n\n" + sys
 	}
-	return sys, userBuf.String(), nil
+	return sys, user, nil
+}
+
+// applogPromptData wraps applogData with the template fields the applog
+// prompts need. IsScoped gates the `Scope:` line; AttrsLimit is the byte
+// size above which attrs count as oversized in the hygiene block.
+type applogPromptData struct {
+	applogData
+	IsScoped     bool
+	ScopeLabel   string // pre-formatted "api, worker (2 services)".
+	AttrsLimit   int
+	LogDataBegin string
+	LogDataEnd   string
+}
+
+// applogScopedGuardSystemPreamble is the applog counterpart of
+// scopedGuardSystemPreamble, prepended in code to every service-scoped run.
+const applogScopedGuardSystemPreamble = "# Scope restriction\n\n" +
+	"This report is restricted to the services named in the user message's `Scope:` line. " +
+	"Do not claim or speculate about activity in other services. " +
+	"When a signal would normally compare these services to the rest, frame it as \"these services vs. their own 7-day baseline\" " +
+	"(the baseline in the data block has already been filtered to the same services). " +
+	"\"Silent and new services\" and the long tail cover only the scoped services."
+
+// buildAppLogPrompt renders the applog system and user prompts for the
+// given mode. Only the daily mode has prompt files today.
+func buildAppLogPrompt(data applogData, promptsDir, mode string) (string, string, error) {
+	if mode == "" {
+		mode = modeDaily
+	}
+	pd := applogPromptData{
+		applogData:   data,
+		IsScoped:     len(data.Services) > 0,
+		ScopeLabel:   formatScopeLabelNoun(data.Services, "service", "services"),
+		AttrsLimit:   model.AttrsPreviewLimit,
+		LogDataBegin: logDataBegin,
+		LogDataEnd:   logDataEnd,
+	}
+	sys, user, err := renderPrompts(pd, promptsDir, feedApplog, mode)
+	if err != nil {
+		return "", "", err
+	}
+	if pd.IsScoped {
+		sys = applogScopedGuardSystemPreamble + "\n\n" + sys
+	}
+	return sys, user, nil
 }

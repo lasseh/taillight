@@ -45,7 +45,6 @@ func analysisScopes() []struct {
 	}{
 		{"all hosts", model.AnalysisScope{Feed: "netlog"}},
 		{"scoped", model.AnalysisScope{Feed: "netlog", Hosts: []string{"edge01", "edge02"}}},
-		{"all feeds", model.AnalysisScope{Feed: "all"}},
 	}
 }
 

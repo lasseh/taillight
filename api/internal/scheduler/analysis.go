@@ -167,11 +167,12 @@ func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.Analysi
 	req := model.AnalysisReport{
 		Feed:       sched.Feed,
 		PromptMode: model.AnalysisModeForFrequency(sched.Frequency),
-		// Scheduled runs do not carry host scope — every schedule fires
-		// fleet-wide. When per-schedule host scope is added, this is the
-		// site to thread it through; the explicit nil makes that future
+		// Scheduled runs do not carry host or service scope — every schedule
+		// fires fleet-wide. When per-schedule scope is added, this is the
+		// site to thread it through; the explicit nils make that future
 		// diff visible and grep-able.
 		Hosts:            nil,
+		Services:         nil,
 		PeriodStart:      periodStart,
 		PeriodEnd:        periodEnd,
 		NotifyChannelIDs: sched.NotifyChannelIDs,
@@ -214,10 +215,10 @@ func (s *AnalysisScheduler) RunNow(ctx context.Context, id int64) error {
 	_, err = s.enqueuer.Enqueue(ctx, model.AnalysisReport{
 		Feed:       sched.Feed,
 		PromptMode: model.AnalysisModeForFrequency(sched.Frequency),
-		// Schedule "run now" inherits the schedule's (fleet-wide) host
-		// scope — currently always nil. See runSchedule for the same
-		// pattern.
+		// Schedule "run now" inherits the schedule's (fleet-wide) scope —
+		// currently always nil. See runSchedule for the same pattern.
 		Hosts:            nil,
+		Services:         nil,
 		PeriodStart:      periodStart,
 		PeriodEnd:        periodEnd,
 		NotifyChannelIDs: sched.NotifyChannelIDs,
