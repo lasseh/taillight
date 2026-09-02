@@ -1,8 +1,6 @@
-// 'all' means all syslog feeds (srvlog + netlog combined); applog is
-// excluded by design (architecture review D3). The wire value stays 'all'
-// because it is persisted in report and schedule rows — the UI labels it
-// "all syslog" instead (feedDisplayLabel in lib/analysis-format.ts).
-export type AnalysisFeed = 'netlog' | 'srvlog' | 'all'
+// One events table per feed; the combined 'all' syslog feed was removed
+// (ADR 0006).
+export type AnalysisFeed = 'netlog' | 'srvlog'
 
 export type AnalysisStatus = 'pending' | 'running' | 'completed' | 'failed'
 

@@ -141,7 +141,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 - Merged the srvlog/netlog presentational clones (filter bar, row, detail, table) into shared components with thin per-feed bindings; VolumeView feed tabs render through one `VolumeChartPanel`; AppHeader menus are data-driven from a single `navItems` source
 - Ingest clients enforce the server contract client-side: `pkg/logshipper` and the Python SDK fail loud on a missing service and truncate oversized messages instead of silently losing whole batches
 - Frontend blocking gate grew from type-check-only to type-check + ESLint (errors-only) + Prettier check, after a mechanical bulk-format of the codebase
-- Analysis feed `all` is labeled "all syslog" in the UI — it covers srvlog+netlog; applog analysis is declared out of scope
+- Analysis feed `all` (the srvlog+netlog union) is removed; a run targets exactly one feed. Migration 22 deletes any `all` schedules and reports (ADR 0006)
 - SSE search filtering is allocation-free on the broadcast hot path
 
 - LDAP auth: replace the single `admin_group` DN with a `group_role_map` (group full-DN or bare CN → `admin`/regular role; matched case-insensitively, highest role wins, membership in no mapped group denies login), add an optional `ca_bundle` to trust an internal CA without `tls_skip_verify`, and drop the FreeIPA-only `nsAccountLock` account-lock check now that AD is supported

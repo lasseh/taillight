@@ -8,7 +8,6 @@ import { useAuthStore } from '@/stores/auth'
 import { usePolling } from '@/composables/usePolling'
 import {
   feedBadgeClass,
-  feedDisplayLabel,
   formatDuration,
   promptModeBadgeClass,
   statusBadgeClass,
@@ -272,7 +271,7 @@ onMounted(refresh)
                 class="rounded px-1.5 py-0.5 text-xs font-medium"
                 :class="feedBadgeClass(report.feed)"
               >
-                {{ feedDisplayLabel(report.feed) }}
+                {{ report.feed }}
               </span>
             </div>
             <div class="flex items-center gap-1.5">

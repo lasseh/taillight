@@ -1,21 +1,23 @@
 package model
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
 )
 
 // Analysis feed constants — the data sources an analysis run can target.
-// "all" means all syslog feeds (srvlog + netlog, a UNION ALL of the two
-// syslog tables); applog is excluded by design (architecture review D3).
-// The wire value stays "all" because it is persisted in analysis report
-// and schedule rows — the UI labels it "all syslog" instead.
+// Each feed reads exactly one events table; the former "all" syslog union
+// was removed (ADR 0006).
 const (
 	AnalysisFeedNetlog = "netlog"
 	AnalysisFeedSrvlog = "srvlog"
-	AnalysisFeedAll    = "all"
 )
+
+// AnalysisFeeds lists every valid feed in display order. Handlers derive
+// their validation message from it so the set is defined in one place.
+var AnalysisFeeds = []string{AnalysisFeedNetlog, AnalysisFeedSrvlog}
 
 // Analysis report lifecycle statuses.
 const (
@@ -27,11 +29,7 @@ const (
 
 // IsValidAnalysisFeed reports whether s is a recognized feed.
 func IsValidAnalysisFeed(s string) bool {
-	switch s {
-	case AnalysisFeedNetlog, AnalysisFeedSrvlog, AnalysisFeedAll:
-		return true
-	}
-	return false
+	return slices.Contains(AnalysisFeeds, s)
 }
 
 // Analysis prompt modes — which prompt set frames the report.

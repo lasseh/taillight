@@ -115,7 +115,8 @@ analysis:
 
 ## Boundaries
 
-- **Input feeds:** `srvlog`, `netlog`, or `all`. Not `applog`.
+- **Input feeds:** `srvlog` or `netlog`, one per run. There is no combined
+  feed (ADR 0006).
 - **`Run` is pure compute + inference** — it returns a `Result`. Persistence,
   queueing, and timeouts are the worker's job (`internal/worker/analysis.go`);
   HTTP wiring is `setupAnalysis` in `serve.go`.

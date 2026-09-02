@@ -5,7 +5,6 @@ import { useAuthStore } from '@/stores/auth'
 import { usePolling } from '@/composables/usePolling'
 import {
   feedBadgeClass,
-  feedDisplayLabel,
   formatDate,
   formatDuration,
   promptModeBadgeClass,
@@ -40,7 +39,6 @@ const createError = ref('')
 const confirmedFeeds: { value: AnalysisFeed; label: string }[] = [
   { value: 'netlog', label: 'Netlog' },
   { value: 'srvlog', label: 'Srvlog' },
-  { value: 'all', label: 'All syslog' },
 ]
 
 const promptModes: { value: AnalysisPromptMode; label: string; hint: string }[] = [
@@ -545,7 +543,7 @@ onMounted(async () => {
                 class="inline-block rounded px-1.5 py-0.5 text-xs"
                 :class="feedBadgeClass(r.feed)"
               >
-                {{ feedDisplayLabel(r.feed) }}
+                {{ r.feed }}
               </span>
             </div>
             <div class="w-20 shrink-0">

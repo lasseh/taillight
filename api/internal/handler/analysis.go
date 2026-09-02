@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,6 +20,10 @@ import (
 )
 
 const analysisDefaultLimit = 30
+
+// invalidFeedMessage is the validation error for an unrecognized feed. Built
+// from model.AnalysisFeeds so adding a feed never leaves a stale list here.
+var invalidFeedMessage = "feed must be one of: " + strings.Join(model.AnalysisFeeds, ", ")
 
 // AnalysisReportStore is the persistence interface for the analysis handler.
 type AnalysisReportStore interface {
@@ -198,7 +203,7 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !model.IsValidAnalysisFeed(req.Feed) {
-		writeError(w, http.StatusBadRequest, "invalid_feed", "feed must be netlog, srvlog, or all")
+		writeError(w, http.StatusBadRequest, "invalid_feed", invalidFeedMessage)
 		return
 	}
 
@@ -307,7 +312,7 @@ func (h *AnalysisHandler) validateHostsForFeed(ctx context.Context, feed string,
 func (h *AnalysisHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 	feed := r.URL.Query().Get("feed")
 	if !model.IsValidAnalysisFeed(feed) {
-		writeError(w, http.StatusBadRequest, "invalid_feed", "feed must be netlog, srvlog, or all")
+		writeError(w, http.StatusBadRequest, "invalid_feed", invalidFeedMessage)
 		return
 	}
 

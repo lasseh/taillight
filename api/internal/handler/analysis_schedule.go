@@ -187,7 +187,7 @@ func (h *AnalysisScheduleHandler) decodeAndValidateSchedule(w http.ResponseWrite
 		return model.AnalysisSchedule{}, false
 	}
 	if !model.IsValidAnalysisFeed(sched.Feed) {
-		writeError(w, http.StatusBadRequest, "validation_failed", "feed must be netlog, srvlog, or all")
+		writeError(w, http.StatusBadRequest, "validation_failed", invalidFeedMessage)
 		return model.AnalysisSchedule{}, false
 	}
 	switch sched.Frequency {

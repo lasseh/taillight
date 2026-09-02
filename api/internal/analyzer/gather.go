@@ -67,7 +67,6 @@ const (
 	// Feed name constants.
 	feedNetlog = "netlog"
 	feedSrvlog = "srvlog"
-	feedAll    = "all"
 )
 
 // sparkBlocks is the set of unicode block characters used to render
@@ -422,7 +421,7 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	// Juniper reference data only applies to netlog msgids; skip the lookup
 	// entirely for srvlog feeds (the table would return zero matches anyway,
 	// but skipping saves a DB roundtrip and clarifies intent).
-	if feed == feedNetlog || feed == feedAll {
+	if feed == feedNetlog {
 		msgidNames := make([]string, 0, len(data.TopMsgIDs)+len(data.NewMsgIDs))
 		for _, mc := range data.TopMsgIDs {
 			msgidNames = append(msgidNames, mc.MsgID)

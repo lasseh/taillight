@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { useFocusTrap } from '@/composables/useFocusTrap'
-import { feedBadgeClass, feedDisplayLabel } from '@/lib/analysis-format'
+import { feedBadgeClass } from '@/lib/analysis-format'
 import type {
   AnalysisFeed,
   AnalysisFrequency,
@@ -98,7 +98,6 @@ const dayOfWeekLabels = [
 const feedOptions: { value: AnalysisFeed; label: string }[] = [
   { value: 'netlog', label: 'Netlog' },
   { value: 'srvlog', label: 'Srvlog' },
-  { value: 'all', label: 'All syslog' },
 ]
 
 async function fetchData() {
@@ -328,7 +327,7 @@ onMounted(() => {
                 class="inline-block rounded px-1.5 py-0.5 text-xs"
                 :class="feedBadgeClass(sched.feed)"
               >
-                {{ feedDisplayLabel(sched.feed) }}
+                {{ sched.feed }}
               </span>
             </div>
             <div class="w-24 shrink-0">

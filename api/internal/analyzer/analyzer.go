@@ -12,7 +12,7 @@ import (
 
 // Store defines the data access methods needed by the analyzer.
 // Methods that query log events accept an AnalysisScope, which pairs the
-// feed ("srvlog", "netlog", or "all") with an optional explicit host filter.
+// feed ("srvlog" or "netlog") with an optional explicit host filter.
 type Store interface {
 	GetTopMsgIDs(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.MsgIDCount, error)
 	GetSeverityComparison(ctx context.Context, scope model.AnalysisScope, currentSince, baselineSince time.Time) (model.SeverityComparison, error)

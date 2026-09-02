@@ -233,7 +233,7 @@ Optional (`analysis.enabled`, default off). When enabled, `setupAnalysis` (`cmd/
 
 Reports are addressed by slug (`GET /api/v1/analysis/reports/{slug}`), can be scoped to an explicit host set, and have a server-rendered print view (`.../{slug}/print`) that the frontend's "Export PDF" prints via a hidden iframe. Email and print share one renderer (`internal/report`).
 
-Analysis feeds are `netlog`, `srvlog`, or `all` — where `all` means *all syslog* (srvlog + netlog union). Applog is excluded by design (architecture review D3). The `analysis` flag is the one real feature flag surfaced by `GET /api/v1/config/features`.
+Analysis feeds are `netlog` or `srvlog`, one per run; the combined `all` syslog feed was removed (ADR 0006). The `analysis` flag is the one real feature flag surfaced by `GET /api/v1/config/features`.
 
 ### Summary Scheduler
 
@@ -439,7 +439,7 @@ summary_schedule_channels (schedule_id FK, channel_id FK)
 
 ```sql
 -- analysis_reports: async LLM report lifecycle
-analysis_reports (id PK, slug UNIQUE, feed ['netlog','srvlog','all'], prompt_mode,
+analysis_reports (id PK, slug UNIQUE, feed ['netlog','srvlog'], prompt_mode,
     hosts TEXT[],                       -- empty = all hosts
     model, period_start, period_end, report, error,
     prompt_tokens, completion_tokens,

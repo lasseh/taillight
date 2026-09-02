@@ -5,21 +5,12 @@ import type {
   AnalysisReportSummary,
 } from '@/types/analysis'
 
-// feedDisplayLabel renders the wire feed value for badges. 'all' unions
-// only the two syslog feeds (srvlog + netlog) — applog is excluded by
-// design — so it is shown as 'all syslog' while the wire value stays 'all'.
-export function feedDisplayLabel(feed: AnalysisFeed): string {
-  return feed === 'all' ? 'all syslog' : feed
-}
-
 export function feedBadgeClass(feed: AnalysisFeed): string {
   switch (feed) {
     case 'netlog':
       return 'bg-t-blue/10 text-t-blue'
     case 'srvlog':
       return 'bg-t-green/10 text-t-green'
-    case 'all':
-      return 'bg-t-purple/10 text-t-purple'
     default:
       return 'bg-t-fg-dark/10 text-t-fg-dark'
   }
@@ -87,7 +78,6 @@ export function timeAgo(ts: string): string {
 const feedLabel: Record<AnalysisFeed, string> = {
   netlog: 'Netlog',
   srvlog: 'Srvlog',
-  all: 'All syslog',
 }
 
 // formatScope renders the report's host scope as a count phrase ("3 hosts")

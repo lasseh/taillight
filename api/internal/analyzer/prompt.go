@@ -168,8 +168,6 @@ func feedDescription(feed string) string {
 		return "network device syslog data (routers, switches, firewalls)"
 	case feedSrvlog:
 		return "server syslog data (Linux, Windows servers)"
-	case feedAll:
-		return "combined syslog data from both network devices and servers"
 	default:
 		return "syslog data"
 	}
@@ -182,8 +180,6 @@ func feedTitle(feed string) string {
 		return "Netlog"
 	case feedSrvlog:
 		return "Srvlog"
-	case feedAll:
-		return "All Feeds"
 	default:
 		return "Log"
 	}

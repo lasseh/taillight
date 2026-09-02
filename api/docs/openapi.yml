@@ -2028,8 +2028,7 @@ paths:
               properties:
                 feed:
                   type: string
-                  enum: [netlog, srvlog, all]
-                  description: "'all' = all syslog feeds (srvlog + netlog); applog is excluded by design"
+                  enum: [netlog, srvlog]
                 prompt_mode:
                   type: string
                   enum: [daily, weekly, incident]
@@ -2172,7 +2171,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [netlog, srvlog, all]
+            enum: [netlog, srvlog]
       responses:
         "200":
           description: Host entries
@@ -3433,8 +3432,7 @@ components:
           description: "<feed>-YYYY-MM-DD-HHMM, used as the URL segment"
         feed:
           type: string
-          enum: [netlog, srvlog, all]
-          description: "'all' = all syslog feeds (srvlog + netlog); applog is excluded by design"
+          enum: [netlog, srvlog]
         prompt_mode:
           type: string
           enum: [daily, weekly, incident]
@@ -3494,8 +3492,7 @@ components:
           type: boolean
         feed:
           type: string
-          enum: [netlog, srvlog, all]
-          description: "'all' = all syslog feeds (srvlog + netlog); applog is excluded by design"
+          enum: [netlog, srvlog]
         frequency:
           type: string
           enum: [daily, weekly, monthly]
