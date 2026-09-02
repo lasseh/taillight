@@ -111,6 +111,9 @@ type applogPerDay struct {
 	Fatal float64
 }
 
+// ErrorPlus returns the error-and-above rate. Exported for the templates.
+func (p applogPerDay) ErrorPlus() float64 { return p.Error + p.Fatal }
+
 // applogServiceRow is one service as the prompt sees it: window counts, the
 // same as per-day rates, the baseline per-day rates, and how many new
 // templates the service produced.
@@ -511,6 +514,14 @@ func sampleKeys(ranked []applogServiceReport, newTemplates []model.AppLogTemplat
 // silent or appeared.
 func isEmptyAppLogData(d applogData) bool {
 	return d.ActiveServices == 0 && len(d.NewTemplates) == 0 && len(d.Silent) == 0 && len(d.NewServices) == 0
+}
+
+// emptyAppLogBody is the deterministic body for an empty applog window.
+func emptyAppLogBody(scope model.AnalysisScope) string {
+	if scope.IsAllServices() {
+		return "_No warnings or errors recorded on the applog feed during this window._\n"
+	}
+	return "_No warnings or errors recorded for the scoped service(s) during this window._\n"
 }
 
 // compactAttrs rewrites a sample's attrs JSON for the prompt: string values

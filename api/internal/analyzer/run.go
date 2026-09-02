@@ -49,6 +49,71 @@ func emptyDataBody(scope model.AnalysisScope) string {
 	return "_No events recorded for the scoped host(s) during this window._\n"
 }
 
+// prepared is what a feed's gather-and-prompt stage hands to the shared
+// model call: the period it covered, whether the window was empty (and the
+// body to emit if so), the rendered prompts, and the data-signal counts for
+// the "sending prompt" log line.
+type prepared struct {
+	periodStart time.Time
+	periodEnd   time.Time
+	empty       bool
+	emptyBody   string
+	system      string
+	user        string
+	signals     []any
+}
+
+// prepareSyslog gathers and renders a netlog or srvlog run.
+func (a *Analyzer) prepareSyslog(ctx context.Context, scope model.AnalysisScope, period time.Duration, periodEnd time.Time, mode string) (prepared, error) {
+	data, err := a.gather(ctx, scope, period, periodEnd)
+	if err != nil {
+		return prepared{}, fmt.Errorf("gather data: %w", err)
+	}
+	p := prepared{periodStart: data.PeriodStart, periodEnd: data.PeriodEnd}
+	if isEmptyData(data) {
+		p.empty = true
+		p.emptyBody = emptyDataBody(scope)
+		return p, nil
+	}
+	p.system, p.user, err = buildPrompt(data, a.cfg.PromptsDir, mode)
+	if err != nil {
+		return prepared{}, fmt.Errorf("build prompt: %w", err)
+	}
+	p.signals = []any{
+		"top_msgids", len(data.TopMsgIDs),
+		"new_msgids", len(data.NewMsgIDs),
+		"event_clusters", len(data.EventClusters),
+		"top_error_hosts", len(data.TopErrorHosts),
+	}
+	return p, nil
+}
+
+// prepareAppLog gathers and renders an applog run.
+func (a *Analyzer) prepareAppLog(ctx context.Context, scope model.AnalysisScope, period time.Duration, periodEnd time.Time, mode string) (prepared, error) {
+	data, err := a.gatherAppLog(ctx, scope, period, periodEnd)
+	if err != nil {
+		return prepared{}, fmt.Errorf("gather data: %w", err)
+	}
+	p := prepared{periodStart: data.PeriodStart, periodEnd: data.PeriodEnd}
+	if isEmptyAppLogData(data) {
+		p.empty = true
+		p.emptyBody = emptyAppLogBody(scope)
+		return p, nil
+	}
+	p.system, p.user, err = buildAppLogPrompt(data, a.cfg.PromptsDir, mode)
+	if err != nil {
+		return prepared{}, fmt.Errorf("build prompt: %w", err)
+	}
+	p.signals = []any{
+		"active_services", data.ActiveServices,
+		"ranked_services", len(data.Ranked),
+		"new_templates", len(data.NewTemplates),
+		"silent_services", len(data.Silent),
+		"new_services", len(data.NewServices),
+	}
+	return p, nil
+}
+
 // Run executes a single analysis cycle for the given parameters. Persistence
 // is the caller's responsibility — Run returns the assembled Result.
 func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
@@ -56,16 +121,19 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 	if mode == "" {
 		mode = modeDaily
 	}
+	kind := reportKind(params.Feed, mode)
 
 	start := time.Now()
 	periodEnd := start.UTC().Truncate(time.Minute)
 
-	scope := model.AnalysisScope{Feed: params.Feed, Hosts: params.Hosts}
+	scope := model.AnalysisScope{Feed: params.Feed, Hosts: params.Hosts, Services: params.Services}
+	scoped := !scope.IsAllHosts() || !scope.IsAllServices()
 
 	a.logger.Info("starting analysis run",
 		"model", a.cfg.Model,
 		"feed", params.Feed,
 		"hosts", len(scope.Hosts),
+		"services", len(scope.Services),
 		"period", params.Period,
 		"prompt_mode", mode,
 	)
@@ -75,10 +143,16 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		return Result{}, fmt.Errorf("ollama not available: %w", err)
 	}
 
-	data, err := a.gather(ctx, scope, params.Period, periodEnd)
+	var p prepared
+	var err error
+	if params.Feed == feedApplog {
+		p, err = a.prepareAppLog(ctx, scope, params.Period, periodEnd, mode)
+	} else {
+		p, err = a.prepareSyslog(ctx, scope, params.Period, periodEnd, mode)
+	}
 	if err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
-		return Result{}, fmt.Errorf("gather data: %w", err)
+		return Result{}, err
 	}
 
 	// Empty-data short-circuit. Asking a model to narrate the absence of data
@@ -89,48 +163,36 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 	//
 	// The persisted row has tokens 0/0 with status=completed — see worker
 	// docs for the contract.
-	if isEmptyData(data) {
+	if p.empty {
 		metrics.AnalysisRunsTotal.WithLabelValues("completed").Inc()
 		metrics.AnalysisDurationSeconds.Observe(time.Since(start).Seconds())
 		a.logger.Info("analysis short-circuited: no events in window",
 			"feed", params.Feed,
 			"prompt_mode", mode,
-			"scoped", !scope.IsAllHosts(),
+			"scoped", scoped,
 			"hosts", len(scope.Hosts),
+			"services", len(scope.Services),
 		)
 		return Result{
-			PeriodStart: data.PeriodStart,
-			PeriodEnd:   data.PeriodEnd,
-			Report: prependReportHeader(
-				emptyDataBody(scope),
-				mode, data.PeriodStart, data.PeriodEnd,
-			),
+			PeriodStart: p.periodStart,
+			PeriodEnd:   p.periodEnd,
+			Report:      prependReportHeader(p.emptyBody, kind, p.periodStart, p.periodEnd),
 		}, nil
-	}
-
-	sysProm, userProm, err := buildPrompt(data, a.cfg.PromptsDir, mode)
-	if err != nil {
-		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
-		return Result{}, fmt.Errorf("build prompt: %w", err)
 	}
 
 	// Log what's actually reaching the model. The data-signal counts let an
 	// operator tell "the prompt arrived empty" (gather returned nothing)
 	// from "the prompt had data and the model was lazy" without DB access.
-	a.logger.Info("sending prompt to ollama",
+	a.logger.Info("sending prompt to ollama", append([]any{
 		"model", a.cfg.Model,
 		"prompt_mode", mode,
-		"system_bytes", len(sysProm),
-		"user_bytes", len(userProm),
-		"top_msgids", len(data.TopMsgIDs),
-		"new_msgids", len(data.NewMsgIDs),
-		"event_clusters", len(data.EventClusters),
-		"top_error_hosts", len(data.TopErrorHosts),
-	)
+		"system_bytes", len(p.system),
+		"user_bytes", len(p.user),
+	}, p.signals...)...)
 
 	messages := []ollama.ChatMessage{
-		{Role: "system", Content: sysProm},
-		{Role: "user", Content: userProm},
+		{Role: "system", Content: p.system},
+		{Role: "user", Content: p.user},
 	}
 	options := ollama.Options{
 		Temperature: a.cfg.Temperature,
@@ -152,7 +214,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 	// placeholder). On any violation, send one corrective follow-up and
 	// prefer whichever reply validates. We never make the report worse — if
 	// the retry also fails or the call errors, we keep the original.
-	if vErr := validateReport(resp.Message.Content, mode); vErr != nil {
+	if vErr := validateReport(resp.Message.Content, kind); vErr != nil {
 		a.logger.Warn("report failed validation, retrying once",
 			"feed", params.Feed,
 			"prompt_mode", mode,
@@ -162,7 +224,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 			Model: a.cfg.Model,
 			Messages: append(messages,
 				ollama.ChatMessage{Role: "assistant", Content: resp.Message.Content},
-				ollama.ChatMessage{Role: "user", Content: structureCorrection(vErr, mode)},
+				ollama.ChatMessage{Role: "user", Content: structureCorrection(vErr, kind)},
 			),
 			Options: options,
 		})
@@ -174,7 +236,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 				"prompt_mode", mode,
 				"err", rErr.Error(),
 			)
-		case validateReport(retry.Message.Content, mode) == nil:
+		case validateReport(retry.Message.Content, kind) == nil:
 			metrics.AnalysisStructureRetriesTotal.WithLabelValues("fixed").Inc()
 			a.logger.Info("validation retry fixed the report",
 				"feed", params.Feed,
@@ -219,12 +281,12 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 	// keeps the H1 stable across reports.
 	report := prependReportHeader(
 		normalizeReportMarkdown(resp.Message.Content),
-		mode, data.PeriodStart, data.PeriodEnd,
+		kind, p.periodStart, p.periodEnd,
 	)
 
 	return Result{
-		PeriodStart:      data.PeriodStart,
-		PeriodEnd:        data.PeriodEnd,
+		PeriodStart:      p.periodStart,
+		PeriodEnd:        p.periodEnd,
 		Report:           report,
 		PromptTokens:     resp.PromptEvalCount,
 		CompletionTokens: resp.EvalCount,

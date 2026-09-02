@@ -63,10 +63,11 @@ type Config struct {
 // caller (the handler/worker pass through the persisted report.Hosts which
 // is normalized at insert time); the analyzer itself does not re-normalize.
 type RunParams struct {
-	Feed   string
-	Hosts  []string
-	Period time.Duration
-	Mode   string // "" defaults to AnalysisModeDaily.
+	Feed     string
+	Hosts    []string // syslog feeds only.
+	Services []string // applog only; normalized like Hosts.
+	Period   time.Duration
+	Mode     string // "" defaults to AnalysisModeDaily.
 }
 
 // Result is the output of a single analysis run. Persistence is the caller's
