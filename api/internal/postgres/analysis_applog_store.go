@@ -340,3 +340,35 @@ func (s *Store) GetAppLogHygiene(ctx context.Context, scope model.AnalysisScope,
 	}
 	return h, nil
 }
+
+// ListAnalysisServiceEntries returns service + last_seen rows for the
+// create-report service picker, the applog counterpart of
+// ListAnalysisHostEntries. Services come from the meta cache (every service
+// that ever logged); last_seen is the newest hourly bucket in the aggregate
+// and is nil for a service with no aggregated activity.
+func (s *Store) ListAnalysisServiceEntries(ctx context.Context) ([]model.AnalysisServiceEntry, error) {
+	query := `
+		SELECT mc.value AS service, ls.last_seen
+		FROM applog_meta_cache mc
+		LEFT JOIN (
+			SELECT service, MAX(bucket) AS last_seen
+			FROM applog_summary_hourly
+			GROUP BY service
+		) ls ON ls.service = mc.value
+		WHERE mc.column_name = 'service'
+		ORDER BY mc.value`
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list analysis service entries: %w", err)
+	}
+	entries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.AnalysisServiceEntry, error) {
+		var e model.AnalysisServiceEntry
+		err := row.Scan(&e.Service, &e.LastSeen)
+		return e, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan analysis service entry: %w", err)
+	}
+	return entries, nil
+}

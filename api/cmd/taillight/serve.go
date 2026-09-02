@@ -808,6 +808,7 @@ func setupRouter(
 					r.Get("/analysis/reports/{slug}", analysis.reports.Get)
 					r.Get("/analysis/reports/{slug}/print", analysis.reports.Print)
 					r.Get("/analysis/hosts", analysis.reports.Hosts)
+					r.Get("/analysis/services", analysis.reports.Services)
 					r.Get("/analysis/schedules", analysis.schedules.List)
 					r.Get("/analysis/schedules/{id}", analysis.schedules.Get)
 				})

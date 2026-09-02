@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -235,4 +236,76 @@ func explainPlan(t *testing.T, pool *pgxpool.Pool, ctx context.Context, sql stri
 		t.Fatalf("plan rows: %v", err)
 	}
 	return plan.String()
+}
+
+// TestIntegration_AppLogReportServicesScope covers migration 23: the
+// services column round-trips through insert, get, and list; the active
+// report index keys on it; and the service picker query reads the meta
+// cache and aggregate the fixture populated.
+func TestIntegration_AppLogReportServicesScope(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "analysis_reports", "applog_events")
+	store := NewStore(pool)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Minute)
+
+	base := model.AnalysisReport{
+		Feed:        model.AnalysisFeedApplog,
+		PromptMode:  model.AnalysisModeDaily,
+		PeriodStart: now.Add(-24 * time.Hour),
+		PeriodEnd:   now,
+	}
+	first := base
+	first.Services = []string{"worker", "api", "api"}
+	inserted, err := store.InsertPendingReport(ctx, first)
+	if err != nil {
+		t.Fatalf("InsertPendingReport: %v", err)
+	}
+	if len(inserted.Services) != 2 || inserted.Services[0] != "api" || inserted.Services[1] != "worker" {
+		t.Errorf("services not normalized on insert: %v", inserted.Services)
+	}
+
+	got, err := store.GetReportBySlug(ctx, inserted.Slug)
+	if err != nil {
+		t.Fatalf("GetReportBySlug: %v", err)
+	}
+	if len(got.Services) != 2 || got.Services[1] != "worker" || len(got.Hosts) != 0 {
+		t.Errorf("round-trip = services %v hosts %v", got.Services, got.Hosts)
+	}
+	list, err := store.ListReports(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListReports: %v", err)
+	}
+	if len(list) != 1 || len(list[0].Services) != 2 {
+		t.Errorf("summary services = %+v", list)
+	}
+
+	// A different scope for the same window runs concurrently; the same
+	// scope collides.
+	other := base
+	other.Services = []string{"billing"}
+	if _, err := store.InsertPendingReport(ctx, other); err != nil {
+		t.Errorf("different service scope should not collide: %v", err)
+	}
+	same := base
+	same.Services = []string{"api", "worker"}
+	if _, err := store.InsertPendingReport(ctx, same); !errors.Is(err, ErrDuplicateActiveReport) {
+		t.Errorf("same service scope = %v, want ErrDuplicateActiveReport", err)
+	}
+
+	seedAppLogFixture(t, pool)
+	entries, err := store.ListAnalysisServiceEntries(ctx)
+	if err != nil {
+		t.Fatalf("ListAnalysisServiceEntries: %v", err)
+	}
+	byName := map[string]model.AnalysisServiceEntry{}
+	for _, e := range entries {
+		byName[e.Service] = e
+	}
+	for _, svc := range []string{"api", "worker"} {
+		e, ok := byName[svc]
+		if !ok || e.LastSeen == nil {
+			t.Errorf("service %q missing or without last_seen: %+v", svc, entries)
+		}
+	}
 }

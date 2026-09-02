@@ -24,6 +24,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 - OIDC single sign-on (`oidc.` config block, default off): Authorization Code + PKCE against any OpenID Connect provider, with endpoint discovery, ID-token validation, allowed-domain/user/group gating, and admin-group mapping. Users provision on first login keyed on the `(issuer, subject)` claims — never linked to existing local/LDAP accounts — carry no local password, and get an ordinary `tl_session` session; API-key auth is untouched. The login page shows a "Sign in with SSO" button when the `oidc` feature flag is on
 
 #### Analysis
+- Applog is a third analysis feed: a daily brief for the developers who own a service. Its own gather ranks services by new templates, then error-rate change, then warning-rate change; raw-row queries read WARN and above only, while volume and silent-service detection use the hourly aggregate. Reports take a `services` scope (`GET /api/v1/analysis/services` feeds the picker), the daily prompt only, and caps under `analysis.applog` sized for a 32k context (ADR 0006)
 - Email completed analysis reports by selecting email notification channels on a schedule (`notify_channel_ids`); channel ids are validated as existing email-type channels and snapshotted onto each report at enqueue time
 
 #### Netlog feed

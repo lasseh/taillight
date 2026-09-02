@@ -2028,7 +2028,7 @@ paths:
               properties:
                 feed:
                   type: string
-                  enum: [netlog, srvlog]
+                  enum: [netlog, srvlog, applog]
                 prompt_mode:
                   type: string
                   enum: [daily, weekly, incident]
@@ -2046,8 +2046,18 @@ paths:
                   items:
                     type: string
                   description: |
-                    Restrict the report to these hostnames. Empty/missing means
-                    all hosts on the feed; unknown names are rejected with 400.
+                    Restrict a netlog or srvlog report to these hostnames.
+                    Empty/missing means all hosts on the feed; unknown names
+                    are rejected with 400. Rejected for the applog feed.
+                services:
+                  type: array
+                  items:
+                    type: string
+                  description: |
+                    Restrict an applog report to these services. Empty/missing
+                    means every service; unknown names are rejected with 400.
+                    Rejected for the netlog and srvlog feeds. Applog accepts
+                    only prompt_mode daily.
       responses:
         "201":
           description: Report queued
@@ -2171,7 +2181,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [netlog, srvlog]
+            enum: [netlog, srvlog, applog]
       responses:
         "200":
           description: Host entries
@@ -2186,6 +2196,29 @@ paths:
                       $ref: "#/components/schemas/AnalysisHostEntry"
         "400":
           $ref: "#/components/responses/BadRequest"
+
+  /analysis/services:
+    get:
+      operationId: listAnalysisServices
+      x-required-scope: read
+      tags: [Analysis]
+      summary: Services available for applog analysis scoping
+      description: |
+        Known applog services, used by the create-report service picker.
+        Applog is the only feed with a service scope, so there is no feed
+        parameter. Intentionally minimal — no per-service stats.
+      responses:
+        "200":
+          description: Service entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AnalysisServiceEntry"
 
   /analysis/schedules:
     get:
@@ -3432,7 +3465,7 @@ components:
           description: "<feed>-YYYY-MM-DD-HHMM, used as the URL segment"
         feed:
           type: string
-          enum: [netlog, srvlog]
+          enum: [netlog, srvlog, applog]
         prompt_mode:
           type: string
           enum: [daily, weekly, incident]
@@ -3441,7 +3474,12 @@ components:
           type: array
           items:
             type: string
-          description: Host scope; empty = all hosts on the feed
+          description: Host scope (netlog, srvlog); empty = all hosts on the feed
+        services:
+          type: array
+          items:
+            type: string
+          description: Service scope (applog); empty = every service
         model:
           type: string
         period_start:
@@ -3492,7 +3530,7 @@ components:
           type: boolean
         feed:
           type: string
-          enum: [netlog, srvlog]
+          enum: [netlog, srvlog, applog]
         frequency:
           type: string
           enum: [daily, weekly, monthly]
@@ -3612,6 +3650,16 @@ components:
       type: object
       properties:
         hostname:
+          type: string
+        last_seen:
+          type: string
+          format: date-time
+          description: Most recent hour-aligned activity bucket; omitted when unknown
+
+    AnalysisServiceEntry:
+      type: object
+      properties:
+        service:
           type: string
         last_seen:
           type: string

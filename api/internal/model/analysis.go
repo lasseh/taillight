@@ -13,11 +13,12 @@ import (
 const (
 	AnalysisFeedNetlog = "netlog"
 	AnalysisFeedSrvlog = "srvlog"
+	AnalysisFeedApplog = "applog"
 )
 
 // AnalysisFeeds lists every valid feed in display order. Handlers derive
 // their validation message from it so the set is defined in one place.
-var AnalysisFeeds = []string{AnalysisFeedNetlog, AnalysisFeedSrvlog}
+var AnalysisFeeds = []string{AnalysisFeedNetlog, AnalysisFeedSrvlog, AnalysisFeedApplog}
 
 // Analysis report lifecycle statuses.
 const (
@@ -48,6 +49,27 @@ func IsValidAnalysisMode(s string) bool {
 	return false
 }
 
+// IsValidAnalysisModeForFeed reports whether the feed has a prompt set for
+// the mode. The syslog feeds accept every mode; applog is daily only until
+// its weekly prompt exists.
+func IsValidAnalysisModeForFeed(feed, mode string) bool {
+	if feed == AnalysisFeedApplog {
+		return mode == AnalysisModeDaily
+	}
+	return IsValidAnalysisMode(mode)
+}
+
+// IsValidAnalysisFrequencyForFeed reports whether a schedule frequency is
+// allowed for the feed. Applog schedules are daily only: weekly and monthly
+// cadences map to the weekly prompt, which the feed does not have. The
+// caller validates the frequency itself separately.
+func IsValidAnalysisFrequencyForFeed(feed, frequency string) bool {
+	if feed == AnalysisFeedApplog {
+		return frequency == "daily"
+	}
+	return true
+}
+
 // AnalysisModeForFrequency maps a schedule frequency to the prompt mode that
 // scheduled runs use. Per the design decision to auto-derive mode from
 // cadence: daily cadence uses the daily prompt; weekly and monthly both reuse
@@ -68,7 +90,8 @@ func AnalysisModeForFrequency(frequency string) string {
 // the feed"; a non-empty slice restricts every aggregation (and the baseline
 // comparison) to that exact set. The slice is normalized — sorted and deduped
 // — before persistence so two requests with the same set collide on the
-// active-report uniqueness constraint.
+// active-report uniqueness constraint. Services is the applog counterpart;
+// each feed uses one of the two and rejects the other.
 //
 // Token-count contract: PromptTokens=0 && CompletionTokens=0 on a row with
 // Status="completed" means the analyzer short-circuited because the gathered
@@ -81,6 +104,7 @@ type AnalysisReport struct {
 	Feed             string     `json:"feed"`
 	PromptMode       string     `json:"prompt_mode"`
 	Hosts            []string   `json:"hosts"`
+	Services         []string   `json:"services"`
 	Model            string     `json:"model"`
 	PeriodStart      time.Time  `json:"period_start"`
 	PeriodEnd        time.Time  `json:"period_end"`
@@ -105,6 +129,7 @@ type AnalysisReportSummary struct {
 	Feed             string     `json:"feed"`
 	PromptMode       string     `json:"prompt_mode"`
 	Hosts            []string   `json:"hosts"`
+	Services         []string   `json:"services"`
 	Model            string     `json:"model"`
 	PeriodStart      time.Time  `json:"period_start"`
 	PeriodEnd        time.Time  `json:"period_end"`
@@ -208,6 +233,14 @@ type AnalysisSchedule struct {
 // not yet produced an aggregated row (very freshly onboarded hosts).
 type AnalysisHostEntry struct {
 	Hostname string     `json:"hostname"`
+	LastSeen *time.Time `json:"last_seen,omitempty"`
+}
+
+// AnalysisServiceEntry is one row returned by the analysis services endpoint
+// (GET /api/v1/analysis/services), the applog counterpart of
+// AnalysisHostEntry for the create-report picker.
+type AnalysisServiceEntry struct {
+	Service  string     `json:"service"`
 	LastSeen *time.Time `json:"last_seen,omitempty"`
 }
 

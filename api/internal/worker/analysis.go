@@ -169,10 +169,11 @@ func (a *Analysis) process(parent context.Context, id int64) {
 
 	period := report.PeriodEnd.Sub(report.PeriodStart)
 	res, runErr := a.runner.Run(ctx, analyzer.RunParams{
-		Feed:   report.Feed,
-		Hosts:  report.Hosts,
-		Period: period,
-		Mode:   report.PromptMode,
+		Feed:     report.Feed,
+		Hosts:    report.Hosts,
+		Services: report.Services,
+		Period:   period,
+		Mode:     report.PromptMode,
 	})
 	if runErr != nil {
 		if markErr := a.store.MarkReportFailed(parent, id, sanitizeRunErr(runErr)); markErr != nil {

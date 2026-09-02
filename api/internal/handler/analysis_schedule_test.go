@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/lasseh/taillight/internal/model"
@@ -102,6 +103,33 @@ func TestCreateScheduleNotifyChannelValidation(t *testing.T) {
 				if got := len(store.created.NotifyChannelIDs); got != len(tt.channelIDs) {
 					t.Errorf("persisted %d channel ids, want %d", got, len(tt.channelIDs))
 				}
+			}
+		})
+	}
+}
+
+// TestCreateScheduleApplogDailyOnly pins the cadence rule for the applog
+// feed: weekly and monthly map to the weekly prompt, which applog lacks.
+func TestCreateScheduleApplogDailyOnly(t *testing.T) {
+	dow := 1
+	cases := []struct {
+		name     string
+		body     map[string]any
+		wantCode int
+	}{
+		{"daily accepted", map[string]any{"name": "applog daily", "feed": "applog", "frequency": "daily", "time_of_day": "06:00"}, http.StatusCreated},
+		{"weekly rejected", map[string]any{"name": "applog weekly", "feed": "applog", "frequency": "weekly", "day_of_week": dow, "time_of_day": "06:00"}, http.StatusBadRequest},
+		{"srvlog weekly still fine", map[string]any{"name": "srvlog weekly", "feed": "srvlog", "frequency": "weekly", "day_of_week": dow, "time_of_day": "06:00"}, http.StatusCreated},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := NewAnalysisScheduleHandler(&stubScheduleStore{}, nil)
+			w := postSchedule(t, h, tc.body)
+			if w.Code != tc.wantCode {
+				t.Fatalf("status: got %d, want %d; body=%s", w.Code, tc.wantCode, w.Body.String())
+			}
+			if tc.wantCode == http.StatusBadRequest && !strings.Contains(w.Body.String(), "daily frequency") {
+				t.Errorf("body should name the daily-only rule: %s", w.Body.String())
 			}
 		})
 	}
