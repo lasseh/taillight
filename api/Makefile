@@ -35,9 +35,11 @@ test: ## Run tests (DB integration tests skip unless TEST_DATABASE_URL is set)
 INTEGRATION_IMAGE ?= timescale/timescaledb:latest-pg18
 INTEGRATION_PORT  ?= 55432
 
+# -p 1: both packages truncate and seed the same tables in one database, so
+# their test binaries must not run concurrently.
 test-integration: ## Run DB integration tests in an ephemeral TimescaleDB (or against $$TEST_DATABASE_URL)
 ifdef TEST_DATABASE_URL
-	$(TEST_CMD) -race -run Integration ./internal/postgres/... ./cmd/taillight/
+	$(TEST_CMD) -race -p 1 -run Integration ./internal/postgres/... ./cmd/taillight/
 else
 	@echo "starting ephemeral $(INTEGRATION_IMAGE) on port $(INTEGRATION_PORT)..."
 	@cid=$$(docker run -d --rm -e POSTGRES_USER=taillight -e POSTGRES_PASSWORD=taillight \
@@ -48,7 +50,7 @@ else
 		docker exec $$cid pg_isready -U taillight -d taillight_test >/dev/null 2>&1 && break; sleep 1; \
 	done; \
 	TEST_DATABASE_URL="postgres://taillight:taillight@127.0.0.1:$(INTEGRATION_PORT)/taillight_test?sslmode=disable" \
-		$(TEST_CMD) -race -run Integration ./internal/postgres/... ./cmd/taillight/
+		$(TEST_CMD) -race -p 1 -run Integration ./internal/postgres/... ./cmd/taillight/
 endif
 
 lint: ## Run linter (includes vet, fmt, imports via golangci-lint)
