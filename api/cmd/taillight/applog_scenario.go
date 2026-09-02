@@ -51,7 +51,10 @@ var scenarioNouns = []string{
 var scenarioSuffixes = []string{"api", "worker", "cron", "consumer", "gateway", "svc"}
 
 // scenarioRoles assigns planted roles by volume rank so the mix covers
-// busy and quiet services alike.
+// busy and quiet services alike. scenarioMaxRoleRank is the highest rank
+// used; fewer services than that skips the roles beyond the list.
+const scenarioMaxRoleRank = 59
+
 var scenarioRoles = map[int]string{
 	2: roleNoisy, 6: roleNoisy, 11: roleNoisy, 19: roleNoisy, 39: roleNoisy,
 	4: roleNewTemplate, 8: roleNewTemplate, 23: roleNewTemplate, 50: roleNewTemplate,
@@ -255,6 +258,9 @@ func runApplogScenario(ctx context.Context) error {
 	if applogScenarioPerDay < 100 {
 		return fmt.Errorf("per-day must be at least 100")
 	}
+	if applogScenarioServices < 1 {
+		return fmt.Errorf("services must be at least 1")
+	}
 
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
@@ -361,6 +367,10 @@ func printScenarioSummary(services []scenarioService, now time.Time) {
 		roles = append(roles, r)
 	}
 	sort.Strings(roles)
+	if n := len(services) - 2; n <= scenarioMaxRoleRank {
+		fmt.Printf("\nonly %d services: planted roles at rank %d and above were skipped (use --services %d or more for all of them)\n",
+			n, n, scenarioMaxRoleRank+1)
+	}
 	fmt.Printf("\nplanted signals (window = %s → %s, baseline = the 7 days before):\n",
 		now.Add(-24*time.Hour).Format("2006-01-02 15:04"), now.Format("2006-01-02 15:04 UTC"))
 	detail := map[string]string{
