@@ -74,6 +74,9 @@ func (s *Store) InsertPendingReport(ctx context.Context, r model.AnalysisReport)
 	if servicesArg == nil {
 		servicesArg = []string{}
 	}
+	// Return what was written: the 201 body must serialise both scopes as
+	// [] like every later read does, not as null.
+	r.Hosts, r.Services = hostsArg, servicesArg
 
 	// Try the natural slug first, then -2, -3, ... if another completed report
 	// happens to share the same minute. Capped to avoid runaway loops.

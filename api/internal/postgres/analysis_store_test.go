@@ -48,6 +48,19 @@ func analysisScopes() []struct {
 	}
 }
 
+// TestSyslogSourcesRejectOtherFeeds pins the loud failure: an applog (or
+// unknown) scope handed to a syslog query must not quietly read srvlog.
+func TestSyslogSourcesRejectOtherFeeds(t *testing.T) {
+	for _, feed := range []string{"applog", "all", ""} {
+		if got := analysisTableName(feed); got != "" {
+			t.Errorf("analysisTableName(%q) = %q, want empty", feed, got)
+		}
+		if got := analysisAggregateSource(feed); got != "" {
+			t.Errorf("analysisAggregateSource(%q) = %q, want empty", feed, got)
+		}
+	}
+}
+
 func TestAnalysisQueriesHaveNoMaterializedCTE(t *testing.T) {
 	builders := map[string]func(model.AnalysisScope) string{
 		"topErrorHostsQuery": topErrorHostsQuery,

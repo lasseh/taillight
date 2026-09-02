@@ -220,7 +220,9 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !model.IsValidAnalysisModeForFeed(req.Feed, mode) {
-		writeError(w, http.StatusBadRequest, "invalid_prompt_mode", "applog reports support only the daily prompt mode")
+		spec, _ := model.AnalysisFeedSpecFor(req.Feed)
+		writeError(w, http.StatusBadRequest, "invalid_prompt_mode",
+			fmt.Sprintf("%s reports support only the %s prompt mode", req.Feed, strings.Join(spec.Modes, " or ")))
 		return
 	}
 

@@ -3,21 +3,21 @@ package model
 import "time"
 
 // AppLogTemplateKey identifies a recurring applog message: the service and
-// component that logged it plus the trigger-computed msg_pattern (numbers
-// and IPs replaced, cut at 200 chars). Applog has no msgid, so the pattern
-// is the whole signature.
+// component that logged it, the trigger-computed msg_pattern (numbers and
+// IPs replaced, cut at 200 chars), and the canonical level the rows
+// carried. Applog has no msgid, so the pattern is the whole signature; a
+// pattern that logs at two levels is two keys, each with its own sample.
 type AppLogTemplateKey struct {
 	Service   string `json:"service"`
 	Component string `json:"component"`
 	Pattern   string `json:"pattern"`
+	Level     string `json:"level"`
 }
 
 // AppLogTemplate is one message template with its warn-and-above activity in
-// the analysis window. Level is the canonical level the rows carried; a
-// template that logs at two levels appears once per level.
+// the analysis window.
 type AppLogTemplate struct {
 	AppLogTemplateKey
-	Level     string        `json:"level"`
 	Count     int64         `json:"count"`
 	HostCount int           `json:"host_count"`
 	FirstSeen time.Time     `json:"first_seen"`

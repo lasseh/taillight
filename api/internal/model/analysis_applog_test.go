@@ -41,4 +41,13 @@ func TestAnalysisFeedRules(t *testing.T) {
 	if scope := (AnalysisScope{Feed: AnalysisFeedApplog, Services: []string{"api"}}); scope.IsAllServices() || !scope.IsAllHosts() {
 		t.Error("service-scoped applog scope misreported")
 	}
+	if got := AnalysisFrequenciesForFeed(AnalysisFeedApplog); len(got) != 1 || got[0] != "daily" {
+		t.Errorf("AnalysisFrequenciesForFeed(applog) = %v, want [daily]", got)
+	}
+	if spec, ok := AnalysisFeedSpecFor(AnalysisFeedApplog); !ok || spec.ScopeKind != AnalysisScopeServices || spec.PromptFamily != "applog" {
+		t.Errorf("applog spec = %+v, want services scope and applog prompt family", spec)
+	}
+	if _, ok := AnalysisFeedSpecFor("all"); ok {
+		t.Error("the removed all feed has a spec")
+	}
 }

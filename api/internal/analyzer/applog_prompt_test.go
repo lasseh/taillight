@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +28,7 @@ func applogFixtureData() applogData {
 		NewTemplates:  1,
 	}
 	return applogData{
-		Feed:           feedApplog,
+		Feed:           model.AnalysisFeedApplog,
 		Period:         24 * time.Hour,
 		PeriodLabel:    "24 hours",
 		PeriodStart:    now.Add(-24 * time.Hour),
@@ -41,19 +43,19 @@ func applogFixtureData() applogData {
 		Ranked: []applogServiceReport{{
 			applogServiceRow: spiky,
 			ErrorTemplates: []model.AppLogTemplate{{
-				AppLogTemplateKey: model.AppLogTemplateKey{Service: "orders-api", Component: "db", Pattern: "db timeout after <n>ms"},
-				Level:             "ERROR", Count: 50, HostCount: 2, FirstSeen: now.Add(-20 * time.Hour), LastSeen: now.Add(-time.Hour), Sample: sample,
+				AppLogTemplateKey: model.AppLogTemplateKey{Service: "orders-api", Component: "db", Pattern: "db timeout after <n>ms", Level: "ERROR"},
+				Count:             50, HostCount: 2, FirstSeen: now.Add(-20 * time.Hour), LastSeen: now.Add(-time.Hour), Sample: sample,
 			}},
 			WarnTemplates: []model.AppLogTemplate{{
-				AppLogTemplateKey: model.AppLogTemplateKey{Service: "orders-api", Pattern: "slow query <n>ms"},
-				Level:             "WARN", Count: 40, HostCount: 1, FirstSeen: now.Add(-23 * time.Hour), LastSeen: now,
+				AppLogTemplateKey: model.AppLogTemplateKey{Service: "orders-api", Pattern: "slow query <n>ms", Level: "WARN"},
+				Count:             40, HostCount: 1, FirstSeen: now.Add(-23 * time.Hour), LastSeen: now,
 			}},
 		}},
 		LongTail:  []applogServiceRow{{Service: "billing", Current: model.AppLogLevelCounts{Total: 90, Warn: 9, Error: 1}}},
 		Remainder: 3, RemainderWarnPlus: 12,
 		NewTemplates: []model.AppLogTemplate{{
-			AppLogTemplateKey: model.AppLogTemplateKey{Service: "orders-api", Component: "boot", Pattern: "panic: nil deref"},
-			Level:             "ERROR", Count: 1, HostCount: 1, FirstSeen: now.Add(-2 * time.Hour), LastSeen: now.Add(-2 * time.Hour),
+			AppLogTemplateKey: model.AppLogTemplateKey{Service: "orders-api", Component: "boot", Pattern: "panic: nil deref", Level: "ERROR"},
+			Count:             1, HostCount: 1, FirstSeen: now.Add(-2 * time.Hour), LastSeen: now.Add(-2 * time.Hour),
 			Sample: &model.AppLogSample{Host: "web-2", Level: "ERROR", ReceivedAt: now.Add(-2 * time.Hour), Msg: "panic: nil deref", Attrs: `{"stack":"main.go:12"}`},
 		}},
 		Silent:            []applogServiceRow{{Service: "cron-runner", Baseline: applogPerDay{Total: 120}}},
@@ -64,7 +66,7 @@ func applogFixtureData() applogData {
 		VolumePeaks:       []string{"09-01 03:00 (40 err / 600 total)"},
 		Hygiene: model.AppLogHygiene{
 			WarnPlusRows: 400, EmptyComponent: 20, OversizeAttrs: 3,
-			Dominant: []model.AppLogDominantTemplate{{AppLogTemplateKey: model.AppLogTemplateKey{Service: "billing", Pattern: "retrying payment <n>"}, Count: 80, ServiceTotal: 90}},
+			Dominant: []model.AppLogDominantTemplate{{AppLogTemplateKey: model.AppLogTemplateKey{Service: "billing", Pattern: "retrying payment <n>", Level: "WARN"}, Count: 80, ServiceTotal: 90}},
 		},
 		Caps:        DefaultAppLogCaps(),
 		Unavailable: map[string]bool{},
@@ -72,7 +74,7 @@ func applogFixtureData() applogData {
 }
 
 func TestReportKind(t *testing.T) {
-	if got := reportKind(feedApplog, modeDaily); got != kindApplogDaily {
+	if got := reportKind(model.AnalysisFeedApplog, modeDaily); got != kindApplogDaily {
 		t.Errorf("reportKind(applog, daily) = %q, want %q", got, kindApplogDaily)
 	}
 	if got := reportKind(feedNetlog, modeDaily); got != modeDaily {
@@ -115,7 +117,7 @@ func TestApplogDailySpec(t *testing.T) {
 	}
 
 	// Every required header is spelled out verbatim in the system prompt.
-	src, err := loadPromptSource("", feedApplog+"/"+modeDaily, systemPromptFile)
+	src, err := loadPromptSource("", model.AnalysisFeedApplog+"/"+modeDaily, systemPromptFile)
 	if err != nil {
 		t.Fatalf("load applog system prompt: %v", err)
 	}
@@ -206,11 +208,35 @@ func TestBuildAppLogPromptMarksUnavailable(t *testing.T) {
 }
 
 func TestBuildAppLogPromptEmptyData(t *testing.T) {
-	data := applogData{Feed: feedApplog, PeriodLabel: "24 hours", PeriodStart: time.Now().Add(-24 * time.Hour), PeriodEnd: time.Now(), Caps: DefaultAppLogCaps(), Unavailable: map[string]bool{}}
+	data := applogData{Feed: model.AnalysisFeedApplog, PeriodLabel: "24 hours", PeriodStart: time.Now().Add(-24 * time.Hour), PeriodEnd: time.Now(), Caps: DefaultAppLogCaps(), Unavailable: map[string]bool{}}
 	if _, usr, err := buildAppLogPrompt(data, "", modeDaily); err != nil {
 		t.Fatalf("buildAppLogPrompt on empty data: %v", err)
 	} else if !strings.Contains(usr, "_None — no service logged at WARN or above this period._") {
 		t.Errorf("empty ranked list not stated:\n%s", usr)
+	}
+}
+
+// TestBuildAppLogPromptFallsBackWhenOverrideLacksApplog covers a prompts_dir
+// laid out before the applog feed existed: the embedded applog prompts
+// apply. A partial applog subtree stays an error.
+func TestBuildAppLogPromptFallsBackWhenOverrideLacksApplog(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "daily"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, usr, err := buildAppLogPrompt(applogFixtureData(), dir, modeDaily); err != nil {
+		t.Fatalf("syslog-only prompts_dir should fall back to the embedded applog prompts: %v", err)
+	} else if !strings.Contains(usr, "## Ranked services") {
+		t.Errorf("fallback did not render the embedded applog prompt:\n%.200s", usr)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "applog", "daily"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "applog", "daily", "system.md"), []byte("override"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := buildAppLogPrompt(applogFixtureData(), dir, modeDaily); err == nil {
+		t.Fatal("a missing user.md inside an existing applog subtree must fail, not fall back")
 	}
 }
 
@@ -227,7 +253,7 @@ func TestRunAppLogShortCircuitsOnEmptyData(t *testing.T) {
 	defer srv.Close()
 
 	a := New(&applogStub{}, ollama.New(srv.srv.URL, 5*time.Second), Config{Model: "test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	res, err := a.Run(context.Background(), RunParams{Feed: feedApplog, Period: 24 * time.Hour, Mode: modeDaily})
+	res, err := a.Run(context.Background(), RunParams{Feed: model.AnalysisFeedApplog, Period: 24 * time.Hour, Mode: modeDaily})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -248,7 +274,7 @@ func TestRunAppLogCallsLLMOnData(t *testing.T) {
 	defer srv.Close()
 
 	a := New(rankingFixture(), ollama.New(srv.srv.URL, 5*time.Second), Config{Model: "test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	res, err := a.Run(context.Background(), RunParams{Feed: feedApplog, Period: 24 * time.Hour, Mode: modeDaily})
+	res, err := a.Run(context.Background(), RunParams{Feed: model.AnalysisFeedApplog, Period: 24 * time.Hour, Mode: modeDaily})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -265,7 +291,7 @@ func TestRunAppLogRejectsWeeklyMode(t *testing.T) {
 	defer srv.Close()
 
 	a := New(rankingFixture(), ollama.New(srv.srv.URL, 5*time.Second), Config{Model: "test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	_, err := a.Run(context.Background(), RunParams{Feed: feedApplog, Period: 7 * 24 * time.Hour, Mode: modeWeekly})
+	_, err := a.Run(context.Background(), RunParams{Feed: model.AnalysisFeedApplog, Period: 7 * 24 * time.Hour, Mode: modeWeekly})
 	if err == nil || !strings.Contains(err.Error(), "unknown prompt mode") {
 		t.Fatalf("Run(applog, weekly) = %v, want unknown prompt mode error", err)
 	}
