@@ -13,7 +13,7 @@ import (
 
 // analysisData holds all aggregated data for prompt building.
 type analysisData struct {
-	Feed               string   // "srvlog", "netlog", or "all".
+	Feed               string   // "srvlog" or "netlog".
 	Hosts              []string // empty when the run covers all hosts on the feed.
 	Period             time.Duration
 	PeriodLabel        string // e.g. "24 hours", "7 days".
@@ -208,20 +208,21 @@ func periodLabel(d time.Duration) string {
 // missing one section beats no report: these lookups used to be fatal, and a
 // single slow query cost a production deployment 46 consecutive daily reports.
 //
-// The failed section is recorded in data.Unavailable so the prompt can
-// distinguish it from a section that was queried and came back empty.
+// The failed section is recorded in unavailable (the data's Unavailable map)
+// so the prompt can distinguish it from a section that was queried and came
+// back empty.
 //
 // A failure on an expired context is different. Every step after it would fail
 // too, and the model call at the end would be handed a hollow data set, so the
 // context error propagates and the run fails loudly instead.
-func bestEffort[T any](ctx context.Context, log *slog.Logger, data *analysisData, section string, fn func() (T, error)) (T, error) {
+func bestEffort[T any](ctx context.Context, log *slog.Logger, unavailable map[string]bool, section string, fn func() (T, error)) (T, error) {
 	var zero T
 	v, err := fn()
 	if err == nil {
 		return v, nil
 	}
 	log.Warn("gather lookup failed, continuing without", "section", section, "err", err)
-	data.Unavailable[section] = true
+	unavailable[section] = true
 	return zero, ctx.Err()
 }
 
@@ -296,7 +297,7 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	// from a dead context.
 	if scope.IsAllHosts() {
 		a.logger.Info("gathering top error hosts", "feed", feed)
-		data.TopErrorHosts, err = bestEffort(ctx, a.logger, &data, unavailableTopErrorHosts,
+		data.TopErrorHosts, err = bestEffort(ctx, a.logger, data.Unavailable, unavailableTopErrorHosts,
 			func() ([]model.HostErrorCount, error) {
 				return a.store.GetTopErrorHosts(ctx, scope, periodStart, topHostLimit)
 			})
@@ -305,7 +306,7 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 		}
 
 		a.logger.Info("gathering event clusters", "feed", feed)
-		data.EventClusters, err = bestEffort(ctx, a.logger, &data, unavailableEventClusters,
+		data.EventClusters, err = bestEffort(ctx, a.logger, data.Unavailable, unavailableEventClusters,
 			func() ([]model.EventCluster, error) {
 				return a.store.GetEventClusters(ctx, scope, periodStart, clusterWindowMin)
 			})
@@ -318,7 +319,7 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	}
 
 	a.logger.Info("gathering new msgids", "feed", feed)
-	data.NewMsgIDs, err = bestEffort(ctx, a.logger, &data, unavailableNewMsgIDs,
+	data.NewMsgIDs, err = bestEffort(ctx, a.logger, data.Unavailable, unavailableNewMsgIDs,
 		func() ([]string, error) {
 			return a.store.GetNewMsgIDs(ctx, scope, periodStart, baselineStart)
 		})

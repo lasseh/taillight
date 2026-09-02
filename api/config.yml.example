@@ -179,4 +179,17 @@ analysis:
                                 # ollama_timeout — 2× is a safe floor since a retry can double the chat time.
                                 # Completed-report emails are configured per schedule: pick one or more email
                                 # notification channels on the schedule (/analysis UI). SMTP must be set above.
+  # Caps for applog runs. Defaults fit the 32k context above; raise them on a
+  # box with more room. Omit the block to keep the defaults.
+  # applog:
+  #   ranked_services: 12              # services covered in depth, ranked by new templates then error delta
+  #   error_templates_per_service: 5   # ERROR/FATAL templates per ranked service
+  #   warn_templates_per_service: 3    # WARN templates per ranked service
+  #   new_templates: 20                # templates first seen in the window, across all services
+  #   template_samples: 15             # top templates that get a sample row, errors first
+  #   sample_attrs_bytes: 400          # compacted attrs per sample
+  #   sample_msg_chars: 300            # message text per sample
+  #   silent_services: 20              # silent services and new services listed, each
+  #   silent_min_events_per_day: 50    # baseline rate a service needs for its silence to count
+  #   long_tail_services: 25           # services in the long-tail table after the ranked ones
 

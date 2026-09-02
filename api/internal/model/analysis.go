@@ -116,16 +116,19 @@ type AnalysisReportSummary struct {
 	CompletedAt      *time.Time `json:"completed_at,omitempty"`
 }
 
-// AnalysisScope is the (feed, hosts) pair that selects which events an
-// analyzer query reads from. Replacing a bare `feed string` parameter with
-// this struct keeps the analyzer Store interface stable as new dimensions
-// (today: hosts; later perhaps severity floor or program filter) get added.
+// AnalysisScope is the (feed, hosts, services) triple that selects which
+// events an analyzer query reads from. Replacing a bare `feed string`
+// parameter with this struct keeps the analyzer Store interface stable as
+// new dimensions get added.
 //
-// Hosts is canonical: empty means "all hosts on the feed," and non-empty
-// must already be sorted + deduped (use NormalizeHosts before constructing).
+// Hosts is the syslog scope and Services the applog scope; each feed ignores
+// the other list. Both are canonical: empty means "everything on the feed,"
+// and non-empty must already be sorted + deduped (NormalizeHosts works for
+// either list).
 type AnalysisScope struct {
-	Feed  string
-	Hosts []string
+	Feed     string
+	Hosts    []string
+	Services []string
 }
 
 // IsAllHosts reports whether the scope applies to every host on the feed
@@ -134,6 +137,12 @@ type AnalysisScope struct {
 // host-comparison aggregations that are degenerate under a narrow scope.
 func (s AnalysisScope) IsAllHosts() bool {
 	return len(s.Hosts) == 0
+}
+
+// IsAllServices reports whether the scope applies to every service on the
+// applog feed (i.e. no service filter).
+func (s AnalysisScope) IsAllServices() bool {
+	return len(s.Services) == 0
 }
 
 // NormalizeHosts returns a sorted, deduped, trimmed copy of hosts so that

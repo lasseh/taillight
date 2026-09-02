@@ -474,6 +474,7 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 		Temperature: cfg.Analysis.Temperature,
 		NumCtx:      cfg.Analysis.NumCtx,
 		PromptsDir:  cfg.Analysis.PromptsDir,
+		AppLog:      analyzer.AppLogCaps(cfg.Analysis.AppLog),
 	}, logger)
 
 	// Reconcile orphaned pending/running rows left by a previous crash before

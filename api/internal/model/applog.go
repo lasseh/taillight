@@ -112,6 +112,26 @@ func AppLogLevelRank(level string) int {
 	return -1
 }
 
+// AppLogLevelsAtLeast returns the canonical level names ranked at or above
+// floor, least severe first. It feeds SQL `level = ANY($n)` filters; an
+// unrecognised floor returns nil.
+func AppLogLevelsAtLeast(floor string) []string {
+	minRank := AppLogLevelRank(floor)
+	if minRank < 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ValidAppLogLevels))
+	for name, rank := range ValidAppLogLevels {
+		if rank >= minRank {
+			out = append(out, name)
+		}
+	}
+	slices.SortFunc(out, func(a, b string) int {
+		return ValidAppLogLevels[a] - ValidAppLogLevels[b]
+	})
+	return out
+}
+
 // AppLogFilter holds optional filter criteria for querying log events.
 type AppLogFilter struct {
 	Service    string

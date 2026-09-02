@@ -97,6 +97,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Analysis.RunTimeout != 4*time.Hour {
 		t.Errorf("Analysis.RunTimeout = %s, want 4h", cfg.Analysis.RunTimeout)
 	}
+	if cfg.Analysis.AppLog.RankedServices != 12 {
+		t.Errorf("Analysis.AppLog.RankedServices = %d, want 12", cfg.Analysis.AppLog.RankedServices)
+	}
+	if cfg.Analysis.AppLog.SilentMinEventsPerDay != 50 {
+		t.Errorf("Analysis.AppLog.SilentMinEventsPerDay = %d, want 50", cfg.Analysis.AppLog.SilentMinEventsPerDay)
+	}
 	if cfg.Notification.Enabled {
 		t.Error("Notification.Enabled should be false by default")
 	}

@@ -12,8 +12,10 @@ import (
 
 // Store defines the data access methods needed by the analyzer.
 // Methods that query log events accept an AnalysisScope, which pairs the
-// feed ("srvlog" or "netlog") with an optional explicit host filter.
+// feed ("srvlog" or "netlog") with an optional explicit host filter. The
+// applog feed reads through the embedded AppLogStore instead.
 type Store interface {
+	AppLogStore
 	GetTopMsgIDs(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.MsgIDCount, error)
 	GetSeverityComparison(ctx context.Context, scope model.AnalysisScope, currentSince, baselineSince time.Time) (model.SeverityComparison, error)
 	GetTopErrorHosts(ctx context.Context, scope model.AnalysisScope, since time.Time, limit int) ([]model.HostErrorCount, error)
@@ -26,6 +28,18 @@ type Store interface {
 	LookupJuniperRefs(ctx context.Context, names []string) (map[string]model.JuniperNetlogRef, error)
 }
 
+// AppLogStore is the applog half of Store. Raw-row queries read warn and
+// above only; the stats and volume queries read the hourly aggregate at
+// every level. Only AnalysisScope.Services is honoured on this feed.
+type AppLogStore interface {
+	GetAppLogServiceStats(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time) ([]model.AppLogServiceStats, error)
+	GetAppLogTopTemplates(ctx context.Context, since time.Time, services []string, errorLimit, warnLimit int) ([]model.AppLogTemplate, error)
+	GetAppLogNewTemplates(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time, limit int) ([]model.AppLogTemplate, error)
+	GetAppLogTemplateSamples(ctx context.Context, since time.Time, keys []model.AppLogTemplateKey, msgChars int) (map[model.AppLogTemplateKey]model.AppLogSample, error)
+	GetAppLogVolumeTimeline(ctx context.Context, scope model.AnalysisScope, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error)
+	GetAppLogHygiene(ctx context.Context, scope model.AnalysisScope, since time.Time, dominantShare float64, dominantMinEvents int64, dominantLimit int) (model.AppLogHygiene, error)
+}
+
 // Config holds analyzer configuration. Feed selection is per-run (passed to Run),
 // not configured globally.
 type Config struct {
@@ -36,6 +50,8 @@ type Config struct {
 	// user.md. Files are reloaded on every Run so edits take effect without a
 	// rebuild or restart. Empty means use the embedded default prompts.
 	PromptsDir string
+	// AppLog bounds the applog feed's data block; see AppLogCaps.
+	AppLog AppLogCaps
 }
 
 // RunParams carries the per-run inputs for Analyzer.Run. Grouping them keeps

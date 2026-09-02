@@ -189,6 +189,24 @@ type AnalysisConfig struct {
 	RunTimeout    time.Duration // Wall-clock bound for a full analysis run (gather + prompt + chat + persist, including any validator retry). Default 4h. Should comfortably exceed OllamaTimeout to leave room for a structure-validation retry.
 	// Report-completion email recipients are configured per schedule
 	// (analysis_schedules.notify_emails), not here.
+	AppLog AppLogAnalysisConfig // Caps for applog runs; see analysis.applog.* in config.yml.example.
+}
+
+// AppLogAnalysisConfig bounds how much applog data an analysis run feeds the
+// model. Defaults are sized for a 32k context window; raise them on hardware
+// with more room. The field set mirrors analyzer.AppLogCaps exactly so the
+// two convert directly.
+type AppLogAnalysisConfig struct {
+	RankedServices           int // Services covered in depth, in rank order.
+	ErrorTemplatesPerService int // ERROR/FATAL templates per ranked service.
+	WarnTemplatesPerService  int // WARN templates per ranked service.
+	NewTemplates             int // Templates first seen in the window, across all services.
+	TemplateSamples          int // Top templates that get a sample row, errors first.
+	SampleAttrsBytes         int // Compacted attrs per sample.
+	SampleMsgChars           int // Message text per sample.
+	SilentServices           int // Silent services and new services listed, each.
+	SilentMinEventsPerDay    int // Baseline rate a service needs for its silence to count.
+	LongTailServices         int // Services in the long-tail table after the ranked ones.
 }
 
 // Load reads configuration from config.yml with environment variable overrides.
@@ -227,6 +245,16 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("analysis.prompts_dir", "")
 	v.SetDefault("analysis.ollama_timeout", "2h")
 	v.SetDefault("analysis.run_timeout", "4h")
+	v.SetDefault("analysis.applog.ranked_services", 12)
+	v.SetDefault("analysis.applog.error_templates_per_service", 5)
+	v.SetDefault("analysis.applog.warn_templates_per_service", 3)
+	v.SetDefault("analysis.applog.new_templates", 20)
+	v.SetDefault("analysis.applog.template_samples", 15)
+	v.SetDefault("analysis.applog.sample_attrs_bytes", 400)
+	v.SetDefault("analysis.applog.sample_msg_chars", 300)
+	v.SetDefault("analysis.applog.silent_services", 20)
+	v.SetDefault("analysis.applog.silent_min_events_per_day", 50)
+	v.SetDefault("analysis.applog.long_tail_services", 25)
 	v.SetDefault("retention.srvlog_days", 90)
 	v.SetDefault("retention.netlog_days", 90)
 	v.SetDefault("retention.applog_days", 90)
@@ -359,6 +387,18 @@ func Load(configFile ...string) (Config, error) {
 			PromptsDir:    v.GetString("analysis.prompts_dir"),
 			OllamaTimeout: v.GetDuration("analysis.ollama_timeout"),
 			RunTimeout:    v.GetDuration("analysis.run_timeout"),
+			AppLog: AppLogAnalysisConfig{
+				RankedServices:           v.GetInt("analysis.applog.ranked_services"),
+				ErrorTemplatesPerService: v.GetInt("analysis.applog.error_templates_per_service"),
+				WarnTemplatesPerService:  v.GetInt("analysis.applog.warn_templates_per_service"),
+				NewTemplates:             v.GetInt("analysis.applog.new_templates"),
+				TemplateSamples:          v.GetInt("analysis.applog.template_samples"),
+				SampleAttrsBytes:         v.GetInt("analysis.applog.sample_attrs_bytes"),
+				SampleMsgChars:           v.GetInt("analysis.applog.sample_msg_chars"),
+				SilentServices:           v.GetInt("analysis.applog.silent_services"),
+				SilentMinEventsPerDay:    v.GetInt("analysis.applog.silent_min_events_per_day"),
+				LongTailServices:         v.GetInt("analysis.applog.long_tail_services"),
+			},
 		},
 		Notification: NotificationConfig{
 			Enabled:             v.GetBool("notification.enabled"),
