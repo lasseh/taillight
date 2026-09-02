@@ -12,6 +12,7 @@ import {
   statusBadgeClass,
   timeAgo,
 } from '@/lib/analysis-format'
+import { feedAllowsMode, feedOptions, feedScopeKind, feedScopeNoun } from '@/lib/analysis-feeds'
 import type {
   AnalysisFeed,
   AnalysisPromptMode,
@@ -40,14 +41,8 @@ const incidentPeriodMinutes = ref(60)
 const creating = ref(false)
 const createError = ref('')
 
-const confirmedFeeds: { value: AnalysisFeed; label: string }[] = [
-  { value: 'netlog', label: 'Netlog' },
-  { value: 'srvlog', label: 'Srvlog' },
-  { value: 'applog', label: 'Applog' },
-]
-
 // scopeNoun names what the picker holds for the selected feed.
-const scopeNoun = computed(() => (selectedFeed.value === 'applog' ? 'service' : 'host'))
+const scopeNoun = computed(() => feedScopeNoun(selectedFeed.value))
 
 const promptModes: { value: AnalysisPromptMode; label: string; hint: string }[] = [
   { value: 'daily', label: 'Daily', hint: 'last 24h, ops brief framing' },
@@ -55,9 +50,9 @@ const promptModes: { value: AnalysisPromptMode; label: string; hint: string }[] 
   { value: 'incident', label: 'Incident', hint: 'narrow window, live triage' },
 ]
 
-// Applog has a daily prompt only; the other framings are hidden for it.
+// Only the framings the selected feed has a prompt set for.
 const availableModes = computed(() =>
-  selectedFeed.value === 'applog' ? promptModes.filter((m) => m.value === 'daily') : promptModes,
+  promptModes.filter((m) => feedAllowsMode(selectedFeed.value, m.value)),
 )
 
 const incidentPeriodOptions: { minutes: number; label: string }[] = [
@@ -107,7 +102,7 @@ async function loadHostsForFeed(feed: AnalysisFeed) {
   hostsLoading.value = true
   hostsError.value = ''
   try {
-    if (feed === 'applog') {
+    if (feedScopeKind(feed) === 'services') {
       const res = await api.listAnalysisServices()
       availableHosts.value = res.data.map((s) => ({ name: s.service }))
     } else {
@@ -128,7 +123,7 @@ async function loadHostsForFeed(feed: AnalysisFeed) {
 // confirmation exists to prevent.
 watch(selectedFeed, async (next, prev) => {
   if (next === prev) return
-  if (next === 'applog' && selectedMode.value !== 'daily') selectedMode.value = 'daily'
+  if (!feedAllowsMode(next, selectedMode.value)) selectedMode.value = 'daily'
   await loadHostsForFeed(next)
   if (selectedHosts.value.length === 0) return
   const valid = new Set(availableHosts.value.map((h) => h.name))
@@ -261,7 +256,7 @@ async function createReport() {
       payload.period_minutes = incidentPeriodMinutes.value
     }
     if (selectedHosts.value.length > 0) {
-      if (selectedFeed.value === 'applog') {
+      if (feedScopeKind(selectedFeed.value) === 'services') {
         payload.services = selectedHosts.value
       } else {
         payload.hosts = selectedHosts.value
@@ -335,7 +330,7 @@ onMounted(async () => {
               <span class="text-t-fg-dark text-sm">source</span>
               <div class="mt-1.5 flex flex-wrap gap-2">
                 <button
-                  v-for="opt in confirmedFeeds"
+                  v-for="opt in feedOptions"
                   :key="opt.value"
                   class="flex items-center gap-2 rounded border px-3 py-1.5 text-sm transition-all"
                   :class="

@@ -4,6 +4,7 @@ import { api, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { useFocusTrap } from '@/composables/useFocusTrap'
 import { feedBadgeClass } from '@/lib/analysis-format'
+import { ANALYSIS_FEEDS, feedAllowsFrequency, feedOptions } from '@/lib/analysis-feeds'
 import type {
   AnalysisFeed,
   AnalysisFrequency,
@@ -95,17 +96,17 @@ const dayOfWeekLabels = [
   'Saturday',
 ]
 
-const feedOptions: { value: AnalysisFeed; label: string }[] = [
-  { value: 'netlog', label: 'Netlog' },
-  { value: 'srvlog', label: 'Srvlog' },
-  { value: 'applog', label: 'Applog' },
-]
-
-// Applog has a daily prompt only, so its schedules are daily only; the
-// server rejects anything else. Snap the cadence back when the feed flips.
-const dailyOnly = computed(() => formFeed.value === 'applog')
-watch(formFeed, (feed) => {
-  if (feed === 'applog') formFrequency.value = 'daily'
+// The server rejects a cadence the feed's prompt set cannot serve; disable
+// those buttons and snap the cadence back when the feed flips.
+const frequencyAllowed = (f: AnalysisFrequency) => feedAllowsFrequency(formFeed.value, f)
+const cadenceRestricted = computed(() => ANALYSIS_FEEDS[formFeed.value].frequencies.length < 3)
+const cadenceHint = computed(() =>
+  cadenceRestricted.value
+    ? `${formFeed.value} schedules can run ${ANALYSIS_FEEDS[formFeed.value].frequencies.join(' or ')} only.`
+    : 'daily cadence uses the daily prompt; weekly and monthly both use the weekly trend prompt.',
+)
+watch(formFeed, () => {
+  if (!frequencyAllowed(formFrequency.value)) formFrequency.value = 'daily'
 })
 
 async function fetchData() {
@@ -495,8 +496,10 @@ onMounted(() => {
                         ? 'border-t-blue text-t-blue'
                         : 'border-t-border text-t-fg-dark hover:text-t-fg'
                     "
-                    :disabled="dailyOnly"
-                    :title="dailyOnly ? 'applog schedules are daily only' : ''"
+                    :disabled="!frequencyAllowed('weekly')"
+                    :title="
+                      frequencyAllowed('weekly') ? '' : `${formFeed} schedules cannot run weekly`
+                    "
                     @click="formFrequency = 'weekly'"
                   >
                     Weekly
@@ -508,19 +511,17 @@ onMounted(() => {
                         ? 'border-t-purple text-t-purple'
                         : 'border-t-border text-t-fg-dark hover:text-t-fg'
                     "
-                    :disabled="dailyOnly"
-                    :title="dailyOnly ? 'applog schedules are daily only' : ''"
+                    :disabled="!frequencyAllowed('monthly')"
+                    :title="
+                      frequencyAllowed('monthly') ? '' : `${formFeed} schedules cannot run monthly`
+                    "
                     @click="formFrequency = 'monthly'"
                   >
                     Monthly
                   </button>
                 </div>
                 <p class="text-t-fg-gutter text-xs">
-                  {{
-                    dailyOnly
-                      ? 'applog has a daily prompt only, so its schedules run daily.'
-                      : 'daily cadence uses the daily prompt; weekly and monthly both use the weekly trend prompt.'
-                  }}
+                  {{ cadenceHint }}
                 </p>
 
                 <div class="grid grid-cols-2 gap-3">

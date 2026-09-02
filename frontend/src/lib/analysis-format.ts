@@ -1,3 +1,4 @@
+import { feedSpec } from '@/lib/analysis-feeds'
 import type {
   AnalysisFeed,
   AnalysisPromptMode,
@@ -6,16 +7,7 @@ import type {
 } from '@/types/analysis'
 
 export function feedBadgeClass(feed: AnalysisFeed): string {
-  switch (feed) {
-    case 'netlog':
-      return 'bg-t-blue/10 text-t-blue'
-    case 'srvlog':
-      return 'bg-t-green/10 text-t-green'
-    case 'applog':
-      return 'bg-t-purple/10 text-t-purple'
-    default:
-      return 'bg-t-fg-dark/10 text-t-fg-dark'
-  }
+  return feedSpec(feed)?.badgeClass ?? 'bg-t-fg-dark/10 text-t-fg-dark'
 }
 
 export function promptModeBadgeClass(mode: AnalysisPromptMode | undefined): string {
@@ -77,12 +69,6 @@ export function timeAgo(ts: string): string {
   return `${Math.floor(months / 12)}y ago`
 }
 
-const feedLabel: Record<AnalysisFeed, string> = {
-  netlog: 'Netlog',
-  srvlog: 'Srvlog',
-  applog: 'Applog',
-}
-
 // formatScope renders a report's scope as a count phrase ("3 hosts",
 // "1 service") for the title-suffix path. Empty input returns "" so callers
 // can spread it after a separator without producing trailing whitespace.
@@ -105,7 +91,8 @@ export function reportTitle(
     services?: string[]
   },
 ): string {
-  const feed = feedLabel[r.feed] ?? r.feed
+  const spec = feedSpec(r.feed)
+  const feed = spec?.label ?? r.feed
   let base: string
   switch (r.prompt_mode) {
     case 'daily':
@@ -120,7 +107,8 @@ export function reportTitle(
     default:
       base = `${feed} report`
   }
-  const scope = r.feed === 'applog' ? formatScope(r.services, 'service') : formatScope(r.hosts)
+  const scope =
+    spec?.scopeKind === 'services' ? formatScope(r.services, 'service') : formatScope(r.hosts)
   return scope === '' ? base : `${base} · ${scope}`
 }
 
