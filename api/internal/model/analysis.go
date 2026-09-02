@@ -16,9 +16,52 @@ const (
 	AnalysisFeedApplog = "applog"
 )
 
+// Scope kinds: which list on a report narrows a feed's run.
+const (
+	AnalysisScopeHosts    = "hosts"
+	AnalysisScopeServices = "services"
+)
+
+// AnalysisFeedSpec describes what an analysis feed supports. The one table
+// below drives feed validation, the prompt modes and schedule cadences a
+// feed accepts, the scope field it takes, and where its prompts live, so a
+// new feed is one row here plus its gather and prompt files.
+type AnalysisFeedSpec struct {
+	Name      string
+	Modes     []string // prompt modes that have a prompt set
+	ScopeKind string   // AnalysisScopeHosts or AnalysisScopeServices
+	// PromptFamily is "" for feeds that share the syslog prompt family and
+	// otherwise the name of the feed's own family: the subdirectory under
+	// prompts/ and the prefix of its report kind.
+	PromptFamily string
+}
+
+var analysisFeedSpecs = []AnalysisFeedSpec{
+	{Name: AnalysisFeedNetlog, Modes: []string{AnalysisModeDaily, AnalysisModeWeekly, AnalysisModeIncident}, ScopeKind: AnalysisScopeHosts},
+	{Name: AnalysisFeedSrvlog, Modes: []string{AnalysisModeDaily, AnalysisModeWeekly, AnalysisModeIncident}, ScopeKind: AnalysisScopeHosts},
+	{Name: AnalysisFeedApplog, Modes: []string{AnalysisModeDaily}, ScopeKind: AnalysisScopeServices, PromptFamily: "applog"},
+}
+
 // AnalysisFeeds lists every valid feed in display order. Handlers derive
 // their validation message from it so the set is defined in one place.
-var AnalysisFeeds = []string{AnalysisFeedNetlog, AnalysisFeedSrvlog, AnalysisFeedApplog}
+var AnalysisFeeds = func() []string {
+	names := make([]string, len(analysisFeedSpecs))
+	for i, s := range analysisFeedSpecs {
+		names[i] = s.Name
+	}
+	return names
+}()
+
+// AnalysisFeedSpecFor returns the spec for feed, and false for an unknown
+// feed.
+func AnalysisFeedSpecFor(feed string) (AnalysisFeedSpec, bool) {
+	for _, s := range analysisFeedSpecs {
+		if s.Name == feed {
+			return s, true
+		}
+	}
+	return AnalysisFeedSpec{}, false
+}
 
 // Analysis report lifecycle statuses.
 const (
@@ -30,7 +73,8 @@ const (
 
 // IsValidAnalysisFeed reports whether s is a recognized feed.
 func IsValidAnalysisFeed(s string) bool {
-	return slices.Contains(AnalysisFeeds, s)
+	_, ok := AnalysisFeedSpecFor(s)
+	return ok
 }
 
 // Analysis prompt modes — which prompt set frames the report.
@@ -50,24 +94,33 @@ func IsValidAnalysisMode(s string) bool {
 }
 
 // IsValidAnalysisModeForFeed reports whether the feed has a prompt set for
-// the mode. The syslog feeds accept every mode; applog is daily only until
-// its weekly prompt exists.
+// the mode (AnalysisFeedSpec.Modes).
 func IsValidAnalysisModeForFeed(feed, mode string) bool {
-	if feed == AnalysisFeedApplog {
-		return mode == AnalysisModeDaily
-	}
-	return IsValidAnalysisMode(mode)
+	spec, ok := AnalysisFeedSpecFor(feed)
+	return ok && slices.Contains(spec.Modes, mode)
 }
 
-// IsValidAnalysisFrequencyForFeed reports whether a schedule frequency is
-// allowed for the feed. Applog schedules are daily only: weekly and monthly
-// cadences map to the weekly prompt, which the feed does not have. The
-// caller validates the frequency itself separately.
+// AnalysisFrequencies lists the schedule cadences in display order.
+var AnalysisFrequencies = []string{"daily", "weekly", "monthly"}
+
+// IsValidAnalysisFrequencyForFeed reports whether a schedule cadence is
+// allowed for the feed: the prompt mode the cadence maps to
+// (AnalysisModeForFrequency) must be one the feed has. The caller validates
+// the cadence itself separately.
 func IsValidAnalysisFrequencyForFeed(feed, frequency string) bool {
-	if feed == AnalysisFeedApplog {
-		return frequency == "daily"
+	return IsValidAnalysisModeForFeed(feed, AnalysisModeForFrequency(frequency))
+}
+
+// AnalysisFrequenciesForFeed returns the schedule cadences the feed accepts,
+// for validation messages.
+func AnalysisFrequenciesForFeed(feed string) []string {
+	var out []string
+	for _, f := range AnalysisFrequencies {
+		if IsValidAnalysisFrequencyForFeed(feed, f) {
+			out = append(out, f)
+		}
 	}
-	return true
+	return out
 }
 
 // AnalysisModeForFrequency maps a schedule frequency to the prompt mode that

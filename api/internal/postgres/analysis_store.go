@@ -12,12 +12,14 @@ import (
 )
 
 const (
-	feedNetlog = "netlog"
-	feedSrvlog = "srvlog"
+	feedNetlog = model.AnalysisFeedNetlog
+	feedSrvlog = model.AnalysisFeedSrvlog
 )
 
-// analysisTableName returns the events table for the given feed.
-// Valid feeds: "srvlog", "netlog".
+// analysisTableName returns the events table for the given syslog feed.
+// Any other feed, applog included, returns "" so the query fails on invalid
+// SQL instead of silently reading srvlog_events under the wrong label; the
+// applog feed has its own queries in analysis_applog_store.go.
 func analysisTableName(feed string) string {
 	switch feed {
 	case feedNetlog:
@@ -25,7 +27,7 @@ func analysisTableName(feed string) string {
 	case feedSrvlog:
 		return "srvlog_events"
 	default:
-		return "srvlog_events"
+		return ""
 	}
 }
 
@@ -743,7 +745,7 @@ func (s *Store) GetVolumeTimeline(ctx context.Context, scope model.AnalysisScope
 }
 
 // analysisAggregateSource returns the hourly continuous-aggregate source
-// for the given feed.
+// for the given syslog feed; "" for any other, like analysisTableName.
 func analysisAggregateSource(feed string) string {
 	switch feed {
 	case feedNetlog:
@@ -751,7 +753,7 @@ func analysisAggregateSource(feed string) string {
 	case feedSrvlog:
 		return "srvlog_summary_hourly"
 	default:
-		return "srvlog_summary_hourly"
+		return ""
 	}
 }
 

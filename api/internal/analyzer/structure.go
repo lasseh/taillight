@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/lasseh/taillight/internal/model"
 )
 
 // kindApplogDaily is the report kind for the applog feed's daily brief. The
@@ -12,10 +14,11 @@ import (
 const kindApplogDaily = "applog-" + modeDaily
 
 // reportKind returns the key into the shape tables below for a feed and
-// prompt mode: the mode for the syslog feeds, applog-<mode> for applog.
+// prompt mode: the mode for feeds in the shared syslog prompt family,
+// <family>-<mode> for a feed with its own (model.AnalysisFeedSpec).
 func reportKind(feed, mode string) string {
-	if feed == feedApplog {
-		return "applog-" + mode
+	if spec, ok := model.AnalysisFeedSpecFor(feed); ok && spec.PromptFamily != "" {
+		return spec.PromptFamily + "-" + mode
 	}
 	return mode
 }

@@ -74,7 +74,10 @@ window — no second compression pass, no extra dependency.
   a remainder. Caps live in `analysis.applog` config (`AppLogCaps`), sized
   for a 32k window; `TestAppLogPromptBudget` pins the rendered size. The
   report shape is keyed by `reportKind` (the mode for syslog feeds,
-  `applog-daily` for applog) so the validator and header stay shared.
+  `applog-daily` for applog) so the validator and header stay shared. What a
+  feed supports (modes, scope kind, prompt family) is one table,
+  `model.AnalysisFeedSpec`; an `analysis.prompts_dir` override without an
+  `applog/` subtree falls back to the embedded applog prompts.
 
 - **Scope-aware gathering** (`gather.go`). A run is either all-hosts or scoped
   to an explicit host set. Scoped runs skip "Top Error Hosts" and "Event

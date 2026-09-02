@@ -109,6 +109,9 @@ func checkAppLogTopTemplates(t *testing.T, store *Store, fx applogFixture) {
 	if top[0].Pattern != "db timeout after <n>ms" || top[0].Count != 3 || top[0].HostCount != 2 || top[0].Level != "ERROR" {
 		t.Errorf("top[0] = %+v, want db timeout error, count 3, 2 hosts", top[0])
 	}
+	if top[0].FirstSeen.Location() != time.UTC || top[0].LastSeen.Location() != time.UTC {
+		t.Errorf("template times not UTC: %v / %v", top[0].FirstSeen.Location(), top[0].LastSeen.Location())
+	}
 	if top[1].Pattern != "panic: nil deref" || top[1].Component != "" {
 		t.Errorf("top[1] = %+v, want the panic with empty component", top[1])
 	}
@@ -142,9 +145,11 @@ func checkAppLogNewTemplates(t *testing.T, store *Store, fx applogFixture) {
 }
 
 func checkAppLogSamples(t *testing.T, store *Store, fx applogFixture) {
-	key := model.AppLogTemplateKey{Service: "api", Component: "", Pattern: "panic: nil deref"}
+	key := model.AppLogTemplateKey{Service: "api", Component: "", Pattern: "panic: nil deref", Level: "ERROR"}
 	samples, err := store.GetAppLogTemplateSamples(context.Background(), fx.since,
-		[]model.AppLogTemplateKey{key, {Service: "nope", Pattern: "missing"}}, 300)
+		[]model.AppLogTemplateKey{key, {Service: "nope", Pattern: "missing", Level: "ERROR"},
+			// Same pattern at a level it never logged at: no sample.
+			{Service: "api", Component: "", Pattern: "panic: nil deref", Level: "WARN"}}, 300)
 	if err != nil {
 		t.Fatalf("GetAppLogTemplateSamples: %v", err)
 	}
@@ -155,8 +160,11 @@ func checkAppLogSamples(t *testing.T, store *Store, fx applogFixture) {
 	if sm.Host != "h1" || sm.Level != "ERROR" || sm.Msg != "panic: nil deref" || !strings.Contains(sm.Attrs, `"trace"`) {
 		t.Errorf("sample = %+v", sm)
 	}
+	if sm.ReceivedAt.Location() != time.UTC {
+		t.Errorf("sample time in %v, want UTC (the prompt labels it UTC)", sm.ReceivedAt.Location())
+	}
 	if len(samples) != 1 {
-		t.Errorf("unknown key produced a sample: %+v", samples)
+		t.Errorf("unknown key or wrong level produced a sample: %+v", samples)
 	}
 }
 
@@ -286,11 +294,19 @@ func TestIntegration_AppLogReportServicesScope(t *testing.T) {
 	}
 
 	// A different scope for the same window runs concurrently; the same
-	// scope collides.
+	// scope collides. An unscoped insert returns empty slices, never nil,
+	// so the 201 body serialises [] like every later read.
 	other := base
 	other.Services = []string{"billing"}
 	if _, err := store.InsertPendingReport(ctx, other); err != nil {
 		t.Errorf("different service scope should not collide: %v", err)
+	}
+	unscoped, err := store.InsertPendingReport(ctx, base)
+	if err != nil {
+		t.Fatalf("unscoped insert: %v", err)
+	}
+	if unscoped.Services == nil || unscoped.Hosts == nil {
+		t.Errorf("unscoped insert returned nil scopes (services %v, hosts %v); want empty slices", unscoped.Services, unscoped.Hosts)
 	}
 	same := base
 	same.Services = []string{"api", "worker"}

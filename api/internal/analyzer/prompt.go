@@ -3,9 +3,12 @@ package analyzer
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/template"
 	"unicode"
@@ -43,33 +46,23 @@ const (
 	embedRoot = "prompts"
 )
 
-// validModes enumerates the prompt modes accepted for the syslog feeds.
-var validModes = map[string]struct{}{
-	modeDaily:    {},
-	modeWeekly:   {},
-	modeIncident: {},
-}
-
-// applogModes enumerates the prompt modes accepted for the applog feed.
-// Weekly follows once the daily prompt has been tuned on real data.
-var applogModes = map[string]struct{}{
-	modeDaily: {},
-}
-
 // promptSubdir returns the directory (under the embedded root or
-// analysis.prompts_dir) holding the prompt files for a feed and mode, or an
-// error for a mode the feed does not support.
+// analysis.prompts_dir) holding the prompt files for a feed and mode: the
+// mode itself for the shared syslog family, <family>/<mode> for a feed with
+// its own (model.AnalysisFeedSpec.PromptFamily). A mode the feed has no
+// prompt set for is an error, never a silent fallback.
 func promptSubdir(feed, mode string) (string, error) {
-	if feed == feedApplog {
-		if _, ok := applogModes[mode]; !ok {
-			return "", fmt.Errorf("unknown prompt mode %q for applog (want: daily)", mode)
-		}
-		return feedApplog + "/" + mode, nil
+	spec, ok := model.AnalysisFeedSpecFor(feed)
+	if !ok {
+		return "", fmt.Errorf("unknown analysis feed %q", feed)
 	}
-	if _, ok := validModes[mode]; !ok {
-		return "", fmt.Errorf("unknown prompt mode %q (want one of: daily, weekly, incident)", mode)
+	if !slices.Contains(spec.Modes, mode) {
+		return "", fmt.Errorf("unknown prompt mode %q for %s (want one of: %s)", mode, feed, strings.Join(spec.Modes, ", "))
 	}
-	return mode, nil
+	if spec.PromptFamily == "" {
+		return mode, nil
+	}
+	return spec.PromptFamily + "/" + mode, nil
 }
 
 // logDataBegin / logDataEnd are the sentinel markers that fence the
@@ -250,22 +243,29 @@ const scopedGuardSystemPreamble = "# Scope restriction\n\n" +
 	"\"Top Error Hosts\" and \"Cross-Host Event Clusters\" sections are intentionally absent — do not invent them."
 
 // loadPromptSource returns the raw template text for the given prompt file
-// under subdir (from promptSubdir). When dir is empty, the embedded default
-// is read; otherwise the file is read from <dir>/<subdir>/<file> on every
-// call so edits take effect without restarting the server.
+// under subdir (from promptSubdir). With dir set, the file is read from
+// <dir>/<subdir>/<file> on every call so edits take effect without a
+// restart. An override tree laid out before a feed's prompt family existed
+// has no <subdir> at all; that case falls back to the embedded file, while
+// a file missing inside a subtree that does exist stays an error.
 func loadPromptSource(dir, subdir, file string) (string, error) {
-	if dir == "" {
-		path := embedRoot + "/" + subdir + "/" + file
-		b, err := embeddedPrompts.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("load embedded prompt %s: %w", path, err)
+	if dir != "" {
+		path := filepath.Join(dir, filepath.FromSlash(subdir), file)
+		b, err := os.ReadFile(path)
+		if err == nil {
+			return string(b), nil
 		}
-		return string(b), nil
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("load prompt %s: %w", path, err)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, filepath.FromSlash(subdir))); !errors.Is(statErr, fs.ErrNotExist) {
+			return "", fmt.Errorf("load prompt %s: %w", path, err)
+		}
 	}
-	path := filepath.Join(dir, filepath.FromSlash(subdir), file)
-	b, err := os.ReadFile(path)
+	path := embedRoot + "/" + subdir + "/" + file
+	b, err := embeddedPrompts.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("load prompt %s: %w", path, err)
+		return "", fmt.Errorf("load embedded prompt %s: %w", path, err)
 	}
 	return string(b), nil
 }
@@ -383,7 +383,7 @@ func buildAppLogPrompt(data applogData, promptsDir, mode string) (string, string
 		LogDataBegin: logDataBegin,
 		LogDataEnd:   logDataEnd,
 	}
-	sys, user, err := renderPrompts(pd, promptsDir, feedApplog, mode)
+	sys, user, err := renderPrompts(pd, promptsDir, model.AnalysisFeedApplog, mode)
 	if err != nil {
 		return "", "", err
 	}

@@ -169,7 +169,7 @@ func TestRequiredHeadersMatchPrompts(t *testing.T) {
 	// Belt-and-braces: every prompt mode the analyzer accepts must have a
 	// requiredHeaders entry, otherwise the validator silently no-ops for
 	// that mode and structural drift goes unnoticed.
-	for mode := range validModes {
+	for _, mode := range []string{modeDaily, modeWeekly, modeIncident} {
 		if _, ok := requiredHeaders[mode]; !ok {
 			t.Errorf("requiredHeaders missing entry for mode %q", mode)
 		}

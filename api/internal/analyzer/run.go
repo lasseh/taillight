@@ -145,7 +145,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 
 	var p prepared
 	var err error
-	if params.Feed == feedApplog {
+	if params.Feed == model.AnalysisFeedApplog {
 		p, err = a.prepareAppLog(ctx, scope, params.Period, periodEnd, mode)
 	} else {
 		p, err = a.prepareSyslog(ctx, scope, params.Period, periodEnd, mode)

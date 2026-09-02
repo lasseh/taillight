@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
-
 	"github.com/lasseh/taillight/internal/model"
 	"github.com/lasseh/taillight/internal/notification"
 	"github.com/lasseh/taillight/internal/postgres"
@@ -207,7 +208,8 @@ func (h *AnalysisScheduleHandler) decodeAndValidateSchedule(w http.ResponseWrite
 		return model.AnalysisSchedule{}, false
 	}
 	if !model.IsValidAnalysisFrequencyForFeed(sched.Feed, sched.Frequency) {
-		writeError(w, http.StatusBadRequest, "validation_failed", "applog schedules support only the daily frequency")
+		writeError(w, http.StatusBadRequest, "validation_failed",
+			fmt.Sprintf("%s schedules support only the %s frequency", sched.Feed, strings.Join(model.AnalysisFrequenciesForFeed(sched.Feed), " or ")))
 		return model.AnalysisSchedule{}, false
 	}
 	if _, _, err := splitTimeOfDay(sched.TimeOfDay); err != nil {

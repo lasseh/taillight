@@ -57,8 +57,7 @@ func (s *applogStub) GetAppLogHygiene(context.Context, model.AnalysisScope, time
 
 func tmpl(service, component, pattern, level string, count int64) model.AppLogTemplate {
 	return model.AppLogTemplate{
-		AppLogTemplateKey: model.AppLogTemplateKey{Service: service, Component: component, Pattern: pattern},
-		Level:             level,
+		AppLogTemplateKey: model.AppLogTemplateKey{Service: service, Component: component, Pattern: pattern, Level: level},
 		Count:             count,
 	}
 }
@@ -89,7 +88,7 @@ func rankingFixture() *applogStub {
 			tmpl("spiky", "http", "slow query <n>ms", "WARN", 5),
 		},
 		samples: map[model.AppLogTemplateKey]model.AppLogSample{
-			{Service: "fresh", Component: "boot", Pattern: "panic: nil deref"}: {
+			{Service: "fresh", Component: "boot", Pattern: "panic: nil deref", Level: "ERROR"}: {
 				Host: "h1", Level: "ERROR", Msg: "panic: nil deref",
 				Attrs: `{"stack":"a\nb\nc\nd\ne","err":"x"}`,
 			},
@@ -103,7 +102,9 @@ func TestGatherAppLogRanksAndCaps(t *testing.T) {
 		RankedServices: 2, LongTailServices: 1, TemplateSamples: 2, SilentMinEventsPerDay: 50,
 	}}}
 
-	data, err := a.gatherAppLog(context.Background(), model.AnalysisScope{Feed: feedApplog}, 24*time.Hour, time.Now().UTC())
+	// periodEnd on the hour keeps the floored window exactly 24h so the
+	// per-day rates below are the raw counts.
+	data, err := a.gatherAppLog(context.Background(), model.AnalysisScope{Feed: model.AnalysisFeedApplog}, 24*time.Hour, time.Now().UTC().Truncate(time.Hour))
 	if err != nil {
 		t.Fatalf("gatherAppLog: %v", err)
 	}
@@ -133,9 +134,9 @@ func TestGatherAppLogRanksAndCaps(t *testing.T) {
 	// Samples: two error slots consumed in rank order, warn skipped, new
 	// template always included.
 	wantKeys := []model.AppLogTemplateKey{
-		{Service: "fresh", Component: "http", Pattern: "boom"},
-		{Service: "spiky", Component: "db", Pattern: "db timeout after <n>ms"},
-		{Service: "fresh", Component: "boot", Pattern: "panic: nil deref"},
+		{Service: "fresh", Component: "http", Pattern: "boom", Level: "ERROR"},
+		{Service: "spiky", Component: "db", Pattern: "db timeout after <n>ms", Level: "ERROR"},
+		{Service: "fresh", Component: "boot", Pattern: "panic: nil deref", Level: "ERROR"},
 	}
 	if !reflect.DeepEqual(store.gotSampleKeys, wantKeys) {
 		t.Errorf("sample keys = %v, want %v", store.gotSampleKeys, wantKeys)
@@ -172,7 +173,7 @@ func TestGatherAppLogSurvivesOptionalLookupFailures(t *testing.T) {
 	store.fail = errors.New("statement timeout")
 	a := &Analyzer{store: store, logger: discardLogger()}
 
-	data, err := a.gatherAppLog(context.Background(), model.AnalysisScope{Feed: feedApplog}, 24*time.Hour, time.Now().UTC())
+	data, err := a.gatherAppLog(context.Background(), model.AnalysisScope{Feed: model.AnalysisFeedApplog}, 24*time.Hour, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("gatherAppLog = %v, want nil: an optional lookup must not fail the run", err)
 	}
@@ -194,8 +195,39 @@ func TestGatherAppLogPropagatesDeadContext(t *testing.T) {
 	store.fail = context.Canceled
 	a := &Analyzer{store: store, logger: discardLogger()}
 
-	if _, err := a.gatherAppLog(ctx, model.AnalysisScope{Feed: feedApplog}, 24*time.Hour, time.Now().UTC()); !errors.Is(err, context.Canceled) {
+	if _, err := a.gatherAppLog(ctx, model.AnalysisScope{Feed: model.AnalysisFeedApplog}, 24*time.Hour, time.Now().UTC()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("gatherAppLog = %v, want context.Canceled", err)
+	}
+}
+
+// TestGatherAppLogFloorsWindowToTheHour pins the whole-hour window: the
+// aggregate cannot split an hour, so the raw-row queries must start on the
+// same boundary and the per-day rate must use the window actually read.
+func TestGatherAppLogFloorsWindowToTheHour(t *testing.T) {
+	store := rankingFixture()
+	a := &Analyzer{store: store, logger: discardLogger()}
+	end := time.Date(2026, 9, 2, 10, 37, 0, 0, time.UTC)
+	data, err := a.gatherAppLog(context.Background(), model.AnalysisScope{Feed: model.AnalysisFeedApplog}, 24*time.Hour, end)
+	if err != nil {
+		t.Fatalf("gatherAppLog: %v", err)
+	}
+	if want := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC); !data.PeriodStart.Equal(want) {
+		t.Errorf("PeriodStart = %v, want %v", data.PeriodStart, want)
+	}
+	// spiky: 50 errors over 24h37m is 48.8/day, not 50.
+	if got := data.Ranked[1].CurrentPerDay.Error; got < 48.7 || got > 48.9 {
+		t.Errorf("per-day error rate over the floored window = %.2f, want ~48.8", got)
+	}
+}
+
+// TestSampleKeysBudgetCountsUniqueKeys pins that a duplicate key does not
+// consume a sample slot.
+func TestSampleKeysBudgetCountsUniqueKeys(t *testing.T) {
+	dup := tmpl("a", "c", "p", "ERROR", 9)
+	ranked := []applogServiceReport{{ErrorTemplates: []model.AppLogTemplate{dup, dup, tmpl("a", "c", "q", "ERROR", 8)}}}
+	keys := sampleKeys(ranked, nil, 2)
+	if len(keys) != 2 || keys[1].Pattern != "q" {
+		t.Errorf("sampleKeys = %v, want the two distinct keys", keys)
 	}
 }
 
@@ -235,6 +267,7 @@ func TestCompactAttrs(t *testing.T) {
 		{"stack keeps three lines", `{"stack":"l1\nl2\nl3\nl4"}`, 400, `{"stack":"l1\nl2\nl3 …"}`},
 		{"nested", `{"o":{"s":"a\nb\nc\nd"}}`, 400, `{"o":{"s":"a\nb\nc …"}}`},
 		{"html not escaped", `{"q":"a<b"}`, 400, `{"q":"a<b"}`},
+		{"big integers kept", `{"order_id":12345678901234567890,"span_id":9007199254740993}`, 400, `{"order_id":12345678901234567890,"span_id":9007199254740993}`},
 		{"byte cap", `{"a":"0123456789"}`, 8, `{"a":"01…`},
 		{"invalid json cut as text", `not json at all`, 8, `not json…`},
 	}

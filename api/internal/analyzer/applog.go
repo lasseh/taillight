@@ -12,9 +12,6 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-// feedApplog is the applog feed name as the analyzer sees it.
-const feedApplog = "applog"
-
 // AppLogCaps bounds how much applog data reaches the prompt. The defaults
 // are sized for the 32k context of the production Ollama box; the caps are
 // bound to analysis.applog in config so a machine with more room can raise
@@ -196,9 +193,13 @@ type applogData struct {
 // other lookup is best-effort and marks its section unavailable on failure.
 func (a *Analyzer) gatherAppLog(ctx context.Context, scope model.AnalysisScope, period time.Duration, periodEnd time.Time) (applogData, error) {
 	caps := a.cfg.AppLog.withDefaults()
-	periodStart := periodEnd.Add(-period)
+	// The hourly aggregate cannot split an hour, so the whole applog window
+	// starts on one. Raw-row and aggregate queries then cover the same rows,
+	// a service that starts or stops inside the first partial hour is
+	// classified correctly, and per-day rates use the window actually read.
+	periodStart := periodEnd.Add(-period).Truncate(time.Hour)
 	baselineStart := periodStart.Add(-applogBaseline)
-	periodDays := period.Hours() / 24
+	periodDays := periodEnd.Sub(periodStart).Hours() / 24
 	scoped := !scope.IsAllServices()
 
 	data := applogData{
@@ -514,19 +515,22 @@ func sortNewTemplates(ts []model.AppLogTemplate) {
 func sampleKeys(ranked []applogServiceReport, newTemplates []model.AppLogTemplate, budget int) []model.AppLogTemplateKey {
 	var keys []model.AppLogTemplateKey
 	seen := make(map[model.AppLogTemplateKey]bool)
-	add := func(k model.AppLogTemplateKey) {
-		if !seen[k] {
-			seen[k] = true
-			keys = append(keys, k)
+	add := func(k model.AppLogTemplateKey) bool {
+		if seen[k] {
+			return false
 		}
+		seen[k] = true
+		keys = append(keys, k)
+		return true
 	}
 	for _, rep := range ranked {
 		for _, t := range rep.ErrorTemplates {
 			if budget <= 0 {
 				break
 			}
-			add(t.AppLogTemplateKey)
-			budget--
+			if add(t.AppLogTemplateKey) {
+				budget--
+			}
 		}
 	}
 	for _, rep := range ranked {
@@ -534,8 +538,9 @@ func sampleKeys(ranked []applogServiceReport, newTemplates []model.AppLogTemplat
 			if budget <= 0 {
 				break
 			}
-			add(t.AppLogTemplateKey)
-			budget--
+			if add(t.AppLogTemplateKey) {
+				budget--
+			}
 		}
 	}
 	for _, t := range newTemplates {
@@ -570,8 +575,12 @@ func compactAttrs(raw string, maxBytes int) string {
 		return ""
 	}
 	out := raw
+	// UseNumber keeps integers above 2^53 (trace and order ids) as the
+	// digits the row holds; a float64 round trip would silently round them.
 	var v any
-	if err := json.Unmarshal([]byte(raw), &v); err == nil {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err == nil {
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
 		enc.SetEscapeHTML(false)

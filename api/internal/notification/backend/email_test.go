@@ -150,6 +150,18 @@ func TestBuildEmailSubject(t *testing.T) {
 			},
 			expected: "[Taillight] Daily Operations Briefing — 2026-05-22",
 		},
+		{
+			name: "applog analysis report",
+			tmpl: "",
+			payload: notification.Payload{
+				AnalysisReport: &model.AnalysisReport{
+					Feed:       model.AnalysisFeedApplog,
+					PromptMode: "daily",
+					PeriodEnd:  time.Date(2026, 9, 2, 6, 0, 0, 0, time.UTC),
+				},
+			},
+			expected: "[Taillight] Daily Application Log Briefing — 2026-09-02",
+		},
 	}
 
 	for _, tt := range tests {

@@ -64,9 +64,10 @@ const (
 	// prompt budget (25 signatures × 2 samples ≈ 50 lines).
 	topMsgIDSampleCount = 2
 
-	// Feed name constants.
-	feedNetlog = "netlog"
-	feedSrvlog = "srvlog"
+	// Feed name constants, aliased from the model so the analyzer carries no
+	// feed set of its own.
+	feedNetlog = model.AnalysisFeedNetlog
+	feedSrvlog = model.AnalysisFeedSrvlog
 )
 
 // sparkBlocks is the set of unicode block characters used to render

@@ -136,10 +136,18 @@ const emailDarkCSS = `
 }
 `
 
-// scopeLabel renders the host scope for the metadata strip.
+// scopeLabel renders the report's scope for the metadata strip: hosts for
+// the syslog feeds, services for applog, and the matching "all" phrase when
+// the run was fleet-wide.
 func scopeLabel(r *model.AnalysisReport) string {
 	if len(r.Hosts) > 0 {
 		return strings.Join(r.Hosts, ", ")
+	}
+	if len(r.Services) > 0 {
+		return strings.Join(r.Services, ", ")
+	}
+	if r.Feed == model.AnalysisFeedApplog {
+		return "all services"
 	}
 	return "all hosts"
 }

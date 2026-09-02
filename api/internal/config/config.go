@@ -193,9 +193,10 @@ type AnalysisConfig struct {
 }
 
 // AppLogAnalysisConfig bounds how much applog data an analysis run feeds the
-// model. Defaults are sized for a 32k context window; raise them on hardware
-// with more room. The field set mirrors analyzer.AppLogCaps exactly so the
-// two convert directly.
+// model. A zero field means "use the analyzer's default", which is sized for
+// a 32k context window; set a field to raise it on hardware with more room.
+// The field set mirrors analyzer.AppLogCaps exactly so the two convert
+// directly.
 type AppLogAnalysisConfig struct {
 	RankedServices           int // Services covered in depth, in rank order.
 	ErrorTemplatesPerService int // ERROR/FATAL templates per ranked service.
@@ -245,16 +246,9 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("analysis.prompts_dir", "")
 	v.SetDefault("analysis.ollama_timeout", "2h")
 	v.SetDefault("analysis.run_timeout", "4h")
-	v.SetDefault("analysis.applog.ranked_services", 12)
-	v.SetDefault("analysis.applog.error_templates_per_service", 5)
-	v.SetDefault("analysis.applog.warn_templates_per_service", 3)
-	v.SetDefault("analysis.applog.new_templates", 20)
-	v.SetDefault("analysis.applog.template_samples", 15)
-	v.SetDefault("analysis.applog.sample_attrs_bytes", 400)
-	v.SetDefault("analysis.applog.sample_msg_chars", 300)
-	v.SetDefault("analysis.applog.silent_services", 20)
-	v.SetDefault("analysis.applog.silent_min_events_per_day", 50)
-	v.SetDefault("analysis.applog.long_tail_services", 25)
+	// analysis.applog.* carries no defaults here: an unset cap reads as 0
+	// and the analyzer substitutes its own default (analyzer.DefaultAppLogCaps),
+	// so the numbers live in one place.
 	v.SetDefault("retention.srvlog_days", 90)
 	v.SetDefault("retention.netlog_days", 90)
 	v.SetDefault("retention.applog_days", 90)

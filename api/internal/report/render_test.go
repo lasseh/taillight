@@ -192,4 +192,12 @@ func TestScopeLabelEmpty(t *testing.T) {
 	if got := scopeLabel(r); got != "all hosts" {
 		t.Errorf("scopeLabel with no hosts = %q, want %q", got, "all hosts")
 	}
+	applog := &model.AnalysisReport{Feed: model.AnalysisFeedApplog}
+	if got := scopeLabel(applog); got != "all services" {
+		t.Errorf("scopeLabel for an unscoped applog report = %q, want %q", got, "all services")
+	}
+	applog.Services = []string{"api", "worker"}
+	if got := scopeLabel(applog); got != "api, worker" {
+		t.Errorf("scopeLabel for a service-scoped report = %q, want %q", got, "api, worker")
+	}
 }

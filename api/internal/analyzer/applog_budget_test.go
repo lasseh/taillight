@@ -27,8 +27,8 @@ func applogBudgetFixture() applogData {
 	}
 	tmpl := func(svc string, i int, level string, withSample bool) model.AppLogTemplate {
 		t := model.AppLogTemplate{
-			AppLogTemplateKey: model.AppLogTemplateKey{Service: svc, Component: "http-client", Pattern: fmt.Sprintf("%s [%d]", longPattern, i)},
-			Level:             level, Count: int64(5000 - i*7), HostCount: 12,
+			AppLogTemplateKey: model.AppLogTemplateKey{Service: svc, Component: "http-client", Pattern: fmt.Sprintf("%s [%d]", longPattern, i), Level: level},
+			Count:             int64(5000 - i*7), HostCount: 12,
 			FirstSeen: now.Add(-23 * time.Hour), LastSeen: now,
 		}
 		if withSample {
@@ -38,7 +38,7 @@ func applogBudgetFixture() applogData {
 	}
 
 	data := applogData{
-		Feed: feedApplog, PeriodLabel: "24 hours", PeriodStart: now.Add(-24 * time.Hour), PeriodEnd: now,
+		Feed: model.AnalysisFeedApplog, PeriodLabel: "24 hours", PeriodStart: now.Add(-24 * time.Hour), PeriodEnd: now,
 		ActiveServices: 300, Caps: caps, Unavailable: map[string]bool{},
 		Drift: []applogLevelDrift{
 			{Label: "FATAL", Current: 3, BaselineAvg: 1, ChangePct: 200},

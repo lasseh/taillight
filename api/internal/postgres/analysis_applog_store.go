@@ -51,21 +51,12 @@ func addAppLogLevelCount(c *model.AppLogLevelCounts, level string, n int64) {
 	}
 }
 
-// hourFloor aligns a window edge to the hourly aggregate's buckets. The
-// aggregate cannot split an hour, so the analyzer's aggregate-based sections
-// cover whole hours: the partial hour a window starts in counts as current.
-// Without this a service that started logging in that first partial hour
-// would read as having a baseline, and a service that stopped in the hour
-// before the window would read as still active.
-func hourFloor(t time.Time) time.Time {
-	return t.Truncate(time.Hour)
-}
-
 // GetAppLogServiceStats returns per-service counts for the window and for
 // the baseline before it, read from applog_summary_hourly at every level.
-// Both edges are floored to the hour; see hourFloor.
+// The aggregate cannot split an hour, so callers pass edges on the hour;
+// the analyzer floors the whole applog window (see gatherAppLog) so these
+// counts and the raw-row queries cover the same rows.
 func (s *Store) GetAppLogServiceStats(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time) ([]model.AppLogServiceStats, error) {
-	since, baselineSince = hourFloor(since), hourFloor(baselineSince)
 	query := `
 		SELECT service, level,
 		       COALESCE(SUM(cnt) FILTER (WHERE bucket >= $1), 0) AS cur,
@@ -106,13 +97,12 @@ func (s *Store) GetAppLogServiceStats(ctx context.Context, scope model.AnalysisS
 
 // GetAppLogVolumeTimeline returns event counts per bucket across the window
 // from the hourly aggregate, with error-and-above called out separately.
-// bucketMinutes must be a multiple of 60: the aggregate has no finer grain.
-// The window start is floored to the hour; see hourFloor.
+// bucketMinutes must be a multiple of 60 and since should sit on the hour:
+// the aggregate has no finer grain (see GetAppLogServiceStats).
 func (s *Store) GetAppLogVolumeTimeline(ctx context.Context, scope model.AnalysisScope, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error) {
 	if bucketMinutes <= 0 {
 		return nil, nil
 	}
-	since = hourFloor(since)
 	interval := fmt.Sprintf("%d minutes", bucketMinutes)
 	query := `
 		SELECT time_bucket($1::interval, bucket) AS b,
@@ -130,6 +120,7 @@ func (s *Store) GetAppLogVolumeTimeline(ctx context.Context, scope model.Analysi
 	results, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.AnalysisVolumeBucket, error) {
 		var b model.AnalysisVolumeBucket
 		err := row.Scan(&b.Bucket, &b.Total, &b.ErrorCount)
+		b.Bucket = b.Bucket.UTC() // the prompt labels these UTC; pgx returns local time
 		return b, err
 	})
 	if err != nil {
@@ -186,10 +177,12 @@ func (s *Store) GetAppLogTopTemplates(ctx context.Context, since time.Time, serv
 }
 
 // scanAppLogTemplate reads the column set shared by the top and new
-// template queries.
+// template queries. Times are normalised to UTC because the prompt labels
+// them UTC and pgx returns timestamptz in local time.
 func scanAppLogTemplate(row pgx.CollectableRow) (model.AppLogTemplate, error) {
 	var t model.AppLogTemplate
 	err := row.Scan(&t.Service, &t.Component, &t.Pattern, &t.Level, &t.Count, &t.HostCount, &t.FirstSeen, &t.LastSeen)
+	t.FirstSeen, t.LastSeen = t.FirstSeen.UTC(), t.LastSeen.UTC()
 	return t, err
 }
 
@@ -250,9 +243,9 @@ func (s *Store) GetAppLogNewTemplates(ctx context.Context, scope model.AnalysisS
 	return out, nil
 }
 
-// GetAppLogTemplateSamples returns the most recent warn-and-above row for
-// each template key, with msg cut to msgChars and attrs as raw JSON text.
-// Keys with no rows in the window are absent from the map.
+// GetAppLogTemplateSamples returns the most recent row for each template
+// key, at the key's own level, with msg cut to msgChars and attrs as raw
+// JSON text. Keys with no rows in the window are absent from the map.
 func (s *Store) GetAppLogTemplateSamples(ctx context.Context, since time.Time, keys []model.AppLogTemplateKey, msgChars int) (map[model.AppLogTemplateKey]model.AppLogSample, error) {
 	out := make(map[model.AppLogTemplateKey]model.AppLogSample, len(keys))
 	if len(keys) == 0 {
@@ -261,23 +254,26 @@ func (s *Store) GetAppLogTemplateSamples(ctx context.Context, since time.Time, k
 	services := make([]string, len(keys))
 	components := make([]string, len(keys))
 	patterns := make([]string, len(keys))
+	levels := make([]string, len(keys))
 	for i, k := range keys {
-		services[i], components[i], patterns[i] = k.Service, k.Component, k.Pattern
+		services[i], components[i], patterns[i], levels[i] = k.Service, k.Component, k.Pattern, k.Level
 	}
 
 	// unnest turns the parallel key arrays into a join table so one query
-	// serves every key; DISTINCT ON keeps the newest row per key.
+	// serves every key; DISTINCT ON keeps the newest row per key. Level is
+	// part of the key so a pattern logging at two levels gets a sample of
+	// each rather than sharing whichever row is newest.
 	query := `
-		SELECT DISTINCT ON (e.service, e.component, e.msg_pattern)
-		       e.service, e.component, e.msg_pattern,
-		       e.host, e.level, e.received_at, LEFT(e.msg, $5), COALESCE(e.attrs::text, '')
+		SELECT DISTINCT ON (e.service, e.component, e.msg_pattern, e.level)
+		       e.service, e.component, e.msg_pattern, e.level,
+		       e.host, e.received_at, LEFT(e.msg, $6), COALESCE(e.attrs::text, '')
 		FROM applog_events e
-		JOIN unnest($2::text[], $3::text[], $4::text[]) AS k(service, component, pattern)
-		  ON k.service = e.service AND k.component = e.component AND k.pattern = e.msg_pattern
-		WHERE e.received_at >= $1 AND e.level = ANY($6)
-		ORDER BY e.service, e.component, e.msg_pattern, e.received_at DESC`
+		JOIN unnest($2::text[], $3::text[], $4::text[], $5::text[]) AS k(service, component, pattern, level)
+		  ON k.service = e.service AND k.component = e.component AND k.pattern = e.msg_pattern AND k.level = e.level
+		WHERE e.received_at >= $1 AND e.level = ANY($7)
+		ORDER BY e.service, e.component, e.msg_pattern, e.level, e.received_at DESC`
 
-	rows, err := s.pool.Query(ctx, query, since, services, components, patterns, msgChars, applogAnalysisLevels)
+	rows, err := s.pool.Query(ctx, query, since, services, components, patterns, levels, msgChars, applogAnalysisLevels)
 	if err != nil {
 		return nil, fmt.Errorf("applog template samples query: %w", err)
 	}
@@ -286,10 +282,12 @@ func (s *Store) GetAppLogTemplateSamples(ctx context.Context, since time.Time, k
 	for rows.Next() {
 		var key model.AppLogTemplateKey
 		var sm model.AppLogSample
-		if err := rows.Scan(&key.Service, &key.Component, &key.Pattern,
-			&sm.Host, &sm.Level, &sm.ReceivedAt, &sm.Msg, &sm.Attrs); err != nil {
+		if err := rows.Scan(&key.Service, &key.Component, &key.Pattern, &key.Level,
+			&sm.Host, &sm.ReceivedAt, &sm.Msg, &sm.Attrs); err != nil {
 			return nil, fmt.Errorf("scan applog template sample: %w", err)
 		}
+		sm.Level = key.Level
+		sm.ReceivedAt = sm.ReceivedAt.UTC() // the prompt labels sample times UTC
 		out[key] = sm
 	}
 	if err := rows.Err(); err != nil {
@@ -351,7 +349,7 @@ func (s *Store) GetAppLogHygiene(ctx context.Context, scope model.AnalysisScope,
 		return h, fmt.Errorf("applog dominant templates query: %w", err)
 	}
 	h.Dominant, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.AppLogDominantTemplate, error) {
-		var d model.AppLogDominantTemplate
+		d := model.AppLogDominantTemplate{AppLogTemplateKey: model.AppLogTemplateKey{Level: appLevelWarn}}
 		err := row.Scan(&d.Service, &d.Component, &d.Pattern, &d.Count, &d.ServiceTotal)
 		return d, err
 	})
