@@ -99,7 +99,7 @@ The applog pipeline uses HTTP ingest instead of rsyslog, and broadcasts in-proce
 
 1. **HTTP POST ingest** -- Applications send batches of log entries to `POST /api/v1/applog/ingest` with a JSON body (`{"logs": [...]}`). The endpoint requires an API key with `ingest` scope.
 
-2. **Validation** -- `handler.AppLogIngestHandler.Ingest` (`internal/handler/applog_ingest.go`) enforces limits: max 1000 entries per batch, 5 MB body, 64 KB per message and per attrs blob, 128 chars per service/component, 256 chars per host/source. Log levels are normalized to the five canonical levels (aliases: TRACE -> DEBUG, WARNING -> WARN, CRITICAL -> FATAL, PANIC -> FATAL).
+2. **Validation** -- `handler.AppLogIngestHandler.Ingest` (`internal/handler/applog_ingest.go`) enforces limits: max 1000 entries per batch, 5 MB body, 64 KB per message and per attrs blob, 128 chars per service/component, 256 chars per host/source. Log levels are normalized to the five canonical levels; common aliases (TRACE, NOTICE, WARNING, ERR, CRITICAL, CRIT, EMERG, ALERT, SEVERE, PANIC, and the single-letter glog prefixes) map onto them, see `model.AppLogLevelAliasNames`.
 
 3. **Server-captured metadata** -- The handler stamps `source_ip` (the resolved client IP) and `api_key_id` (the authenticating key) onto each row. Both come from the request context, never the body, so shippers cannot spoof them.
 
@@ -233,7 +233,7 @@ Optional (`analysis.enabled`, default off). When enabled, `setupAnalysis` (`cmd/
 
 Reports are addressed by slug (`GET /api/v1/analysis/reports/{slug}`), can be scoped to an explicit host set, and have a server-rendered print view (`.../{slug}/print`) that the frontend's "Export PDF" prints via a hidden iframe. Email and print share one renderer (`internal/report`).
 
-Analysis feeds are `netlog` or `srvlog`, one per run; the combined `all` syslog feed was removed (ADR 0006). The `analysis` flag is the one real feature flag surfaced by `GET /api/v1/config/features`.
+Analysis feeds are `netlog`, `srvlog`, or `applog`, one per run; the combined `all` syslog feed was removed (ADR 0006). Applog reports are a daily brief for service owners: their own gather ranks services by new templates and rate change against the 7-day baseline, they take a `services` scope instead of hosts, and they run the daily prompt only. The `analysis` flag is the one real feature flag surfaced by `GET /api/v1/config/features`.
 
 ### Summary Scheduler
 

@@ -13,14 +13,14 @@ wall of text.
 ## The flow
 
 ```
-RunParams{Feed, Hosts, Period, Mode}
+RunParams{Feed, Hosts, Services, Period, Mode}
         │
         ▼
   Analyzer.Run                                       (run.go)
         │
         ├─ client.Ping            Ollama reachable? fail fast if not
         │
-        ├─ gather ───────────────► Postgres aggregates              (gather.go)
+        ├─ gather ───────────────► Postgres aggregates              (gather.go; applog.go for applog)
         │      • TopMsgIDs (≤25)        grouped by MSGID / msg_pattern
         │      • SeverityComparison     current/day vs 7-day baseline
         │      • TopErrorHosts (≤15)    all-hosts runs only
@@ -62,6 +62,19 @@ percentages, hostnames) and small enough that we stay well under the context
 window — no second compression pass, no extra dependency.
 
 ## Key design decisions
+
+- **Applog has its own gather and prompts** (`applog.go`,
+  `prompts/applog/daily/`). Structured app logs have a service, not a host,
+  as their unit of interest, and no MSGID, so the syslog data block would
+  make the model read the wrong vocabulary. The applog gather reads
+  warn-and-above rows only for templates, samples, and hygiene facts, and the
+  hourly aggregate at every level for volume and silent-service detection;
+  it ranks services by new templates, then error-rate change, then
+  warning-rate change, and cuts them into an in-depth set, a long tail, and
+  a remainder. Caps live in `analysis.applog` config (`AppLogCaps`), sized
+  for a 32k window; `TestAppLogPromptBudget` pins the rendered size. The
+  report shape is keyed by `reportKind` (the mode for syslog feeds,
+  `applog-daily` for applog) so the validator and header stay shared.
 
 - **Scope-aware gathering** (`gather.go`). A run is either all-hosts or scoped
   to an explicit host set. Scoped runs skip "Top Error Hosts" and "Event
@@ -115,8 +128,9 @@ analysis:
 
 ## Boundaries
 
-- **Input feeds:** `srvlog` or `netlog`, one per run. There is no combined
-  feed (ADR 0006).
+- **Input feeds:** `srvlog`, `netlog`, or `applog`, one per run. There is no
+  combined feed (ADR 0006). Applog runs the daily mode only and is scoped by
+  services; the syslog feeds are scoped by hosts.
 - **`Run` is pure compute + inference** — it returns a `Result`. Persistence,
   queueing, and timeouts are the worker's job (`internal/worker/analysis.go`);
   HTTP wiring is `setupAnalysis` in `serve.go`.
@@ -130,8 +144,9 @@ analysis:
 | `analyzer.go`  | `Analyzer`, `Config`, `RunParams`, `Result`, `Store` iface  |
 | `run.go`       | orchestration: gather → prompt → infer → validate           |
 | `gather.go`    | Postgres aggregation, sparklines, peak extraction, caps     |
+| `applog.go`    | applog feed: caps, gather, ranking, attrs compaction        |
 | `prompt.go`    | template load/parse/render, scope label, hot-reload         |
 | `structure.go` | output validation (headers + first-section) and retry text  |
 | `header.go`    | deterministic report header (title + date block)            |
-| `prompts/`     | per-mode `system.md` / `user.md` templates                  |
+| `prompts/`     | `<mode>/` syslog and `applog/<mode>/` templates             |
 ```
