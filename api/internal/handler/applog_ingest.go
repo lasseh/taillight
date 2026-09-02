@@ -32,6 +32,11 @@ const (
 	applogMaxAttrsLen     = 64 * 1024 // 64 KB.
 )
 
+// invalidLevelMessage lists the canonical levels and every accepted alias,
+// derived from the model so the two never drift apart.
+var invalidLevelMessage = "level must be DEBUG, INFO, WARN, ERROR, or FATAL (also accepts " +
+	strings.Join(model.AppLogLevelAliasNames(), ", ") + ")"
+
 // AppLogIngestRequest is the POST body for log ingestion.
 type AppLogIngestRequest struct {
 	Logs []AppLogIngestEntry `json:"logs"`
@@ -103,7 +108,7 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		if entry.Level == "" {
 			errs = append(errs, idx+"level is required")
 		} else if normalized, ok := model.NormalizeLevel(entry.Level); !ok {
-			errs = append(errs, idx+"level must be DEBUG, INFO, WARN, ERROR, or FATAL (also accepts TRACE, WARNING, CRITICAL, PANIC)")
+			errs = append(errs, idx+invalidLevelMessage)
 		} else {
 			req.Logs[i].Level = normalized
 		}

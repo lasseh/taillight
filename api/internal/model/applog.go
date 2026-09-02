@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -60,11 +61,34 @@ var ValidAppLogLevels = map[string]int{
 
 // levelAliases maps common non-canonical level names to their canonical form.
 // Checked after ValidAppLogLevels fails, so canonical names don't need entries.
+// Covers syslog-style names (EMERG, ALERT, CRIT, ERR, NOTICE), Java SEVERE,
+// Go PANIC, and the single-letter glog prefixes.
 var levelAliases = map[string]string{
 	"TRACE":    "DEBUG",
+	"D":        "DEBUG",
+	"NOTICE":   "INFO",
+	"I":        "INFO",
 	"WARNING":  "WARN",
+	"W":        "WARN",
+	"ERR":      "ERROR",
+	"E":        "ERROR",
 	"CRITICAL": "FATAL",
+	"CRIT":     "FATAL",
+	"EMERG":    "FATAL",
+	"ALERT":    "FATAL",
+	"SEVERE":   "FATAL",
 	"PANIC":    "FATAL",
+}
+
+// AppLogLevelAliasNames returns the accepted non-canonical level names,
+// sorted, for validation messages.
+func AppLogLevelAliasNames() []string {
+	names := make([]string, 0, len(levelAliases))
+	for name := range levelAliases {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 // NormalizeLevel maps a level string to its canonical form.

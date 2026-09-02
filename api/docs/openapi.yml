@@ -2865,7 +2865,7 @@ components:
           format: date-time
         level:
           type: string
-          description: "DEBUG, INFO, WARN, ERROR, or FATAL (also accepts TRACE, WARNING, CRITICAL, PANIC)"
+          description: "DEBUG, INFO, WARN, ERROR, or FATAL. Case-insensitive; also accepts the aliases TRACE, D (DEBUG), NOTICE, I (INFO), WARNING, W (WARN), ERR, E (ERROR), CRITICAL, CRIT, EMERG, ALERT, SEVERE, PANIC (FATAL)"
         msg:
           type: string
           maxLength: 65536

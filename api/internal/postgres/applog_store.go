@@ -289,11 +289,10 @@ func (s *Store) GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (m
 			return model.AppLogSummary{}, fmt.Errorf("scan level: %w", err)
 		}
 		summary.Total += cnt
-		levelUpper := strings.ToUpper(level)
-		if levelUpper == "ERROR" || levelUpper == "FATAL" || levelUpper == "PANIC" {
+		switch canon, _ := model.NormalizeLevel(level); canon {
+		case appLevelError, appLevelFatal:
 			summary.Errors += cnt
-		}
-		if levelUpper == "WARN" || levelUpper == "WARNING" {
+		case appLevelWarn:
 			summary.Warnings += cnt
 		}
 		summary.LevelBreakdown = append(summary.LevelBreakdown, model.LevelCount{
@@ -549,8 +548,8 @@ func (s *Store) GetAppLogDeviceSummary(ctx context.Context, host string) (model.
 			return summary, fmt.Errorf("scan level: %w", err)
 		}
 		total += cnt
-		upper := strings.ToUpper(level)
-		if upper == "ERROR" || upper == "FATAL" {
+		switch canon, _ := model.NormalizeLevel(level); canon {
+		case appLevelError, appLevelFatal:
 			summary.ErrorCount += cnt
 		}
 		summary.LevelBreakdown = append(summary.LevelBreakdown, model.LevelCount{
