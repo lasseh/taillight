@@ -85,10 +85,10 @@ _None._
 ## Hygiene
 _Unavailable — this lookup failed for this run. Do not read it as "nothing to flag."_
 {{- else }}
-## Hygiene (over WARN-and-above rows)
+## Hygiene (over WARN-and-above rows; dominant templates over WARN rows only)
 - Rows: {{ .Hygiene.WarnPlusRows }} · empty component: {{ .Hygiene.EmptyComponent }} · attrs over {{ .AttrsLimit }} bytes: {{ .Hygiene.OversizeAttrs }}
 {{- range .Hygiene.Dominant }}
-- Dominant: `{{ sanitize .Service }}` {{ if .Component }}`{{ sanitize .Component }}`{{ else }}(no component){{ end }} `{{ truncate (sanitize .Pattern) 100 }}` — {{ .Count }} of {{ .ServiceTotal }} warn+ rows
+- Dominant: `{{ sanitize .Service }}` {{ if .Component }}`{{ sanitize .Component }}`{{ else }}(no component){{ end }} `{{ truncate (sanitize .Pattern) 100 }}` — {{ .Count }} of {{ .ServiceTotal }} WARN rows
 {{- end }}
 {{- end }}
 {{- if index .Unavailable "samples" }}

@@ -38,7 +38,7 @@ func (s *applogStub) GetAppLogTopTemplates(_ context.Context, _ time.Time, servi
 	return s.top, nil
 }
 
-func (s *applogStub) GetAppLogNewTemplates(context.Context, model.AnalysisScope, time.Time, time.Time, int) ([]model.AppLogTemplate, error) {
+func (s *applogStub) GetAppLogNewTemplates(context.Context, model.AnalysisScope, time.Time, time.Time) ([]model.AppLogTemplate, error) {
 	return s.newTmpl, s.fail
 }
 
@@ -81,7 +81,7 @@ func rankingFixture() *applogStub {
 			// One warning, flat baseline: active, alphabetically after chatty.
 			{Service: "tail", Current: model.AppLogLevelCounts{Total: 5, Warn: 1}, Baseline: model.AppLogLevelCounts{Total: 7, Warn: 7}},
 		},
-		newTmpl: []model.AppLogTemplate{tmpl("fresh", "boot", "panic: nil deref", "ERROR", 1)},
+		newTmpl: []model.AppLogTemplate{tmpl("fresh", "boot", "panic: nil deref", "ERROR", 5)},
 		top: []model.AppLogTemplate{
 			tmpl("fresh", "http", "boom", "ERROR", 2),
 			tmpl("spiky", "db", "db timeout after <n>ms", "ERROR", 30),

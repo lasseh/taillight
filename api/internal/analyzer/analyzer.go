@@ -34,7 +34,7 @@ type Store interface {
 type AppLogStore interface {
 	GetAppLogServiceStats(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time) ([]model.AppLogServiceStats, error)
 	GetAppLogTopTemplates(ctx context.Context, since time.Time, services []string, errorLimit, warnLimit int) ([]model.AppLogTemplate, error)
-	GetAppLogNewTemplates(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time, limit int) ([]model.AppLogTemplate, error)
+	GetAppLogNewTemplates(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time) ([]model.AppLogTemplate, error)
 	GetAppLogTemplateSamples(ctx context.Context, since time.Time, keys []model.AppLogTemplateKey, msgChars int) (map[model.AppLogTemplateKey]model.AppLogSample, error)
 	GetAppLogVolumeTimeline(ctx context.Context, scope model.AnalysisScope, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error)
 	GetAppLogHygiene(ctx context.Context, scope model.AnalysisScope, since time.Time, dominantShare float64, dominantMinEvents int64, dominantLimit int) (model.AppLogHygiene, error)

@@ -70,8 +70,8 @@ type AppLogHygiene struct {
 	Dominant       []AppLogDominantTemplate `json:"dominant"`
 }
 
-// AppLogDominantTemplate is a template that accounts for at least the
-// analyzer's configured share of its service's warn-and-above volume.
+// AppLogDominantTemplate is a WARN template that accounts for at least the
+// analyzer's configured share of its service's WARN volume.
 type AppLogDominantTemplate struct {
 	AppLogTemplateKey
 	Count        int64 `json:"count"`

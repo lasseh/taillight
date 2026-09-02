@@ -118,7 +118,7 @@ func checkAppLogTopTemplates(t *testing.T, store *Store, fx applogFixture) {
 }
 
 func checkAppLogNewTemplates(t *testing.T, store *Store, fx applogFixture) {
-	newT, err := store.GetAppLogNewTemplates(context.Background(), model.AnalysisScope{Feed: "applog"}, fx.since, fx.baselineSince, 20)
+	newT, err := store.GetAppLogNewTemplates(context.Background(), model.AnalysisScope{Feed: "applog"}, fx.since, fx.baselineSince)
 	if err != nil {
 		t.Fatalf("GetAppLogNewTemplates: %v", err)
 	}
@@ -170,12 +170,17 @@ func checkAppLogHygiene(t *testing.T, store *Store, fx applogFixture) {
 	}
 	found := false
 	for _, d := range h.Dominant {
-		if d.Service == "api" && d.Pattern == "slow query <n>ms" && d.Count == 5 && d.ServiceTotal == 9 {
+		if d.Service == "api" && d.Pattern == "slow query <n>ms" && d.Count == 5 && d.ServiceTotal == 5 {
 			found = true
 		}
 	}
 	if !found {
 		t.Errorf("api's dominant template not reported: %+v", h.Dominant)
+	}
+	for _, d := range h.Dominant {
+		if d.Service == "worker" {
+			t.Errorf("worker's ERROR template counted as a dominant warning: %+v", d)
+		}
 	}
 }
 
@@ -205,8 +210,8 @@ func checkAppLogNoCTEScan(t *testing.T, pool *pgxpool.Pool, fx applogFixture) {
 			args []any
 		}{
 			{"top", applogTopTemplatesQuery(), []any{fx.since, applogAnalysisLevels, []string{"api"}, 5, 3, appLevelWarn}},
-			{"new", applogNewTemplatesQuery(sc.scope), appendServicesArg([]any{fx.since, fx.baselineSince, applogAnalysisLevels, 20, appLevelWarn}, sc.scope)},
-			{"dominant", applogDominantTemplatesQuery(sc.scope), appendServicesArg([]any{fx.since, applogAnalysisLevels, int64(1), 0.3, 5}, sc.scope)},
+			{"new", applogNewTemplatesQuery(sc.scope), appendServicesArg([]any{fx.since, fx.baselineSince, applogAnalysisLevels, appLevelWarn}, sc.scope)},
+			{"dominant", applogDominantTemplatesQuery(sc.scope), appendServicesArg([]any{fx.since, []string{appLevelWarn}, int64(1), 0.3, 5}, sc.scope)},
 		} {
 			plan := explainPlan(t, pool, ctx, q.sql, q.args)
 			if strings.Contains(plan, "CTE Scan") {

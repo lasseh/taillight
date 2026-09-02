@@ -34,7 +34,7 @@ The fields are:
 - **Long tail** — the next services with their error and warning counts, then a remainder count.
 - **New signatures** — templates absent from the 7 days before this period, errors first, each with first-seen time and a sample.
 - **Silent services** — services that averaged at least the stated rate over the baseline and logged nothing at all this period, at any level. **New services** — services with no rows in the baseline.
-- **Hygiene** — counts over WARN-and-above rows: rows with an empty component, rows whose attrs exceed the size limit, templates that dominate a service's volume, and any lookup that failed for this run.
+- **Hygiene** — counts over WARN-and-above rows: rows with an empty component and rows whose attrs exceed the size limit; WARN templates that dominate a service's warning volume (the retry-loop and mislevelled-log smell; error bursts belong to the ranked section instead); and any lookup that failed for this run.
 
 A section marked `_Unavailable_` failed to load; say so in Log hygiene and never read it as "nothing there".
 
@@ -85,7 +85,7 @@ At most 5 lines, each a fact from the Hygiene block with its number:
 
 - share of WARN-and-above rows with an empty component, when above a few percent
 - share of rows with oversized attrs, naming the limit
-- each dominant template: `service`: `pattern` is N of M warn+ rows — likely a retry loop, a mislevelled log line, or a missing rate limit
+- each dominant template: `service`: `pattern` is N of M WARN rows — likely a retry loop, a mislevelled log line, or a missing rate limit
 - any section that was unavailable for this run
 
 If the block has nothing to flag: `_Nothing to flag._` Never invent a hygiene finding.

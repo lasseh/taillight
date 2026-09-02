@@ -71,7 +71,7 @@ func (s stubStore) GetAppLogTopTemplates(context.Context, time.Time, []string, i
 	return nil, nil
 }
 
-func (s stubStore) GetAppLogNewTemplates(context.Context, model.AnalysisScope, time.Time, time.Time, int) ([]model.AppLogTemplate, error) {
+func (s stubStore) GetAppLogNewTemplates(context.Context, model.AnalysisScope, time.Time, time.Time) ([]model.AppLogTemplate, error) {
 	return nil, nil
 }
 

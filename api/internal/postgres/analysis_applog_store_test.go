@@ -57,7 +57,7 @@ func TestAppLogNewTemplatesQueryScopesBothSides(t *testing.T) {
 			if !tc.scope.IsAllServices() {
 				want = 2
 			}
-			if got := strings.Count(sql, "service = ANY($6)"); got != want {
+			if got := strings.Count(sql, "service = ANY($5)"); got != want {
 				t.Errorf("got %d service filters, want %d\n%s", got, want, sql)
 			}
 			for _, pred := range []string{"received_at >= $1", "received_at >= $2", "received_at < $1"} {

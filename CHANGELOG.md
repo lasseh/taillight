@@ -25,6 +25,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 #### Analysis
 - Applog is a third analysis feed: a daily brief for the developers who own a service. Its own gather ranks services by new templates, then error-rate change, then warning-rate change; raw-row queries read WARN and above only, while volume and silent-service detection use the hourly aggregate. Reports take a `services` scope (`GET /api/v1/analysis/services` feeds the picker), the daily prompt only, and caps under `analysis.applog` sized for a 32k context (ADR 0006)
+- `loadgen-applog --scenario analysis` writes a repeatable 300-service, 8-day data set with planted signals straight to the database, and `make test-integration` runs the applog analyzer over it against a fake Ollama (set `APPLOG_PROMPT_OUT` to keep the prompts for tuning)
 - Email completed analysis reports by selecting email notification channels on a schedule (`notify_channel_ids`); channel ids are validated as existing email-type channels and snapshotted onto each report at enqueue time
 
 #### Netlog feed

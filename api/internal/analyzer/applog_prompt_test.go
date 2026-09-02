@@ -144,7 +144,7 @@ func TestBuildAppLogPrompt(t *testing.T) {
 		"## New signatures (not seen", "`panic: nil deref` — 1 events",
 		"`cron-runner` — baseline 120/day", "`search-v2` — 300 events this period (0 errors, 2 warnings)",
 		"Rows: 400 · empty component: 20 · attrs over 1024 bytes: 3",
-		"Dominant: `billing` (no component) `retrying payment <n>` — 80 of 90 warn+ rows",
+		"Dominant: `billing` (no component) `retrying payment <n>` — 80 of 90 WARN rows",
 		"WARN (no component) `slow query <n>ms`",
 	} {
 		if !strings.Contains(usr, want) {

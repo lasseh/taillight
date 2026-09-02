@@ -51,11 +51,21 @@ func addAppLogLevelCount(c *model.AppLogLevelCounts, level string, n int64) {
 	}
 }
 
+// hourFloor aligns a window edge to the hourly aggregate's buckets. The
+// aggregate cannot split an hour, so the analyzer's aggregate-based sections
+// cover whole hours: the partial hour a window starts in counts as current.
+// Without this a service that started logging in that first partial hour
+// would read as having a baseline, and a service that stopped in the hour
+// before the window would read as still active.
+func hourFloor(t time.Time) time.Time {
+	return t.Truncate(time.Hour)
+}
+
 // GetAppLogServiceStats returns per-service counts for the window and for
 // the baseline before it, read from applog_summary_hourly at every level.
-// The aggregate is hour-bucketed, so a window edge inside an hour attributes
-// that whole hour to whichever side its bucket start falls on.
+// Both edges are floored to the hour; see hourFloor.
 func (s *Store) GetAppLogServiceStats(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time) ([]model.AppLogServiceStats, error) {
+	since, baselineSince = hourFloor(since), hourFloor(baselineSince)
 	query := `
 		SELECT service, level,
 		       COALESCE(SUM(cnt) FILTER (WHERE bucket >= $1), 0) AS cur,
@@ -97,10 +107,12 @@ func (s *Store) GetAppLogServiceStats(ctx context.Context, scope model.AnalysisS
 // GetAppLogVolumeTimeline returns event counts per bucket across the window
 // from the hourly aggregate, with error-and-above called out separately.
 // bucketMinutes must be a multiple of 60: the aggregate has no finer grain.
+// The window start is floored to the hour; see hourFloor.
 func (s *Store) GetAppLogVolumeTimeline(ctx context.Context, scope model.AnalysisScope, since, until time.Time, bucketMinutes int) ([]model.AnalysisVolumeBucket, error) {
 	if bucketMinutes <= 0 {
 		return nil, nil
 	}
+	since = hourFloor(since)
 	interval := fmt.Sprintf("%d minutes", bucketMinutes)
 	query := `
 		SELECT time_bucket($1::interval, bucket) AS b,
@@ -181,16 +193,22 @@ func scanAppLogTemplate(row pgx.CollectableRow) (model.AppLogTemplate, error) {
 	return t, err
 }
 
+// applogNewTemplatesHardCap bounds the new-template result so a pathological
+// day cannot pull the whole table into memory. The analyzer ranks and cuts
+// the list itself, so this only has to be comfortably above what any prompt
+// could use.
+const applogNewTemplatesHardCap = 2000
+
 // applogNewTemplatesQuery finds warn-and-above templates present in the
 // window and absent from the baseline. Params: $1 since, $2 baselineSince,
-// $3 levels, $4 limit, $5 the WARN level name, $6 services when scoped.
+// $3 levels, $4 the WARN level name, $5 services when scoped.
 //
 // An anti-join between two derived tables, each bounded on its own side:
 // the window side aggregates counts, the baseline side is a DISTINCT key
 // list. Plain column keys let the planner hash the join; the syslog path
 // needed EXCEPT because its key is a computed expression.
 func applogNewTemplatesQuery(scope model.AnalysisScope) string {
-	filter := applogServiceFilter(scope, 6)
+	filter := applogServiceFilter(scope, 5)
 	return fmt.Sprintf(`
 		SELECT c.service, c.component, c.msg_pattern, c.level, c.cnt, c.hosts, c.first_seen, c.last_seen
 		FROM (
@@ -209,19 +227,18 @@ func applogNewTemplatesQuery(scope model.AnalysisScope) string {
 			WHERE received_at >= $2 AND received_at < $1 AND level = ANY($3) AND msg_pattern <> ''%s
 		) b ON b.service = c.service AND b.component = c.component AND b.msg_pattern = c.msg_pattern
 		WHERE b.service IS NULL
-		ORDER BY c.level = $5, c.cnt DESC, c.service, c.msg_pattern
-		LIMIT $4`, filter, filter)
+		ORDER BY c.level = $4, c.cnt DESC, c.service, c.msg_pattern
+		LIMIT %d`, filter, filter, applogNewTemplatesHardCap)
 }
 
-// GetAppLogNewTemplates returns warn-and-above templates seen in the window
-// but not in the baseline, ERROR/FATAL first, then by count, capped at
-// limit. The baseline is read at the same level floor, so a template that
-// only logged at INFO before counts as new when it first appears at WARN.
-func (s *Store) GetAppLogNewTemplates(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time, limit int) ([]model.AppLogTemplate, error) {
-	if limit <= 0 {
-		return nil, nil
-	}
-	args := appendServicesArg([]any{since, baselineSince, applogAnalysisLevels, limit, appLevelWarn}, scope)
+// GetAppLogNewTemplates returns every warn-and-above template seen in the
+// window but not in the baseline, ERROR/FATAL first, then by count. The
+// analyzer counts them per service for ranking before it cuts the list to
+// its cap, which is why the store does not cap it. The baseline is read at
+// the same level floor, so a template that only logged at INFO before counts
+// as new when it first appears at WARN.
+func (s *Store) GetAppLogNewTemplates(ctx context.Context, scope model.AnalysisScope, since, baselineSince time.Time) ([]model.AppLogTemplate, error) {
+	args := appendServicesArg([]any{since, baselineSince, applogAnalysisLevels, appLevelWarn}, scope)
 	rows, err := s.pool.Query(ctx, applogNewTemplatesQuery(scope), args...)
 	if err != nil {
 		return nil, fmt.Errorf("applog new templates query: %w", err)
@@ -282,9 +299,12 @@ func (s *Store) GetAppLogTemplateSamples(ctx context.Context, since time.Time, k
 }
 
 // applogDominantTemplatesQuery finds, per service, the single most frequent
-// warn-and-above template when it carries at least a given share of the
-// service's warn-and-above volume. Params: $1 since, $2 levels, $3 minimum
-// service volume, $4 share (0..1), $5 limit, $6 services when scoped.
+// WARN template when it carries at least a given share of the service's
+// WARN volume. Only WARN rows count: a dominant ERROR template is an
+// incident the ranked section already covers, while a dominant WARN
+// template is the retry loop or mislevelled log line the hygiene note is
+// for. Params: $1 since, $2 levels (WARN only), $3 minimum service volume,
+// $4 share (0..1), $5 limit, $6 services when scoped.
 func applogDominantTemplatesQuery(scope model.AnalysisScope) string {
 	return `
 		SELECT service, component, msg_pattern, cnt, svc_total
@@ -302,11 +322,11 @@ func applogDominantTemplatesQuery(scope model.AnalysisScope) string {
 		LIMIT $5`
 }
 
-// GetAppLogHygiene computes the log-hygiene facts over warn-and-above rows
-// in the window: rows with an empty component, rows whose attrs exceed the
-// preview limit, and templates that dominate their service's volume
-// (share of at least dominantShare, service volume of at least
-// dominantMinEvents, at most dominantLimit services).
+// GetAppLogHygiene computes the log-hygiene facts in the window: over
+// warn-and-above rows, those with an empty component and those whose attrs
+// exceed the preview limit; and over WARN rows, templates that dominate
+// their service's warning volume (share of at least dominantShare, service
+// volume of at least dominantMinEvents, at most dominantLimit services).
 func (s *Store) GetAppLogHygiene(ctx context.Context, scope model.AnalysisScope, since time.Time, dominantShare float64, dominantMinEvents int64, dominantLimit int) (model.AppLogHygiene, error) {
 	var h model.AppLogHygiene
 
@@ -325,7 +345,7 @@ func (s *Store) GetAppLogHygiene(ctx context.Context, scope model.AnalysisScope,
 	if dominantLimit <= 0 {
 		return h, nil
 	}
-	args := appendServicesArg([]any{since, applogAnalysisLevels, dominantMinEvents, dominantShare, dominantLimit}, scope)
+	args := appendServicesArg([]any{since, []string{appLevelWarn}, dominantMinEvents, dominantShare, dominantLimit}, scope)
 	rows, err := s.pool.Query(ctx, applogDominantTemplatesQuery(scope), args...)
 	if err != nil {
 		return h, fmt.Errorf("applog dominant templates query: %w", err)

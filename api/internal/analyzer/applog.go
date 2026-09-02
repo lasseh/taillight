@@ -83,6 +83,13 @@ const (
 	hygieneDominantMinEvents = 100
 	hygieneDominantLimit     = 5
 
+	// newTemplateRankMin is how many rows a new template needs before it
+	// counts toward a service's rank. A low-volume service produces one-off
+	// "new" warnings by chance every day; without the floor those outrank
+	// a busy service with a real error spike. The New signatures list still
+	// shows singletons, after the recurring ones.
+	newTemplateRankMin = 3
+
 	// Attrs compaction: a string value keeps this many characters and, when
 	// it spans lines (a stack trace), this many lines.
 	attrValueMaxChars = 120
@@ -211,18 +218,24 @@ func (a *Analyzer) gatherAppLog(ctx context.Context, scope model.AnalysisScope, 
 		return data, err
 	}
 
+	// New templates arrive uncapped so every service's count is known for
+	// ranking; the list itself is cut to the cap after sorting.
 	a.logger.Info("gathering applog new templates", "scoped", scoped)
-	data.NewTemplates, err = bestEffort(ctx, a.logger, data.Unavailable, unavailableNewTemplates,
+	newTemplates, err := bestEffort(ctx, a.logger, data.Unavailable, unavailableNewTemplates,
 		func() ([]model.AppLogTemplate, error) {
-			return a.store.GetAppLogNewTemplates(ctx, scope, periodStart, baselineStart, caps.NewTemplates)
+			return a.store.GetAppLogNewTemplates(ctx, scope, periodStart, baselineStart)
 		})
 	if err != nil {
 		return data, err
 	}
-	newCounts := make(map[string]int, len(data.NewTemplates))
-	for _, t := range data.NewTemplates {
-		newCounts[t.Service]++
+	newCounts := make(map[string]int, len(newTemplates))
+	for _, t := range newTemplates {
+		if t.Count >= newTemplateRankMin {
+			newCounts[t.Service]++
+		}
 	}
+	sortNewTemplates(newTemplates)
+	data.NewTemplates = newTemplates[:min(len(newTemplates), caps.NewTemplates)]
 
 	rows := make([]applogServiceRow, 0, len(stats))
 	for _, st := range stats {
@@ -470,6 +483,28 @@ func rankAppLogServices(rows []applogServiceRow) {
 			return dx > dy
 		}
 		return x.Service < y.Service
+	})
+}
+
+// sortNewTemplates orders new templates for the prompt: recurring ones
+// (at least newTemplateRankMin rows) before singletons, errors before
+// warnings within each group, then by count, then by name.
+func sortNewTemplates(ts []model.AppLogTemplate) {
+	sort.SliceStable(ts, func(i, j int) bool {
+		x, y := ts[i], ts[j]
+		if rx, ry := x.Count >= newTemplateRankMin, y.Count >= newTemplateRankMin; rx != ry {
+			return rx
+		}
+		if ex, ey := model.AppLogLevelRank(x.Level) >= errorRank, model.AppLogLevelRank(y.Level) >= errorRank; ex != ey {
+			return ex
+		}
+		if x.Count != y.Count {
+			return x.Count > y.Count
+		}
+		if x.Service != y.Service {
+			return x.Service < y.Service
+		}
+		return x.Pattern < y.Pattern
 	})
 }
 
