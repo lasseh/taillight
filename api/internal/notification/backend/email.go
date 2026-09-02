@@ -237,7 +237,7 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 		r := p.AnalysisReport
 		return fmt.Sprintf("%s %s — %s",
 			prefix,
-			analysisBriefingTitle(r.PromptMode),
+			analysisBriefingTitle(r.Feed, r.PromptMode),
 			r.PeriodEnd.UTC().Format("2006-01-02"),
 		)
 	}
@@ -266,10 +266,14 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 	return prefix + " Notification"
 }
 
-// analysisBriefingTitle is the email-subject mapper for prompt_mode. Mirrors
-// analyzer.briefingTitle (which is unexported and lives a layer below this
-// package, so duplicating the short switch is cheaper than reaching across).
-func analysisBriefingTitle(mode string) string {
+// analysisBriefingTitle is the email-subject mapper for a report's feed and
+// prompt_mode. Mirrors analyzer.briefingTitle (which is unexported and lives
+// a layer below this package, so duplicating the short switch is cheaper
+// than reaching across); keep the two in step.
+func analysisBriefingTitle(feed, mode string) string {
+	if feed == model.AnalysisFeedApplog && mode == "daily" {
+		return "Daily Application Log Briefing"
+	}
 	switch mode {
 	case "daily":
 		return "Daily Operations Briefing"
