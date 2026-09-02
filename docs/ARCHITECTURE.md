@@ -233,7 +233,7 @@ Optional (`analysis.enabled`, default off). When enabled, `setupAnalysis` (`cmd/
 
 Reports are addressed by slug (`GET /api/v1/analysis/reports/{slug}`), can be scoped to an explicit host set, and have a server-rendered print view (`.../{slug}/print`) that the frontend's "Export PDF" prints via a hidden iframe. Email and print share one renderer (`internal/report`).
 
-Analysis feeds are `netlog`, `srvlog`, or `applog`, one per run; the combined `all` syslog feed was removed (ADR 0006). Applog reports are a daily brief for service owners: their own gather ranks services by new templates and rate change against the 7-day baseline, they take a `services` scope instead of hosts, and they run the daily prompt only. The `analysis` flag is the one real feature flag surfaced by `GET /api/v1/config/features`.
+Analysis feeds are `netlog`, `srvlog`, or `applog`, one per run; the combined `all` syslog feed was removed (ADR 0006). Applog reports are a daily brief for service owners: their own gather ranks services by new templates and rate change against the 7-day baseline, they take a `services` scope instead of hosts, and they run the daily and incident prompts (no weekly yet). The `analysis` flag is the one real feature flag surfaced by `GET /api/v1/config/features`.
 
 ### Summary Scheduler
 

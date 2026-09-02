@@ -192,6 +192,6 @@ analysis:
   #   sample_attrs_bytes: 400          # compacted attrs per sample
   #   sample_msg_chars: 300            # message text per sample
   #   silent_services: 20              # silent services and new services listed, each
-  #   silent_min_events_per_day: 50    # baseline rate a service needs for its silence to count
+  #   silent_min_events_per_day: 50    # rows the baseline rate must predict in the window for silence to count
   #   long_tail_services: 25           # services in the long-tail table after the ranked ones
 

@@ -271,8 +271,13 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 // a layer below this package, so duplicating the short switch is cheaper
 // than reaching across); keep the two in step.
 func analysisBriefingTitle(feed, mode string) string {
-	if feed == model.AnalysisFeedApplog && mode == "daily" {
-		return "Daily Application Log Briefing"
+	if feed == model.AnalysisFeedApplog {
+		switch mode {
+		case "daily":
+			return "Daily Application Log Briefing"
+		case "incident":
+			return "Application Log Incident Briefing"
+		}
 	}
 	switch mode {
 	case "daily":

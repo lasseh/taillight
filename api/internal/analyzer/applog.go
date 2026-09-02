@@ -25,7 +25,7 @@ type AppLogCaps struct {
 	SampleAttrsBytes         int // compacted attrs per sample
 	SampleMsgChars           int // message text per sample
 	SilentServices           int // silent services and new services listed, each
-	SilentMinEventsPerDay    int // baseline rate a service needs for its silence to count
+	SilentMinEventsPerDay    int // rows the baseline rate must predict in the window for silence to count (the per-day rate itself for a day-long run)
 	LongTailServices         int // services in the long-tail table after the ranked ones
 }
 
@@ -321,7 +321,7 @@ func (a *Analyzer) gatherAppLog(ctx context.Context, scope model.AnalysisScope, 
 		return data, err
 	}
 
-	data.Silent, data.NewServices = silentAndNewServices(rows, caps)
+	data.Silent, data.NewServices = silentAndNewServices(rows, caps, periodDays)
 
 	return data, nil
 }
@@ -395,15 +395,17 @@ func attachSamples(data *applogData, samples map[model.AppLogTemplateKey]model.A
 }
 
 // silentAndNewServices derives both lists from the stats already in hand.
-// Silent means a baseline of at least the configured rate and nothing in
-// the window; new means absent from the 7-day baseline, so a service
-// returning after a longer gap reads as new too. Each list is capped at
-// caps.SilentServices.
-func silentAndNewServices(rows []applogServiceRow, caps AppLogCaps) (silent, fresh []applogServiceRow) {
+// Silent means the baseline rate predicts at least caps.SilentMinEventsPerDay
+// rows in this window and none arrived: for a day-long window that is the
+// per-day rate itself, for an incident window the bar rises so a service
+// that logs a few times an hour is not "silent" for one quiet hour. New
+// means absent from the 7-day baseline, so a service returning after a
+// longer gap reads as new too. Each list is capped at caps.SilentServices.
+func silentAndNewServices(rows []applogServiceRow, caps AppLogCaps, periodDays float64) (silent, fresh []applogServiceRow) {
 	minSilent := float64(caps.SilentMinEventsPerDay)
 	for _, r := range rows {
 		switch {
-		case r.Current.Total == 0 && r.Baseline.Total >= minSilent:
+		case r.Current.Total == 0 && r.Baseline.Total*periodDays >= minSilent:
 			silent = append(silent, r)
 		case r.Current.Total > 0 && r.Baseline.Total == 0:
 			fresh = append(fresh, r)

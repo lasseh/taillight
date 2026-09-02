@@ -15,7 +15,7 @@ func TestAnalysisFeedRules(t *testing.T) {
 	}{
 		{AnalysisFeedApplog, AnalysisModeDaily, true},
 		{AnalysisFeedApplog, AnalysisModeWeekly, false},
-		{AnalysisFeedApplog, AnalysisModeIncident, false},
+		{AnalysisFeedApplog, AnalysisModeIncident, true},
 		{AnalysisFeedNetlog, AnalysisModeWeekly, true},
 		{AnalysisFeedNetlog, "bogus", false},
 	}

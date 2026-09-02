@@ -206,7 +206,7 @@ type AppLogAnalysisConfig struct {
 	SampleAttrsBytes         int // Compacted attrs per sample.
 	SampleMsgChars           int // Message text per sample.
 	SilentServices           int // Silent services and new services listed, each.
-	SilentMinEventsPerDay    int // Baseline rate a service needs for its silence to count.
+	SilentMinEventsPerDay    int // Rows the baseline rate must predict in the window for silence to count (the per-day rate itself for a day-long run).
 	LongTailServices         int // Services in the long-tail table after the ranked ones.
 }
 

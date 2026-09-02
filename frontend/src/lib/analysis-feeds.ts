@@ -39,7 +39,7 @@ export const ANALYSIS_FEEDS: Record<AnalysisFeed, AnalysisFeedSpec> = {
     label: 'Applog',
     badgeClass: 'bg-t-purple/10 text-t-purple',
     scopeKind: 'services',
-    modes: ['daily'],
+    modes: ['daily', 'incident'],
     frequencies: ['daily'],
   },
 }

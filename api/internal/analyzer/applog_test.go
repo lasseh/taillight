@@ -231,6 +231,33 @@ func TestSampleKeysBudgetCountsUniqueKeys(t *testing.T) {
 	}
 }
 
+// TestSilentServicesScaleToTheWindow pins the incident-window rule: a
+// service that logs 100 times a day is not "silent" for one quiet hour, but
+// one that logs 2400 times a day is.
+func TestSilentServicesScaleToTheWindow(t *testing.T) {
+	store := &applogStub{stats: []model.AppLogServiceStats{
+		{Service: "hourly-ish", Baseline: model.AppLogLevelCounts{Total: 700}},
+		{Service: "chatty", Baseline: model.AppLogLevelCounts{Total: 16800}},
+	}}
+	a := &Analyzer{store: store, logger: discardLogger()}
+	end := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
+
+	hour, err := a.gatherAppLog(context.Background(), model.AnalysisScope{Feed: model.AnalysisFeedApplog}, time.Hour, end)
+	if err != nil {
+		t.Fatalf("gatherAppLog(1h): %v", err)
+	}
+	if len(hour.Silent) != 1 || hour.Silent[0].Service != "chatty" {
+		t.Errorf("1h window silent = %+v, want only chatty", hour.Silent)
+	}
+	day, err := a.gatherAppLog(context.Background(), model.AnalysisScope{Feed: model.AnalysisFeedApplog}, 24*time.Hour, end)
+	if err != nil {
+		t.Fatalf("gatherAppLog(24h): %v", err)
+	}
+	if len(day.Silent) != 2 {
+		t.Errorf("24h window silent = %+v, want both", day.Silent)
+	}
+}
+
 func TestIsEmptyAppLogData(t *testing.T) {
 	if !isEmptyAppLogData(applogData{}) {
 		t.Error("zero data should be empty")

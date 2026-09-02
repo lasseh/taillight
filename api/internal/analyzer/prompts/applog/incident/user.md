@@ -1,11 +1,11 @@
 {{ .LogDataBegin }}
-# Applog — {{ .PeriodLabel }} data block
+# Applog — {{ .PeriodLabel }} incident window data block
 Period: {{ .PeriodStart.Format "2006-01-02 15:04 UTC" }} → {{ .PeriodEnd.Format "2006-01-02 15:04 UTC" }}
 {{- if .IsScoped }}
 Scope: {{ .ScopeLabel }}
 {{- end }}
 
-Rows in this block are application logs at level WARN, ERROR, or FATAL unless a section says otherwise. A template is a message with numbers → `<n>` and IP addresses → `<ip>`, identified by service / component / pattern; a template that logs at two levels appears once per level. Counts are raw counts within the period unless labeled per-day. Baseline = the 7 days before the period, as a per-day rate.
+The window starts on the hour, so it may run up to 59 minutes longer than requested. Rows in this block are application logs at level WARN, ERROR, or FATAL unless a section says otherwise. A template is a message with numbers → `<n>` and IP addresses → `<ip>`, identified by service / component / pattern; a template that logs at two levels appears once per level. Counts are raw counts within the period unless labeled per-day. Baseline = the 7 days before the period, as a per-day rate.
 
 ## Level drift (current per-day vs 7-day per-day; the all-levels row includes INFO and DEBUG)
 {{ range .Drift -}}

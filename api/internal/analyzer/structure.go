@@ -8,10 +8,18 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-// kindApplogDaily is the report kind for the applog feed's daily brief. The
-// syslog feeds share one shape per mode, keyed by the mode itself; applog has
-// its own sections, so it gets its own key (see reportKind).
-const kindApplogDaily = "applog-" + modeDaily
+// Report kinds for the applog feed. The syslog feeds share one shape per
+// mode, keyed by the mode itself; applog's daily brief has its own sections
+// and its incident report shares the syslog incident shape under its own
+// key, so both get keys of their own (see reportKind).
+const (
+	kindApplogDaily    = "applog-" + modeDaily
+	kindApplogIncident = "applog-" + modeIncident
+)
+
+// incidentHeaders is the triage shape both incident reports use: the
+// sections are about a decision under time pressure, not about the feed.
+var incidentHeaders = []string{"Verdict", "What's Happening", "Likely Cause", "Immediate Actions", "Standing Down"}
 
 // reportKind returns the key into the shape tables below for a feed and
 // prompt mode: the mode for feeds in the shared syslog prompt family,
@@ -27,10 +35,11 @@ func reportKind(feed, mode string) string {
 // emit, in order. The validator forbids extra headers as well, so the model
 // can't pad with "Appendix" or "Recommendations" sections.
 var requiredHeaders = map[string][]string{
-	modeDaily:       {"TL;DR", "Needs Action", "What Happened", "Watch"},
-	modeWeekly:      {"TL;DR", "Trend Movers", "Chronic Hosts", "New Surface Area", "Correlations Worth Naming", "Engineering Focus"},
-	modeIncident:    {"Verdict", "What's Happening", "Likely Cause", "Immediate Actions", "Standing Down"},
-	kindApplogDaily: {"New errors and warnings", "Top recurring errors and warnings", "Volume vs last week", "Silent and new services", "Log hygiene"},
+	modeDaily:          {"TL;DR", "Needs Action", "What Happened", "Watch"},
+	modeWeekly:         {"TL;DR", "Trend Movers", "Chronic Hosts", "New Surface Area", "Correlations Worth Naming", "Engineering Focus"},
+	modeIncident:       incidentHeaders,
+	kindApplogDaily:    {"New errors and warnings", "Top recurring errors and warnings", "Volume vs last week", "Silent and new services", "Log hygiene"},
+	kindApplogIncident: incidentHeaders,
 }
 
 // reportLineCap bounds the reply length per report kind, counted in
@@ -54,10 +63,18 @@ var reportLineCap = map[string]int{
 // prompts ask for them in UPPERCASE; if the model emits them in mixed case
 // we want the validator to flag that so the corrective follow-up can fix
 // it. (?m) so ^/$ match line ends inside the section body.
-var firstSectionRule = map[string]struct {
+type sectionRule struct {
 	pattern *regexp.Regexp
 	desc    string
-}{
+}
+
+// verdictRule is the incident first-section rule, shared by both feeds.
+var verdictRule = sectionRule{
+	pattern: regexp.MustCompile(`\*\*(STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE)\*\*`),
+	desc:    "`**STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE**` token",
+}
+
+var firstSectionRule = map[string]sectionRule{
 	modeDaily: {
 		pattern: regexp.MustCompile(`\*\*Status:\s+(NOMINAL|WATCH|ACT NOW)\*\*`),
 		desc:    "`**Status: NOMINAL|WATCH|ACT NOW**` line",
@@ -66,14 +83,12 @@ var firstSectionRule = map[string]struct {
 		pattern: regexp.MustCompile(`\*\*Trend:\s+(IMPROVING|STEADY|DEGRADING|MIXED)\*\*`),
 		desc:    "`**Trend: IMPROVING|STEADY|DEGRADING|MIXED**` line",
 	},
-	modeIncident: {
-		pattern: regexp.MustCompile(`\*\*(STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE)\*\*`),
-		desc:    "`**STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE**` token",
-	},
+	modeIncident: verdictRule,
 	kindApplogDaily: {
 		pattern: regexp.MustCompile(`\*\*Status:\s+(NOMINAL|WATCH|ACT NOW)\*\*`),
 		desc:    "`**Status: NOMINAL|WATCH|ACT NOW**` line",
 	},
+	kindApplogIncident: verdictRule,
 }
 
 // extractH2Headers returns the H2 ("## ") header titles in the order they

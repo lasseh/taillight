@@ -20,6 +20,8 @@ func briefingTitle(kind string) string {
 		return "Incident Briefing"
 	case kindApplogDaily:
 		return "Daily Application Log Briefing"
+	case kindApplogIncident:
+		return "Application Log Incident Briefing"
 	default:
 		return "Operations Briefing"
 	}

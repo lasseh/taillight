@@ -80,6 +80,12 @@ func TestReportKind(t *testing.T) {
 	if got := reportKind(feedNetlog, modeDaily); got != modeDaily {
 		t.Errorf("reportKind(netlog, daily) = %q, want %q", got, modeDaily)
 	}
+	if got := reportKind(model.AnalysisFeedApplog, modeIncident); got != kindApplogIncident {
+		t.Errorf("reportKind(applog, incident) = %q, want %q", got, kindApplogIncident)
+	}
+	if got := briefingTitle(kindApplogIncident); got != "Application Log Incident Briefing" {
+		t.Errorf("briefingTitle(applog incident) = %q", got)
+	}
 	if got := briefingTitle(kindApplogDaily); got != "Daily Application Log Briefing" {
 		t.Errorf("briefingTitle(applog daily) = %q", got)
 	}
@@ -240,8 +246,42 @@ func TestBuildAppLogPromptFallsBackWhenOverrideLacksApplog(t *testing.T) {
 	}
 }
 
+// chatReplyApplogIncident is a minimal applog incident reply that passes
+// the validator.
+const chatReplyApplogIncident = "## Verdict\n**CONTAIN** — `orders-api` returning 504 from `payments-gateway`.\n\n" +
+	"## What's Happening\n- **Where:** `orders-api`, 4 hosts.\n\n## Likely Cause\n`payments-gateway` timing out.\n\n" +
+	"## Immediate Actions\n1. **Check** `payments-gateway` health.\n\n## Standing Down\n- If 504s stop for 30 minutes, close.\n"
+
+func TestApplogIncidentSpec(t *testing.T) {
+	if err := validateReport(chatReplyApplogIncident, kindApplogIncident); err != nil {
+		t.Errorf("well-formed applog incident reply rejected: %v", err)
+	}
+	if err := validateReport(chatReplyApplog, kindApplogIncident); err == nil {
+		t.Error("daily-shaped reply accepted for the applog incident kind")
+	}
+	src, err := loadPromptSource("", model.AnalysisFeedApplog+"/"+modeIncident, systemPromptFile)
+	if err != nil {
+		t.Fatalf("load applog incident system prompt: %v", err)
+	}
+	for _, h := range requiredHeaders[kindApplogIncident] {
+		if !strings.Contains(src, "## "+h+"\n") {
+			t.Errorf("applog incident system prompt does not spell out header %q", h)
+		}
+	}
+	sys, usr, err := buildAppLogPrompt(applogFixtureData(), "", modeIncident)
+	if err != nil {
+		t.Fatalf("buildAppLogPrompt(incident): %v", err)
+	}
+	if !strings.Contains(usr, "incident window data block") || !strings.Contains(usr, "## Ranked services") {
+		t.Errorf("incident user prompt missing its title or data block:\n%.300s", usr)
+	}
+	if strings.Contains(sys, "Severity legend") || !strings.Contains(sys, "## Verdict") {
+		t.Errorf("incident system prompt has the wrong vocabulary or headers")
+	}
+}
+
 func TestBuildAppLogPromptRejectsOtherModes(t *testing.T) {
-	for _, mode := range []string{modeWeekly, modeIncident, "bogus"} {
+	for _, mode := range []string{modeWeekly, "bogus"} {
 		if _, _, err := buildAppLogPrompt(applogFixtureData(), "", mode); err == nil || !strings.Contains(err.Error(), "unknown prompt mode") {
 			t.Errorf("mode %q: err = %v, want unknown prompt mode", mode, err)
 		}

@@ -132,8 +132,8 @@ analysis:
 ## Boundaries
 
 - **Input feeds:** `srvlog`, `netlog`, or `applog`, one per run. There is no
-  combined feed (ADR 0006). Applog runs the daily mode only and is scoped by
-  services; the syslog feeds are scoped by hosts.
+  combined feed (ADR 0006). Applog runs the daily and incident modes (no
+  weekly yet) and is scoped by services; the syslog feeds are scoped by hosts.
 - **`Run` is pure compute + inference** — it returns a `Result`. Persistence,
   queueing, and timeouts are the worker's job (`internal/worker/analysis.go`);
   HTTP wiring is `setupAnalysis` in `serve.go`.

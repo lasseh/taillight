@@ -18,6 +18,7 @@ describe('analysis feed spec', () => {
 
   it('keeps applog daily-only and service-scoped', () => {
     expect(feedAllowsMode('applog', 'daily')).toBe(true)
+    expect(feedAllowsMode('applog', 'incident')).toBe(true)
     expect(feedAllowsMode('applog', 'weekly')).toBe(false)
     expect(feedAllowsFrequency('applog', 'monthly')).toBe(false)
     expect(feedAllowsFrequency('srvlog', 'monthly')).toBe(true)

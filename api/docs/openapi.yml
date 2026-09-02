@@ -2057,7 +2057,7 @@ paths:
                     Restrict an applog report to these services. Empty/missing
                     means every service; unknown names are rejected with 400.
                     Rejected for the netlog and srvlog feeds. Applog accepts
-                    only prompt_mode daily.
+                    prompt_mode daily or incident, not weekly.
       responses:
         "201":
           description: Report queued

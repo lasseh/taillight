@@ -39,7 +39,7 @@ type AnalysisFeedSpec struct {
 var analysisFeedSpecs = []AnalysisFeedSpec{
 	{Name: AnalysisFeedNetlog, Modes: []string{AnalysisModeDaily, AnalysisModeWeekly, AnalysisModeIncident}, ScopeKind: AnalysisScopeHosts},
 	{Name: AnalysisFeedSrvlog, Modes: []string{AnalysisModeDaily, AnalysisModeWeekly, AnalysisModeIncident}, ScopeKind: AnalysisScopeHosts},
-	{Name: AnalysisFeedApplog, Modes: []string{AnalysisModeDaily}, ScopeKind: AnalysisScopeServices, PromptFamily: "applog"},
+	{Name: AnalysisFeedApplog, Modes: []string{AnalysisModeDaily, AnalysisModeIncident}, ScopeKind: AnalysisScopeServices, PromptFamily: "applog"},
 }
 
 // AnalysisFeeds lists every valid feed in display order. Handlers derive

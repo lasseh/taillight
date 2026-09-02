@@ -39,7 +39,7 @@ func TestCreateApplogScopeRules(t *testing.T) {
 		{"applog rejects hosts", map[string]any{"feed": "applog", "hosts": []string{"a.lab"}}, http.StatusBadRequest, "invalid_scope"},
 		{"applog rejects unknown services", map[string]any{"feed": "applog", "services": []string{"api", "ghost"}}, http.StatusBadRequest, "unknown_services"},
 		{"applog rejects weekly mode", map[string]any{"feed": "applog", "prompt_mode": "weekly"}, http.StatusBadRequest, "invalid_prompt_mode"},
-		{"applog rejects incident mode", map[string]any{"feed": "applog", "prompt_mode": "incident", "period_minutes": 60}, http.StatusBadRequest, "invalid_prompt_mode"},
+		{"applog incident", map[string]any{"feed": "applog", "prompt_mode": "incident", "period_minutes": 60}, http.StatusCreated, `"prompt_mode":"incident"`},
 		{"srvlog rejects services", map[string]any{"feed": "srvlog", "services": []string{"api"}}, http.StatusBadRequest, "invalid_scope"},
 		{"applog unscoped daily", map[string]any{"feed": "applog"}, http.StatusCreated, `"feed":"applog"`},
 		{"applog scoped daily", map[string]any{"feed": "applog", "services": []string{"worker"}}, http.StatusCreated, `"services":["worker"]`},
