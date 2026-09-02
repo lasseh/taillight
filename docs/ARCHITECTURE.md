@@ -439,15 +439,16 @@ summary_schedule_channels (schedule_id FK, channel_id FK)
 
 ```sql
 -- analysis_reports: async LLM report lifecycle
-analysis_reports (id PK, slug UNIQUE, feed ['netlog','srvlog'], prompt_mode,
-    hosts TEXT[],                       -- empty = all hosts
+analysis_reports (id PK, slug UNIQUE, feed ['netlog','srvlog','applog'], prompt_mode,
+    hosts TEXT[],                       -- syslog scope; empty = all hosts
+    services TEXT[],                    -- applog scope; empty = every service
     model, period_start, period_end, report, error,
     prompt_tokens, completion_tokens,
     status ['pending','running','completed','failed'],
     created_at, started_at, completed_at,
     notified_at,                        -- CAS column: completion email fires exactly once
     notify_channel_ids BIGINT[])        -- email channels snapshotted from the schedule
--- partial unique index on (feed, period_end, prompt_mode, hosts)
+-- partial unique index on (feed, period_end, prompt_mode, hosts, services)
 -- WHERE status IN ('pending','running') prevents duplicate active runs
 
 -- analysis_schedules: recurring analysis runs
