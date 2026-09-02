@@ -10,6 +10,7 @@ import {
   feedBadgeClass,
   formatDuration,
   promptModeBadgeClass,
+  scopeNames,
   statusBadgeClass,
 } from '@/lib/analysis-format'
 import type { AnalysisReport, AnalysisReportResponse } from '@/types/analysis'
@@ -21,6 +22,8 @@ const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.is_admin === true)
 
 const report = ref<AnalysisReport | null>(null)
+// Hosts for the syslog feeds, services for applog; empty on a fleet-wide run.
+const reportScope = computed(() => (report.value ? scopeNames(report.value) : []))
 const loading = ref(true)
 const loadError = ref('')
 
@@ -291,19 +294,19 @@ onMounted(refresh)
               <span class="text-t-fg-dark text-xs">Duration</span>
               <span class="text-t-fg text-xs font-medium">{{ durationOrDash(report) }}</span>
             </div>
-            <div v-if="report.hosts && report.hosts.length > 0" class="flex items-center gap-1.5">
+            <div v-if="reportScope.length > 0" class="flex items-center gap-1.5">
               <span class="text-t-fg-dark text-xs">Scope</span>
               <span
                 class="text-t-fg cursor-pointer text-xs font-medium"
-                :title="report.hosts.join(', ')"
+                :title="reportScope.join(', ')"
                 @click="scopeExpanded = !scopeExpanded"
               >
-                <template v-if="scopeExpanded || report.hosts.length <= 3">
-                  {{ report.hosts.join(', ') }}
+                <template v-if="scopeExpanded || reportScope.length <= 3">
+                  {{ reportScope.join(', ') }}
                 </template>
                 <template v-else>
-                  {{ report.hosts.slice(0, 3).join(', ') }}
-                  <span class="text-t-fg-dark">(+{{ report.hosts.length - 3 }} more)</span>
+                  {{ reportScope.slice(0, 3).join(', ') }}
+                  <span class="text-t-fg-dark">(+{{ reportScope.length - 3 }} more)</span>
                 </template>
               </span>
             </div>

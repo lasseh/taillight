@@ -11,6 +11,8 @@ export function feedBadgeClass(feed: AnalysisFeed): string {
       return 'bg-t-blue/10 text-t-blue'
     case 'srvlog':
       return 'bg-t-green/10 text-t-green'
+    case 'applog':
+      return 'bg-t-purple/10 text-t-purple'
     default:
       return 'bg-t-fg-dark/10 text-t-fg-dark'
   }
@@ -78,20 +80,30 @@ export function timeAgo(ts: string): string {
 const feedLabel: Record<AnalysisFeed, string> = {
   netlog: 'Netlog',
   srvlog: 'Srvlog',
+  applog: 'Applog',
 }
 
-// formatScope renders the report's host scope as a count phrase ("3 hosts")
-// for the title-suffix path. Empty input returns "" so callers can spread it
-// after a separator without producing trailing whitespace. Single vs plural
-// noun matters — a one-host scope reads as "1 host", not "1 hosts".
-export function formatScope(hosts: string[] | undefined | null): string {
-  if (!hosts || hosts.length === 0) return ''
-  const noun = hosts.length === 1 ? 'host' : 'hosts'
-  return `${hosts.length} ${noun}`
+// formatScope renders a report's scope as a count phrase ("3 hosts",
+// "1 service") for the title-suffix path. Empty input returns "" so callers
+// can spread it after a separator without producing trailing whitespace.
+// Single vs plural noun matters — a one-host scope reads as "1 host".
+export function formatScope(names: string[] | undefined | null, noun = 'host'): string {
+  if (!names || names.length === 0) return ''
+  return `${names.length} ${names.length === 1 ? noun : noun + 's'}`
+}
+
+// scopeNames returns whichever scope list a report carries: hosts for the
+// syslog feeds, services for applog. Empty when the run was fleet-wide.
+export function scopeNames(r: { hosts?: string[]; services?: string[] }): string[] {
+  if (r.hosts && r.hosts.length > 0) return r.hosts
+  return r.services ?? []
 }
 
 export function reportTitle(
-  r: Pick<AnalysisReportSummary, 'feed' | 'prompt_mode'> & { hosts?: string[] },
+  r: Pick<AnalysisReportSummary, 'feed' | 'prompt_mode'> & {
+    hosts?: string[]
+    services?: string[]
+  },
 ): string {
   const feed = feedLabel[r.feed] ?? r.feed
   let base: string
@@ -108,7 +120,7 @@ export function reportTitle(
     default:
       base = `${feed} report`
   }
-  const scope = formatScope(r.hosts)
+  const scope = r.feed === 'applog' ? formatScope(r.services, 'service') : formatScope(r.hosts)
   return scope === '' ? base : `${base} · ${scope}`
 }
 

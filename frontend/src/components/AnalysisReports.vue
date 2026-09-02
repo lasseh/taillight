@@ -14,11 +14,15 @@ import {
 } from '@/lib/analysis-format'
 import type {
   AnalysisFeed,
-  AnalysisHostEntry,
   AnalysisPromptMode,
   AnalysisReportListResponse,
   AnalysisReportSummary,
 } from '@/types/analysis'
+
+// ScopeEntry is one pickable name for the current feed: a hostname for the
+// syslog feeds, a service for applog. Both endpoints map onto it so the
+// chip picker below has one code path.
+type ScopeEntry = { name: string }
 
 const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.is_admin === true)
@@ -39,13 +43,22 @@ const createError = ref('')
 const confirmedFeeds: { value: AnalysisFeed; label: string }[] = [
   { value: 'netlog', label: 'Netlog' },
   { value: 'srvlog', label: 'Srvlog' },
+  { value: 'applog', label: 'Applog' },
 ]
+
+// scopeNoun names what the picker holds for the selected feed.
+const scopeNoun = computed(() => (selectedFeed.value === 'applog' ? 'service' : 'host'))
 
 const promptModes: { value: AnalysisPromptMode; label: string; hint: string }[] = [
   { value: 'daily', label: 'Daily', hint: 'last 24h, ops brief framing' },
   { value: 'weekly', label: 'Weekly', hint: 'last 7d, trend review framing' },
   { value: 'incident', label: 'Incident', hint: 'narrow window, live triage' },
 ]
+
+// Applog has a daily prompt only; the other framings are hidden for it.
+const availableModes = computed(() =>
+  selectedFeed.value === 'applog' ? promptModes.filter((m) => m.value === 'daily') : promptModes,
+)
 
 const incidentPeriodOptions: { minutes: number; label: string }[] = [
   { minutes: 15, label: '15 min' },
@@ -54,16 +67,17 @@ const incidentPeriodOptions: { minutes: number; label: string }[] = [
   { minutes: 180, label: '3 hours' },
 ]
 
-// Host picker state. selectedHosts is empty = "all hosts on the feed",
-// matching the server's canonical {} representation. hostQuery is what the
-// user is typing into the autocomplete input. availableHosts is the list
-// loaded from /api/v1/analysis/hosts for the currently-selected feed; it
+// Scope picker state. selectedHosts is empty = "everything on the feed",
+// matching the server's canonical {} representation; on applog it holds
+// service names. hostQuery is what the user is typing into the autocomplete
+// input. availableHosts is the list loaded from /api/v1/analysis/hosts (or
+// /analysis/services for applog) for the currently-selected feed; it
 // re-fetches whenever selectedFeed changes.
 const selectedHosts = ref<string[]>([])
 const hostQuery = ref('')
 const hostsLoading = ref(false)
 const hostsError = ref('')
-const availableHosts = ref<AnalysisHostEntry[]>([])
+const availableHosts = ref<ScopeEntry[]>([])
 const highlightedIndex = ref(0)
 // Names the server rejected on the last create attempt — used to badge bad
 // chips so the user can see exactly which entries failed validation.
@@ -73,13 +87,13 @@ const unknownHostNames = ref<Set<string>>(new Set())
 // current query (case-insensitive substring). Stable order = the server's
 // alphabetical order, so the highlighted index lines up predictably with
 // what the user sees.
-const hostSuggestions = computed<AnalysisHostEntry[]>(() => {
+const hostSuggestions = computed<ScopeEntry[]>(() => {
   const q = hostQuery.value.trim().toLowerCase()
   const taken = new Set(selectedHosts.value)
   return availableHosts.value.filter((h) => {
-    if (taken.has(h.hostname)) return false
+    if (taken.has(h.name)) return false
     if (q === '') return true
-    return h.hostname.toLowerCase().includes(q)
+    return h.name.toLowerCase().includes(q)
   })
 })
 
@@ -93,11 +107,16 @@ async function loadHostsForFeed(feed: AnalysisFeed) {
   hostsLoading.value = true
   hostsError.value = ''
   try {
-    const res = await api.listAnalysisHosts(feed)
-    availableHosts.value = res.data
+    if (feed === 'applog') {
+      const res = await api.listAnalysisServices()
+      availableHosts.value = res.data.map((s) => ({ name: s.service }))
+    } else {
+      const res = await api.listAnalysisHosts(feed)
+      availableHosts.value = res.data.map((h) => ({ name: h.hostname }))
+    }
   } catch (e) {
     availableHosts.value = []
-    hostsError.value = e instanceof Error ? e.message : 'failed to load hosts'
+    hostsError.value = e instanceof Error ? e.message : `failed to load ${scopeNoun.value}s`
   } finally {
     hostsLoading.value = false
   }
@@ -109,13 +128,14 @@ async function loadHostsForFeed(feed: AnalysisFeed) {
 // confirmation exists to prevent.
 watch(selectedFeed, async (next, prev) => {
   if (next === prev) return
+  if (next === 'applog' && selectedMode.value !== 'daily') selectedMode.value = 'daily'
   await loadHostsForFeed(next)
   if (selectedHosts.value.length === 0) return
-  const valid = new Set(availableHosts.value.map((h) => h.hostname))
+  const valid = new Set(availableHosts.value.map((h) => h.name))
   const stale = selectedHosts.value.filter((h) => !valid.has(h))
   if (stale.length === 0) return
   const ok = window.confirm(
-    `${stale.length} selected host${stale.length === 1 ? '' : 's'} ` +
+    `${stale.length} selected name${stale.length === 1 ? '' : 's'} ` +
       `don't exist on the ${next} feed and will be removed: ${stale.join(', ')}. Continue?`,
   )
   if (ok) {
@@ -147,8 +167,8 @@ function clearHosts() {
 
 function addAllMatching() {
   for (const h of hostSuggestions.value) {
-    if (!selectedHosts.value.includes(h.hostname)) {
-      selectedHosts.value.push(h.hostname)
+    if (!selectedHosts.value.includes(h.name)) {
+      selectedHosts.value.push(h.name)
     }
   }
   hostQuery.value = ''
@@ -158,7 +178,7 @@ function onHostKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter') {
     e.preventDefault()
     const pick = hostSuggestions.value[highlightedIndex.value]
-    if (pick) addHost(pick.hostname)
+    if (pick) addHost(pick.name)
     return
   }
   if (e.key === 'Backspace' && hostQuery.value === '' && selectedHosts.value.length > 0) {
@@ -232,6 +252,7 @@ async function createReport() {
       prompt_mode: AnalysisPromptMode
       period_minutes?: number
       hosts?: string[]
+      services?: string[]
     } = {
       feed: selectedFeed.value,
       prompt_mode: selectedMode.value,
@@ -240,7 +261,11 @@ async function createReport() {
       payload.period_minutes = incidentPeriodMinutes.value
     }
     if (selectedHosts.value.length > 0) {
-      payload.hosts = selectedHosts.value
+      if (selectedFeed.value === 'applog') {
+        payload.services = selectedHosts.value
+      } else {
+        payload.hosts = selectedHosts.value
+      }
     }
     const res = await api.createAnalysisReport(payload)
     reports.value = [res.data, ...reports.value]
@@ -252,7 +277,7 @@ async function createReport() {
         createError.value = 'a report for this feed and mode is already pending or running'
       } else if (e.code === 'queue_full') {
         createError.value = 'analysis queue is full — try again shortly'
-      } else if (e.code === 'unknown_hosts') {
+      } else if (e.code === 'unknown_hosts' || e.code === 'unknown_services') {
         // Server returns the bad names inline in the message. Parse the
         // brackets so the picker can badge each offender; keep the full
         // message as the error text for callers who want detail.
@@ -325,15 +350,6 @@ onMounted(async () => {
                   }}</span>
                   {{ opt.label }}
                 </button>
-                <button
-                  disabled
-                  class="border-t-border text-t-fg-gutter flex items-center gap-2 rounded border px-3 py-1.5 text-sm opacity-60 cursor-not-allowed"
-                  title="applog analyzer coming soon"
-                >
-                  <span class="w-4 text-center text-xs"></span>
-                  Applog
-                  <span class="text-t-fg-gutter text-xs">(soon)</span>
-                </button>
               </div>
               <p class="text-t-fg-gutter mt-2 text-xs">
                 for recurring runs on a longer cadence, set up a schedule.
@@ -344,7 +360,7 @@ onMounted(async () => {
               <span class="text-t-fg-dark text-sm">framing</span>
               <div class="mt-1.5 flex flex-wrap gap-2">
                 <button
-                  v-for="opt in promptModes"
+                  v-for="opt in availableModes"
                   :key="opt.value"
                   class="flex items-center gap-2 rounded border px-3 py-1.5 text-sm transition-all"
                   :class="
@@ -392,7 +408,7 @@ onMounted(async () => {
             </label>
 
             <label class="block">
-              <span class="text-t-fg-dark text-sm">hosts</span>
+              <span class="text-t-fg-dark text-sm">{{ scopeNoun }}s</span>
               <div class="border-t-border bg-t-bg mt-1.5 rounded border p-2">
                 <div class="flex flex-wrap items-center gap-1.5">
                   <span
@@ -419,7 +435,9 @@ onMounted(async () => {
                     v-model="hostQuery"
                     type="text"
                     :placeholder="
-                      selectedHosts.length === 0 ? 'All hosts. Type to filter…' : 'add another…'
+                      selectedHosts.length === 0
+                        ? `All ${scopeNoun}s. Type to filter…`
+                        : 'add another…'
                     "
                     class="text-t-fg placeholder:text-t-fg-gutter min-w-[8rem] flex-1 bg-transparent text-sm outline-none"
                     @keydown="onHostKeydown"
@@ -428,14 +446,14 @@ onMounted(async () => {
               </div>
               <div class="mt-1 flex items-center justify-between text-xs">
                 <span class="text-t-fg-gutter">
-                  <span v-if="hostsLoading">loading hosts…</span>
+                  <span v-if="hostsLoading">loading {{ scopeNoun }}s…</span>
                   <span v-else-if="hostsError" class="text-t-red">{{ hostsError }}</span>
                   <span v-else-if="selectedHosts.length === 0">
-                    leave empty to analyze every host on the feed
+                    leave empty to analyze every {{ scopeNoun }} on the feed
                   </span>
                   <span v-else>
-                    {{ selectedHosts.length }} host{{ selectedHosts.length === 1 ? '' : 's' }}
-                    selected
+                    {{ selectedHosts.length }} {{ scopeNoun
+                    }}{{ selectedHosts.length === 1 ? '' : 's' }} selected
                   </span>
                 </span>
                 <span class="flex items-center gap-3">
@@ -463,7 +481,7 @@ onMounted(async () => {
               >
                 <button
                   v-for="(h, i) in hostSuggestions"
-                  :key="h.hostname"
+                  :key="h.name"
                   type="button"
                   class="w-full px-2 py-1 text-left text-sm transition-colors"
                   :class="
@@ -472,9 +490,9 @@ onMounted(async () => {
                       : 'text-t-fg-dark hover:text-t-fg hover:bg-t-bg-hover'
                   "
                   @mouseenter="highlightedIndex = i"
-                  @click="addHost(h.hostname)"
+                  @click="addHost(h.name)"
                 >
-                  {{ h.hostname }}
+                  {{ h.name }}
                 </button>
               </div>
             </label>

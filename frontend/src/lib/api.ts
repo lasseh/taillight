@@ -47,6 +47,7 @@ import type {
   AnalysisReportResponse,
   AnalysisScheduleListResponse,
   AnalysisScheduleResponse,
+  AnalysisServiceListResponse,
   CreateAnalysisReportRequest,
   CreateAnalysisScheduleRequest,
 } from '@/types/analysis'
@@ -467,6 +468,10 @@ export const api = {
 
   listAnalysisHosts(feed: AnalysisFeed): Promise<AnalysisHostListResponse> {
     return fetchAPI(`/api/v1/analysis/hosts?feed=${encodeURIComponent(feed)}`)
+  },
+
+  listAnalysisServices(): Promise<AnalysisServiceListResponse> {
+    return fetchAPI('/api/v1/analysis/services')
   },
 
   // Analysis schedules
