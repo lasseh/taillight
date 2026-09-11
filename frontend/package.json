@@ -17,8 +17,8 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@unovis/ts": "^1.6.7",
-    "@unovis/vue": "^1.6.7",
+    "@unovis/ts": "^1.7.0",
+    "@unovis/vue": "^1.7.0",
     "dompurify": "^3.4.14",
     "focus-trap": "^8.2.2",
     "marked": "^18.0.11",
