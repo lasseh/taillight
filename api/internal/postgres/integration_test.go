@@ -739,6 +739,49 @@ func TestIntegration_GetTopErrorHosts(t *testing.T) {
 	}
 }
 
+// TestIntegration_GetVolumeTimeline covers the hourly-aggregate path, where
+// SUM(cnt) FILTER returns NULL for a bucket with no errors. Scanning that NULL
+// into int64 used to fail the whole timeline.
+func TestIntegration_GetVolumeTimeline(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool)
+	ctx := context.Background()
+
+	for _, feed := range syslogFeeds {
+		t.Run(feed, func(t *testing.T) {
+			truncate(t, pool, "netlog_events", "srvlog_events")
+			now := time.Now().UTC()
+			quietHour := now.Truncate(time.Hour).Add(-4 * time.Hour)
+			errorHour := now.Truncate(time.Hour).Add(-2 * time.Hour)
+
+			// quietHour: informational only, so no row passes severity <= 3.
+			for range 4 {
+				insertSyslogEvent(t, pool, feed, quietHour.Add(30*time.Minute), "host-a", "INFO", 6, "interface up")
+			}
+			insertSyslogEvent(t, pool, feed, errorHour.Add(30*time.Minute), "host-a", "ERR", 3, "bgp peer down")
+
+			// No host filter and 60-minute buckets select the aggregate path.
+			got, err := store.GetVolumeTimeline(ctx, model.AnalysisScope{Feed: feed}, now.Add(-24*time.Hour), now, 60)
+			if err != nil {
+				t.Fatalf("GetVolumeTimeline: %v", err)
+			}
+
+			want := []model.AnalysisVolumeBucket{
+				{Bucket: quietHour, Total: 4, ErrorCount: 0},
+				{Bucket: errorHour, Total: 1, ErrorCount: 1},
+			}
+			if len(got) != len(want) {
+				t.Fatalf("got %d buckets (%+v), want %d", len(got), got, len(want))
+			}
+			for i := range want {
+				if !got[i].Bucket.Equal(want[i].Bucket) || got[i].Total != want[i].Total || got[i].ErrorCount != want[i].ErrorCount {
+					t.Errorf("bucket %d = %+v, want %+v", i, got[i], want[i])
+				}
+			}
+		})
+	}
+}
+
 // TestIntegration_GetNewMsgIDs covers the NOT EXISTS -> EXCEPT rewrite: a
 // signature counts as new only when it appears in the current window and not
 // in the baseline window.
