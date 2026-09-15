@@ -710,7 +710,7 @@ func (s *Store) GetVolumeTimeline(ctx context.Context, scope model.AnalysisScope
 		query = fmt.Sprintf(`
 			SELECT time_bucket($1::interval, bucket) AS b,
 			       SUM(cnt) AS total,
-			       SUM(cnt) FILTER (WHERE severity <= 3) AS err_cnt
+			       COALESCE(SUM(cnt) FILTER (WHERE severity <= 3), 0) AS err_cnt
 			FROM %s
 			WHERE bucket >= $2 AND bucket < $3
 			GROUP BY b
