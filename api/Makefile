@@ -68,8 +68,26 @@ tidy: ## Verify go.mod and go.sum are tidy
 	$(GO) mod tidy
 	@git diff --exit-code go.mod go.sum || (echo "go.mod/go.sum not tidy" && exit 1)
 
-vulncheck: ## Scan for known vulnerabilities
-	govulncheck ./...
+# Accepted govulncheck findings (OSV IDs). Every entry needs a reason and a
+# removal condition; any other finding still fails the target.
+#   GO-2026-6452  excelize panic on a negative shared-string index. The record
+#     lists no fixed release. v2.11.0 has the in-memory fix; the temp-file path
+#     (GHSA-wcg2-648h-mhxq) is fixed only on upstream master. Reached only via
+#     the admin-scoped XLSX upload (caught by middleware.Recoverer) and
+#     operator-supplied import files. Remove once excelize tags > v2.11.0.
+VULNCHECK_ACCEPT := GO-2026-6452
+
+vulncheck: ## Scan for known vulnerabilities (fails on any not in VULNCHECK_ACCEPT)
+	@out=$$(govulncheck ./...); rc=$$?; printf '%s\n' "$$out"; \
+	[ $$rc -eq 0 ] && exit 0; [ $$rc -eq 3 ] || exit $$rc; \
+	ids=$$(printf '%s\n' "$$out" | awk '/^=== Symbol Results ===/{s=1;next} /^===/{s=0} s && /^Vulnerability #/{print $$3}'); \
+	[ -n "$$ids" ] || { echo "vulncheck: findings reported but none parsed"; exit 3; }; \
+	fail=0; for id in $$ids; do \
+		case " $(VULNCHECK_ACCEPT) " in \
+			*" $$id "*) echo "vulncheck: $$id accepted (VULNCHECK_ACCEPT)" ;; \
+			*) echo "vulncheck: $$id not accepted"; fail=3 ;; \
+		esac; \
+	done; exit $$fail
 
 generate: ## Verify generated code is up to date
 	$(GO) generate ./...
