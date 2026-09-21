@@ -39,6 +39,11 @@ updates:
       unovis:
         patterns:
           - "@unovis/*"
+      # @vitest/coverage-v8 pins an exact vitest peer — same reason as unovis
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
       minor-and-patch:
         update-types:
           - "minor"
