@@ -249,7 +249,7 @@ function onCopy(e: ClipboardEvent) {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <div class="relative flex-1 overflow-hidden">
+    <div class="bg-t-bg-dark relative flex-1 overflow-hidden">
       <LoadingIndicator v-if="loading" />
 
       <div v-if="error" class="px-4 py-4">
