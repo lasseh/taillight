@@ -33,7 +33,7 @@
     "@types/node": "^26.4.0",
     "@types/prismjs": "^1.26.5",
     "@vitejs/plugin-vue": "^6.0.8",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.1",
     "@vue/test-utils": "^2.5.0",
     "eslint": "10.9.1",
     "eslint-config-prettier": "10.1.8",
@@ -45,7 +45,7 @@
     "typescript": "~6.0",
     "typescript-eslint": "8.68.0",
     "vite": "^8.2.2",
-    "vitest": "^4.1.8",
+    "vitest": "^5.0.1",
     "vue-eslint-parser": "10.4.1",
     "vue-tsc": "^3.3.11"
   },
