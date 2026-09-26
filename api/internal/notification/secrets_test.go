@@ -144,6 +144,28 @@ func TestChannelWithSecretsFrom(t *testing.T) {
 	}
 }
 
+func TestChannelHasRedactedSecret(t *testing.T) {
+	tests := []struct {
+		name   string
+		typ    ChannelType
+		config string
+		want   bool
+	}{
+		{"real token", ChannelTypeNtfy, `{"token":"tk"}`, false},
+		{"masked token", ChannelTypeNtfy, `{"token":"********"}`, true},
+		{"masked header value", ChannelTypeWebhook, `{"url":"https://x","headers":{"X-Renamed":"********"}}`, true},
+		{"mask in a non-secret field", ChannelTypeNtfy, `{"topic":"********"}`, false},
+		{"email has no secrets", ChannelTypeEmail, `{"to":["********"]}`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := (Channel{Type: tt.typ, Config: json.RawMessage(tt.config)}).HasRedactedSecret(); got != tt.want {
+				t.Errorf("HasRedactedSecret = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestChannelWithSecretsFromTypeChange(t *testing.T) {
 	stored := Channel{Type: ChannelTypeSlack, Config: json.RawMessage(`{"webhook_url":"https://hooks.slack.com/x"}`)}
 	sent := Channel{Type: ChannelTypeWebhook, Config: json.RawMessage(`{"url":"********"}`)}

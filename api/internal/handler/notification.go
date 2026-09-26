@@ -156,6 +156,10 @@ func (h *NotificationHandler) UpdateChannel(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ch = ch.WithSecretsFrom(stored)
+	if ch.HasRedactedSecret() {
+		writeError(w, http.StatusBadRequest, "validation_failed", "a masked secret has no stored value to keep; re-enter it")
+		return
+	}
 
 	if h.engine != nil {
 		if err := h.engine.ValidateChannel(ch); err != nil {

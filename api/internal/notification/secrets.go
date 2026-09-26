@@ -83,6 +83,31 @@ func (ch Channel) WithSecretsFrom(stored Channel) Channel {
 	return ch
 }
 
+// HasRedactedSecret reports whether any secret in ch is still the
+// placeholder, e.g. a renamed webhook header whose value was never re-typed.
+// Such a config must not be stored: the placeholder would become the secret.
+func (ch Channel) HasRedactedSecret() bool {
+	var cfg map[string]json.RawMessage
+	if json.Unmarshal(ch.Config, &cfg) != nil {
+		return false
+	}
+	for _, k := range secretKeys[ch.Type] {
+		raw := cfg[k]
+		if isMasked(raw) {
+			return true
+		}
+		var obj map[string]json.RawMessage
+		if len(raw) > 0 && raw[0] == '{' && json.Unmarshal(raw, &obj) == nil {
+			for _, v := range obj {
+				if isMasked(v) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // maskJSONValue replaces a secret JSON value with the placeholder. For a JSON
 // object it masks each member value and keeps the member names.
 func maskJSONValue(raw json.RawMessage) json.RawMessage {

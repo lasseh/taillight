@@ -321,6 +321,31 @@ func TestUpdateChannelKeepsMaskedSecret(t *testing.T) {
 	}
 }
 
+// TestUpdateChannelRejectsUnrestorableMask covers a renamed webhook header
+// whose value is still the mask: there is nothing stored to keep, so the
+// update must fail rather than store the placeholder.
+func TestUpdateChannelRejectsUnrestorableMask(t *testing.T) {
+	store := &mockNotificationStore{channel: notification.Channel{
+		ID: 1, Type: notification.ChannelTypeWebhook,
+		Config: json.RawMessage(`{"url":"https://x/hook","headers":{"Authorization":"Bearer s"}}`),
+	}}
+	h := NewNotificationHandler(store, nil)
+	r := chi.NewRouter()
+	r.Put("/channels/{id}", h.UpdateChannel)
+
+	body := `{"name":"w","type":"webhook","enabled":true,"config":{"url":"********","headers":{"X-Auth":"********"}}}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/channels/1", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if store.updatedCh.Config != nil {
+		t.Errorf("store was written: %s", store.updatedCh.Config)
+	}
+}
+
 func TestDeleteChannel(t *testing.T) {
 	tests := []struct {
 		name       string
