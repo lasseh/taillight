@@ -122,6 +122,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		mode = modeDaily
 	}
 	kind := reportKind(params.Feed, mode)
+	title := model.AnalysisBriefingTitle(params.Feed, mode)
 
 	start := time.Now()
 	periodEnd := start.UTC().Truncate(time.Minute)
@@ -176,7 +177,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		return Result{
 			PeriodStart: p.periodStart,
 			PeriodEnd:   p.periodEnd,
-			Report:      prependReportHeader(p.emptyBody, kind, p.periodStart, p.periodEnd),
+			Report:      prependReportHeader(p.emptyBody, title, p.periodStart, p.periodEnd),
 		}, nil
 	}
 
@@ -281,7 +282,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 	// keeps the H1 stable across reports.
 	report := prependReportHeader(
 		normalizeReportMarkdown(resp.Message.Content),
-		kind, p.periodStart, p.periodEnd,
+		title, p.periodStart, p.periodEnd,
 	)
 
 	return Result{

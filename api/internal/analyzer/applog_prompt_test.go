@@ -83,12 +83,6 @@ func TestReportKind(t *testing.T) {
 	if got := reportKind(model.AnalysisFeedApplog, modeIncident); got != kindApplogIncident {
 		t.Errorf("reportKind(applog, incident) = %q, want %q", got, kindApplogIncident)
 	}
-	if got := briefingTitle(kindApplogIncident); got != "Application Log Incident Briefing" {
-		t.Errorf("briefingTitle(applog incident) = %q", got)
-	}
-	if got := briefingTitle(kindApplogDaily); got != "Daily Application Log Briefing" {
-		t.Errorf("briefingTitle(applog daily) = %q", got)
-	}
 }
 
 // chatReplyApplog is a minimal applog daily reply that passes validateReport.
@@ -118,7 +112,7 @@ func TestApplogDailySpec(t *testing.T) {
 	if err := validateReport(chatReplyDaily, kindApplogDaily); err == nil {
 		t.Error("syslog-shaped reply accepted for the applog kind")
 	}
-	if got := reportLineCap[kindApplogDaily]; got != 80 {
+	if got := reportShapes[kindApplogDaily].lineCap; got != 80 {
 		t.Errorf("applog line cap = %d, want 80", got)
 	}
 
@@ -127,7 +121,7 @@ func TestApplogDailySpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load applog system prompt: %v", err)
 	}
-	for _, h := range requiredHeaders[kindApplogDaily] {
+	for _, h := range reportShapes[kindApplogDaily].headers {
 		if !strings.Contains(src, "## "+h+"\n") {
 			t.Errorf("applog system prompt does not spell out header %q", h)
 		}
@@ -263,7 +257,7 @@ func TestApplogIncidentSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load applog incident system prompt: %v", err)
 	}
-	for _, h := range requiredHeaders[kindApplogIncident] {
+	for _, h := range reportShapes[kindApplogIncident].headers {
 		if !strings.Contains(src, "## "+h+"\n") {
 			t.Errorf("applog incident system prompt does not spell out header %q", h)
 		}

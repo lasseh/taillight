@@ -237,7 +237,7 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 		r := p.AnalysisReport
 		return fmt.Sprintf("%s %s — %s",
 			prefix,
-			analysisBriefingTitle(r.Feed, r.PromptMode),
+			model.AnalysisBriefingTitle(r.Feed, r.PromptMode),
 			r.PeriodEnd.UTC().Format("2006-01-02"),
 		)
 	}
@@ -264,31 +264,6 @@ func buildEmailSubject(tmpl string, p notification.Payload) string {
 		return fmt.Sprintf("%s %s - %s", prefix, p.AppLogEvent.Host, p.AppLogEvent.Level)
 	}
 	return prefix + " Notification"
-}
-
-// analysisBriefingTitle is the email-subject mapper for a report's feed and
-// prompt_mode. Mirrors analyzer.briefingTitle (which is unexported and lives
-// a layer below this package, so duplicating the short switch is cheaper
-// than reaching across); keep the two in step.
-func analysisBriefingTitle(feed, mode string) string {
-	if feed == model.AnalysisFeedApplog {
-		switch mode {
-		case "daily":
-			return "Daily Application Log Briefing"
-		case "incident":
-			return "Application Log Incident Briefing"
-		}
-	}
-	switch mode {
-	case "daily":
-		return "Daily Operations Briefing"
-	case "weekly":
-		return "Weekly Operations Briefing"
-	case "incident":
-		return "Incident Briefing"
-	default:
-		return "Operations Briefing"
-	}
 }
 
 // buildEmailBody creates an HTML email body with severity color coding.

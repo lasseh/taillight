@@ -6,27 +6,6 @@ import (
 	"time"
 )
 
-// briefingTitle returns the long-form title used at the top of a rendered
-// report, keyed by report kind (see reportKind). It mirrors the frontend
-// briefingTitle() label so an operator reading the markdown directly (curl,
-// PDF export, copy-paste) sees the same heading the UI shows.
-func briefingTitle(kind string) string {
-	switch kind {
-	case modeDaily:
-		return "Daily Operations Briefing"
-	case modeWeekly:
-		return "Weekly Operations Briefing"
-	case modeIncident:
-		return "Incident Briefing"
-	case kindApplogDaily:
-		return "Daily Application Log Briefing"
-	case kindApplogIncident:
-		return "Application Log Incident Briefing"
-	default:
-		return "Operations Briefing"
-	}
-}
-
 // renderReportHeader builds the title + period block prepended to the
 // model's reply. Format:
 //
@@ -42,10 +21,13 @@ func briefingTitle(kind string) string {
 //     marked → DOMPurify path it already uses;
 //   - the H2 structure validator only inspects `## ` headers so an H1
 //     above `## TL;DR` does not interfere.
-func renderReportHeader(mode string, periodStart, periodEnd time.Time) string {
+//
+// title comes from model.AnalysisBriefingTitle, which the email subject also
+// uses, so both read the same.
+func renderReportHeader(title string, periodStart, periodEnd time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s — %s → %s\n",
-		briefingTitle(mode),
+		title,
 		periodStart.UTC().Format("2006-01-02"),
 		periodEnd.UTC().Format("2006-01-02"),
 	)
@@ -59,6 +41,6 @@ func renderReportHeader(mode string, periodStart, periodEnd time.Time) string {
 // prependReportHeader returns the model's reply with the briefing header
 // inserted at the top. A leading newline in the reply is collapsed so the
 // header sits flush against the rest of the report.
-func prependReportHeader(report, mode string, periodStart, periodEnd time.Time) string {
-	return renderReportHeader(mode, periodStart, periodEnd) + strings.TrimLeft(report, "\n")
+func prependReportHeader(report, title string, periodStart, periodEnd time.Time) string {
+	return renderReportHeader(title, periodStart, periodEnd) + strings.TrimLeft(report, "\n")
 }

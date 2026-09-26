@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+// TestAnalysisBriefingTitle pins the titles shared by the report H1 and the
+// email subject.
+func TestAnalysisBriefingTitle(t *testing.T) {
+	tests := []struct {
+		feed, mode, want string
+	}{
+		{AnalysisFeedNetlog, AnalysisModeDaily, "Daily Operations Briefing"},
+		{AnalysisFeedSrvlog, AnalysisModeWeekly, "Weekly Operations Briefing"},
+		{AnalysisFeedNetlog, AnalysisModeIncident, "Incident Briefing"},
+		{AnalysisFeedApplog, AnalysisModeDaily, "Daily Application Log Briefing"},
+		{AnalysisFeedApplog, AnalysisModeIncident, "Application Log Incident Briefing"},
+		{AnalysisFeedSrvlog, "", "Operations Briefing"},
+		{AnalysisFeedSrvlog, "unknown-mode", "Operations Briefing"},
+	}
+	for _, tt := range tests {
+		if got := AnalysisBriefingTitle(tt.feed, tt.mode); got != tt.want {
+			t.Errorf("AnalysisBriefingTitle(%q, %q) = %q, want %q", tt.feed, tt.mode, got, tt.want)
+		}
+	}
+}
+
 // TestAnalysisModeForFrequency locks in the cadence → prompt mode mapping that
 // the scheduler depends on (and that the schedule form's UI hint advertises).
 // daily cadence uses the daily prompt; weekly and monthly both reuse the
