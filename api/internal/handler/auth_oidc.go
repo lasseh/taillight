@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/lasseh/taillight/internal/auth"
 	oidcauth "github.com/lasseh/taillight/internal/oidc"
 )
 
@@ -150,15 +151,15 @@ func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.store.UpsertOIDCUser(r.Context(), ident.Issuer, ident.Subject, ident.Username, ident.Email, ident.IsAdmin)
-	if err != nil {
-		logger.Error("oidc login: upsert user", "err", err)
-		redirectLoginError(w, r, oidcErrFailed)
+	user, err := h.login.OIDC(r.Context(), *ident)
+	if errors.Is(err, auth.ErrInactive) {
+		logger.Warn("oidc login failed: inactive account", "username", ident.Username, "ip", ip)
+		redirectLoginError(w, r, oidcErrForbidden)
 		return
 	}
-	if !user.IsActive {
-		logger.Warn("oidc login failed: inactive account", "username", user.Username, "ip", ip)
-		redirectLoginError(w, r, oidcErrForbidden)
+	if err != nil {
+		logger.Error("oidc login failed", "err", err)
+		redirectLoginError(w, r, oidcErrFailed)
 		return
 	}
 
