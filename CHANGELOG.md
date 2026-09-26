@@ -183,6 +183,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Fixed
 
+- **Editing a notification channel overwrote its secrets with the `********` mask**: the edit form is filled from the redacted read and posted it back, so an ntfy token or webhook header was saved as the placeholder and delivery auth silently broke, and every Slack/webhook edit forced the URL to be re-entered. Updates now keep the stored value for any secret sent back masked, and create/update responses are redacted like reads
 - **Analysis reports were near-unreadable in email**: findings are now separated into one block each (the models emit them on bare consecutive lines, which every renderer collapsed into a single paragraph), inline code dropped its bordered-chip styling (a hostname or signature in nearly every clause turned the brief into a mosaic of boxes), `[CRIT]`/`[WARN]` and the TL;DR status word are tinted, and the email ships a real dark palette plus a `color-scheme` declaration instead of being force-inverted by dark-mode clients. Normalizing the markdown in the analyzer rather than in a renderer means the email, the printed PDF, and the web report view all pick up the fix
 - Cross-origin PUT requests were blocked by CORS (`AllowedMethods` omitted PUT), breaking the four admin update endpoints under split-origin dev — salvaged from the stranded June hardening branch
 - SMTP notification sends are bounded by the send deadline — a stalled server fails fast instead of hanging the conversation
