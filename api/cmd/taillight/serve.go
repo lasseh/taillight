@@ -121,30 +121,13 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Notification engine (optional).
 	var notifEngine *notification.Engine
 	if cfg.Notification.Enabled {
-		notifEngine = notification.NewEngine(store, notification.Config{
-			Enabled:             cfg.Notification.Enabled,
-			RuleRefreshInterval: cfg.Notification.RuleRefreshInterval,
-			DispatchWorkers:     cfg.Notification.DispatchWorkers,
-			DispatchBuffer:      cfg.Notification.DispatchBuffer,
-			SendTimeout:         cfg.Notification.SendTimeout,
-			DefaultSilence:      cfg.Notification.DefaultSilence,
-			DefaultSilenceMax:   cfg.Notification.DefaultSilenceMax,
-			DefaultCoalesce:     cfg.Notification.DefaultCoalesce,
-		}, logger)
+		notifEngine = notification.NewEngine(store, cfg.Notification, logger)
 		notifEngine.RegisterBackend(notification.ChannelTypeSlack, backend.NewSlack(logger))
 		notifEngine.RegisterBackend(notification.ChannelTypeWebhook, backend.NewWebhook(logger))
 		notifEngine.RegisterBackend(notification.ChannelTypeNtfy, backend.NewNtfy(logger))
 		// Email backend is always registered so channels can be created without SMTP
 		// configured. Send-time will surface a clear error if smtp.host is unset.
-		notifEngine.RegisterBackend(notification.ChannelTypeEmail, backend.NewEmail(backend.EmailGlobalConfig{
-			Host:     cfg.SMTP.Host,
-			Port:     cfg.SMTP.Port,
-			Username: cfg.SMTP.Username,
-			Password: cfg.SMTP.Password,
-			From:     cfg.SMTP.From,
-			TLS:      cfg.SMTP.TLS,
-			AuthType: cfg.SMTP.AuthType,
-		}, logger))
+		notifEngine.RegisterBackend(notification.ChannelTypeEmail, backend.NewEmail(cfg.SMTP, logger))
 		notifEngine.Start(ctx)
 	}
 
@@ -159,17 +142,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// LDAP authentication (optional).
 	var ldapAuth ldapauth.Authenticator
 	if cfg.LDAP.Enabled {
-		ldapAuth = ldapauth.NewClient(ldapauth.Config{
-			URL:            cfg.LDAP.URL,
-			StartTLS:       cfg.LDAP.StartTLS,
-			TLSSkipVerify:  cfg.LDAP.TLSSkipVerify,
-			CABundle:       cfg.LDAP.CABundle,
-			BindDN:         cfg.LDAP.BindDN,
-			BindPassword:   cfg.LDAP.BindPassword,
-			UserSearchBase: cfg.LDAP.UserSearchBase,
-			UserFilter:     cfg.LDAP.UserFilter,
-			GroupRoleMap:   cfg.LDAP.GroupRoleMap,
-		}, logger)
+		if err := cfg.LDAP.Validate(); err != nil {
+			return fmt.Errorf("ldap config: %w", err)
+		}
+		ldapAuth = ldapauth.NewClient(cfg.LDAP.Config, logger)
 		logger.Info("LDAP authentication enabled", "url", cfg.LDAP.URL)
 	}
 
@@ -181,21 +157,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		if err := cfg.OIDC.Validate(); err != nil {
 			return err
 		}
-		oidcAuth = oidcauth.New(oidcauth.Config{
-			IssuerURL:             cfg.OIDC.IssuerURL,
-			ClientID:              cfg.OIDC.ClientID,
-			ClientSecret:          cfg.OIDC.ClientSecret,
-			RedirectURL:           cfg.OIDC.RedirectURL,
-			Scopes:                cfg.OIDC.Scopes,
-			UsernameClaim:         cfg.OIDC.UsernameClaim,
-			EmailClaim:            cfg.OIDC.EmailClaim,
-			GroupsClaim:           cfg.OIDC.GroupsClaim,
-			AllowedDomains:        cfg.OIDC.AllowedDomains,
-			AllowedUsers:          cfg.OIDC.AllowedUsers,
-			AllowedGroups:         cfg.OIDC.AllowedGroups,
-			AdminGroups:           cfg.OIDC.AdminGroups,
-			EmailVerifiedRequired: cfg.OIDC.EmailVerifiedRequired,
-		}, logger)
+		oidcAuth = oidcauth.New(cfg.OIDC.Config, logger)
 		logger.Info("OIDC authentication enabled", "issuer", cfg.OIDC.IssuerURL)
 	}
 
@@ -300,15 +262,9 @@ func setupNetbox(cfg config.Config, logger *slog.Logger) *netbox.Client {
 	if !cfg.Netbox.Enabled {
 		return nil
 	}
-	nbClient, err := netbox.NewClient(netbox.Config{
-		URL:           cfg.Netbox.URL,
-		Token:         cfg.Netbox.Token,
-		AuthScheme:    cfg.Netbox.AuthScheme,
-		Timeout:       cfg.Netbox.Timeout,
-		CacheTTL:      cfg.Netbox.CacheTTL,
-		TLSSkipVerify: cfg.Netbox.TLSSkipVerify,
-		Logger:        logger,
-	})
+	nbCfg := cfg.Netbox.Config
+	nbCfg.Logger = logger
+	nbClient, err := netbox.NewClient(nbCfg)
 	if err != nil {
 		logger.Warn("netbox enrichment disabled: client init failed", "err", err)
 		return nil

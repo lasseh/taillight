@@ -10,6 +10,12 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+
+	"github.com/lasseh/taillight/internal/ldap"
+	"github.com/lasseh/taillight/internal/netbox"
+	"github.com/lasseh/taillight/internal/notification"
+	"github.com/lasseh/taillight/internal/notification/backend"
+	oidcauth "github.com/lasseh/taillight/internal/oidc"
 )
 
 // Config holds application configuration.
@@ -32,32 +38,25 @@ type Config struct {
 	JuniperRefPath         string         // Directory containing Juniper syslog reference XLSX files for startup auto-import. Empty disables.
 	LogShipper             LogShipperConfig
 	Analysis               AnalysisConfig
-	Notification           NotificationConfig
+	Notification           notification.Config
 	Retention              RetentionConfig
-	SMTP                   SMTPConfig
+	SMTP                   backend.EmailGlobalConfig
 	LDAP                   LDAPConfig
 	OIDC                   OIDCConfig
 	Netbox                 NetboxConfig
 }
+
+// Sections that configure one package embed that package's own Config, so a
+// new setting is a field there plus its viper key below, with no mirror
+// struct or copy at the call site.
 
 // LDAPConfig configures LDAP authentication (e.g. Active Directory or FreeIPA).
 // When enabled, login attempts are first verified against the LDAP directory.
 // Users authenticated via LDAP are synced to the local database for session
 // and API key support. Local bcrypt auth continues to work for local users.
 type LDAPConfig struct {
-	Enabled        bool   // Enable LDAP authentication.
-	URL            string // LDAP server URL (e.g. "ldaps://ipa.example.com:636").
-	StartTLS       bool   // Use STARTTLS on port 389 instead of LDAPS.
-	TLSSkipVerify  bool   // Skip TLS certificate verification (dev only).
-	CABundle       string // PEM file of extra trusted CAs, added to the system roots (lets an internal CA verify without skipping).
-	BindDN         string // Service account DN for user lookups.
-	BindPassword   string // Service account password.
-	UserSearchBase string // Base DN for user searches (e.g. "cn=users,cn=accounts,dc=example,dc=com").
-	UserFilter     string // LDAP filter with %s placeholder for escaped username.
-	// GroupRoleMap maps a group (full DN or bare CN) to a role. "admin" grants
-	// is_admin; any other value authorizes a regular user. A user in no mapped
-	// group is denied login.
-	GroupRoleMap map[string]string
+	Enabled bool
+	ldap.Config
 }
 
 // OIDCConfig configures OIDC single sign-on against one external identity
@@ -65,27 +64,8 @@ type LDAPConfig struct {
 // discovery from the issuer URL. Users are provisioned on first login, keyed
 // on the (issuer, subject) claim pair, and carry no local password.
 type OIDCConfig struct {
-	Enabled      bool   // Enable OIDC login.
-	IssuerURL    string // Provider issuer URL (e.g. "https://login.example.com/realms/ops").
-	ClientID     string // OAuth2 client ID registered at the provider.
-	ClientSecret string // OAuth2 client secret (override via env OIDC_CLIENT_SECRET).
-	RedirectURL  string // Public callback URL: "https://taillight.example.com/api/v1/auth/oidc/callback".
-	// Scopes are extra scopes requested beyond openid/profile/email
-	// (e.g. "groups" for providers that gate the groups claim behind it).
-	Scopes []string
-
-	UsernameClaim string // Claim mapped to the local username (default "preferred_username").
-	EmailClaim    string // Claim mapped to the email address (default "email").
-	GroupsClaim   string // Claim holding group memberships (default "groups").
-
-	AllowedDomains []string // Allow logins whose email domain matches (OR'd with allowed_users). Empty = no domain gating.
-	AllowedUsers   []string // Allow logins whose email matches exactly (OR'd with allowed_domains).
-	AllowedGroups  []string // When set, require membership in at least one of these groups.
-	AdminGroups    []string // Membership in any of these groups grants is_admin. Empty = no admin via OIDC.
-
-	// EmailVerifiedRequired rejects logins whose email_verified claim is not
-	// true (default true). Disable only for providers that omit the claim.
-	EmailVerifiedRequired bool
+	Enabled bool
+	oidcauth.Config
 }
 
 // Validate returns an error when OIDC is enabled with an incomplete
@@ -125,29 +105,6 @@ type RetentionConfig struct {
 	MetricsDays         int // Default 30.
 }
 
-// SMTPConfig holds SMTP connection settings for the email notification backend.
-type SMTPConfig struct {
-	Host     string // SMTP server hostname.
-	Port     int    // SMTP server port (default 587).
-	Username string // SMTP username.
-	Password string // SMTP password.
-	From     string // Sender address (default "taillight@localhost").
-	TLS      bool   // Use STARTTLS (default true).
-	AuthType string // Auth mechanism: "plain", "crammd5", or "" (no auth). Ignored when Username is empty.
-}
-
-// NotificationConfig configures the pluggable notification engine.
-type NotificationConfig struct {
-	Enabled             bool
-	RuleRefreshInterval time.Duration
-	DispatchWorkers     int
-	DispatchBuffer      int
-	SendTimeout         time.Duration
-	DefaultSilence      time.Duration
-	DefaultSilenceMax   time.Duration
-	DefaultCoalesce     time.Duration
-}
-
 // LogShipperConfig configures the built-in log shipper that sends taillight's
 // own application logs to the applog ingest endpoint.
 type LogShipperConfig struct {
@@ -164,15 +121,10 @@ type LogShipperConfig struct {
 
 // NetboxConfig configures the optional Netbox enrichment client used on the
 // netlog detail page. When disabled, the enrichment endpoint is not registered
-// and the frontend hides its panel.
+// and the frontend hides its panel. Logger is left for the caller to set.
 type NetboxConfig struct {
-	Enabled       bool          // Enable Netbox enrichment.
-	URL           string        // Base URL of the Netbox instance (e.g. "https://netbox.example.com").
-	Token         string        // API token (override via env NETBOX_TOKEN).
-	AuthScheme    string        // "token" (legacy "Authorization: Token <key>") or "bearer" (OAuth-style "Authorization: Bearer <key>").
-	Timeout       time.Duration // Per-call HTTP timeout (default 3s).
-	CacheTTL      time.Duration // In-memory cache TTL for lookups (default 10m).
-	TLSSkipVerify bool          // Skip TLS verification (self-signed test instances).
+	Enabled bool
+	netbox.Config
 }
 
 // AnalysisConfig configures the LLM-based log analysis feature. Feed selection
@@ -394,7 +346,7 @@ func Load(configFile ...string) (Config, error) {
 				LongTailServices:         v.GetInt("analysis.applog.long_tail_services"),
 			},
 		},
-		Notification: NotificationConfig{
+		Notification: notification.Config{
 			Enabled:             v.GetBool("notification.enabled"),
 			RuleRefreshInterval: v.GetDuration("notification.rule_refresh_interval"),
 			DispatchWorkers:     v.GetInt("notification.dispatch_workers"),
@@ -405,34 +357,38 @@ func Load(configFile ...string) (Config, error) {
 			DefaultCoalesce:     v.GetDuration("notification.default_coalesce"),
 		},
 		LDAP: LDAPConfig{
-			Enabled:        v.GetBool("ldap.enabled"),
-			URL:            v.GetString("ldap.url"),
-			StartTLS:       v.GetBool("ldap.starttls"),
-			TLSSkipVerify:  v.GetBool("ldap.tls_skip_verify"),
-			CABundle:       v.GetString("ldap.ca_bundle"),
-			BindDN:         v.GetString("ldap.bind_dn"),
-			BindPassword:   v.GetString("ldap.bind_password"),
-			UserSearchBase: v.GetString("ldap.user_search_base"),
-			UserFilter:     v.GetString("ldap.user_filter"),
-			GroupRoleMap:   v.GetStringMapString("ldap.group_role_map"),
+			Enabled: v.GetBool("ldap.enabled"),
+			Config: ldap.Config{
+				URL:            v.GetString("ldap.url"),
+				StartTLS:       v.GetBool("ldap.starttls"),
+				TLSSkipVerify:  v.GetBool("ldap.tls_skip_verify"),
+				CABundle:       v.GetString("ldap.ca_bundle"),
+				BindDN:         v.GetString("ldap.bind_dn"),
+				BindPassword:   v.GetString("ldap.bind_password"),
+				UserSearchBase: v.GetString("ldap.user_search_base"),
+				UserFilter:     v.GetString("ldap.user_filter"),
+				GroupRoleMap:   v.GetStringMapString("ldap.group_role_map"),
+			},
 		},
 		OIDC: OIDCConfig{
-			Enabled:               v.GetBool("oidc.enabled"),
-			IssuerURL:             v.GetString("oidc.issuer_url"),
-			ClientID:              v.GetString("oidc.client_id"),
-			ClientSecret:          v.GetString("oidc.client_secret"),
-			RedirectURL:           v.GetString("oidc.redirect_url"),
-			Scopes:                v.GetStringSlice("oidc.scopes"),
-			UsernameClaim:         v.GetString("oidc.username_claim"),
-			EmailClaim:            v.GetString("oidc.email_claim"),
-			GroupsClaim:           v.GetString("oidc.groups_claim"),
-			AllowedDomains:        v.GetStringSlice("oidc.allowed_domains"),
-			AllowedUsers:          v.GetStringSlice("oidc.allowed_users"),
-			AllowedGroups:         v.GetStringSlice("oidc.allowed_groups"),
-			AdminGroups:           v.GetStringSlice("oidc.admin_groups"),
-			EmailVerifiedRequired: v.GetBool("oidc.email_verified_required"),
+			Enabled: v.GetBool("oidc.enabled"),
+			Config: oidcauth.Config{
+				IssuerURL:             v.GetString("oidc.issuer_url"),
+				ClientID:              v.GetString("oidc.client_id"),
+				ClientSecret:          v.GetString("oidc.client_secret"),
+				RedirectURL:           v.GetString("oidc.redirect_url"),
+				Scopes:                v.GetStringSlice("oidc.scopes"),
+				UsernameClaim:         v.GetString("oidc.username_claim"),
+				EmailClaim:            v.GetString("oidc.email_claim"),
+				GroupsClaim:           v.GetString("oidc.groups_claim"),
+				AllowedDomains:        v.GetStringSlice("oidc.allowed_domains"),
+				AllowedUsers:          v.GetStringSlice("oidc.allowed_users"),
+				AllowedGroups:         v.GetStringSlice("oidc.allowed_groups"),
+				AdminGroups:           v.GetStringSlice("oidc.admin_groups"),
+				EmailVerifiedRequired: v.GetBool("oidc.email_verified_required"),
+			},
 		},
-		SMTP: SMTPConfig{
+		SMTP: backend.EmailGlobalConfig{
 			Host:     v.GetString("smtp.host"),
 			Port:     v.GetInt("smtp.port"),
 			Username: v.GetString("smtp.username"),
@@ -442,13 +398,15 @@ func Load(configFile ...string) (Config, error) {
 			AuthType: v.GetString("smtp.auth_type"),
 		},
 		Netbox: NetboxConfig{
-			Enabled:       v.GetBool("netbox.enabled"),
-			URL:           v.GetString("netbox.url"),
-			Token:         v.GetString("netbox.token"),
-			AuthScheme:    v.GetString("netbox.auth_scheme"),
-			Timeout:       v.GetDuration("netbox.timeout"),
-			CacheTTL:      v.GetDuration("netbox.cache_ttl"),
-			TLSSkipVerify: v.GetBool("netbox.tls_skip_verify"),
+			Enabled: v.GetBool("netbox.enabled"),
+			Config: netbox.Config{
+				URL:           v.GetString("netbox.url"),
+				Token:         v.GetString("netbox.token"),
+				AuthScheme:    v.GetString("netbox.auth_scheme"),
+				Timeout:       v.GetDuration("netbox.timeout"),
+				CacheTTL:      v.GetDuration("netbox.cache_ttl"),
+				TLSSkipVerify: v.GetBool("netbox.tls_skip_verify"),
+			},
 		},
 		Retention: RetentionConfig{
 			SrvlogDays:          max(v.GetInt("retention.srvlog_days"), 1),
