@@ -10,6 +10,12 @@ All counts below are raw event counts within the period unless explicitly labele
 
 ## Top Event Signatures (by volume, max 25)
 Each signature is the RFC 5424 MSGID when present, otherwise a normalized message template (numbers → `<n>`, IPs → `<ip>`). Long templates are truncated with `…` for readability; the full text is in the sample messages below. Sample messages are verbatim log text — use them to ground your interpretation; do not invent details that aren't in them. Each sample is bound to the host on its line; the per-signature host distribution is the authoritative list of which hosts fired the signature, and the samples may only cover a subset of those hosts.
+{{- if index .Unavailable "top_msgid_samples" }}
+_Sample messages are unavailable for this run (the lookup failed). Interpret the signatures from their names and counts only._
+{{- end }}
+{{- if index .Unavailable "juniper_refs" }}
+_Juniper reference descriptions are unavailable for this run (the lookup failed)._
+{{- end }}
 {{ range .TopMsgIDs -}}
 - `{{ truncate (sanitize .MsgID) 80 }}` — {{ .Count }} events{{ if .HostCount }} · {{ .HostCount }} host{{ if gt .HostCount 1 }}s{{ end }}{{ if .TopHosts }} (top: {{ range $i, $h := .TopHosts }}{{ if $i }}, {{ end }}`{{ sanitize $h.Hostname }}` ({{ $h.Count }}){{ end }}){{ end }}{{ end }} · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
 {{- if index $.JuniperRefs .MsgID }}
@@ -28,7 +34,10 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
   {{- end }}
 {{- end }}
 {{ end }}
-{{- if .VolumeSparkline }}
+{{- if index .Unavailable "volume_timeline" }}
+## Volume Timeline
+_Unavailable — this lookup failed for this run. Do not read it as "no volume."_
+{{ else if .VolumeSparkline }}
 ## Volume Timeline ({{ .VolumeBucketLabel }} per cell)
 - Total: `{{ .VolumeSparkline }}`
 - Errors (sev ≤ 3): `{{ .ErrorSparkline }}`
@@ -40,13 +49,19 @@ Each signature is the RFC 5424 MSGID when present, otherwise a normalized messag
 {{ range .SeverityComparison.Levels -}}
 - {{ .Label }} (sev {{ .Severity }}): current={{ printf "%.1f" .Current }}/day · baseline={{ printf "%.1f" .BaselineAvg }}/day · change={{ printf "%+.1f" .ChangePct }}%
 {{ end }}
-{{- if .TopPrograms }}
+{{- if index .Unavailable "top_programs" }}
+## Top Programs
+_Unavailable — this lookup failed for this run. Do not read it as "no program activity."_
+{{- else if .TopPrograms }}
 ## Top Programs (srvlog programname; max 10)
 {{ range .TopPrograms -}}
 - `{{ sanitize .Programname }}` — {{ .Count }} events ({{ .ErrorCount }} severity ≤ 3) · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
 {{ end }}
 {{- end }}
-{{- if .TopFacilities }}
+{{- if index .Unavailable "top_facilities" }}
+## Top Facilities
+_Unavailable — this lookup failed for this run. Do not read it as "no facility activity."_
+{{- else if .TopFacilities }}
 ## Top Facilities (syslog facility; max 8)
 {{ range .TopFacilities -}}
 - `{{ .Label }}` (facility {{ .Facility }}) — {{ .Count }} events ({{ .ErrorCount }} severity ≤ 3)
@@ -68,6 +83,9 @@ _Unavailable — this lookup failed for this run. Do not read it as "no host had
 _Unavailable — this lookup failed for this run. Do not read it as "no new signatures."_
 {{- else if .NewMsgIDs }}
 ## New Event Signatures (not seen in the 7 days prior to this period)
+{{ if index .Unavailable "new_msgid_samples" -}}
+_First-observed samples are unavailable for this run (the lookup failed)._
+{{ end -}}
 {{ range .NewMsgIDs -}}
 - `{{ truncate (sanitize .) 80 }}`{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ if (index $.JuniperRefs .).Cause }} · Cause: {{ (index $.JuniperRefs .).Cause }}{{ end }}{{ end }}
 {{- if index $.NewMsgIDSamples . }}
