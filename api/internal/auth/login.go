@@ -27,13 +27,26 @@ func IsExternalSource(source string) bool {
 	return source == SourceLDAP || source == SourceOIDC
 }
 
-// Login errors. Every denial wraps ErrInvalidCredentials with its reason so a
-// caller can log the reason and send the client one indistinguishable
-// message; ErrInactive marks a known, disabled account.
+// Login errors. Every password denial is a *DeniedError, which matches
+// ErrInvalidCredentials, so a caller can log the reason and send the client
+// one indistinguishable message. ErrInactive marks a disabled OIDC account.
 var (
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	ErrInactive           = errors.New("inactive account")
 )
+
+// DeniedError is a refused password login. Reason is for the log only.
+type DeniedError struct {
+	Reason     string
+	AuthSource string // set when a local login hit an externally managed user
+}
+
+func (e *DeniedError) Error() string { return "login denied: " + e.Reason }
+
+// Unwrap makes errors.Is(err, ErrInvalidCredentials) hold.
+func (e *DeniedError) Unwrap() error { return ErrInvalidCredentials }
+
+func denied(reason string) error { return &DeniedError{Reason: reason} }
 
 // LoginStore is the user lookup and provisioning surface login resolution
 // needs.
@@ -65,9 +78,9 @@ func NewLogin(store LoginStore, dir ldap.Authenticator) *Login {
 // Password resolves a username and password: the LDAP directory first when
 // configured, then the local users table. A directory that does not know the
 // user, or that is unreachable, falls through to local login; a directory
-// that rejects the password or the user's groups does not. It returns an
-// error wrapping ErrInvalidCredentials or ErrInactive for a denial, and any
-// other error for an infrastructure failure. logger receives the directory
+// that rejects the password or the user's groups does not. It returns a
+// *DeniedError for a denial and any other error for an infrastructure
+// failure. logger receives the directory
 // outage that triggers the fallback.
 func (l *Login) Password(ctx context.Context, logger *slog.Logger, username, password string) (model.User, error) {
 	user, ok, err := l.directory(ctx, logger, username, password)
@@ -81,7 +94,7 @@ func (l *Login) Password(ctx context.Context, logger *slog.Logger, username, pas
 		}
 	}
 	if !user.IsActive {
-		return model.User{}, fmt.Errorf("%w: %w", ErrInvalidCredentials, ErrInactive)
+		return model.User{}, denied("inactive account")
 	}
 	return user, nil
 }
@@ -103,9 +116,9 @@ func (l *Login) directory(ctx context.Context, logger *slog.Logger, username, pa
 	case errors.Is(err, ldap.ErrUserNotFound):
 		return model.User{}, false, nil
 	case errors.Is(err, ldap.ErrNotAuthorized):
-		return model.User{}, false, fmt.Errorf("%w: LDAP user not in any authorized group", ErrInvalidCredentials)
+		return model.User{}, false, denied("LDAP user not in any authorized group")
 	case errors.Is(err, ldap.ErrInvalidPassword):
-		return model.User{}, false, fmt.Errorf("%w: LDAP wrong password", ErrInvalidCredentials)
+		return model.User{}, false, denied("LDAP wrong password")
 	default:
 		logger.Error("login: LDAP error, falling back to local auth", "err", err, "username", username)
 		return model.User{}, false, nil
@@ -119,17 +132,17 @@ func (l *Login) local(ctx context.Context, username, password string) (model.Use
 	user, err := l.store.GetUserByUsername(ctx, username)
 	if errors.Is(err, pgx.ErrNoRows) {
 		DummyCheckPassword(password)
-		return model.User{}, fmt.Errorf("%w: unknown user", ErrInvalidCredentials)
+		return model.User{}, denied("unknown user")
 	}
 	if err != nil {
-		return model.User{}, fmt.Errorf("get user: %w", err)
+		return model.User{}, fmt.Errorf("get user failed: %w", err)
 	}
 	if IsExternalSource(user.AuthSource) {
 		DummyCheckPassword(password)
-		return model.User{}, fmt.Errorf("%w: %s user attempted local auth", ErrInvalidCredentials, user.AuthSource)
+		return model.User{}, &DeniedError{Reason: "external-auth user attempted local auth", AuthSource: user.AuthSource}
 	}
 	if err := CheckPassword(password, user.PasswordHash); err != nil {
-		return model.User{}, fmt.Errorf("%w: wrong password", ErrInvalidCredentials)
+		return model.User{}, denied("wrong password")
 	}
 	return user, nil
 }

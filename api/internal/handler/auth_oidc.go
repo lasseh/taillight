@@ -158,7 +158,7 @@ func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		logger.Error("oidc login failed", "err", err)
+		logger.Error("oidc login: upsert user", "err", err)
 		redirectLoginError(w, r, oidcErrFailed)
 		return
 	}

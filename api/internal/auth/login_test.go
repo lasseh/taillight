@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -94,9 +93,9 @@ func TestLoginPassword(t *testing.T) {
 		{name: "local password", username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal},
 		{name: "local wrong password", username: "alice", password: "nope", wantDenied: "wrong password"},
 		{name: "unknown user", username: "mallory", password: "x", wantDenied: "unknown user"},
-		{name: "ldap row refused locally", username: "bob", password: "x", wantDenied: "ldap user attempted local auth"},
-		{name: "oidc row refused locally", username: "sso", password: "x", wantDenied: "oidc user attempted local auth"},
-		{name: "inactive local account", username: "carol", password: "hunter2", wantDenied: "inactive"},
+		{name: "ldap row refused locally", username: "bob", password: "x", wantDenied: "external-auth user attempted local auth", wantSource: SourceLDAP},
+		{name: "oidc row refused locally", username: "sso", password: "x", wantDenied: "external-auth user attempted local auth", wantSource: SourceOIDC},
+		{name: "inactive local account", username: "carol", password: "hunter2", wantDenied: "inactive account"},
 		{name: "store failure", getErr: errors.New("db down"), username: "alice", password: "hunter2", wantInfra: true},
 
 		// LDAP success takes over the local row of the same name.
@@ -104,8 +103,8 @@ func TestLoginPassword(t *testing.T) {
 		{name: "ldap user not found falls through", dir: fakeDirectory{err: ldap.ErrUserNotFound}, username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal},
 		{name: "ldap outage falls through", dir: fakeDirectory{err: errors.New("connection refused")}, username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal},
 		{name: "ldap wrong password does not fall through", dir: fakeDirectory{err: ldap.ErrInvalidPassword}, username: "alice", password: "hunter2", wantDenied: "LDAP wrong password"},
-		{name: "ldap no group does not fall through", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, username: "alice", password: "hunter2", wantDenied: "authorized group"},
-		{name: "ldap success on inactive row", dir: fakeDirectory{result: ldap.Result{Username: "carol"}}, username: "carol", password: "dirpw", wantDenied: "inactive"},
+		{name: "ldap no group does not fall through", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, username: "alice", password: "hunter2", wantDenied: "LDAP user not in any authorized group"},
+		{name: "ldap success on inactive row", dir: fakeDirectory{result: ldap.Result{Username: "carol"}}, username: "carol", password: "dirpw", wantDenied: "inactive account"},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, tt := range tests {
@@ -119,11 +118,13 @@ func TestLoginPassword(t *testing.T) {
 					t.Fatalf("err = %v, want an infrastructure error", err)
 				}
 			case tt.wantDenied != "":
-				if !errors.Is(err, ErrInvalidCredentials) {
-					t.Fatalf("err = %v, want ErrInvalidCredentials", err)
+				d, ok := errors.AsType[*DeniedError](err)
+				if !ok || !errors.Is(err, ErrInvalidCredentials) {
+					t.Fatalf("err = %v, want a *DeniedError matching ErrInvalidCredentials", err)
 				}
-				if !strings.Contains(err.Error(), tt.wantDenied) {
-					t.Errorf("reason %q does not mention %q", err, tt.wantDenied)
+				// The reason becomes the "login failed: <reason>" log line.
+				if d.Reason != tt.wantDenied || d.AuthSource != tt.wantSource {
+					t.Errorf("denial = %q/%q, want %q/%q", d.Reason, d.AuthSource, tt.wantDenied, tt.wantSource)
 				}
 			default:
 				if err != nil {

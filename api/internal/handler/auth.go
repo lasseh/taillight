@@ -236,8 +236,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	logger := LoggerFromContext(r.Context())
 
 	user, err := h.login.Password(r.Context(), logger, req.Username, req.Password)
-	if errors.Is(err, auth.ErrInvalidCredentials) {
-		logger.Warn("login failed", "reason", err.Error(), "username", req.Username, "ip", ip)
+	if denied, ok := errors.AsType[*auth.DeniedError](err); ok {
+		attrs := []any{"username", req.Username, "ip", ip}
+		if denied.AuthSource != "" {
+			attrs = append(attrs, "auth_source", denied.AuthSource)
+		}
+		logger.Warn("login failed: "+denied.Reason, attrs...)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 		return
 	}
