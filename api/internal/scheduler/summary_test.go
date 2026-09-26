@@ -61,25 +61,6 @@ func newTestSummaryScheduler(store *fakeSummaryStore, sender *fakeSummarySender,
 	return s
 }
 
-func TestPeriodDuration(t *testing.T) {
-	tests := []struct {
-		frequency string
-		want      time.Duration
-	}{
-		{freqDaily, 24 * time.Hour},
-		{freqWeekly, 7 * 24 * time.Hour},
-		{freqMonthly, 30 * 24 * time.Hour},
-		{"bogus", 24 * time.Hour},
-	}
-	for _, tt := range tests {
-		t.Run(tt.frequency, func(t *testing.T) {
-			if got := periodDuration(tt.frequency); got != tt.want {
-				t.Errorf("periodDuration(%q) = %v, want %v", tt.frequency, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestPeriodLabel(t *testing.T) {
 	tests := []struct {
 		frequency string

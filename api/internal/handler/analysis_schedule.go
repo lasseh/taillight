@@ -199,8 +199,9 @@ func (h *AnalysisScheduleHandler) decodeAndValidateSchedule(w http.ResponseWrite
 			return model.AnalysisSchedule{}, false
 		}
 	case "monthly":
-		if sched.DayOfMonth == nil || *sched.DayOfMonth < 1 || *sched.DayOfMonth > 28 {
-			writeError(w, http.StatusBadRequest, "validation_failed", "monthly schedule requires day_of_month (1-28)")
+		if sched.DayOfMonth == nil || *sched.DayOfMonth < 1 || *sched.DayOfMonth > model.MaxScheduleDayOfMonth {
+			writeError(w, http.StatusBadRequest, "validation_failed",
+				fmt.Sprintf("monthly schedule requires day_of_month (1-%d)", model.MaxScheduleDayOfMonth))
 			return model.AnalysisSchedule{}, false
 		}
 	default:
@@ -212,7 +213,7 @@ func (h *AnalysisScheduleHandler) decodeAndValidateSchedule(w http.ResponseWrite
 			fmt.Sprintf("%s schedules support only the %s frequency", sched.Feed, strings.Join(model.AnalysisFrequenciesForFeed(sched.Feed), " or ")))
 		return model.AnalysisSchedule{}, false
 	}
-	if _, _, err := splitTimeOfDay(sched.TimeOfDay); err != nil {
+	if _, _, err := model.ParseTimeOfDay(sched.TimeOfDay); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_failed", "time_of_day must be HH:MM")
 		return model.AnalysisSchedule{}, false
 	}
@@ -256,13 +257,4 @@ func (h *AnalysisScheduleHandler) validateNotifyChannels(w http.ResponseWriter, 
 		}
 	}
 	return true
-}
-
-// splitTimeOfDay parses HH:MM into hour, minute components.
-func splitTimeOfDay(s string) (int, int, error) {
-	t, err := time.Parse("15:04", s)
-	if err != nil {
-		return 0, 0, err
-	}
-	return t.Hour(), t.Minute(), nil
 }

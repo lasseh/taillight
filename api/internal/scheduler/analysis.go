@@ -11,16 +11,6 @@ import (
 	"github.com/lasseh/taillight/internal/model"
 )
 
-// parseTime parses an "HH:MM" string into 24-hour hour and minute components.
-// Shared by all scheduler types that take a time_of_day field.
-func parseTime(s string) (int, int, error) {
-	t, err := time.Parse("15:04", s)
-	if err != nil {
-		return 0, 0, fmt.Errorf("parse schedule time %q: %w", s, err)
-	}
-	return t.Hour(), t.Minute(), nil
-}
-
 // analysisFiringWindow is the lateness tolerance applied to an analysis
 // schedule's scheduled_time. With a 60s tick and a 5min window, a queue-full
 // or duplicate-active retry has roughly five opportunities to succeed before
@@ -105,7 +95,7 @@ func (s *AnalysisScheduler) isDue(sched model.AnalysisSchedule) bool {
 		s.logger.Error("invalid timezone", "schedule", sched.Name, "timezone", sched.Timezone, "err", err)
 		return false
 	}
-	hour, minute, err := parseTime(sched.TimeOfDay)
+	hour, minute, err := model.ParseTimeOfDay(sched.TimeOfDay)
 	if err != nil {
 		s.logger.Error("invalid time_of_day", "schedule", sched.Name, "time_of_day", sched.TimeOfDay, "err", err)
 		return false
@@ -129,7 +119,7 @@ func (s *AnalysisScheduler) isDue(sched model.AnalysisSchedule) bool {
 	}
 
 	if sched.LastRunAt != nil {
-		minInterval := periodDuration(sched.Frequency) / 2
+		minInterval := model.SchedulePeriod(sched.Frequency) / 2
 		if now.Sub(*sched.LastRunAt) < minInterval {
 			return false
 		}
@@ -147,7 +137,7 @@ func scheduledPeriodEnd(sched model.AnalysisSchedule, now time.Time) (time.Time,
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid timezone %q: %w", sched.Timezone, err)
 	}
-	hour, minute, err := parseTime(sched.TimeOfDay)
+	hour, minute, err := model.ParseTimeOfDay(sched.TimeOfDay)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -155,16 +145,15 @@ func scheduledPeriodEnd(sched model.AnalysisSchedule, now time.Time) (time.Time,
 	return time.Date(local.Year(), local.Month(), local.Day(), hour, minute, 0, 0, loc).UTC().Truncate(time.Minute), nil
 }
 
-func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.AnalysisSchedule) {
-	period := periodDuration(sched.Frequency)
-	periodEnd, err := scheduledPeriodEnd(sched, s.now())
+// scheduledReport builds the report request a firing of sched at now
+// enqueues. Scheduled ticks and "run now" share it, so both produce the same
+// window and collide on the duplicate-active index instead of running twice.
+func scheduledReport(sched model.AnalysisSchedule, now time.Time) (model.AnalysisReport, error) {
+	periodEnd, err := scheduledPeriodEnd(sched, now)
 	if err != nil {
-		s.logger.Error("scheduled period_end failed", "schedule", sched.Name, "err", err)
-		return
+		return model.AnalysisReport{}, err
 	}
-	periodStart := periodEnd.Add(-period)
-
-	req := model.AnalysisReport{
+	return model.AnalysisReport{
 		Feed:       sched.Feed,
 		PromptMode: model.AnalysisModeForFrequency(sched.Frequency),
 		// Scheduled runs do not carry host or service scope — every schedule
@@ -173,13 +162,21 @@ func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.Analysi
 		// diff visible and grep-able.
 		Hosts:            nil,
 		Services:         nil,
-		PeriodStart:      periodStart,
+		PeriodStart:      periodEnd.Add(-model.SchedulePeriod(sched.Frequency)),
 		PeriodEnd:        periodEnd,
 		NotifyChannelIDs: sched.NotifyChannelIDs,
+	}, nil
+}
+
+func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.AnalysisSchedule) {
+	req, err := scheduledReport(sched, s.now())
+	if err != nil {
+		s.logger.Error("scheduled period_end failed", "schedule", sched.Name, "err", err)
+		return
 	}
 
 	s.logger.Info("firing analysis schedule",
-		"schedule", sched.Name, "feed", sched.Feed, "period", period,
+		"schedule", sched.Name, "feed", sched.Feed, "period", req.PeriodEnd.Sub(req.PeriodStart),
 		"prompt_mode", req.PromptMode)
 
 	if _, err := s.enqueuer.Enqueue(ctx, req); err != nil {
@@ -197,31 +194,18 @@ func (s *AnalysisScheduler) runSchedule(ctx context.Context, sched model.Analysi
 }
 
 // RunNow enqueues a one-off run for the schedule identified by id, used by the
-// "run now" admin action. The period window matches what a scheduled tick
-// would produce, so a same-minute manual click and scheduled fire collide on
-// the duplicate-active index rather than running twice.
+// "run now" admin action. See scheduledReport for why it shares the tick's
+// window.
 func (s *AnalysisScheduler) RunNow(ctx context.Context, id int64) error {
 	sched, err := s.store.GetAnalysisSchedule(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get schedule: %w", err)
 	}
 
-	periodEnd, err := scheduledPeriodEnd(sched, s.now())
+	req, err := scheduledReport(sched, s.now())
 	if err != nil {
 		return err
 	}
-	periodStart := periodEnd.Add(-periodDuration(sched.Frequency))
-
-	_, err = s.enqueuer.Enqueue(ctx, model.AnalysisReport{
-		Feed:       sched.Feed,
-		PromptMode: model.AnalysisModeForFrequency(sched.Frequency),
-		// Schedule "run now" inherits the schedule's (fleet-wide) scope —
-		// currently always nil. See runSchedule for the same pattern.
-		Hosts:            nil,
-		Services:         nil,
-		PeriodStart:      periodStart,
-		PeriodEnd:        periodEnd,
-		NotifyChannelIDs: sched.NotifyChannelIDs,
-	})
+	_, err = s.enqueuer.Enqueue(ctx, req)
 	return err
 }

@@ -4,7 +4,7 @@ import { api, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { useFocusTrap } from '@/composables/useFocusTrap'
 import { feedBadgeClass } from '@/lib/analysis-format'
-import { ANALYSIS_FEEDS, feedAllowsFrequency, feedOptions } from '@/lib/analysis-feeds'
+import { feedAllowsFrequency, feedFrequencies, feedOptions } from '@/lib/analysis-feeds'
 import type {
   AnalysisFeed,
   AnalysisFrequency,
@@ -99,10 +99,10 @@ const dayOfWeekLabels = [
 // The server rejects a cadence the feed's prompt set cannot serve; disable
 // those buttons and snap the cadence back when the feed flips.
 const frequencyAllowed = (f: AnalysisFrequency) => feedAllowsFrequency(formFeed.value, f)
-const cadenceRestricted = computed(() => ANALYSIS_FEEDS[formFeed.value].frequencies.length < 3)
+const cadenceRestricted = computed(() => feedFrequencies(formFeed.value).length < 3)
 const cadenceHint = computed(() =>
   cadenceRestricted.value
-    ? `${formFeed.value} schedules can run ${ANALYSIS_FEEDS[formFeed.value].frequencies.join(' or ')} only.`
+    ? `${formFeed.value} schedules can run ${feedFrequencies(formFeed.value).join(' or ')} only.`
     : 'daily cadence uses the daily prompt; weekly and monthly both use the weekly trend prompt.',
 )
 watch(formFeed, () => {

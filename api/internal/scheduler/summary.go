@@ -97,7 +97,7 @@ func (s *SummaryScheduler) isDue(sched notification.SummarySchedule) bool {
 	}
 
 	now := s.now().In(loc)
-	hour, minute, err := parseTime(sched.TimeOfDay)
+	hour, minute, err := model.ParseTimeOfDay(sched.TimeOfDay)
 	if err != nil {
 		s.logger.Error("invalid time_of_day", "schedule", sched.Name, "time_of_day", sched.TimeOfDay, "err", err)
 		return false
@@ -122,7 +122,7 @@ func (s *SummaryScheduler) isDue(sched notification.SummarySchedule) bool {
 
 	// Prevent double-fire: last_run_at must be at least half the period ago.
 	if sched.LastRunAt != nil {
-		minInterval := periodDuration(sched.Frequency) / 2
+		minInterval := model.SchedulePeriod(sched.Frequency) / 2
 		if now.Sub(*sched.LastRunAt) < minInterval {
 			return false
 		}
@@ -132,7 +132,7 @@ func (s *SummaryScheduler) isDue(sched notification.SummarySchedule) bool {
 }
 
 func (s *SummaryScheduler) runSchedule(ctx context.Context, sched notification.SummarySchedule) {
-	period := periodDuration(sched.Frequency)
+	period := model.SchedulePeriod(sched.Frequency)
 	now := s.now().UTC()
 	since := now.Add(-period)
 
@@ -199,17 +199,6 @@ func (s *SummaryScheduler) runSchedule(ctx context.Context, sched notification.S
 	}
 
 	s.logger.Info("summary schedule completed", "schedule", sched.Name)
-}
-
-func periodDuration(frequency string) time.Duration {
-	switch frequency {
-	case freqWeekly:
-		return 7 * 24 * time.Hour
-	case freqMonthly:
-		return 30 * 24 * time.Hour
-	default:
-		return 24 * time.Hour
-	}
 }
 
 func periodLabel(frequency string) string {
