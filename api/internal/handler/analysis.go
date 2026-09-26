@@ -288,14 +288,15 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSONStatus(w, http.StatusCreated, itemResponse{Data: report})
 }
 
-// validateScope applies the per-feed scope rules: applog takes services and
-// rejects hosts, the syslog feeds take hosts and reject services, and every
-// name must exist in the feed's metadata. It returns a 400 error code and
-// message for the caller to send, or an error when a lookup failed.
+// validateScope applies the feed's scope kind (model.AnalysisFeedSpec): a
+// services-scoped feed rejects hosts, a hosts-scoped feed rejects services,
+// and every name must exist in the feed's metadata. It returns a 400 error
+// code and message for the caller to send, or an error when a lookup failed.
 func (h *AnalysisHandler) validateScope(ctx context.Context, feed string, hosts, services []string) (code, msg string, err error) {
-	if feed == model.AnalysisFeedApplog {
+	spec, _ := model.AnalysisFeedSpecFor(feed)
+	if spec.ScopeKind == model.AnalysisScopeServices {
 		if len(hosts) > 0 {
-			return "invalid_scope", "applog reports are scoped by services, not hosts", nil
+			return "invalid_scope", feed + " reports are scoped by services, not hosts", nil
 		}
 		if len(services) == 0 {
 			return "", "", nil
@@ -310,7 +311,7 @@ func (h *AnalysisHandler) validateScope(ctx context.Context, feed string, hosts,
 		return "", "", nil
 	}
 	if len(services) > 0 {
-		return "invalid_scope", "services scope applies to the applog feed only", nil
+		return "invalid_scope", feed + " reports are scoped by hosts, not services", nil
 	}
 	if len(hosts) == 0 {
 		return "", "", nil
