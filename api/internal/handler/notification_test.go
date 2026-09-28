@@ -207,6 +207,12 @@ func TestCreateChannel(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:       "masked secret rejected",
+			body:       `{"name":"ntfy","type":"ntfy","config":{"topic":"alerts","token":"********"},"enabled":true}`,
+			store:      &mockNotificationStore{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name:       "store error",
 			body:       `{"name":"slack-alerts","type":"slack","config":{},"enabled":true}`,
 			store:      &mockNotificationStore{createChErr: errors.New("db error")},
