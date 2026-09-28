@@ -161,15 +161,17 @@ type createReportRequest struct {
 // for oversized payloads.
 const requestBodyLimit = 64 * 1024
 
-// Period bounds for manual triggers. The general upper bound matches monthly
-// schedules so manual runs can never exceed what a recurring schedule could
-// produce. Incident mode has a tighter ceiling because the prompt is written
-// for "live triage" — handing it a 30-day window produces incoherent output.
+// Period bounds for manual triggers. Incident mode has a tighter ceiling
+// because the prompt is written for "live triage" — handing it a 30-day
+// window produces incoherent output.
 const (
 	minPeriodMinutes         = 5
-	maxPeriodMinutes         = 30 * 24 * 60 // 30 days
-	maxIncidentPeriodMinutes = 6 * 60       // 6 hours
+	maxIncidentPeriodMinutes = 6 * 60 // 6 hours
 )
+
+// maxPeriodMinutes is the monthly schedule period, so a manual run can never
+// exceed what a recurring schedule could produce.
+var maxPeriodMinutes = int(model.SchedulePeriod("monthly").Minutes())
 
 // defaultPeriodMinutes returns the per-mode default analysis window when the
 // caller doesn't override it. Daily mirrors the historical 24h window; weekly
@@ -288,14 +290,15 @@ func (h *AnalysisHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSONStatus(w, http.StatusCreated, itemResponse{Data: report})
 }
 
-// validateScope applies the per-feed scope rules: applog takes services and
-// rejects hosts, the syslog feeds take hosts and reject services, and every
-// name must exist in the feed's metadata. It returns a 400 error code and
-// message for the caller to send, or an error when a lookup failed.
+// validateScope applies the feed's scope kind (model.AnalysisFeedSpec): a
+// services-scoped feed rejects hosts, a hosts-scoped feed rejects services,
+// and every name must exist in the feed's metadata. It returns a 400 error
+// code and message for the caller to send, or an error when a lookup failed.
 func (h *AnalysisHandler) validateScope(ctx context.Context, feed string, hosts, services []string) (code, msg string, err error) {
-	if feed == model.AnalysisFeedApplog {
+	spec, _ := model.AnalysisFeedSpecFor(feed)
+	if spec.ScopeKind == model.AnalysisScopeServices {
 		if len(hosts) > 0 {
-			return "invalid_scope", "applog reports are scoped by services, not hosts", nil
+			return "invalid_scope", feed + " reports are scoped by services, not hosts", nil
 		}
 		if len(services) == 0 {
 			return "", "", nil
@@ -310,7 +313,7 @@ func (h *AnalysisHandler) validateScope(ctx context.Context, feed string, hosts,
 		return "", "", nil
 	}
 	if len(services) > 0 {
-		return "invalid_scope", "services scope applies to the applog feed only", nil
+		return "invalid_scope", feed + " reports are scoped by hosts, not services", nil
 	}
 	if len(hosts) == 0 {
 		return "", "", nil

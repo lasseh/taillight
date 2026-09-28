@@ -500,6 +500,43 @@ func TestBuildPromptMarksUnavailableSections(t *testing.T) {
 	}
 }
 
+// TestBuildPromptMarksUnavailableEnrichment extends the guard to the
+// enrichment sections, which the templates otherwise just omit when empty.
+func TestBuildPromptMarksUnavailableEnrichment(t *testing.T) {
+	for _, mode := range []string{modeDaily, modeWeekly, modeIncident} {
+		t.Run(mode, func(t *testing.T) {
+			data := fixtureData(t)
+			data.VolumeSparkline = ""
+			data.TopPrograms = nil
+			data.TopFacilities = nil
+			data.Unavailable = map[string]bool{
+				unavailableTimeline:    true,
+				unavailablePrograms:    true,
+				unavailableFacilities:  true,
+				unavailableTopSamples:  true,
+				unavailableNewSamples:  true,
+				unavailableJuniperRefs: true,
+			}
+
+			_, usr, err := buildPrompt(data, "", mode)
+			if err != nil {
+				t.Fatalf("buildPrompt(%s): %v", mode, err)
+			}
+			if got := strings.Count(usr, "_Unavailable —"); got != 3 {
+				t.Errorf("got %d unavailable markers, want 3 (volume, programs, facilities); prompt:\n%s", got, usr)
+			}
+			for _, note := range []string{"_Sample messages are unavailable", "_Juniper reference descriptions are unavailable"} {
+				if !strings.Contains(usr, note) {
+					t.Errorf("missing note %q:\n%s", note, usr)
+				}
+			}
+			if !strings.Contains(usr, "_First-observed samples are unavailable") {
+				t.Errorf("missing new-signature sample note:\n%s", usr)
+			}
+		})
+	}
+}
+
 // TestBuildPromptStillReportsGenuineAbsence is the other half: when the
 // lookups succeeded and simply found nothing, "none" is the honest answer and
 // must survive.

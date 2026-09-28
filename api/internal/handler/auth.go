@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/ldap"
@@ -26,8 +25,6 @@ import (
 )
 
 const (
-	authSourceLDAP     = "ldap"
-	authSourceOIDC     = "oidc"
 	sessionCookieName  = "tl_session"
 	sessionDuration    = 30 * 24 * time.Hour // 30 days.
 	maxSessionsPerUser = 10
@@ -107,13 +104,10 @@ type AuthStore interface {
 	SetUserActive(ctx context.Context, id [16]byte, active bool) error
 	UpdatePassword(ctx context.Context, id [16]byte, passwordHash string) error
 	CreateSession(ctx context.Context, tokenHash string, userID [16]byte, expiresAt time.Time, ip, userAgent string) error
-	GetSession(ctx context.Context, tokenHash string) (model.SessionWithUser, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteUserSessions(ctx context.Context, userID [16]byte) error
 	PruneUserSessions(ctx context.Context, userID [16]byte, keep int) error
-	CleanExpiredSessions(ctx context.Context) (int64, error)
 	CreateAPIKey(ctx context.Context, userID [16]byte, name, keyHash, keyPrefix string, scopes []string, expiresAt *time.Time) (model.APIKeyRow, error)
-	GetAPIKeyByHash(ctx context.Context, keyHash string) (model.APIKeyWithUser, error)
 	ListAllAPIKeys(ctx context.Context) ([]model.APIKeyRow, error)
 	RevokeAPIKey(ctx context.Context, id [16]byte) error
 	GetAPIKeyByID(ctx context.Context, id [16]byte) (model.APIKeyRow, error)
@@ -124,7 +118,7 @@ type AuthStore interface {
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
 	store        AuthStore
-	ldap         ldap.Authenticator // nil when LDAP is disabled.
+	login        *auth.Login
 	oidc         *oidcauth.Provider // nil when OIDC is disabled.
 	oidcStateKey []byte             // Per-process HMAC key for the OIDC state cookie.
 	cookieSecure bool               // Force Secure flag on session cookies.
@@ -133,7 +127,7 @@ type AuthHandler struct {
 // NewAuthHandler creates a new AuthHandler.
 // Pass nil for ldapAuth/oidcAuth to disable LDAP/OIDC authentication.
 func NewAuthHandler(store AuthStore, ldapAuth ldap.Authenticator, oidcAuth *oidcauth.Provider, cookieSecure bool) *AuthHandler {
-	h := &AuthHandler{store: store, ldap: ldapAuth, oidc: oidcAuth, cookieSecure: cookieSecure}
+	h := &AuthHandler{store: store, login: auth.NewLogin(store, ldapAuth), oidc: oidcAuth, cookieSecure: cookieSecure}
 	if oidcAuth != nil {
 		// Per-process key: an in-flight login does not survive a restart,
 		// which is acceptable for a 10-minute artifact — the user just
@@ -241,81 +235,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	logger := LoggerFromContext(r.Context())
 
-	var user model.User
-	var authenticated bool
-
-	// Phase 1: try LDAP if enabled.
-	if h.ldap != nil {
-		result, err := h.ldap.Authenticate(r.Context(), req.Username, req.Password)
-		switch {
-		case err == nil:
-			// LDAP auth succeeded — upsert user into local DB.
-			user, err = h.store.UpsertLDAPUser(r.Context(), result.Username, result.Email, result.IsAdmin)
-			if err != nil {
-				logger.Error("login: upsert ldap user", "err", err)
-				writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
-				return
-			}
-			authenticated = true
-
-		case errors.Is(err, ldap.ErrUserNotFound):
-			// User not in LDAP directory — fall through to local auth.
-
-		case errors.Is(err, ldap.ErrNotAuthorized):
-			// Authenticated against LDAP but in no mapped group — deny, do NOT fall through.
-			logger.Warn("login failed: LDAP user not in any authorized group", "username", req.Username, "ip", ip)
-			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
-			return
-
-		case errors.Is(err, ldap.ErrInvalidPassword):
-			// User exists in LDAP but wrong password — do NOT fall through.
-			logger.Warn("login failed: LDAP wrong password", "username", req.Username, "ip", ip)
-			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
-			return
-
-		default:
-			// LDAP connection/server error — log and fall through to local auth.
-			logger.Error("login: LDAP error, falling back to local auth", "err", err, "username", req.Username)
+	user, err := h.login.Password(r.Context(), logger, req.Username, req.Password)
+	if denied, ok := errors.AsType[*auth.DeniedError](err); ok {
+		attrs := []any{"username", req.Username, "ip", ip}
+		if denied.AuthSource != "" {
+			attrs = append(attrs, "auth_source", denied.AuthSource)
 		}
-	}
-
-	// Phase 2: local auth (if LDAP didn't authenticate).
-	if !authenticated {
-		var err error
-		user, err = h.store.GetUserByUsername(r.Context(), req.Username)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				auth.DummyCheckPassword(req.Password)
-				logger.Warn("login failed: unknown user", "username", req.Username, "ip", ip)
-				writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
-				return
-			}
-			logger.Error("login: get user failed", "err", err)
-			writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
-			return
-		}
-
-		// Block local password auth for externally managed (LDAP/OIDC) users.
-		if externalAuthSource(user.AuthSource) {
-			auth.DummyCheckPassword(req.Password) // timing safety
-			logger.Warn("login failed: external-auth user attempted local auth",
-				"username", req.Username, "auth_source", user.AuthSource, "ip", ip)
-			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
-			return
-		}
-
-		// Always run bcrypt before checking active status so the response
-		// time is identical for active vs inactive accounts.
-		if err := auth.CheckPassword(req.Password, user.PasswordHash); err != nil {
-			logger.Warn("login failed: wrong password", "username", req.Username, "ip", ip)
-			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
-			return
-		}
-	}
-
-	if !user.IsActive {
-		logger.Warn("login failed: inactive account", "username", req.Username, "ip", ip)
+		logger.Warn("login failed: "+denied.Reason, attrs...)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+		return
+	}
+	if err != nil {
+		logger.Error("login failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
 		return
 	}
 
@@ -377,13 +309,6 @@ func (h *AuthHandler) establishSession(w http.ResponseWriter, r *http.Request, u
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
 	return nil
-}
-
-// externalAuthSource reports whether an auth source is managed outside
-// taillight (LDAP directory or OIDC provider) and therefore carries no local
-// password.
-func externalAuthSource(source string) bool {
-	return source == authSourceLDAP || source == authSourceOIDC
 }
 
 // Logout handles POST /api/v1/auth/logout.
@@ -815,13 +740,13 @@ func (h *AuthHandler) UpdateUserPassword(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Block password changes for externally managed (LDAP/OIDC) users.
-	if isSelf && externalAuthSource(user.AuthSource) {
+	if isSelf && auth.IsExternalSource(user.AuthSource) {
 		writeError(w, http.StatusForbidden, "forbidden", "password is managed by your identity provider")
 		return
 	}
 	if !isSelf {
 		target, err := h.store.GetUserByID(r.Context(), id)
-		if err == nil && externalAuthSource(target.AuthSource) {
+		if err == nil && auth.IsExternalSource(target.AuthSource) {
 			writeError(w, http.StatusForbidden, "forbidden", "cannot set password for externally managed user")
 			return
 		}

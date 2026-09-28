@@ -43,18 +43,32 @@ type Authenticator interface {
 
 // Config holds LDAP connection and search settings.
 type Config struct {
-	URL            string
-	StartTLS       bool
-	TLSSkipVerify  bool
+	URL            string // Server URL (e.g. "ldaps://ipa.example.com:636").
+	StartTLS       bool   // Use STARTTLS on port 389 instead of LDAPS.
+	TLSSkipVerify  bool   // Skip TLS certificate verification (dev only).
 	CABundle       string // PEM file of extra trusted CAs, added to the system roots. Empty = system roots only.
-	BindDN         string
-	BindPassword   string
-	UserSearchBase string
+	BindDN         string // Service account DN for user lookups.
+	BindPassword   string // Service account password.
+	UserSearchBase string // Base DN for user searches (e.g. "cn=users,cn=accounts,dc=example,dc=com").
 	UserFilter     string // Must contain exactly one %s for the escaped username.
 	// GroupRoleMap maps a group (full DN or bare CN) to a role. The "admin" role
 	// grants is_admin; any other value authorizes a regular user. A user whose
 	// memberOf matches no entry is denied (ErrNotAuthorized).
 	GroupRoleMap map[string]string
+}
+
+// Validate reports a configuration that cannot work, so it fails at startup
+// instead of at the first login.
+func (c Config) Validate() error {
+	if c.URL == "" {
+		return errors.New("url is required")
+	}
+	// Render once: a missing, doubled, or stray verb shows up as fmt's
+	// "%!" error marker in the output.
+	if !strings.Contains(c.UserFilter, "%s") || strings.Contains(buildUserFilter(c.UserFilter, "x"), "%!") {
+		return fmt.Errorf("user_filter %q must contain exactly one %%s for the username", c.UserFilter)
+	}
+	return nil
 }
 
 // Client implements Authenticator using go-ldap.

@@ -261,6 +261,73 @@ func TestGatherSurvivesOptionalLookupFailures(t *testing.T) {
 	}
 }
 
+// enrichFailingStore returns signatures (so the sample lookups run) and fails
+// every enrichment lookup gather treats as best-effort.
+type enrichFailingStore struct {
+	stubStore
+	err error
+}
+
+func (s enrichFailingStore) GetTopMsgIDs(context.Context, model.AnalysisScope, time.Time, int) ([]model.MsgIDCount, error) {
+	return []model.MsgIDCount{{MsgID: "SNMP_TRAP_LINK_DOWN", Count: 3}}, nil
+}
+
+func (s enrichFailingStore) GetNewMsgIDs(context.Context, model.AnalysisScope, time.Time, time.Time) ([]string, error) {
+	return []string{"BGP_PREFIX_THRESH_EXCEEDED"}, nil
+}
+
+func (s enrichFailingStore) GetMsgIDSamples(context.Context, model.AnalysisScope, time.Time, []string, int) (map[string][]model.SampleMessage, error) {
+	return nil, s.err
+}
+
+func (s enrichFailingStore) GetVolumeTimeline(context.Context, model.AnalysisScope, time.Time, time.Time, int) ([]model.AnalysisVolumeBucket, error) {
+	return nil, s.err
+}
+
+func (s enrichFailingStore) GetTopPrograms(context.Context, model.AnalysisScope, time.Time, int) ([]model.ProgramCount, error) {
+	return nil, s.err
+}
+
+func (s enrichFailingStore) GetTopFacilities(context.Context, model.AnalysisScope, time.Time, int) ([]model.FacilityCount, error) {
+	return nil, s.err
+}
+
+func (s enrichFailingStore) LookupJuniperRefs(context.Context, []string) (map[string]model.JuniperNetlogRef, error) {
+	return nil, s.err
+}
+
+// TestGatherMarksEveryFailedEnrichment covers the enrichment lookups: each
+// failure must be flagged, and only the lookups the feed actually runs.
+func TestGatherMarksEveryFailedEnrichment(t *testing.T) {
+	tests := []struct {
+		feed string
+		want []string
+	}{
+		{feedNetlog, []string{unavailableTopSamples, unavailableTimeline, unavailableNewSamples, unavailableJuniperRefs}},
+		{feedSrvlog, []string{unavailableTopSamples, unavailableTimeline, unavailablePrograms, unavailableFacilities, unavailableNewSamples}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.feed, func(t *testing.T) {
+			a := &Analyzer{store: enrichFailingStore{err: errors.New("statement timeout")}, logger: discardLogger()}
+			data, err := a.gather(context.Background(), model.AnalysisScope{Feed: tt.feed}, 24*time.Hour, time.Now().UTC())
+			if err != nil {
+				t.Fatalf("gather = %v, want nil", err)
+			}
+			if len(data.Unavailable) != len(tt.want) {
+				t.Errorf("Unavailable = %v, want exactly %v", data.Unavailable, tt.want)
+			}
+			for _, section := range tt.want {
+				if !data.Unavailable[section] {
+					t.Errorf("section %q not marked unavailable", section)
+				}
+			}
+			if data.JuniperRefs == nil || data.NewMsgIDSamples == nil {
+				t.Error("lookup maps must stay non-nil for the templates")
+			}
+		})
+	}
+}
+
 // TestGatherPropagatesDeadContext is the other half of the contract: once the
 // context is done every later step fails too, so continuing would hand the
 // model a hollow data set. That case must fail loudly.

@@ -35,3 +35,27 @@ func TestBuildUserFilter_PlainUsername(t *testing.T) {
 		t.Errorf("got %q, want (sAMAccountName=alice)", got)
 	}
 }
+
+func TestConfigValidate(t *testing.T) {
+	tests := []struct {
+		filter  string
+		wantErr bool
+	}{
+		{"(&(objectClass=person)(uid=%s))", false},
+		{"(sAMAccountName=%s)", false},
+		{"(cn=100%%-%s)", false},
+		{"(uid=alice)", true},
+		{"(|(uid=%s)(mail=%s))", true},
+		{"(uid=%d)", true},
+		{"", true},
+	}
+	for _, tt := range tests {
+		err := Config{URL: "ldaps://x", UserFilter: tt.filter}.Validate()
+		if (err != nil) != tt.wantErr {
+			t.Errorf("Validate(%q) = %v, wantErr %v", tt.filter, err, tt.wantErr)
+		}
+	}
+	if err := (Config{UserFilter: "(uid=%s)"}).Validate(); err == nil {
+		t.Error("Validate with no URL should fail")
+	}
+}

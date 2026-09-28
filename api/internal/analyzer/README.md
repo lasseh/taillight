@@ -115,7 +115,9 @@ window — no second compression pass, no extra dependency.
 | `weekly`   | trend review         | `**Trend: IMPROVING\|STEADY\|DEGRADING\|MIXED**` |
 | `incident` | narrow manual triage | `**STAND DOWN\|INVESTIGATE\|CONTAIN\|ESCALATE**` |
 
-Required section sets per mode live in `requiredHeaders` (`structure.go`).
+Each report kind's section set, first-section token, and line cap live in one
+`reportShapes` row (`structure.go`); the report title is
+`model.AnalysisBriefingTitle`, shared with the email subject.
 
 ## Configuration (`config.yml` → `analysis:`)
 

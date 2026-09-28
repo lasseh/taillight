@@ -43,85 +43,9 @@ func NewNotificationHandler(store NotificationStore, engine *notification.Engine
 
 // --- Channels ---
 
-// redactedSecretKeys lists the config JSON keys, per channel type, that carry
-// delivery credentials and must never be echoed back on read endpoints.
-var redactedSecretKeys = map[notification.ChannelType][]string{
-	notification.ChannelTypeSlack:   {"webhook_url"},
-	notification.ChannelTypeWebhook: {"url", "headers"},
-	notification.ChannelTypeNtfy:    {"token"},
-}
-
-// redactedSecret is the placeholder substituted for a configured secret value so
-// the client can tell a secret is set without learning its value.
-const redactedSecret = "********"
-
-// redactChannelConfig returns a copy of ch with any secret config fields masked.
-// It is applied to all read responses so low-privilege (or anonymous, when read
-// endpoints are unauthenticated) callers cannot exfiltrate webhook URLs, bearer
-// tokens, or custom Authorization headers.
-func redactChannelConfig(ch notification.Channel) notification.Channel {
-	keys, ok := redactedSecretKeys[ch.Type]
-	if !ok || len(ch.Config) == 0 {
-		return ch
-	}
-	var cfg map[string]json.RawMessage
-	if err := json.Unmarshal(ch.Config, &cfg); err != nil {
-		// Malformed config — fail closed by dropping it entirely.
-		ch.Config = json.RawMessage(`{}`)
-		return ch
-	}
-	for _, k := range keys {
-		raw, present := cfg[k]
-		if !present || isEmptyJSON(raw) {
-			continue
-		}
-		cfg[k] = maskJSONValue(raw)
-	}
-	redacted, err := json.Marshal(cfg)
-	if err != nil {
-		ch.Config = json.RawMessage(`{}`)
-		return ch
-	}
-	ch.Config = redacted
-	return ch
-}
-
-// maskJSONValue replaces a secret JSON value with a placeholder. For a JSON
-// object (e.g. webhook headers) it masks each member value while preserving the
-// object shape and key names, which keeps the response schema stable for the
-// frontend without leaking the secret values.
-func maskJSONValue(raw json.RawMessage) json.RawMessage {
-	masked, _ := json.Marshal(redactedSecret)
-	if len(raw) == 0 || raw[0] != '{' {
-		return masked
-	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return masked
-	}
-	for k := range obj {
-		obj[k] = masked
-	}
-	out, err := json.Marshal(obj)
-	if err != nil {
-		return masked
-	}
-	return out
-}
-
-// isEmptyJSON reports whether a raw JSON value is null, "", {}, or [].
-func isEmptyJSON(raw json.RawMessage) bool {
-	switch s := string(raw); s {
-	case "", "null", `""`, "{}", "[]":
-		return true
-	default:
-		return false
-	}
-}
-
 func redactChannels(channels []notification.Channel) []notification.Channel {
 	for i := range channels {
-		channels[i] = redactChannelConfig(channels[i])
+		channels[i] = channels[i].Redacted()
 	}
 	return channels
 }
@@ -155,7 +79,7 @@ func (h *NotificationHandler) GetChannel(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get channel")
 		return
 	}
-	writeJSON(w, itemResponse{Data: redactChannelConfig(ch)})
+	writeJSON(w, itemResponse{Data: ch.Redacted()})
 }
 
 // CreateChannel handles POST /api/v1/notifications/channels.
@@ -196,7 +120,7 @@ func (h *NotificationHandler) CreateChannel(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	writeJSONStatus(w, http.StatusCreated, itemResponse{Data: created})
+	writeJSONStatus(w, http.StatusCreated, itemResponse{Data: created.Redacted()})
 }
 
 // UpdateChannel handles PUT /api/v1/notifications/channels/{id}.
@@ -219,6 +143,24 @@ func (h *NotificationHandler) UpdateChannel(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// The edit form is filled from a redacted read, so masked secrets come
+	// back as the placeholder; keep the stored value for those.
+	stored, err := h.store.GetNotificationChannel(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not_found", "channel not found")
+		return
+	}
+	if err != nil {
+		LoggerFromContext(r.Context()).Error("get notification channel for update", "id", id, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update channel")
+		return
+	}
+	ch = ch.WithSecretsFrom(stored)
+	if ch.HasRedactedSecret() {
+		writeError(w, http.StatusBadRequest, "validation_failed", "a masked secret has no stored value to keep; re-enter it")
+		return
+	}
+
 	if h.engine != nil {
 		if err := h.engine.ValidateChannel(ch); err != nil {
 			writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
@@ -236,7 +178,7 @@ func (h *NotificationHandler) UpdateChannel(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update channel")
 		return
 	}
-	writeJSON(w, itemResponse{Data: updated})
+	writeJSON(w, itemResponse{Data: updated.Redacted()})
 }
 
 // DeleteChannel handles DELETE /api/v1/notifications/channels/{id}.

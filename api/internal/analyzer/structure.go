@@ -21,9 +21,9 @@ const (
 // sections are about a decision under time pressure, not about the feed.
 var incidentHeaders = []string{"Verdict", "What's Happening", "Likely Cause", "Immediate Actions", "Standing Down"}
 
-// reportKind returns the key into the shape tables below for a feed and
-// prompt mode: the mode for feeds in the shared syslog prompt family,
-// <family>-<mode> for a feed with its own (model.AnalysisFeedSpec).
+// reportKind returns the key into reportShapes for a feed and prompt mode:
+// the mode for feeds in the shared syslog prompt family, <family>-<mode> for
+// a feed with its own (model.AnalysisFeedSpec).
 func reportKind(feed, mode string) string {
 	if spec, ok := model.AnalysisFeedSpecFor(feed); ok && spec.PromptFamily != "" {
 		return spec.PromptFamily + "-" + mode
@@ -31,33 +31,29 @@ func reportKind(feed, mode string) string {
 	return mode
 }
 
-// requiredHeaders enumerates the H2 section headers each report kind must
-// emit, in order. The validator forbids extra headers as well, so the model
-// can't pad with "Appendix" or "Recommendations" sections.
-var requiredHeaders = map[string][]string{
-	modeDaily:          {"TL;DR", "Needs Action", "What Happened", "Watch"},
-	modeWeekly:         {"TL;DR", "Trend Movers", "Chronic Hosts", "New Surface Area", "Correlations Worth Naming", "Engineering Focus"},
-	modeIncident:       incidentHeaders,
-	kindApplogDaily:    {"New errors and warnings", "Top recurring errors and warnings", "Volume vs last week", "Silent and new services", "Log hygiene"},
-	kindApplogIncident: incidentHeaders,
+// reportShape is every output rule for one report kind. A new kind is one
+// row in reportShapes; a kind absent from the table is not validated.
+type reportShape struct {
+	// headers enumerates the H2 section headers the report must emit, in
+	// order. The validator forbids extra headers as well, so the model
+	// can't pad with "Appendix" or "Recommendations" sections.
+	headers []string
+
+	// firstRule is the token the first section (TL;DR or Verdict) body
+	// must contain — see sectionRule.
+	firstRule sectionRule
+
+	// lineCap bounds the reply length, counted in non-blank lines; 0 means
+	// uncapped. A reply past the cap fails validation so the corrective
+	// retry regenerates it shorter.
+	lineCap int
 }
 
-// reportLineCap bounds the reply length per report kind, counted in
-// non-blank lines. The daily brief is a one-screen morning read (~35-line
-// target in the prompt); a reply past the cap fails validation so the
-// corrective retry regenerates it shorter. The applog daily gets ten more
-// lines for its long-tail table. Kinds absent from the map are uncapped.
-var reportLineCap = map[string]int{
-	modeDaily:       70,
-	kindApplogDaily: 80,
-}
-
-// firstSectionRule defines the regex each mode's first section (TL;DR or
-// Verdict) body must match. The pattern targets the bolded status/trend/
-// verdict token so the model can't get away with emitting only the bare
-// placeholder line `_Nothing of concern this period._` in the headline
-// section — a quiet period is still a Status: NOMINAL decision, not a
-// non-answer.
+// sectionRule is the regex a report's first section body must match. The
+// pattern targets the bolded status/trend/verdict token so the model can't
+// get away with emitting only the bare placeholder line
+// `_Nothing of concern this period._` in the headline section — a quiet
+// period is still a Status: NOMINAL decision, not a non-answer.
 //
 // Patterns use case-sensitive matching for the status words because the
 // prompts ask for them in UPPERCASE; if the model emits them in mixed case
@@ -68,27 +64,41 @@ type sectionRule struct {
 	desc    string
 }
 
-// verdictRule is the incident first-section rule, shared by both feeds.
-var verdictRule = sectionRule{
-	pattern: regexp.MustCompile(`\*\*(STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE)\*\*`),
-	desc:    "`**STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE**` token",
-}
-
-var firstSectionRule = map[string]sectionRule{
-	modeDaily: {
+var (
+	statusRule = sectionRule{
 		pattern: regexp.MustCompile(`\*\*Status:\s+(NOMINAL|WATCH|ACT NOW)\*\*`),
 		desc:    "`**Status: NOMINAL|WATCH|ACT NOW**` line",
-	},
-	modeWeekly: {
+	}
+	trendRule = sectionRule{
 		pattern: regexp.MustCompile(`\*\*Trend:\s+(IMPROVING|STEADY|DEGRADING|MIXED)\*\*`),
 		desc:    "`**Trend: IMPROVING|STEADY|DEGRADING|MIXED**` line",
+	}
+	verdictRule = sectionRule{
+		pattern: regexp.MustCompile(`\*\*(STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE)\*\*`),
+		desc:    "`**STAND DOWN|INVESTIGATE|CONTAIN|ESCALATE**` token",
+	}
+)
+
+// reportShapes holds the output rules per report kind. The daily brief is a
+// one-screen morning read (~35-line target in the prompt); the applog daily
+// gets ten more lines for its long-tail table.
+var reportShapes = map[string]reportShape{
+	modeDaily: {
+		headers:   []string{"TL;DR", "Needs Action", "What Happened", "Watch"},
+		firstRule: statusRule,
+		lineCap:   70,
 	},
-	modeIncident: verdictRule,
+	modeWeekly: {
+		headers:   []string{"TL;DR", "Trend Movers", "Chronic Hosts", "New Surface Area", "Correlations Worth Naming", "Engineering Focus"},
+		firstRule: trendRule,
+	},
+	modeIncident: {headers: incidentHeaders, firstRule: verdictRule},
 	kindApplogDaily: {
-		pattern: regexp.MustCompile(`\*\*Status:\s+(NOMINAL|WATCH|ACT NOW)\*\*`),
-		desc:    "`**Status: NOMINAL|WATCH|ACT NOW**` line",
+		headers:   []string{"New errors and warnings", "Top recurring errors and warnings", "Volume vs last week", "Silent and new services", "Log hygiene"},
+		firstRule: statusRule,
+		lineCap:   80,
 	},
-	kindApplogIncident: verdictRule,
+	kindApplogIncident: {headers: incidentHeaders, firstRule: verdictRule},
 }
 
 // extractH2Headers returns the H2 ("## ") header titles in the order they
@@ -168,7 +178,8 @@ func normalizeHeader(s string) string {
 // re-states the required header sequence (and line cap, for capped modes),
 // and forbids the usual drift modes ("Appendix", "Recommendations", etc.).
 func structureCorrection(cause error, mode string) string {
-	required := requiredHeaders[mode]
+	shape := reportShapes[mode]
+	required := shape.headers
 	var b strings.Builder
 	b.WriteString("Your previous reply did not match the required output rules: ")
 	b.WriteString(cause.Error())
@@ -181,8 +192,8 @@ func structureCorrection(cause error, mode string) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\nDo not add `Key Findings`, `Summary`, `Recommendations`, `Next Steps`, `Conclusion`, `Appendix`, or any other heading. The first section must contain a bolded status/trend/verdict line as described in the system message — never just the placeholder.")
-	if lineCap, ok := reportLineCap[mode]; ok {
-		fmt.Fprintf(&b, " Keep the whole reply under %d non-blank lines.", lineCap)
+	if shape.lineCap > 0 {
+		fmt.Fprintf(&b, " Keep the whole reply under %d non-blank lines.", shape.lineCap)
 	}
 	return b.String()
 }
@@ -193,29 +204,28 @@ func structureCorrection(cause error, mode string) string {
 // the mode's status/trend/verdict token) → total length (modes with a line
 // cap).
 func validateReport(report, mode string) error {
-	required := requiredHeaders[mode]
-	if len(required) == 0 {
+	shape, ok := reportShapes[mode]
+	if !ok {
 		return nil
 	}
-	if err := validateStructure(report, required); err != nil {
+	if err := validateStructure(report, shape.headers); err != nil {
 		return err
 	}
-	if err := validateFirstSection(report, mode, required[0]); err != nil {
+	if err := validateFirstSection(report, shape.firstRule, shape.headers[0]); err != nil {
 		return err
 	}
-	if err := validateLength(report, mode); err != nil {
+	if err := validateLength(report, shape.lineCap); err != nil {
 		return err
 	}
 	return nil
 }
 
-// validateLength enforces the mode's reply-length cap, counted in non-blank
-// lines so markdown spacing doesn't penalize a well-formed report. The error
-// text doubles as the corrective instruction — structureCorrection quotes it
-// verbatim to the model.
-func validateLength(report, mode string) error {
-	lineCap, ok := reportLineCap[mode]
-	if !ok {
+// validateLength enforces a reply-length cap (0 = uncapped), counted in
+// non-blank lines so markdown spacing doesn't penalize a well-formed report.
+// The error text doubles as the corrective instruction — structureCorrection
+// quotes it verbatim to the model.
+func validateLength(report string, lineCap int) error {
+	if lineCap <= 0 {
 		return nil
 	}
 	n := 0
@@ -233,8 +243,7 @@ func validateLength(report, mode string) error {
 // validateStructure checks that report contains exactly the required H2
 // headers, in the required order, with no extras. Returns a human-readable
 // error describing the first deviation, or nil if the structure is correct.
-// Required is the slice returned by requiredHeaders[mode]; passing nil or an
-// empty slice disables the check.
+// Passing nil or an empty required slice disables the check.
 func validateStructure(report string, required []string) error {
 	if len(required) == 0 {
 		return nil
@@ -255,12 +264,11 @@ func validateStructure(report string, required []string) error {
 }
 
 // validateFirstSection checks that the body of the first section contains
-// the mode's required status/trend/verdict token. A bare placeholder line
+// the kind's required status/trend/verdict token. A bare placeholder line
 // (`_Nothing of concern this period._` or similar) is explicitly not enough
 // for the headline section — the model must commit to a status word.
-func validateFirstSection(report, mode, firstHeader string) error {
-	rule, ok := firstSectionRule[mode]
-	if !ok {
+func validateFirstSection(report string, rule sectionRule, firstHeader string) error {
+	if rule.pattern == nil {
 		return nil
 	}
 	body := strings.TrimSpace(extractSection(report, firstHeader))

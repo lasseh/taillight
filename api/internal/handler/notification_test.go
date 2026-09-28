@@ -24,6 +24,7 @@ type mockNotificationStore struct {
 	createChErr error
 	updateChErr error
 	deleteChErr error
+	updatedCh   notification.Channel // last channel passed to UpdateNotificationChannel
 
 	rules       []notification.Rule
 	rule        notification.Rule
@@ -51,6 +52,7 @@ func (m *mockNotificationStore) CreateNotificationChannel(_ context.Context, ch 
 }
 
 func (m *mockNotificationStore) UpdateNotificationChannel(_ context.Context, _ int64, ch notification.Channel) (notification.Channel, error) {
+	m.updatedCh = ch
 	return ch, m.updateChErr
 }
 
@@ -84,74 +86,6 @@ func (m *mockNotificationStore) ListNotificationLog(_ context.Context, _ notific
 }
 
 // --- Channel Tests ---
-
-func TestRedactChannelConfig(t *testing.T) {
-	tests := []struct {
-		name       string
-		typ        notification.ChannelType
-		config     string
-		wantSecret bool // true if a masked value must be present
-		wantKept   []string
-	}{
-		{
-			name:       "slack webhook url masked",
-			typ:        notification.ChannelTypeSlack,
-			config:     `{"webhook_url":"https://hooks.slack.com/services/T/B/secret"}`,
-			wantSecret: true,
-		},
-		{
-			name:       "webhook url and headers masked, method kept",
-			typ:        notification.ChannelTypeWebhook,
-			config:     `{"url":"https://x/hook?token=abc","method":"POST","headers":{"Authorization":"Bearer s"}}`,
-			wantSecret: true,
-			wantKept:   []string{"POST"},
-		},
-		{
-			name:       "ntfy token masked, topic kept",
-			typ:        notification.ChannelTypeNtfy,
-			config:     `{"server_url":"https://ntfy.sh","topic":"alerts","token":"tk_secret"}`,
-			wantSecret: true,
-			wantKept:   []string{"alerts", "ntfy.sh"},
-		},
-		{
-			name:       "email has no secrets",
-			typ:        notification.ChannelTypeEmail,
-			config:     `{"to":["ops@example.com"]}`,
-			wantSecret: false,
-			wantKept:   []string{"ops@example.com"},
-		},
-		{
-			name:       "empty secret not masked",
-			typ:        notification.ChannelTypeNtfy,
-			config:     `{"topic":"alerts","token":""}`,
-			wantSecret: false,
-			wantKept:   []string{"alerts"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			out := redactChannelConfig(notification.Channel{Type: tt.typ, Config: json.RawMessage(tt.config)})
-			got := string(out.Config)
-
-			hasMask := bytes.Contains(out.Config, []byte(redactedSecret))
-			if hasMask != tt.wantSecret {
-				t.Errorf("masked=%v, want %v; config=%s", hasMask, tt.wantSecret, got)
-			}
-			// The original secret values must never appear in the output.
-			for _, leaked := range []string{"secret", "token=abc", "Bearer s", "tk_secret"} {
-				if bytes.Contains(out.Config, []byte(leaked)) {
-					t.Errorf("secret %q leaked in %s", leaked, got)
-				}
-			}
-			for _, keep := range tt.wantKept {
-				if !bytes.Contains(out.Config, []byte(keep)) {
-					t.Errorf("expected %q kept in %s", keep, got)
-				}
-			}
-		})
-	}
-}
 
 func TestListChannels(t *testing.T) {
 	tests := []struct {
@@ -356,6 +290,59 @@ func TestUpdateChannel(t *testing.T) {
 				t.Errorf("got status %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
 			}
 		})
+	}
+}
+
+// TestUpdateChannelKeepsMaskedSecret replays the edit form: it posts back the
+// redacted read unchanged, and the stored token must survive while the
+// response stays redacted.
+func TestUpdateChannelKeepsMaskedSecret(t *testing.T) {
+	store := &mockNotificationStore{channel: notification.Channel{
+		ID: 1, Name: "ntfy", Type: notification.ChannelTypeNtfy,
+		Config: json.RawMessage(`{"server_url":"https://ntfy.sh","token":"tk_secret","topic":"alerts"}`),
+	}}
+	h := NewNotificationHandler(store, nil)
+	r := chi.NewRouter()
+	r.Put("/channels/{id}", h.UpdateChannel)
+
+	body := `{"name":"renamed","type":"ntfy","enabled":true,"config":{"server_url":"https://ntfy.sh","topic":"alerts","token":"********"}}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/channels/1", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(store.updatedCh.Config, []byte(`"token":"tk_secret"`)) {
+		t.Errorf("stored config lost the token: %s", store.updatedCh.Config)
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte("tk_secret")) {
+		t.Errorf("response leaked the token: %s", rec.Body.String())
+	}
+}
+
+// TestUpdateChannelRejectsUnrestorableMask covers a renamed webhook header
+// whose value is still the mask: there is nothing stored to keep, so the
+// update must fail rather than store the placeholder.
+func TestUpdateChannelRejectsUnrestorableMask(t *testing.T) {
+	store := &mockNotificationStore{channel: notification.Channel{
+		ID: 1, Type: notification.ChannelTypeWebhook,
+		Config: json.RawMessage(`{"url":"https://x/hook","headers":{"Authorization":"Bearer s"}}`),
+	}}
+	h := NewNotificationHandler(store, nil)
+	r := chi.NewRouter()
+	r.Put("/channels/{id}", h.UpdateChannel)
+
+	body := `{"name":"w","type":"webhook","enabled":true,"config":{"url":"********","headers":{"X-Auth":"********"}}}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/channels/1", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if store.updatedCh.Config != nil {
+		t.Errorf("store was written: %s", store.updatedCh.Config)
 	}
 }
 

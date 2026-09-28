@@ -4,6 +4,7 @@ import {
   ANALYSIS_FEED_ORDER,
   feedAllowsFrequency,
   feedAllowsMode,
+  feedFrequencies,
   feedOptions,
   feedScopeNoun,
   feedSpec,
@@ -22,6 +23,8 @@ describe('analysis feed spec', () => {
     expect(feedAllowsMode('applog', 'weekly')).toBe(false)
     expect(feedAllowsFrequency('applog', 'monthly')).toBe(false)
     expect(feedAllowsFrequency('srvlog', 'monthly')).toBe(true)
+    expect(feedFrequencies('applog')).toEqual(['daily'])
+    expect(feedFrequencies('netlog')).toEqual(['daily', 'weekly', 'monthly'])
     expect(feedScopeNoun('applog')).toBe('service')
     expect(feedScopeNoun('netlog')).toBe('host')
   })

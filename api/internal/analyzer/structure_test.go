@@ -3,6 +3,8 @@ package analyzer
 import (
 	"strings"
 	"testing"
+
+	"github.com/lasseh/taillight/internal/model"
 )
 
 func TestExtractH2Headers(t *testing.T) {
@@ -58,9 +60,9 @@ func TestExtractH2Headers(t *testing.T) {
 func TestValidateStructure(t *testing.T) {
 	t.Parallel()
 
-	daily := requiredHeaders[modeDaily]
+	daily := reportShapes[modeDaily].headers
 	if len(daily) == 0 {
-		t.Fatal("requiredHeaders[modeDaily] is empty — test cannot run")
+		t.Fatal("reportShapes[modeDaily].headers is empty — test cannot run")
 	}
 	body := func(headers ...string) string {
 		var b strings.Builder
@@ -130,13 +132,13 @@ func TestValidateStructure(t *testing.T) {
 		{
 			name:     "weekly headers pass on weekly required list",
 			report:   body("TL;DR", "Trend Movers", "Chronic Hosts", "New Surface Area", "Correlations Worth Naming", "Engineering Focus"),
-			required: requiredHeaders[modeWeekly],
+			required: reportShapes[modeWeekly].headers,
 			wantErr:  false,
 		},
 		{
 			name:     "incident headers pass on incident required list",
 			report:   body("Verdict", "What's Happening", "Likely Cause", "Immediate Actions", "Standing Down"),
-			required: requiredHeaders[modeIncident],
+			required: reportShapes[modeIncident].headers,
 			wantErr:  false,
 		},
 		{
@@ -164,17 +166,23 @@ func TestValidateStructure(t *testing.T) {
 	}
 }
 
-func TestRequiredHeadersMatchPrompts(t *testing.T) {
+// TestEveryReportKindHasAShape walks every feed and mode the feed spec
+// allows: each resulting report kind needs a reportShapes row, otherwise the
+// validator silently no-ops for it and structural drift goes unnoticed.
+func TestEveryReportKindHasAShape(t *testing.T) {
 	t.Parallel()
-	// Belt-and-braces: every prompt mode the analyzer accepts must have a
-	// requiredHeaders entry, otherwise the validator silently no-ops for
-	// that mode and structural drift goes unnoticed.
-	for _, mode := range []string{modeDaily, modeWeekly, modeIncident} {
-		if _, ok := requiredHeaders[mode]; !ok {
-			t.Errorf("requiredHeaders missing entry for mode %q", mode)
-		}
-		if _, ok := firstSectionRule[mode]; !ok {
-			t.Errorf("firstSectionRule missing entry for mode %q", mode)
+	for _, feed := range model.AnalysisFeeds {
+		spec, _ := model.AnalysisFeedSpecFor(feed)
+		for _, mode := range spec.Modes {
+			kind := reportKind(feed, mode)
+			shape, ok := reportShapes[kind]
+			if !ok {
+				t.Errorf("reportShapes missing kind %q (feed %s, mode %s)", kind, feed, mode)
+				continue
+			}
+			if len(shape.headers) == 0 || shape.firstRule.pattern == nil {
+				t.Errorf("reportShapes[%q] needs headers and a first-section rule", kind)
+			}
 		}
 	}
 }
@@ -355,9 +363,9 @@ func TestValidateReportLength(t *testing.T) {
 		return strings.Repeat("- padding bullet\n", n)
 	}
 
-	dailyCap := reportLineCap[modeDaily]
+	dailyCap := reportShapes[modeDaily].lineCap
 	if dailyCap == 0 {
-		t.Fatal("reportLineCap[modeDaily] is unset — test cannot run")
+		t.Fatal("reportShapes[modeDaily].lineCap is unset — test cannot run")
 	}
 
 	tests := []struct {

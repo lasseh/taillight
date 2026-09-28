@@ -49,6 +49,12 @@ const (
 	unavailableTopErrorHosts = "top_error_hosts"
 	unavailableEventClusters = "event_clusters"
 	unavailableNewMsgIDs     = "new_msgids"
+	unavailableTopSamples    = "top_msgid_samples"
+	unavailableTimeline      = "volume_timeline"
+	unavailablePrograms      = "top_programs"
+	unavailableFacilities    = "top_facilities"
+	unavailableNewSamples    = "new_msgid_samples"
+	unavailableJuniperRefs   = "juniper_refs"
 )
 
 const (
@@ -286,16 +292,8 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	// set you picked." Skipping saves DB roundtrips and avoids feeding the
 	// prompt with sections the model would either skip or narrate emptily.
 	//
-	// The next three lookups are best-effort, like the volume timeline and
-	// program/facility breakdowns below. Each enriches the prompt but none is
-	// load-bearing: a report missing its error-host table is far better than
-	// no report at all. They used to be fatal, and one slow query cost a
-	// production deployment 46 consecutive daily reports.
-	//
-	// A failure on an expired context is different — everything after it will
-	// fail too, and the model call at the end would be handed a hollow data
-	// set. Bail loudly in that case rather than shipping a report assembled
-	// from a dead context.
+	// Every lookup from here on is best-effort (see bestEffort): a failure
+	// costs its own section, and a dead context fails the run.
 	if scope.IsAllHosts() {
 		a.logger.Info("gathering top error hosts", "feed", feed)
 		data.TopErrorHosts, err = bestEffort(ctx, a.logger, data.Unavailable, unavailableTopErrorHosts,
@@ -338,15 +336,16 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 			topKeys[i] = mc.MsgID
 		}
 		a.logger.Info("gathering samples for top msgids", "feed", feed, "keys", len(topKeys))
-		samples, sampErr := a.store.GetMsgIDSamples(ctx, scope, periodStart, topKeys, topMsgIDSampleCount)
-		if sampErr != nil {
-			// Best-effort — warn and continue without samples.
-			a.logger.Warn("top msgid sample lookup failed, continuing without", "err", sampErr)
-		} else {
-			for i := range data.TopMsgIDs {
-				if s, ok := samples[data.TopMsgIDs[i].MsgID]; ok {
-					data.TopMsgIDs[i].Samples = s
-				}
+		samples, err := bestEffort(ctx, a.logger, data.Unavailable, unavailableTopSamples,
+			func() (map[string][]model.SampleMessage, error) {
+				return a.store.GetMsgIDSamples(ctx, scope, periodStart, topKeys, topMsgIDSampleCount)
+			})
+		if err != nil {
+			return data, err
+		}
+		for i := range data.TopMsgIDs {
+			if s, ok := samples[data.TopMsgIDs[i].MsgID]; ok {
+				data.TopMsgIDs[i].Samples = s
 			}
 		}
 	}
@@ -357,13 +356,12 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	bucketMinutes := pickBucketMinutes(period)
 	data.VolumeBucketLabel = bucketLabel(bucketMinutes)
 	a.logger.Info("gathering volume timeline", "feed", feed, "bucket_minutes", bucketMinutes)
-	timeline, volErr := a.store.GetVolumeTimeline(ctx, scope, periodStart, periodEnd, bucketMinutes)
-	if volErr != nil {
-		// Best-effort — the sparkline is a nice-to-have, not load-bearing
-		// for the rest of the analysis.
-		a.logger.Warn("volume timeline lookup failed, continuing without", "err", volErr)
-	} else {
-		data.VolumeTimeline = timeline
+	data.VolumeTimeline, err = bestEffort(ctx, a.logger, data.Unavailable, unavailableTimeline,
+		func() ([]model.AnalysisVolumeBucket, error) {
+			return a.store.GetVolumeTimeline(ctx, scope, periodStart, periodEnd, bucketMinutes)
+		})
+	if err != nil {
+		return data, err
 	}
 	if len(data.VolumeTimeline) > 0 {
 		totals := make([]int64, len(data.VolumeTimeline))
@@ -380,24 +378,24 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	// Program + facility breakdowns are srvlog-only signals. The store
 	// returns nil for netlog so calling unconditionally would also work,
 	// but skipping here keeps the log lines truthful about what was
-	// queried. Both are best-effort — they enrich the prompt but the
-	// report is still useful without them, so a slow or failing query
-	// shouldn't kill the whole run.
+	// queried.
 	if feed != feedNetlog {
 		a.logger.Info("gathering top programs", "feed", feed)
-		programs, progErr := a.store.GetTopPrograms(ctx, scope, periodStart, topProgramLimit)
-		if progErr != nil {
-			a.logger.Warn("top programs lookup failed, continuing without", "err", progErr)
-		} else {
-			data.TopPrograms = programs
+		data.TopPrograms, err = bestEffort(ctx, a.logger, data.Unavailable, unavailablePrograms,
+			func() ([]model.ProgramCount, error) {
+				return a.store.GetTopPrograms(ctx, scope, periodStart, topProgramLimit)
+			})
+		if err != nil {
+			return data, err
 		}
 
 		a.logger.Info("gathering top facilities", "feed", feed)
-		facilities, facErr := a.store.GetTopFacilities(ctx, scope, periodStart, topFacilityLimit)
-		if facErr != nil {
-			a.logger.Warn("top facilities lookup failed, continuing without", "err", facErr)
-		} else {
-			data.TopFacilities = facilities
+		data.TopFacilities, err = bestEffort(ctx, a.logger, data.Unavailable, unavailableFacilities,
+			func() ([]model.FacilityCount, error) {
+				return a.store.GetTopFacilities(ctx, scope, periodStart, topFacilityLimit)
+			})
+		if err != nil {
+			return data, err
 		}
 	}
 
@@ -406,14 +404,16 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 	data.NewMsgIDSamples = make(map[string]model.SampleMessage)
 	if len(data.NewMsgIDs) > 0 {
 		a.logger.Info("gathering samples for new msgids", "feed", feed, "keys", len(data.NewMsgIDs))
-		newSamples, sampErr := a.store.GetMsgIDSamples(ctx, scope, periodStart, data.NewMsgIDs, 1)
-		if sampErr != nil {
-			a.logger.Warn("new msgid sample lookup failed, continuing without", "err", sampErr)
-		} else {
-			for k, list := range newSamples {
-				if len(list) > 0 {
-					data.NewMsgIDSamples[k] = list[0]
-				}
+		newSamples, err := bestEffort(ctx, a.logger, data.Unavailable, unavailableNewSamples,
+			func() (map[string][]model.SampleMessage, error) {
+				return a.store.GetMsgIDSamples(ctx, scope, periodStart, data.NewMsgIDs, 1)
+			})
+		if err != nil {
+			return data, err
+		}
+		for k, list := range newSamples {
+			if len(list) > 0 {
+				data.NewMsgIDSamples[k] = list[0]
 			}
 		}
 	}
@@ -431,11 +431,14 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 		msgidNames = append(msgidNames, data.NewMsgIDs...)
 
 		a.logger.Info("looking up juniper references", "count", len(msgidNames))
-		refs, lookupErr := a.store.LookupJuniperRefs(ctx, msgidNames)
-		if lookupErr != nil {
-			// Best-effort — warn and continue.
-			a.logger.Warn("juniper ref lookup failed, continuing without", "err", lookupErr)
-		} else {
+		refs, err := bestEffort(ctx, a.logger, data.Unavailable, unavailableJuniperRefs,
+			func() (map[string]model.JuniperNetlogRef, error) {
+				return a.store.LookupJuniperRefs(ctx, msgidNames)
+			})
+		if err != nil {
+			return data, err
+		}
+		if refs != nil {
 			data.JuniperRefs = refs
 		}
 	}

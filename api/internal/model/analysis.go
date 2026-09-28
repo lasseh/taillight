@@ -137,6 +137,30 @@ func AnalysisModeForFrequency(frequency string) string {
 	}
 }
 
+// AnalysisBriefingTitle returns a report's long-form title: the H1 the
+// analyzer prepends to the report body and the email subject. Unknown modes
+// fall back to "Operations Briefing".
+func AnalysisBriefingTitle(feed, mode string) string {
+	if feed == AnalysisFeedApplog {
+		switch mode {
+		case AnalysisModeDaily:
+			return "Daily Application Log Briefing"
+		case AnalysisModeIncident:
+			return "Application Log Incident Briefing"
+		}
+	}
+	switch mode {
+	case AnalysisModeDaily:
+		return "Daily Operations Briefing"
+	case AnalysisModeWeekly:
+		return "Weekly Operations Briefing"
+	case AnalysisModeIncident:
+		return "Incident Briefing"
+	default:
+		return "Operations Briefing"
+	}
+}
+
 // AnalysisReport represents a stored AI analysis report.
 //
 // Hosts carries the report's host scope: an empty slice means "all hosts on
