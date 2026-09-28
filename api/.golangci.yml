@@ -56,6 +56,9 @@ linters:
         - nestingReduce
         - unnamedResult
         - appendCombine
+        # Backticks in Slack mrkdwn are code spans; %#q falls back to
+        # "..."-quoting with escapes for messages containing newlines.
+        - sprintfQuotedString
     exhaustive:
       default-signifies-exhaustive: true
     gocyclo:
