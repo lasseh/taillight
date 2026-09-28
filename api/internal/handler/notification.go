@@ -104,6 +104,12 @@ func (h *NotificationHandler) CreateChannel(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "validation_failed", "type is required")
 		return
 	}
+	// A new channel has nothing stored to restore a masked secret from, e.g.
+	// a config copied from a redacted read.
+	if ch.HasRedactedSecret() {
+		writeError(w, http.StatusBadRequest, "validation_failed", "a masked secret cannot be saved; enter the real value")
+		return
+	}
 
 	// Validate config against backend.
 	if h.engine != nil {
