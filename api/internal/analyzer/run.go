@@ -2,13 +2,30 @@ package analyzer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/lasseh/taillight/internal/metrics"
 	"github.com/lasseh/taillight/internal/model"
 	"github.com/lasseh/taillight/internal/ollama"
 )
+
+// ErrContextExceeded is returned by Run when the prompt, or the prompt and
+// the reply together, do not fit analysis.num_ctx.
+var ErrContextExceeded = errors.New("report does not fit the model context window")
+
+// promptTooLong reports whether err is that refusal: a 400 naming the context.
+// Ollama words it two ways, "exceeds the available context size" and "longer
+// than the context length".
+func promptTooLong(err error) bool {
+	var statusErr *ollama.StatusError
+	return errors.As(err, &statusErr) &&
+		statusErr.StatusCode == http.StatusBadRequest &&
+		strings.Contains(statusErr.Body, "context")
+}
 
 // isEmptyData reports whether the gathered period has no current-window
 // activity worth narrating. Three signals must all be absent:
@@ -82,6 +99,7 @@ func (a *Analyzer) prepareSyslog(ctx context.Context, scope model.AnalysisScope,
 	p.signals = []any{
 		"top_msgids", len(data.TopMsgIDs),
 		"new_msgids", len(data.NewMsgIDs),
+		"new_msgids_omitted", data.NewMsgIDsOmitted,
 		"event_clusters", len(data.EventClusters),
 		"top_error_hosts", len(data.TopErrorHosts),
 	}
@@ -200,14 +218,29 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		NumCtx:      a.cfg.NumCtx,
 	}
 
+	// Running out of num_ctx fails the run. Ollama would otherwise cut the
+	// prompt to fit, or drop its older half while generating, and a report
+	// written from part of the data reads like any other.
+	off := false
+
 	resp, err := a.client.Chat(ctx, ollama.ChatRequest{
 		Model:    a.cfg.Model,
 		Messages: messages,
 		Options:  options,
+		Truncate: &off,
+		Shift:    &off,
 	})
 	if err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
+		if promptTooLong(err) {
+			return Result{}, fmt.Errorf("%w (num_ctx %d): %w", ErrContextExceeded, a.cfg.NumCtx, err)
+		}
 		return Result{}, fmt.Errorf("ollama chat: %w", err)
+	}
+	if resp.DoneReason == ollama.DoneReasonLength {
+		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
+		return Result{}, fmt.Errorf("%w (num_ctx %d): reply cut off after %d prompt and %d completion tokens",
+			ErrContextExceeded, a.cfg.NumCtx, resp.PromptEvalCount, resp.EvalCount)
 	}
 
 	// Report check: structure (exact section set + order) and first-section
@@ -228,7 +261,15 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 				ollama.ChatMessage{Role: "user", Content: structureCorrection(vErr, kind)},
 			),
 			Options: options,
+			// The retry is longer than the first call. If it no longer fits,
+			// it fails here and the first reply is kept; truncated, Ollama
+			// would drop the data message and answer from the rules alone.
+			Truncate: &off,
+			Shift:    &off,
 		})
+		if rErr == nil && retry.DoneReason == ollama.DoneReasonLength {
+			rErr = fmt.Errorf("%w: retry reply cut off", ErrContextExceeded)
+		}
 		switch {
 		case rErr != nil:
 			metrics.AnalysisStructureRetriesTotal.WithLabelValues("retry_error").Inc()

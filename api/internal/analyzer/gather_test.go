@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -342,5 +343,79 @@ func TestGatherPropagatesDeadContext(t *testing.T) {
 
 	if _, err := a.gather(ctx, model.AnalysisScope{Feed: feedNetlog}, 24*time.Hour, time.Now().UTC()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("gather = %v, want context.Canceled", err)
+	}
+}
+
+// TestCapNewMsgIDs covers the cut that keeps a busy day's new signatures from
+// outgrowing the context: over the limit, the most severe first-observed
+// samples win, name order holds within a severity, and a signature with no
+// sample goes last.
+func TestCapNewMsgIDs(t *testing.T) {
+	samples := map[string]model.SampleMessage{
+		"A_INFO": {Severity: 6},
+		"B_CRIT": {Severity: 2},
+		"C_WARN": {Severity: 4},
+		"D_CRIT": {Severity: 2},
+	}
+	tests := []struct {
+		name        string
+		ids         []string
+		limit       int
+		want        []string
+		wantOmitted int
+	}{
+		{"under the limit is untouched", []string{"A_INFO", "B_CRIT"}, 3, []string{"A_INFO", "B_CRIT"}, 0},
+		{"at the limit is untouched", []string{"A_INFO", "B_CRIT"}, 2, []string{"A_INFO", "B_CRIT"}, 0},
+		{"over the limit keeps the most severe", []string{"A_INFO", "B_CRIT", "C_WARN", "D_CRIT"}, 3, []string{"B_CRIT", "D_CRIT", "C_WARN"}, 1},
+		{"no sample ranks last", []string{"A_NOSAMPLE", "A_INFO", "B_CRIT"}, 2, []string{"B_CRIT", "A_INFO"}, 1},
+		{"empty", nil, 2, nil, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, omitted := capNewMsgIDs(slices.Clone(tt.ids), samples, tt.limit)
+			if !slices.Equal(got, tt.want) || omitted != tt.wantOmitted {
+				t.Errorf("capNewMsgIDs() = %v, %d; want %v, %d", got, omitted, tt.want, tt.wantOmitted)
+			}
+		})
+	}
+}
+
+// manyNewStore returns more new signatures than newMsgIDLimit, the last one
+// with the only severe sample.
+type manyNewStore struct{ stubStore }
+
+func (s manyNewStore) GetNewMsgIDs(context.Context, model.AnalysisScope, time.Time, time.Time) ([]string, error) {
+	ids := make([]string, 0, newMsgIDLimit+6)
+	for i := range newMsgIDLimit + 5 {
+		ids = append(ids, "NOISE_"+string(rune('A'+i)))
+	}
+	return append(ids, "ZZ_CHASSIS_ALARM"), nil
+}
+
+func (s manyNewStore) GetMsgIDSamples(_ context.Context, _ model.AnalysisScope, _ time.Time, keys []string, _ int) (map[string][]model.SampleMessage, error) {
+	out := make(map[string][]model.SampleMessage, len(keys))
+	for _, k := range keys {
+		sev := 6
+		if k == "ZZ_CHASSIS_ALARM" {
+			sev = 1
+		}
+		out[k] = []model.SampleMessage{{Hostname: "edge1", Severity: sev, Message: k}}
+	}
+	return out, nil
+}
+
+// TestGatherCapsNewMsgIDs checks gather applies the cap and records what it
+// cut, so the prompt can say how many signatures there were.
+func TestGatherCapsNewMsgIDs(t *testing.T) {
+	a := New(manyNewStore{}, ollama.New("http://unused", time.Second), Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	data, err := a.gather(context.Background(), model.AnalysisScope{Feed: feedNetlog}, 24*time.Hour, time.Now())
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	if len(data.NewMsgIDs) != newMsgIDLimit || data.NewMsgIDsOmitted != 6 {
+		t.Fatalf("got %d shown, %d omitted; want %d, 6", len(data.NewMsgIDs), data.NewMsgIDsOmitted, newMsgIDLimit)
+	}
+	if data.NewMsgIDs[0] != "ZZ_CHASSIS_ALARM" {
+		t.Errorf("first new signature = %q, want the alert-severity one", data.NewMsgIDs[0])
 	}
 }

@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -32,6 +33,15 @@ type fakeOllamaServer struct {
 	// entry repeats). An empty entry answers with HTTP 500 so a test can make
 	// a single call fail.
 	replies []string
+	// tooLong makes /api/chat answer the way Ollama refuses a prompt over
+	// num_ctx when the request carries truncate=false.
+	tooLong bool
+	// truncating counts /api/chat requests that did not send truncate=false
+	// and shift=false.
+	truncating atomic.Int32
+	// cutOff, when set, marks that /api/chat call (1-based) as having run
+	// out of context: done_reason "length".
+	cutOff int
 }
 
 func newFakeOllamaServer() *fakeOllamaServer {
@@ -42,8 +52,20 @@ func newFakeOllamaServer() *fakeOllamaServer {
 	mux.HandleFunc("/api/tags", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"models":[]}`))
 	})
-	mux.HandleFunc("/api/chat", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
 		n := int(f.chatCalls.Add(1))
+		var req struct {
+			Truncate *bool `json:"truncate"`
+			Shift    *bool `json:"shift"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
+			req.Truncate == nil || *req.Truncate || req.Shift == nil || *req.Shift {
+			f.truncating.Add(1)
+		}
+		if f.tooLong {
+			http.Error(w, `{"error":"request (40919 tokens) exceeds the available context size (32768 tokens), try increasing it"}`, http.StatusBadRequest)
+			return
+		}
 		reply := f.chatReply
 		if len(f.replies) > 0 {
 			reply = f.replies[min(n, len(f.replies))-1]
@@ -52,10 +74,15 @@ func newFakeOllamaServer() *fakeOllamaServer {
 				return
 			}
 		}
+		doneReason := "stop"
+		if n == f.cutOff {
+			doneReason = ollama.DoneReasonLength
+		}
 		_ = json.NewEncoder(w).Encode(ollama.ChatResponse{
 			Message:         ollama.ChatMessage{Role: "assistant", Content: reply},
 			PromptEvalCount: 100,
 			EvalCount:       50,
+			DoneReason:      doneReason,
 		})
 	})
 	f.srv = httptest.NewServer(mux)
@@ -200,6 +227,9 @@ func TestRunCorrectiveRetry(t *testing.T) {
 			if got, want := int(srv.chatCalls.Load()), len(tt.replies); got != want {
 				t.Errorf("chat calls = %d, want %d", got, want)
 			}
+			if got := srv.truncating.Load(); got != 0 {
+				t.Errorf("%d chat calls let Ollama truncate the prompt, want 0", got)
+			}
 			if !strings.Contains(res.Report, tt.wantBody) {
 				t.Errorf("report missing %q:\n%s", tt.wantBody, res.Report)
 			}
@@ -207,5 +237,55 @@ func TestRunCorrectiveRetry(t *testing.T) {
 				t.Errorf("tokens = %d/%d, want %d/%d", res.PromptTokens, res.CompletionTokens, tt.wantPrompt, tt.wantCompl)
 			}
 		})
+	}
+}
+
+// TestRunFailsWhenContextExceeded covers the two ways a run outgrows num_ctx:
+// Ollama refuses a prompt that does not fit, or stops a reply that fills what
+// the prompt left. Either fails the run with ErrContextExceeded after one
+// call. Before truncate=false and shift=false were sent, Ollama dropped part
+// of the prompt instead and the run completed with a report written from
+// what was left.
+func TestRunFailsWhenContextExceeded(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*fakeOllamaServer)
+	}{
+		{"prompt refused", func(f *fakeOllamaServer) { f.tooLong = true }},
+		{"reply cut off", func(f *fakeOllamaServer) { f.cutOff = 1 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newFakeOllamaServer()
+			defer srv.Close()
+			tt.setup(srv)
+
+			a := New(nonEmptyStore{}, ollama.New(srv.srv.URL, 5*time.Second), Config{Model: "test", NumCtx: 32768}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			_, err := a.Run(context.Background(), RunParams{Feed: feedSrvlog, Period: 24 * time.Hour, Mode: modeDaily})
+			if !errors.Is(err, ErrContextExceeded) {
+				t.Fatalf("Run error = %v, want ErrContextExceeded", err)
+			}
+			if got := srv.chatCalls.Load(); got != 1 {
+				t.Errorf("chat calls = %d, want 1", got)
+			}
+		})
+	}
+}
+
+// TestRunKeepsFirstReplyWhenRetryCutOff covers a corrective retry that runs
+// out of context: its reply is discarded even though it would validate.
+func TestRunKeepsFirstReplyWhenRetryCutOff(t *testing.T) {
+	srv := newFakeOllamaServer()
+	defer srv.Close()
+	srv.replies = []string{"## TL;DR\nall quiet\n", chatReplyDaily}
+	srv.cutOff = 2
+
+	a := New(nonEmptyStore{}, ollama.New(srv.srv.URL, 5*time.Second), Config{Model: "test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	res, err := a.Run(context.Background(), RunParams{Feed: feedSrvlog, Period: 24 * time.Hour, Mode: modeDaily})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(res.Report, "all quiet") {
+		t.Errorf("report is not the first reply:\n%s", res.Report)
 	}
 }

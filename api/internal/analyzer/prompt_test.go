@@ -568,3 +568,34 @@ func TestBuildPromptStillReportsGenuineAbsence(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildPromptReportsOmittedNewMsgIDs checks every syslog mode tells the
+// model how many new signatures were cut, and stays silent when none were.
+func TestBuildPromptReportsOmittedNewMsgIDs(t *testing.T) {
+	for _, mode := range []string{modeDaily, modeWeekly, modeIncident} {
+		t.Run(mode, func(t *testing.T) {
+			data := fixtureData(t)
+			_, user, err := buildPrompt(data, "", mode)
+			if err != nil {
+				t.Fatalf("buildPrompt: %v", err)
+			}
+			if strings.Contains(user, "not shown") || strings.Contains(user, "in total") {
+				t.Errorf("uncapped prompt mentions omitted signatures:\n%s", user)
+			}
+
+			data.NewMsgIDsOmitted = 145
+			_, user, err = buildPrompt(data, "", mode)
+			if err != nil {
+				t.Fatalf("buildPrompt: %v", err)
+			}
+			for _, want := range []string{
+				"; 146 in total, the 1 with the most severe first-observed sample shown)\n",
+				"to 11:22:33:44:55:66`\n- _145 more new signatures are not shown._\n",
+			} {
+				if !strings.Contains(user, want) {
+					t.Errorf("prompt missing %q:\n%s", want, user)
+				}
+			}
+		})
+	}
+}

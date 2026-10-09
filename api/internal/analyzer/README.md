@@ -102,6 +102,21 @@ window — no second compression pass, no extra dependency.
   violation we send one corrective follow-up and keep whichever reply validates
   — we never make the report worse.
 
+- **Capped new signatures** (`capNewMsgIDs`, `gather.go`). The store returns
+  every signature absent from the baseline, and a busy netlog day has hundreds.
+  The prompt gets the 20 whose first-observed sample is most severe, plus the
+  total and the number left out.
+
+- **Context overflow fails the run** (`run.go`). Every chat call sends
+  `truncate: false` and `shift: false`. Ollama then refuses a prompt that does
+  not fit `num_ctx`, and stops with `done_reason: "length"` when prompt and
+  reply together fill it; either ends the run as `ErrContextExceeded`. With
+  its defaults Ollama instead drops the start of the prompt, system message
+  first, and reports nothing: the report completes and is wrong. On a
+  corrective retry it drops the data message, so a retry that no longer fits
+  is discarded and the first reply kept. `num_ctx` has to hold the prompt and
+  the reply, thinking tokens included.
+
 - **Hot-reloadable prompts** (`prompt.go`). System/user templates live in
   `prompts/<mode>/{system,user}.md`, embedded by default but overridable via
   `analysis.prompts_dir`. Files are re-read on every run, so prompt edits take
@@ -127,7 +142,7 @@ analysis:
   ollama_url: "http://localhost:11434"
   model: "gpt-oss:20b"     # the model the prompts are tuned against
   temperature: 0.3         # low = factual/deterministic
-  num_ctx: 32768           # context window (tokens); real prompts run 15-17k
+  num_ctx: 32768           # context window (tokens); must hold prompt and reply
   prompts_dir: ""          # empty = embedded defaults; set to override + hot-reload
 ```
 

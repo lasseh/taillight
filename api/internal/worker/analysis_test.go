@@ -168,6 +168,7 @@ func TestSanitizeRunErr(t *testing.T) {
 	}{
 		{"dial error hides internal host", dialErr, "analysis backend unavailable"},
 		{"upstream non-200 hides body", statusErr, "analysis backend error"},
+		{"context overflow says so", fmt.Errorf("%w (num_ctx 32768): %w", analyzer.ErrContextExceeded, statusErr), "report does not fit the model context window; narrow the report or raise analysis.num_ctx"},
 		{"deadline maps to timeout", fmt.Errorf("ollama chat: %w", context.DeadlineExceeded), "analysis timeout"},
 		{"other errors pass through", errors.New("gather data: boom"), "gather data: boom"},
 	}
