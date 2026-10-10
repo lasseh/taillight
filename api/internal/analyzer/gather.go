@@ -1,9 +1,11 @@
 package analyzer
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +25,7 @@ type analysisData struct {
 	SeverityComparison model.SeverityComparison
 	TopErrorHosts      []model.HostErrorCount
 	NewMsgIDs          []string
+	NewMsgIDsOmitted   int                            // new signatures cut by newMsgIDLimit.
 	NewMsgIDSamples    map[string]model.SampleMessage // first observed example per new signature.
 	EventClusters      []model.EventCluster
 	TopPrograms        []model.ProgramCount
@@ -63,6 +66,12 @@ const (
 	topProgramLimit  = 10
 	topFacilityLimit = 8
 	clusterWindowMin = 5
+
+	// newMsgIDLimit caps the new signatures rendered into the prompt. The
+	// store returns every one, and a busy netlog day has hundreds: at about
+	// 150 tokens each they alone outgrew a 32768-token context, and Ollama
+	// then dropped the start of the prompt, system message included.
+	newMsgIDLimit = 20
 
 	// topMsgIDSampleCount is the number of representative messages attached
 	// per top event signature. Two samples give the model both freshness
@@ -231,6 +240,26 @@ func bestEffort[T any](ctx context.Context, log *slog.Logger, unavailable map[st
 	log.Warn("gather lookup failed, continuing without", "section", section, "err", err)
 	unavailable[section] = true
 	return zero, ctx.Err()
+}
+
+// capNewMsgIDs cuts ids to limit, keeping those whose first-observed sample
+// is most severe, and returns how many it dropped. ids arrive in name order
+// from the store and the sort is stable, so that order holds within one
+// severity. A signature with no sample ranks below debug.
+func capNewMsgIDs(ids []string, samples map[string]model.SampleMessage, limit int) ([]string, int) {
+	if len(ids) <= limit {
+		return ids, 0
+	}
+	severity := func(id string) int {
+		if s, ok := samples[id]; ok {
+			return s.Severity
+		}
+		return 8
+	}
+	slices.SortStableFunc(ids, func(a, b string) int {
+		return cmp.Compare(severity(a), severity(b))
+	})
+	return ids[:limit], len(ids) - limit
 }
 
 // gather collects all aggregated data for the analysis period ending at periodEnd.
@@ -417,6 +446,10 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 			}
 		}
 	}
+
+	// Cut after the sample lookup, which supplies the severity to rank by,
+	// and before the Juniper lookup, which then only fetches what is shown.
+	data.NewMsgIDs, data.NewMsgIDsOmitted = capNewMsgIDs(data.NewMsgIDs, data.NewMsgIDSamples, newMsgIDLimit)
 
 	data.JuniperRefs = make(map[string]model.JuniperNetlogRef)
 

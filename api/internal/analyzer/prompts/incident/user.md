@@ -82,7 +82,7 @@ _Unavailable — this lookup failed for this run. Do not read it as "no host had
 ## New Event Signatures
 _Unavailable — this lookup failed for this run. Do not read it as "no new signatures."_
 {{- else if .NewMsgIDs }}
-## New Event Signatures (not seen in the 7 days prior to this window)
+## New Event Signatures (not seen in the 7 days prior to this window{{ if .NewMsgIDsOmitted }}; {{ add (len .NewMsgIDs) .NewMsgIDsOmitted }} in total, the {{ len .NewMsgIDs }} with the most severe first-observed sample shown{{ end }})
 {{ if index .Unavailable "new_msgid_samples" -}}
 _First-observed samples are unavailable for this run (the lookup failed)._
 {{ end -}}
@@ -91,6 +91,9 @@ _First-observed samples are unavailable for this run (the lookup failed)._
 {{- if index $.NewMsgIDSamples . }}
   - **First observed:** {{ (index $.NewMsgIDSamples .).ReceivedAt.Format "15:04:05" }} on `{{ sanitize (index $.NewMsgIDSamples .).Hostname }}` ({{ severityLabel (index $.NewMsgIDSamples .).Severity }}): `{{ sanitize (index $.NewMsgIDSamples .).Message }}`
 {{- end }}
+{{ end }}
+{{- if .NewMsgIDsOmitted -}}
+- _{{ .NewMsgIDsOmitted }} more new signatures are not shown._
 {{ end }}
 {{- else }}
 ## New Event Signatures

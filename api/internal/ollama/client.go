@@ -29,6 +29,15 @@ type ChatRequest struct {
 	Messages []ChatMessage `json:"messages"`
 	Stream   bool          `json:"stream"`
 	Options  Options       `json:"options"`
+	// Truncate false makes Ollama answer 400 when the prompt does not fit
+	// num_ctx. Left unset, Ollama cuts the prompt to fit and reports nothing:
+	// first whole messages, then the start of what remains, which is where
+	// the system message is. A pointer, so that false is sent at all.
+	Truncate *bool `json:"truncate,omitempty"`
+	// Shift false makes Ollama stop, with done_reason "length", when prompt
+	// and reply together fill num_ctx. Left unset, it drops the older half of
+	// the context, system message included, and keeps generating.
+	Shift *bool `json:"shift,omitempty"`
 }
 
 // ChatResponse is the response body from POST /api/chat (non-streaming).
@@ -37,7 +46,14 @@ type ChatResponse struct {
 	TotalDuration   int64       `json:"total_duration"`
 	PromptEvalCount int         `json:"prompt_eval_count"`
 	EvalCount       int         `json:"eval_count"`
+	// DoneReason is "stop" for a finished reply and DoneReasonLength for one
+	// cut short.
+	DoneReason string `json:"done_reason"`
 }
+
+// DoneReasonLength is the ChatResponse.DoneReason of a reply that ran out of
+// context (or reached num_predict, which this client never sets).
+const DoneReasonLength = "length"
 
 // StatusError is returned by Chat when Ollama responds with a non-200 status.
 // Body carries up to 1KB of the upstream response for server-side diagnostics;
