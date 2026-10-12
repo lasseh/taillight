@@ -27,6 +27,30 @@ func mustNew(t *testing.T, cfg Config) *Handler {
 	return h
 }
 
+// captureServer accepts every ingest request and returns the entries received
+// so far. Call Shutdown on the handler first to flush.
+func captureServer(t *testing.T) (endpoint string, entries func() []logEntry) {
+	t.Helper()
+	var mu sync.Mutex
+	var got []logEntry
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req ingestRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		mu.Lock()
+		got = append(got, req.Logs...)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() []logEntry {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]logEntry(nil), got...)
+	}
+}
+
 func TestHandler_BatchSend(t *testing.T) {
 	var mu sync.Mutex
 	var received []ingestRequest
@@ -962,6 +986,36 @@ func TestNew_ResolvesHost(t *testing.T) {
 				t.Errorf("Host = %q, want %q", h.cfg.Host, tt.wantHost)
 			}
 		})
+	}
+}
+
+// nilDerefError is an error whose Error method dereferences its receiver.
+type nilDerefError struct{ msg string }
+
+func (e *nilDerefError) Error() string { return e.msg }
+
+func TestHandler_NilReceiverAttrDoesNotPanic(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s"})
+
+	var nilErr *nilDerefError
+	slog.New(h).Info("nil receivers", "url", (*url.URL)(nil), "err", nilErr)
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(got[0].Attrs, &attrs); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
+	}
+	for _, key := range []string{"url", "err"} {
+		if attrs[key] != "<nil>" {
+			t.Errorf("attrs[%q] = %v, want %q", key, attrs[key], "<nil>")
+		}
 	}
 }
 

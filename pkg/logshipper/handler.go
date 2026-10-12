@@ -643,13 +643,15 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 		v = a.Value.Duration().String()
 	} else {
 		v = a.Value.Any()
-		if e, ok := v.(error); ok {
-			v = e.Error()
+		// fmt.Sprint calls Error()/String() and recovers when the method
+		// panics on a nil receiver, so a nil *url.URL cannot crash the caller.
+		if _, ok := v.(error); ok {
+			v = fmt.Sprint(v)
 		} else if _, ok := v.(json.Marshaler); !ok {
 			// Use String() for fmt.Stringer types that don't implement
 			// json.Marshaler, so *url.URL, *regexp.Regexp etc. serialize readably.
-			if s, ok := v.(fmt.Stringer); ok {
-				v = s.String()
+			if _, ok := v.(fmt.Stringer); ok {
+				v = fmt.Sprint(v)
 			}
 		}
 	}

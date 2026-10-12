@@ -184,6 +184,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Fixed
 
+- `pkg/logshipper`: logging a nil pointer that has a `String()` or `Error()` method (a nil `*url.URL`, a typed-nil error) no longer panics in the calling goroutine; the attr ships as `<nil>`
 - `pkg/logshipper`: only a 2xx response counts as delivered. A redirect (for example http to https in front of the API) was treated as success, so every entry was lost with no warning and no `SendFailed` count
 - `pkg/logshipper`: `New` returns an error when `Config.Host` is empty and the system hostname cannot be resolved, instead of shipping entries without a host that the ingest API rejects a whole batch at a time
 - **Editing a notification channel overwrote its secrets with the `********` mask**: the edit form is filled from the redacted read and posted it back, so an ntfy token or webhook header was saved as the placeholder and delivery auth silently broke, and every Slack/webhook edit forced the URL to be re-entered. Updates now keep the stored value for any secret sent back masked, and create/update responses are redacted like reads
