@@ -50,6 +50,10 @@ const (
 	maxComponentBytes = 128
 	maxHostBytes      = 256
 
+	// emptyMsgPlaceholder is shipped in place of an empty message, which the
+	// ingest API rejects.
+	emptyMsgPlaceholder = "(empty)"
+
 	// truncationSuffix marks string values truncated to fit a byte cap.
 	truncationSuffix = "…[truncated]"
 )
@@ -322,10 +326,21 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		return nil
 	}
 
+	// slog allows a zero time and an empty message, but the ingest API
+	// rejects the whole batch for either.
+	ts := r.Time
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	msg := r.Message
+	if msg == "" {
+		msg = emptyMsgPlaceholder
+	}
+
 	entry := logEntry{
-		Timestamp: r.Time,
+		Timestamp: ts,
 		Level:     levelString(r.Level),
-		Msg:       truncateMsg(r.Message),
+		Msg:       truncateMsg(msg),
 		Service:   h.cfg.Service,
 		Component: h.cfg.Component,
 		Host:      h.cfg.Host,

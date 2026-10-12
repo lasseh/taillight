@@ -180,6 +180,8 @@ the ones it can so a single oversized entry never sinks a whole batch:
 
 - **`msg` is capped at 64 KB.** Longer messages are truncated client-side
   (annotated with `…[truncated]`) instead of the server rejecting the batch.
+- **`msg` and `timestamp` are required.** An empty message ships as `(empty)`
+  and a record with a zero time is stamped with the current time.
 - **`Service` is required.** `New` returns an error if `Config.Service` is
   empty, since every shipped entry would be rejected.
 - **`Host` is required.** It defaults to `os.Hostname()`; `New` returns an

@@ -1024,6 +1024,31 @@ func TestNew_RejectsOverLengthFields(t *testing.T) {
 	}
 }
 
+func TestHandler_FillsRequiredEntryFields(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s"})
+
+	before := time.Now()
+	r := slog.NewRecord(time.Time{}, slog.LevelInfo, "", 0)
+	if err := h.Handle(context.Background(), r); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	if got[0].Timestamp.Before(before) {
+		t.Errorf("timestamp = %v, want the current time for a zero Record.Time", got[0].Timestamp)
+	}
+	if got[0].Msg != emptyMsgPlaceholder {
+		t.Errorf("msg = %q, want %q for an empty message", got[0].Msg, emptyMsgPlaceholder)
+	}
+}
+
 func TestHandler_KeepsUserSourceAttr(t *testing.T) {
 	endpoint, entries := captureServer(t)
 	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", AddSource: true})
