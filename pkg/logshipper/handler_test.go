@@ -902,6 +902,11 @@ func TestHandler_EndpointValidation(t *testing.T) {
 }
 
 func TestNew_RequiresService(t *testing.T) {
+	// A failing hostname lookup must not mask the missing service.
+	orig := osHostname
+	osHostname = func() (string, error) { return "", errors.New("lookup failed") }
+	t.Cleanup(func() { osHostname = orig })
+
 	h, err := New(Config{
 		Endpoint: "https://example.com/api",
 		APIKey:   "k",
@@ -911,6 +916,9 @@ func TestNew_RequiresService(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("New with empty Service: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "service is required") {
+		t.Errorf("New with empty Service: err = %v, want the service error", err)
 	}
 }
 

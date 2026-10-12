@@ -139,17 +139,6 @@ type Config struct {
 var osHostname = os.Hostname
 
 func (c *Config) setDefaults() error {
-	if c.Host == "" {
-		// os.Hostname can also return an empty name without an error.
-		host, err := osHostname()
-		if err != nil {
-			return fmt.Errorf("host is required: resolve hostname: %w", err)
-		}
-		if host == "" {
-			return errors.New("host is required: the ingest API rejects entries with an empty host, and the system hostname is empty")
-		}
-		c.Host = host
-	}
 	if c.BatchSize <= 0 {
 		c.BatchSize = defaultBatchSize
 	}
@@ -176,6 +165,19 @@ func (c *Config) setDefaults() error {
 	}
 	if u.Host == "" {
 		return fmt.Errorf("endpoint %q: missing host", c.Endpoint)
+	}
+
+	// Resolved after the static checks so a lookup failure cannot mask them.
+	if c.Host == "" {
+		// os.Hostname can also return an empty name without an error.
+		host, err := osHostname()
+		if err != nil {
+			return fmt.Errorf("host is required: resolve hostname: %w", err)
+		}
+		if host == "" {
+			return errors.New("host is required: the ingest API rejects entries with an empty host, and the system hostname is empty")
+		}
+		c.Host = host
 	}
 
 	if c.Client == nil {
