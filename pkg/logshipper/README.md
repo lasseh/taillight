@@ -182,6 +182,9 @@ the ones it can so a single oversized entry never sinks a whole batch:
   (annotated with `…[truncated]`) instead of the server rejecting the batch.
 - **`Service` is required.** `New` returns an error if `Config.Service` is
   empty, since every shipped entry would be rejected.
+- **`Host` is required.** It defaults to `os.Hostname()`; `New` returns an
+  error if `Config.Host` is empty and that lookup fails or returns an empty
+  name.
 - **Batches are capped at 1000 entries per request.** Keep `BatchSize` at or
   below 1000 (the default is 100).
 
@@ -193,7 +196,7 @@ the ones it can so a single oversized entry never sinks a whole batch:
 | `APIKey`             | `Secret`                        | —                | Bearer token for authentication. Redacted in all string/JSON formatting.                    |
 | `Service`            | `string`                        | —                | Required. Service name attached to every entry; `New` returns an error if empty.            |
 | `Component`          | `string`                        | `""`             | Optional component label.                                                                   |
-| `Host`               | `string`                        | `os.Hostname()`  | Host/instance identifier.                                                                   |
+| `Host`               | `string`                        | `os.Hostname()`  | Host/instance identifier. `New` returns an error if empty and the hostname lookup fails.    |
 | `AddSource`          | `bool`                          | `false`          | Include source `file:line` from the calling function.                                       |
 | `MinLevel`           | `slog.Level`                    | `slog.LevelInfo` | Minimum level to ship. Zero value is `LevelInfo`; set `LevelDebug` explicitly to ship everything. |
 | `BatchSize`          | `int`                           | `100`            | Flush when batch reaches this size. The ingest API caps batches at 1000 entries.            |

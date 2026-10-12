@@ -88,7 +88,7 @@ type Config struct {
 	APIKey    Secret // Bearer token. Redacted in all string/JSON formatting.
 	Service   string // Required. Populates the service field for all entries; the ingest API rejects entries without one.
 	Component string // Optional component field.
-	Host      string // Optional host/instance identifier.
+	Host      string // Host/instance identifier. Defaults to os.Hostname(); the ingest API rejects entries without one.
 	AddSource bool   // Include source file:line from the calling function.
 
 	// MinLevel is the minimum level to ship. The zero value is slog.LevelInfo
@@ -135,9 +135,20 @@ type Config struct {
 	MaxAttrBytes int
 }
 
+// osHostname is os.Hostname, replaced in tests to exercise lookup failures.
+var osHostname = os.Hostname
+
 func (c *Config) setDefaults() error {
 	if c.Host == "" {
-		c.Host, _ = os.Hostname()
+		// os.Hostname can also return an empty name without an error.
+		host, err := osHostname()
+		if err != nil {
+			return fmt.Errorf("host is required: resolve hostname: %w", err)
+		}
+		if host == "" {
+			return errors.New("host is required: the ingest API rejects entries with an empty host, and the system hostname is empty")
+		}
+		c.Host = host
 	}
 	if c.BatchSize <= 0 {
 		c.BatchSize = defaultBatchSize
@@ -253,8 +264,9 @@ type ingestRequest struct {
 }
 
 // New creates and starts a Handler that batches and sends logs in the background.
-// It returns an error if Config.Service is empty, or if Config.Endpoint is
-// missing or has an unsupported scheme.
+// It returns an error if Config.Service is empty, if Config.Host is empty and
+// the system hostname cannot be resolved, or if Config.Endpoint is missing or
+// has an unsupported scheme.
 func New(cfg Config) (*Handler, error) {
 	if err := cfg.setDefaults(); err != nil {
 		return nil, err

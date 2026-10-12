@@ -3,6 +3,7 @@ package logshipper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -910,6 +911,49 @@ func TestNew_RequiresService(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("New with empty Service: expected error, got nil")
+	}
+}
+
+func TestNew_ResolvesHost(t *testing.T) {
+	errLookup := errors.New("lookup failed")
+	tests := []struct {
+		name     string
+		host     string
+		lookup   func() (string, error)
+		wantHost string
+		wantErr  bool
+		wantIs   error
+	}{
+		{"explicit_host_skips_lookup", "prod-1", func() (string, error) { return "", errLookup }, "prod-1", false, nil},
+		{"falls_back_to_hostname", "", func() (string, error) { return "box", nil }, "box", false, nil},
+		{"lookup_error", "", func() (string, error) { return "", errLookup }, "", true, errLookup},
+		{"empty_hostname", "", func() (string, error) { return "", nil }, "", true, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orig := osHostname
+			osHostname = tt.lookup
+			t.Cleanup(func() { osHostname = orig })
+
+			h, err := New(Config{
+				Endpoint: "https://example.com/api",
+				APIKey:   "k",
+				Service:  "s",
+				Host:     tt.host,
+			})
+			if h != nil {
+				defer h.Shutdown(context.Background()) //nolint:errcheck // Cleanup.
+			}
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("New err = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+				t.Errorf("New err = %v, want it to wrap %v", err, tt.wantIs)
+			}
+			if err == nil && h.cfg.Host != tt.wantHost {
+				t.Errorf("Host = %q, want %q", h.cfg.Host, tt.wantHost)
+			}
+		})
 	}
 }
 
