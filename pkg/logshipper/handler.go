@@ -38,13 +38,21 @@ const (
 	// defaultSendTimeout is the default per-request HTTP timeout.
 	defaultSendTimeout = 30 * time.Second
 
-	// httpErrorStatusCode is the minimum status code considered an error.
-	httpErrorStatusCode = 400
-
 	// maxMsgBytes is the taillight ingest API's per-entry cap on the msg
 	// field (64 KB). Messages longer than this are truncated client-side so
 	// one oversized entry cannot make the server reject the whole batch.
 	maxMsgBytes = 64 * 1024
+
+	// maxServiceBytes, maxComponentBytes and maxHostBytes are the ingest
+	// API's caps on those fields. The values are fixed per Handler, so New
+	// rejects a config over a cap instead of having every batch rejected.
+	maxServiceBytes   = 128
+	maxComponentBytes = 128
+	maxHostBytes      = 256
+
+	// emptyMsgPlaceholder is shipped in place of an empty message, which the
+	// ingest API rejects.
+	emptyMsgPlaceholder = "(empty)"
 
 	// truncationSuffix marks string values truncated to fit a byte cap.
 	truncationSuffix = "…[truncated]"
@@ -88,7 +96,7 @@ type Config struct {
 	APIKey    Secret // Bearer token. Redacted in all string/JSON formatting.
 	Service   string // Required. Populates the service field for all entries; the ingest API rejects entries without one.
 	Component string // Optional component field.
-	Host      string // Optional host/instance identifier.
+	Host      string // Host/instance identifier. Defaults to os.Hostname(); the ingest API rejects entries without one.
 	AddSource bool   // Include source file:line from the calling function.
 
 	// MinLevel is the minimum level to ship. The zero value is slog.LevelInfo
@@ -135,10 +143,10 @@ type Config struct {
 	MaxAttrBytes int
 }
 
+// osHostname is os.Hostname, replaced in tests to exercise lookup failures.
+var osHostname = os.Hostname
+
 func (c *Config) setDefaults() error {
-	if c.Host == "" {
-		c.Host, _ = os.Hostname()
-	}
 	if c.BatchSize <= 0 {
 		c.BatchSize = defaultBatchSize
 	}
@@ -155,6 +163,12 @@ func (c *Config) setDefaults() error {
 	if c.Service == "" {
 		return errors.New("service is required: the ingest API rejects entries with an empty service")
 	}
+	if len(c.Service) > maxServiceBytes {
+		return fmt.Errorf("service is %d bytes: the ingest API rejects entries over %d", len(c.Service), maxServiceBytes)
+	}
+	if len(c.Component) > maxComponentBytes {
+		return fmt.Errorf("component is %d bytes: the ingest API rejects entries over %d", len(c.Component), maxComponentBytes)
+	}
 
 	u, err := url.Parse(c.Endpoint)
 	if err != nil {
@@ -165,6 +179,22 @@ func (c *Config) setDefaults() error {
 	}
 	if u.Host == "" {
 		return fmt.Errorf("endpoint %q: missing host", c.Endpoint)
+	}
+
+	// Resolved after the static checks so a lookup failure cannot mask them.
+	if c.Host == "" {
+		// os.Hostname can also return an empty name without an error.
+		host, err := osHostname()
+		if err != nil {
+			return fmt.Errorf("host is required: resolve hostname: %w", err)
+		}
+		if host == "" {
+			return errors.New("host is required: the ingest API rejects entries with an empty host, and the system hostname is empty")
+		}
+		c.Host = host
+	}
+	if len(c.Host) > maxHostBytes {
+		return fmt.Errorf("host is %d bytes: the ingest API rejects entries over %d", len(c.Host), maxHostBytes)
 	}
 
 	if c.Client == nil {
@@ -253,8 +283,10 @@ type ingestRequest struct {
 }
 
 // New creates and starts a Handler that batches and sends logs in the background.
-// It returns an error if Config.Service is empty, or if Config.Endpoint is
-// missing or has an unsupported scheme.
+// It returns an error if Config.Service is empty, if Config.Host is empty and
+// the system hostname cannot be resolved, if Service, Component or Host is
+// over the ingest API's length limit, or if Config.Endpoint is missing or has
+// an unsupported scheme.
 func New(cfg Config) (*Handler, error) {
 	if err := cfg.setDefaults(); err != nil {
 		return nil, err
@@ -294,10 +326,21 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		return nil
 	}
 
+	// slog allows a zero time and an empty message, but the ingest API
+	// rejects the whole batch for either.
+	ts := r.Time
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	msg := r.Message
+	if msg == "" {
+		msg = emptyMsgPlaceholder
+	}
+
 	entry := logEntry{
-		Timestamp: r.Time,
+		Timestamp: ts,
 		Level:     levelString(r.Level),
-		Msg:       truncateMsg(r.Message),
+		Msg:       truncateMsg(msg),
 		Service:   h.cfg.Service,
 		Component: h.cfg.Component,
 		Host:      h.cfg.Host,
@@ -326,7 +369,6 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		f, _ := fs.Next()
 		entry.Source = fmt.Sprintf("%s:%d", f.File, f.Line)
 	}
-	delete(attrs, slog.SourceKey)
 
 	if len(attrs) > 0 {
 		raw, err := json.Marshal(attrs)
@@ -588,7 +630,9 @@ func (h *Handler) send(ctx context.Context, batch []logEntry) error {
 	}
 	defer resp.Body.Close() //nolint:errcheck // Response body close error is not actionable.
 
-	if resp.StatusCode >= httpErrorStatusCode {
+	// Only 2xx is a delivery. The built-in client does not follow redirects,
+	// so a 3xx means the entries never reached the ingest API.
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("ingest API returned %d: %s", resp.StatusCode, body)
 	}
@@ -630,13 +674,15 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 		v = a.Value.Duration().String()
 	} else {
 		v = a.Value.Any()
-		if e, ok := v.(error); ok {
-			v = e.Error()
+		// fmt.Sprint calls Error()/String() and recovers when the method
+		// panics on a nil receiver, so a nil *url.URL cannot crash the caller.
+		if _, ok := v.(error); ok {
+			v = fmt.Sprint(v)
 		} else if _, ok := v.(json.Marshaler); !ok {
 			// Use String() for fmt.Stringer types that don't implement
 			// json.Marshaler, so *url.URL, *regexp.Regexp etc. serialize readably.
-			if s, ok := v.(fmt.Stringer); ok {
-				v = s.String()
+			if _, ok := v.(fmt.Stringer); ok {
+				v = fmt.Sprint(v)
 			}
 		}
 	}

@@ -3,6 +3,7 @@ package logshipper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,6 +25,30 @@ func mustNew(t *testing.T, cfg Config) *Handler {
 		t.Fatalf("New: %v", err)
 	}
 	return h
+}
+
+// captureServer accepts every ingest request and returns the entries received
+// so far. Call Shutdown on the handler first to flush.
+func captureServer(t *testing.T) (endpoint string, entries func() []logEntry) {
+	t.Helper()
+	var mu sync.Mutex
+	var got []logEntry
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req ingestRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		mu.Lock()
+		got = append(got, req.Logs...)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() []logEntry {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]logEntry(nil), got...)
+	}
 }
 
 func TestHandler_BatchSend(t *testing.T) {
@@ -901,6 +926,11 @@ func TestHandler_EndpointValidation(t *testing.T) {
 }
 
 func TestNew_RequiresService(t *testing.T) {
+	// A failing hostname lookup must not mask the missing service.
+	orig := osHostname
+	osHostname = func() (string, error) { return "", errors.New("lookup failed") }
+	t.Cleanup(func() { osHostname = orig })
+
 	h, err := New(Config{
 		Endpoint: "https://example.com/api",
 		APIKey:   "k",
@@ -910,6 +940,188 @@ func TestNew_RequiresService(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("New with empty Service: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "service is required") {
+		t.Errorf("New with empty Service: err = %v, want the service error", err)
+	}
+}
+
+func TestNew_ResolvesHost(t *testing.T) {
+	errLookup := errors.New("lookup failed")
+	tests := []struct {
+		name     string
+		host     string
+		lookup   func() (string, error)
+		wantHost string
+		wantErr  bool
+		wantIs   error
+	}{
+		{"explicit_host_skips_lookup", "prod-1", func() (string, error) { return "", errLookup }, "prod-1", false, nil},
+		{"falls_back_to_hostname", "", func() (string, error) { return "box", nil }, "box", false, nil},
+		{"lookup_error", "", func() (string, error) { return "", errLookup }, "", true, errLookup},
+		{"empty_hostname", "", func() (string, error) { return "", nil }, "", true, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orig := osHostname
+			osHostname = tt.lookup
+			t.Cleanup(func() { osHostname = orig })
+
+			h, err := New(Config{
+				Endpoint: "https://example.com/api",
+				APIKey:   "k",
+				Service:  "s",
+				Host:     tt.host,
+			})
+			if h != nil {
+				defer h.Shutdown(context.Background()) //nolint:errcheck // Cleanup.
+			}
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("New err = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+				t.Errorf("New err = %v, want it to wrap %v", err, tt.wantIs)
+			}
+			if err == nil && h.cfg.Host != tt.wantHost {
+				t.Errorf("Host = %q, want %q", h.cfg.Host, tt.wantHost)
+			}
+		})
+	}
+}
+
+func TestNew_RejectsOverLengthFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		set     func(c *Config, n int)
+		limit   int
+		wantErr string
+	}{
+		{"service", func(c *Config, n int) { c.Service = strings.Repeat("s", n) }, maxServiceBytes, "service is"},
+		{"component", func(c *Config, n int) { c.Component = strings.Repeat("c", n) }, maxComponentBytes, "component is"},
+		{"host", func(c *Config, n int) { c.Host = strings.Repeat("h", n) }, maxHostBytes, "host is"},
+	}
+	for _, tt := range tests {
+		for _, over := range []bool{false, true} {
+			n, name := tt.limit, tt.name+"_at_limit"
+			if over {
+				n, name = tt.limit+1, tt.name+"_over_limit"
+			}
+			t.Run(name, func(t *testing.T) {
+				cfg := Config{Endpoint: "https://example.com/api", APIKey: "k", Service: "s"}
+				tt.set(&cfg, n)
+				h, err := New(cfg)
+				if h != nil {
+					defer h.Shutdown(context.Background()) //nolint:errcheck // Cleanup.
+				}
+				if (err != nil) != over {
+					t.Fatalf("New with %d bytes: err = %v, wantErr = %v", n, err, over)
+				}
+				if over && !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("New err = %v, want it to name the field (%q)", err, tt.wantErr)
+				}
+			})
+		}
+	}
+}
+
+func TestHandler_FillsRequiredEntryFields(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s"})
+
+	before := time.Now()
+	r := slog.NewRecord(time.Time{}, slog.LevelInfo, "", 0)
+	if err := h.Handle(context.Background(), r); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	if got[0].Timestamp.Before(before) {
+		t.Errorf("timestamp = %v, want the current time for a zero Record.Time", got[0].Timestamp)
+	}
+	if got[0].Msg != emptyMsgPlaceholder {
+		t.Errorf("msg = %q, want %q for an empty message", got[0].Msg, emptyMsgPlaceholder)
+	}
+}
+
+func TestHandler_KeepsUserSourceAttr(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", AddSource: true})
+
+	slog.New(h).Info("m", "source", "kafka")
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(got[0].Attrs, &attrs); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
+	}
+	if attrs["source"] != "kafka" {
+		t.Errorf("attrs[%q] = %v, want %q", "source", attrs["source"], "kafka")
+	}
+	if !strings.Contains(got[0].Source, "handler_test.go:") {
+		t.Errorf("source = %q, want it to contain handler_test.go:", got[0].Source)
+	}
+}
+
+// nilDerefError is an error whose Error method dereferences its receiver.
+type nilDerefError struct{ msg string }
+
+func (e *nilDerefError) Error() string { return e.msg }
+
+func TestHandler_NilReceiverAttrDoesNotPanic(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s"})
+
+	var nilErr *nilDerefError
+	slog.New(h).Info("nil receivers", "url", (*url.URL)(nil), "err", nilErr)
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(got[0].Attrs, &attrs); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
+	}
+	for _, key := range []string{"url", "err"} {
+		if attrs[key] != "<nil>" {
+			t.Errorf("attrs[%q] = %v, want %q", key, attrs[key], "<nil>")
+		}
+	}
+}
+
+func TestHandler_RedirectCountsAsSendFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "https://example.invalid/")
+		w.WriteHeader(http.StatusMovedPermanently)
+	}))
+	defer srv.Close()
+
+	h := mustNew(t, Config{Endpoint: srv.URL, APIKey: "k", Service: "s"})
+	logger := slog.New(h)
+	for range 3 {
+		logger.Info("m")
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	if got := h.SendFailed(); got != 3 {
+		t.Errorf("SendFailed = %d, want 3: a redirect is not a delivery", got)
 	}
 }
 
