@@ -38,9 +38,6 @@ const (
 	// defaultSendTimeout is the default per-request HTTP timeout.
 	defaultSendTimeout = 30 * time.Second
 
-	// httpErrorStatusCode is the minimum status code considered an error.
-	httpErrorStatusCode = 400
-
 	// maxMsgBytes is the taillight ingest API's per-entry cap on the msg
 	// field (64 KB). Messages longer than this are truncated client-side so
 	// one oversized entry cannot make the server reject the whole batch.
@@ -602,7 +599,9 @@ func (h *Handler) send(ctx context.Context, batch []logEntry) error {
 	}
 	defer resp.Body.Close() //nolint:errcheck // Response body close error is not actionable.
 
-	if resp.StatusCode >= httpErrorStatusCode {
+	// Only 2xx is a delivery. The built-in client does not follow redirects,
+	// so a 3xx means the entries never reached the ingest API.
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("ingest API returned %d: %s", resp.StatusCode, body)
 	}

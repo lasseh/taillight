@@ -242,7 +242,8 @@ handler, err := logshipper.New(logshipper.Config{
 - **Bounded send time** — every HTTP request is capped by `SendTimeout`
   (30s default). A hung endpoint cannot stall the drain loop.
 - **No Bearer token leak on redirect** — the built-in client sets
-  `CheckRedirect` to `http.ErrUseLastResponse`.
+  `CheckRedirect` to `http.ErrUseLastResponse`. The redirect response itself
+  counts as a failed send, as does any other non-2xx status.
 - **No SSRF via malformed endpoints** — `New` rejects any URL whose scheme
   is not `http` or `https`, or whose host is empty.
 - **Accurate counters across `With(...)` chains** — `Dropped()`,

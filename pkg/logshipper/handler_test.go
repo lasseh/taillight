@@ -965,6 +965,27 @@ func TestNew_ResolvesHost(t *testing.T) {
 	}
 }
 
+func TestHandler_RedirectCountsAsSendFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "https://example.invalid/")
+		w.WriteHeader(http.StatusMovedPermanently)
+	}))
+	defer srv.Close()
+
+	h := mustNew(t, Config{Endpoint: srv.URL, APIKey: "k", Service: "s"})
+	logger := slog.New(h)
+	for range 3 {
+		logger.Info("m")
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	if got := h.SendFailed(); got != 3 {
+		t.Errorf("SendFailed = %d, want 3: a redirect is not a delivery", got)
+	}
+}
+
 func TestTruncateMsg(t *testing.T) {
 	tests := []struct {
 		name string
