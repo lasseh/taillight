@@ -337,7 +337,6 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		f, _ := fs.Next()
 		entry.Source = fmt.Sprintf("%s:%d", f.File, f.Line)
 	}
-	delete(attrs, slog.SourceKey)
 
 	if len(attrs) > 0 {
 		raw, err := json.Marshal(attrs)

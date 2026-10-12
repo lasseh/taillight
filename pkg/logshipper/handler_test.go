@@ -989,6 +989,31 @@ func TestNew_ResolvesHost(t *testing.T) {
 	}
 }
 
+func TestHandler_KeepsUserSourceAttr(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", AddSource: true})
+
+	slog.New(h).Info("m", "source", "kafka")
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(got[0].Attrs, &attrs); err != nil {
+		t.Fatalf("unmarshal attrs: %v", err)
+	}
+	if attrs["source"] != "kafka" {
+		t.Errorf("attrs[%q] = %v, want %q", "source", attrs["source"], "kafka")
+	}
+	if !strings.Contains(got[0].Source, "handler_test.go:") {
+		t.Errorf("source = %q, want it to contain handler_test.go:", got[0].Source)
+	}
+}
+
 // nilDerefError is an error whose Error method dereferences its receiver.
 type nilDerefError struct{ msg string }
 
