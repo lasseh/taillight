@@ -184,6 +184,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Fixed
 
+- `pkg/logshipper`: `New` returns an error when `Service` or `Component` is over 128 bytes or `Host` over 256, the ingest API's limits, instead of starting a handler whose every batch is rejected
 - `pkg/logshipper`: an attr named `source` is no longer silently dropped from the shipped entry
 - `pkg/logshipper`: logging a nil pointer that has a `String()` or `Error()` method (a nil `*url.URL`, a typed-nil error) no longer panics in the calling goroutine; the attr ships as `<nil>`
 - `pkg/logshipper`: only a 2xx response counts as delivered. A redirect (for example http to https in front of the API) was treated as success, so every entry was lost with no warning and no `SendFailed` count

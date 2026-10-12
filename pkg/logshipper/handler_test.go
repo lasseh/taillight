@@ -989,6 +989,41 @@ func TestNew_ResolvesHost(t *testing.T) {
 	}
 }
 
+func TestNew_RejectsOverLengthFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		set     func(c *Config, n int)
+		limit   int
+		wantErr string
+	}{
+		{"service", func(c *Config, n int) { c.Service = strings.Repeat("s", n) }, maxServiceBytes, "service is"},
+		{"component", func(c *Config, n int) { c.Component = strings.Repeat("c", n) }, maxComponentBytes, "component is"},
+		{"host", func(c *Config, n int) { c.Host = strings.Repeat("h", n) }, maxHostBytes, "host is"},
+	}
+	for _, tt := range tests {
+		for _, over := range []bool{false, true} {
+			n, name := tt.limit, tt.name+"_at_limit"
+			if over {
+				n, name = tt.limit+1, tt.name+"_over_limit"
+			}
+			t.Run(name, func(t *testing.T) {
+				cfg := Config{Endpoint: "https://example.com/api", APIKey: "k", Service: "s"}
+				tt.set(&cfg, n)
+				h, err := New(cfg)
+				if h != nil {
+					defer h.Shutdown(context.Background()) //nolint:errcheck // Cleanup.
+				}
+				if (err != nil) != over {
+					t.Fatalf("New with %d bytes: err = %v, wantErr = %v", n, err, over)
+				}
+				if over && !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("New err = %v, want it to name the field (%q)", err, tt.wantErr)
+				}
+			})
+		}
+	}
+}
+
 func TestHandler_KeepsUserSourceAttr(t *testing.T) {
 	endpoint, entries := captureServer(t)
 	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", AddSource: true})

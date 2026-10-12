@@ -43,6 +43,13 @@ const (
 	// one oversized entry cannot make the server reject the whole batch.
 	maxMsgBytes = 64 * 1024
 
+	// maxServiceBytes, maxComponentBytes and maxHostBytes are the ingest
+	// API's caps on those fields. The values are fixed per Handler, so New
+	// rejects a config over a cap instead of having every batch rejected.
+	maxServiceBytes   = 128
+	maxComponentBytes = 128
+	maxHostBytes      = 256
+
 	// truncationSuffix marks string values truncated to fit a byte cap.
 	truncationSuffix = "…[truncated]"
 )
@@ -152,6 +159,12 @@ func (c *Config) setDefaults() error {
 	if c.Service == "" {
 		return errors.New("service is required: the ingest API rejects entries with an empty service")
 	}
+	if len(c.Service) > maxServiceBytes {
+		return fmt.Errorf("service is %d bytes: the ingest API rejects entries over %d", len(c.Service), maxServiceBytes)
+	}
+	if len(c.Component) > maxComponentBytes {
+		return fmt.Errorf("component is %d bytes: the ingest API rejects entries over %d", len(c.Component), maxComponentBytes)
+	}
 
 	u, err := url.Parse(c.Endpoint)
 	if err != nil {
@@ -175,6 +188,9 @@ func (c *Config) setDefaults() error {
 			return errors.New("host is required: the ingest API rejects entries with an empty host, and the system hostname is empty")
 		}
 		c.Host = host
+	}
+	if len(c.Host) > maxHostBytes {
+		return fmt.Errorf("host is %d bytes: the ingest API rejects entries over %d", len(c.Host), maxHostBytes)
 	}
 
 	if c.Client == nil {
@@ -264,8 +280,9 @@ type ingestRequest struct {
 
 // New creates and starts a Handler that batches and sends logs in the background.
 // It returns an error if Config.Service is empty, if Config.Host is empty and
-// the system hostname cannot be resolved, or if Config.Endpoint is missing or
-// has an unsupported scheme.
+// the system hostname cannot be resolved, if Service, Component or Host is
+// over the ingest API's length limit, or if Config.Endpoint is missing or has
+// an unsupported scheme.
 func New(cfg Config) (*Handler, error) {
 	if err := cfg.setDefaults(); err != nil {
 		return nil, err

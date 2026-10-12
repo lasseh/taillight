@@ -185,6 +185,8 @@ the ones it can so a single oversized entry never sinks a whole batch:
 - **`Host` is required.** It defaults to `os.Hostname()`; `New` returns an
   error if `Config.Host` is empty and that lookup fails or returns an empty
   name.
+- **`Service` and `Component` are capped at 128 bytes, `Host` at 256.** `New`
+  returns an error above a cap, since every shipped entry would be rejected.
 - **Batches are capped at 1000 entries per request.** Keep `BatchSize` at or
   below 1000 (the default is 100).
 

@@ -69,8 +69,9 @@ if err != nil {
 ### How to handle the error
 
 The error fires for invalid config (bad `Endpoint` scheme, empty URL host,
-empty `Service`) and when `Config.Host` is empty and the system hostname
-cannot be resolved. Pick the pattern that fits the surrounding code:
+empty `Service`, a `Service`, `Component` or `Host` over the ingest API's
+length limit) and when `Config.Host` is empty and the system hostname cannot
+be resolved. Pick the pattern that fits the surrounding code:
 
 - **In `main` / startup code:** log and `os.Exit(1)`. A broken logger config
   at startup is a fatal misconfiguration.
