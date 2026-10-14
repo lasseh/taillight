@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/slogtest"
 	"time"
 	"unicode/utf8"
 )
@@ -840,6 +841,79 @@ func TestHandler_WithGroupNesting(t *testing.T) {
 		if httpGroup[k] != want {
 			t.Errorf("http.%s = %v, want %q", k, httpGroup[k], want)
 		}
+	}
+}
+
+func TestHandler_WithBeforeWithGroupStaysOutside(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	slog.New(h).With("a", 1).WithGroup("g").Info("m", "b", 2)
+	slog.New(h).WithGroup("empty").Info("no attrs")
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 2 {
+		t.Fatalf("received %d entries, want 2", len(got))
+	}
+	if want := `{"a":1,"g":{"b":2}}`; string(got[0].Attrs) != want {
+		t.Errorf("attrs = %s, want %s", got[0].Attrs, want)
+	}
+	if len(got[1].Attrs) != 0 {
+		t.Errorf("group with no attrs was emitted: %s", got[1].Attrs)
+	}
+}
+
+// TestHandler_SlogConformance runs the testing/slogtest suite. One case is an
+// intended deviation: slog expects a zero record time to be left out, but the
+// ingest API requires a timestamp, so the handler stamps the current time.
+func TestHandler_SlogConformance(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", AddSource: true, FlushPeriod: time.Hour})
+
+	results := func() []map[string]any {
+		if err := h.Shutdown(context.Background()); err != nil {
+			t.Fatalf("Shutdown: %v", err)
+		}
+		got := entries()
+		out := make([]map[string]any, 0, len(got))
+		for _, e := range got {
+			m := map[string]any{}
+			if len(e.Attrs) > 0 {
+				if err := json.Unmarshal(e.Attrs, &m); err != nil {
+					t.Fatalf("unmarshal attrs: %v", err)
+				}
+			}
+			m[slog.TimeKey] = e.Timestamp
+			m[slog.LevelKey] = e.Level
+			m[slog.MessageKey] = e.Msg
+			if e.Source != "" {
+				m[slog.SourceKey] = e.Source
+			}
+			out = append(out, m)
+		}
+		return out
+	}
+
+	err := slogtest.TestHandler(h, results)
+	if err == nil {
+		t.Fatal("slogtest passed the zero-time case; drop the deviation from this test")
+	}
+	var errs []error
+	if joined, ok := err.(interface{ Unwrap() []error }); ok { //nolint:errorlint // Splitting errors.Join output, not matching a cause.
+		errs = joined.Unwrap()
+	} else {
+		errs = []error{err}
+	}
+	for _, e := range errs {
+		if !strings.Contains(e.Error(), "a Handler should ignore a zero Record.Time") {
+			t.Errorf("slogtest: %v", e)
+		}
+	}
+	if len(errs) != 1 {
+		t.Errorf("slogtest reported %d problems, want only the zero-time deviation", len(errs))
 	}
 }
 

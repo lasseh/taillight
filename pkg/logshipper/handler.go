@@ -270,13 +270,21 @@ type Handler struct {
 	done      chan struct{}
 	wg        *sync.WaitGroup
 	closeOnce *sync.Once
-	preAttrs  []slog.Attr
-	groups    []string
+
+	// goas holds the WithGroup and WithAttrs calls in order, so attrs added
+	// by a With call land under the groups open at that call, not later ones.
+	goas []groupOrAttrs
 
 	// intLogger emits internal diagnostics (send failures) to stderr. It is
 	// deliberately NOT slog.Default(), to avoid a feedback loop if callers
 	// later replace the default with a logger routed through this shipper.
 	intLogger *slog.Logger
+}
+
+// groupOrAttrs is one WithGroup call (group set) or one WithAttrs call.
+type groupOrAttrs struct {
+	group string
+	attrs []slog.Attr
 }
 
 type logEntry struct {
@@ -358,17 +366,23 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		Host:      h.cfg.Host,
 	}
 
-	// Pre-size to avoid map growth reallocs on the hot path.
-	attrs := make(map[string]any, len(h.preAttrs)+r.NumAttrs())
+	attrs := make(map[string]any, r.NumAttrs())
 
-	// Pre-resolved attrs from WithAttrs.
-	for _, a := range h.preAttrs {
-		h.setAttr(attrs, h.groups, a)
+	// Attrs from WithAttrs, each under the groups open when it was added.
+	var groups []string
+	for _, goa := range h.goas {
+		if goa.group != "" {
+			groups = append(groups, goa.group)
+			continue
+		}
+		for _, a := range goa.attrs {
+			h.setAttr(attrs, groups, a)
+		}
 	}
 
-	// Record attrs.
+	// Record attrs go under every group.
 	r.Attrs(func(a slog.Attr) bool {
-		h.setAttr(attrs, h.groups, a)
+		h.setAttr(attrs, groups, a)
 		return true
 	})
 
@@ -469,17 +483,7 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	if len(attrs) == 0 {
 		return h
 	}
-	return &Handler{
-		cfg:       h.cfg,
-		state:     h.state,
-		ch:        h.ch,
-		done:      h.done,
-		wg:        h.wg,
-		closeOnce: h.closeOnce,
-		preAttrs:  append(cloneAttrs(h.preAttrs), attrs...),
-		groups:    cloneStrings(h.groups),
-		intLogger: h.intLogger,
-	}
+	return h.withGroupOrAttrs(groupOrAttrs{attrs: attrs})
 }
 
 // WithGroup returns a new Handler with the given group prefix.
@@ -488,17 +492,17 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	return &Handler{
-		cfg:       h.cfg,
-		state:     h.state,
-		ch:        h.ch,
-		done:      h.done,
-		wg:        h.wg,
-		closeOnce: h.closeOnce,
-		preAttrs:  cloneAttrs(h.preAttrs),
-		groups:    append(cloneStrings(h.groups), name),
-		intLogger: h.intLogger,
-	}
+	return h.withGroupOrAttrs(groupOrAttrs{group: name})
+}
+
+// withGroupOrAttrs returns a copy of h with goa appended. The goas slice is
+// copied so sibling handlers derived from h never share a backing array.
+func (h *Handler) withGroupOrAttrs(goa groupOrAttrs) *Handler {
+	h2 := *h
+	h2.goas = make([]groupOrAttrs, len(h.goas)+1)
+	copy(h2.goas, h.goas)
+	h2.goas[len(h.goas)] = goa
+	return &h2
 }
 
 // Dropped returns the number of log entries dropped due to a full buffer or
@@ -690,26 +694,25 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 		return
 	}
 
-	target := m
-	for _, g := range groups {
-		sub, ok := target[g].(map[string]any)
-		if !ok {
-			sub = make(map[string]any)
-			target[g] = sub
-		}
-		target = sub
-	}
-
+	// The group maps along the path are created only once there is a value
+	// to store, so a group with no attrs is not emitted.
 	if a.Value.Kind() == slog.KindGroup {
-		groupAttrs := a.Value.Group()
-		if a.Key != "" {
-			sub := make(map[string]any)
-			target[a.Key] = sub
-			target = sub
+		sub := make(map[string]any)
+		for _, ga := range a.Value.Group() {
+			h.setAttr(sub, nil, ga)
 		}
-		for _, ga := range groupAttrs {
-			h.setAttr(target, nil, ga)
+		if len(sub) == 0 {
+			return
 		}
+		target := groupMap(m, groups)
+		if a.Key == "" {
+			// An inline group's attrs belong to the enclosing level.
+			for k, v := range sub {
+				target[k] = v
+			}
+			return
+		}
+		target[a.Key] = sub
 		return
 	}
 
@@ -743,23 +746,19 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 			v = s[:h.cfg.MaxAttrBytes] + truncationSuffix
 		}
 	}
-	target[a.Key] = v
+	groupMap(m, groups)[a.Key] = v
 }
 
-func cloneAttrs(attrs []slog.Attr) []slog.Attr {
-	if attrs == nil {
-		return nil
+// groupMap returns the map at the group path below m, creating the maps on
+// the path as needed.
+func groupMap(m map[string]any, groups []string) map[string]any {
+	for _, g := range groups {
+		sub, ok := m[g].(map[string]any)
+		if !ok {
+			sub = make(map[string]any)
+			m[g] = sub
+		}
+		m = sub
 	}
-	c := make([]slog.Attr, len(attrs))
-	copy(c, attrs)
-	return c
-}
-
-func cloneStrings(s []string) []string {
-	if s == nil {
-		return nil
-	}
-	c := make([]string, len(s))
-	copy(c, s)
-	return c
+	return m
 }
