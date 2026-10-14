@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -69,6 +70,12 @@ func TestLogshipperContract(t *testing.T) {
 		{
 			name:       "attr named source",
 			log:        func(_ *testing.T, h *logshipper.Handler) { slog.New(h).Info("m", "source", "user value") },
+			wantStored: 1,
+		},
+		{
+			// 40 KB of mixed invalid bytes that JSON encoding would grow to 80 KB.
+			name:       "invalid UTF-8 message",
+			log:        func(_ *testing.T, h *logshipper.Handler) { slog.New(h).Info(strings.Repeat("\xffa", 20000)) },
 			wantStored: 1,
 		},
 	}

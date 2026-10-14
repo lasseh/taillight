@@ -1204,6 +1204,66 @@ func TestHandler_TruncatesOversizedMsg(t *testing.T) {
 	}
 }
 
+func TestHandler_InvalidUTF8MsgStaysUnderCap(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	// 40 KB on the client. JSON encoding turns each invalid byte into a
+	// 3-byte U+FFFD, so the server would decode 80 KB, over the 64 KB cap.
+	slog.New(h).Info(strings.Repeat("\xffa", 20000))
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	msg := got[0].Msg
+	if !utf8.ValidString(msg) {
+		t.Error("shipped msg is not valid UTF-8")
+	}
+	if len(msg) > maxMsgBytes {
+		t.Errorf("decoded msg is %d bytes, want <= %d", len(msg), maxMsgBytes)
+	}
+}
+
+func TestShortenSource(t *testing.T) {
+	longDir := "/" + strings.Repeat("deep/", 60) // 301 bytes.
+	tests := []struct {
+		name   string
+		source string
+		want   string // Exact result; empty means check only the cap and tail.
+		tail   string
+	}{
+		{name: "short", source: "/src/app/main.go:42", want: "/src/app/main.go:42"},
+		{name: "exactly_at_cap", source: strings.Repeat("a", maxSourceBytes-len("x.go:1")) + "x.go:1", tail: "x.go:1"},
+		{name: "long_path", source: longDir + "handler.go:120", tail: "/handler.go:120"},
+		{name: "multibyte_at_cut", source: "/" + strings.Repeat("é", 200) + "/main.go:7", tail: "/main.go:7"},
+		{name: "invalid_bytes", source: "/src/\xff/main.go:3", want: "/src/�/main.go:3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shortenSource(tt.source)
+			if tt.want != "" && got != tt.want {
+				t.Errorf("shortenSource = %q, want %q", got, tt.want)
+			}
+			if len(got) > maxSourceBytes {
+				t.Errorf("result is %d bytes, want <= %d", len(got), maxSourceBytes)
+			}
+			if !strings.HasSuffix(got, tt.tail) {
+				t.Errorf("result %q does not end with %q", got, tt.tail)
+			}
+			if !utf8.ValidString(got) {
+				t.Error("result is not valid UTF-8")
+			}
+			if len(tt.source) > maxSourceBytes && !strings.HasPrefix(got, sourceCutPrefix) {
+				t.Errorf("shortened result %q lacks the %q prefix", got, sourceCutPrefix)
+			}
+		})
+	}
+}
+
 func TestHandler_SendTimeoutBoundsHungEndpoint(t *testing.T) {
 	// Server that hangs longer than SendTimeout.
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {

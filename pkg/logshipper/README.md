@@ -180,6 +180,11 @@ the ones it can so a single oversized entry never sinks a whole batch:
 
 - **`msg` is capped at 64 KB.** Longer messages are truncated client-side
   (annotated with `…[truncated]`) instead of the server rejecting the batch.
+  Invalid UTF-8 is replaced with U+FFFD before the length check, since the
+  server measures the decoded message.
+- **`source` is capped at 256 bytes.** With `AddSource`, a longer build path
+  is shortened from the front and marked with a leading `…`, so the file
+  name and line stay.
 - **`msg` and `timestamp` are required.** An empty message ships as `(empty)`
   and a record with a zero time is stamped with the current time.
 - **`Service` is required.** `New` returns an error if `Config.Service` is

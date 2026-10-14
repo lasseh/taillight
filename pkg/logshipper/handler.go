@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,6 +50,13 @@ const (
 	maxServiceBytes   = 128
 	maxComponentBytes = 128
 	maxHostBytes      = 256
+
+	// maxSourceBytes is the ingest API's cap on the source field. A longer
+	// file:line source is shortened from the front.
+	maxSourceBytes = 256
+
+	// sourceCutPrefix marks a source shortened from the front.
+	sourceCutPrefix = "…"
 
 	// emptyMsgPlaceholder is shipped in place of an empty message, which the
 	// ingest API rejects.
@@ -367,7 +375,7 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	if h.cfg.AddSource && r.PC != 0 {
 		fs := runtime.CallersFrames([]uintptr{r.PC})
 		f, _ := fs.Next()
-		entry.Source = fmt.Sprintf("%s:%d", f.File, f.Line)
+		entry.Source = shortenSource(fmt.Sprintf("%s:%d", f.File, f.Line))
 	}
 
 	if len(attrs) > 0 {
@@ -393,11 +401,14 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	return nil
 }
 
-// truncateMsg caps msg at maxMsgBytes (the ingest API's per-entry limit) so
-// an oversized message is truncated instead of the server rejecting the whole
-// batch. The cut backs up to a rune boundary so the result stays valid UTF-8
-// and cannot grow past the cap when JSON escaping replaces invalid bytes.
+// truncateMsg makes msg valid UTF-8 and caps it at maxMsgBytes (the ingest
+// API's per-entry limit), so an oversized message is truncated instead of the
+// server rejecting the whole batch. Invalid bytes are replaced before the
+// length check: JSON encoding would otherwise turn each one into a 3-byte
+// U+FFFD after it, and the server measures the decoded message. The cut backs
+// up to a rune boundary so the result stays valid UTF-8.
 func truncateMsg(msg string) string {
+	msg = strings.ToValidUTF8(msg, string(utf8.RuneError))
 	if len(msg) <= maxMsgBytes {
 		return msg
 	}
@@ -406,6 +417,21 @@ func truncateMsg(msg string) string {
 		cut--
 	}
 	return msg[:cut] + truncationSuffix
+}
+
+// shortenSource makes a file:line source valid UTF-8 and caps it at
+// maxSourceBytes, keeping the tail (file name and line), which is the useful
+// part of a long build path. The cut moves forward to a rune boundary.
+func shortenSource(source string) string {
+	source = strings.ToValidUTF8(source, string(utf8.RuneError))
+	if len(source) <= maxSourceBytes {
+		return source
+	}
+	cut := len(source) - (maxSourceBytes - len(sourceCutPrefix))
+	for cut < len(source) && !utf8.RuneStart(source[cut]) {
+		cut++
+	}
+	return sourceCutPrefix + source[cut:]
 }
 
 // encodeErrorPayload builds a JSON object recording that the original attrs
