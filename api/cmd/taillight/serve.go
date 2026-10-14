@@ -283,17 +283,13 @@ func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler) {
 		if strings.HasPrefix(addr, ":") {
 			addr = "localhost" + addr
 		}
-		host := cfg.LogShipper.Host
-		if host == "" {
-			host, _ = os.Hostname()
-		}
 		var err error
 		shipper, err = logshipper.New(logshipper.Config{
 			Endpoint:    "http://" + addr + "/api/v1/applog/ingest",
 			APIKey:      logshipper.Secret(cfg.LogShipper.APIKey),
 			Service:     cfg.LogShipper.Service,
 			Component:   cfg.LogShipper.Component,
-			Host:        host,
+			Host:        cfg.LogShipper.Host, // Empty: the library resolves it and reports a failed lookup.
 			AddSource:   true,
 			MinLevel:    cfg.LogShipper.MinLevel,
 			BatchSize:   cfg.LogShipper.BatchSize,
