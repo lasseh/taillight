@@ -99,32 +99,32 @@ The package exports these symbols:
 ```go
 logshipper.Config{
     Endpoint:    string          // Required
-    APIKey:      string          // Optional (required when auth is enabled)
-    Service:     string          // Required (server rejects entries without it)
+    APIKey:      logshipper.Secret // Optional (required when auth is enabled)
+    Service:     string          // Required (New returns an error if empty)
     Component:   string          // Optional
-    Host:        string          // Optional (defaults to os.Hostname())
+    Host:        string          // Optional (defaults to os.Hostname(); New returns an error if that fails)
     AddSource:   bool            // Optional (default: false)
-    MinLevel:    slog.Level      // Optional (default: slog.LevelDebug)
+    MinLevel:    slog.Level      // Optional (default: slog.LevelInfo, the zero value)
     BatchSize:   int             // Optional (default: 100)
     FlushPeriod: time.Duration   // Optional (default: 1s)
     BufferSize:  int             // Optional (default: 1024)
-    Client:      *http.Client    // Optional (default: http.DefaultClient)
+    Client:      *http.Client    // Optional (default: a client built by the package)
 }
 ```
 
 | Field         | Type            | Default              | Required | Description                                                                  |
 |---------------|-----------------|----------------------|----------|------------------------------------------------------------------------------|
 | `Endpoint`    | `string`        | —                    | **yes**  | Full ingest URL, must end with `/api/v1/applog/ingest`                       |
-| `APIKey`      | `string`        | `""`                 | no       | Bearer token sent as `Authorization: Bearer <key>`. Must have `ingest` scope when auth is enabled |
-| `Service`     | `string`        | `""`                 | no*      | Service name attached to every entry. *The server requires this field — set it here or entries fail validation |
-| `Component`   | `string`        | `""`                 | no       | Optional component label. Omitted from JSON when empty (`omitempty`)         |
-| `Host`        | `string`        | `os.Hostname()`      | no       | Host/instance identifier. Auto-detected via `os.Hostname()` if not set       |
+| `APIKey`      | `logshipper.Secret` | `""`             | no       | Bearer token sent as `Authorization: Bearer <key>`. Must have `ingest` scope when auth is enabled. A redacting string type: `String()`, `GoString()` and `MarshalJSON()` return `[REDACTED]` |
+| `Service`     | `string`        | `""`                 | **yes**  | Service name attached to every entry. `New` returns an error if it is empty or over 128 bytes |
+| `Component`   | `string`        | `""`                 | no       | Optional component label. Omitted from JSON when empty (`omitempty`). `New` returns an error if it is over 128 bytes |
+| `Host`        | `string`        | `os.Hostname()`      | no       | Host/instance identifier, auto-detected via `os.Hostname()` if not set. `New` returns an error if the lookup fails or returns an empty name, or if the host is over 256 bytes |
 | `AddSource`   | `bool`          | `false`              | no       | Include `source` field with `file.go:line` from `runtime.CallersFrames`      |
-| `MinLevel`    | `slog.Level`    | `slog.LevelDebug`    | no       | Minimum level to ship. Entries below this level are discarded by `Enabled()` before `Handle()` is called |
+| `MinLevel`    | `slog.Level`    | `slog.LevelInfo`     | no       | Minimum level to ship. Entries below this level are discarded by `Enabled()` before `Handle()` is called. The zero value is `slog.LevelInfo`, so Debug entries are filtered out unless you set `slog.LevelDebug` |
 | `BatchSize`   | `int`           | `100`                | no       | Flush when the batch reaches this many entries                               |
 | `FlushPeriod` | `time.Duration` | `1s`                 | no       | Flush at least this often. Whichever of `BatchSize` or `FlushPeriod` is reached first triggers a flush |
 | `BufferSize`  | `int`           | `1024`               | no       | Buffered channel capacity. Entries are silently dropped when the channel is full |
-| `Client`      | `*http.Client`  | `http.DefaultClient` | no       | HTTP client used for POST requests. Set timeouts here if needed              |
+| `Client`      | `*http.Client`  | built-in             | no       | HTTP client used for POST requests. The built-in client requires TLS 1.2 or newer, bounds the TLS handshake and response-header waits, uses `SendTimeout` (default 30s) as its timeout, and does not follow redirects |
 
 ## Level mapping
 
@@ -722,7 +722,7 @@ The HTTP POST to the ingest endpoint is failing. Check:
 - Endpoint URL is correct and reachable
 - API key is valid and has `ingest` scope
 - Server is running and healthy
-- The `Client` timeout is sufficient (default is `http.DefaultClient` with no timeout)
+- The send timeout is sufficient (`SendTimeout`, default 30s, applies to every request, including with a custom `Client`)
 
 ### 401 Unauthorized or 403 Forbidden
 
