@@ -1516,9 +1516,9 @@ func TestHandler_ShutdownHonoursContextWithStuckHandle(t *testing.T) {
 		wg.Add(1)
 		go func(d time.Duration) {
 			defer wg.Done()
+			start := time.Now() // Before the context, so its deadline is not earlier than start+d.
 			ctx, cancel := context.WithTimeout(context.Background(), d)
 			defer cancel()
-			start := time.Now()
 			done := make(chan error, 1)
 			go func() { done <- h.Shutdown(ctx) }()
 			select {
