@@ -502,7 +502,7 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 		// can still be mid-channel-push, so close(h.done) below cannot race
 		// with an enqueue that the drain loop would never see.
 		h.state.mu.Lock()
-		h.state.mu.Unlock() //nolint:staticcheck // Intentional Lock+Unlock used as a barrier.
+		h.state.mu.Unlock() //nolint:staticcheck,gocritic // Intentional Lock+Unlock used as a barrier.
 
 		h.state.shutdownCtx = ctx
 		close(h.done)
