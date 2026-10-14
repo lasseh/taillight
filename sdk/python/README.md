@@ -43,6 +43,9 @@ ones it can so a single oversized entry never sinks a whole batch:
 
 - **`service` is required** — an empty service raises `ValueError` at
   construction, since every shipped entry would be rejected by the server.
+- **`host` is required** — it defaults to `socket.gethostname()`; if no host
+  is passed and that returns an empty string, construction raises
+  `ValueError` for the same reason.
 - **Messages are capped at 64 KB** — longer messages are truncated
   client-side (marked with `…[truncated]`) instead of the server rejecting
   the batch.
