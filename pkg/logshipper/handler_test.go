@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1611,6 +1612,119 @@ func TestHandler_RetryOnFirstFailure(t *testing.T) {
 	}
 	if h.SendFailed() != 0 {
 		t.Errorf("SendFailed = %d, want 0 (retry succeeded)", h.SendFailed())
+	}
+}
+
+// firstStatusServer answers code to the first request and 202 to the rest. It
+// returns the endpoint, the entries accepted so far, and the request count.
+func firstStatusServer(t *testing.T, code int) (string, func() []logEntry, *atomic.Int64) {
+	t.Helper()
+	var mu sync.Mutex
+	var got []logEntry
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(code)
+			return
+		}
+		var req ingestRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		mu.Lock()
+		got = append(got, req.Logs...)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() []logEntry {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]logEntry(nil), got...)
+	}, &calls
+}
+
+// waitForCalls waits until the server has seen at least n requests, so a test
+// knows a batch went out on the normal path rather than in the shutdown drain.
+func waitForCalls(t *testing.T, calls *atomic.Int64, n int64) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for calls.Load() < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("server saw %d requests after 5s, want %d", calls.Load(), n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestHandler_RejectedBatchNotMergedIntoNext(t *testing.T) {
+	endpoint, entries, calls := firstStatusServer(t, http.StatusBadRequest)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+	logger := slog.New(h)
+	for i := range 3 {
+		logger.Info("m", "i", i)
+	}
+	waitForCalls(t, calls, 1)
+	for i := 3; i < 6; i++ {
+		logger.Info("m", "i", i)
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 3 {
+		t.Fatalf("delivered %d entries, want the 3 of the second batch", len(got))
+	}
+	if h.SendFailed() != 3 {
+		t.Errorf("SendFailed = %d, want 3 (the rejected first batch)", h.SendFailed())
+	}
+}
+
+func TestHandler_RetryPolicyByStatus(t *testing.T) {
+	tests := []struct {
+		code      int
+		wantRetry bool
+	}{
+		{http.StatusBadRequest, false},
+		{http.StatusUnauthorized, false},
+		{http.StatusForbidden, false},
+		{http.StatusRequestEntityTooLarge, false},
+		{http.StatusRequestTimeout, true},
+		{http.StatusTooManyRequests, true},
+		{http.StatusInternalServerError, true},
+		{http.StatusServiceUnavailable, true},
+	}
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.code), func(t *testing.T) {
+			endpoint, entries, calls := firstStatusServer(t, tt.code)
+			h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+			logger := slog.New(h)
+			for range 3 {
+				logger.Info("m")
+			}
+			waitForCalls(t, calls, 1)
+			// The final flush in Shutdown is where a retained batch is retried.
+			if err := h.Shutdown(context.Background()); err != nil {
+				t.Fatalf("Shutdown: %v", err)
+			}
+
+			wantDelivered, wantFailed, wantCalls := 0, int64(3), int64(1)
+			if tt.wantRetry {
+				wantDelivered, wantFailed, wantCalls = 3, 0, 2
+			}
+			if got := len(entries()); got != wantDelivered {
+				t.Errorf("delivered %d entries, want %d", got, wantDelivered)
+			}
+			if got := h.SendFailed(); got != wantFailed {
+				t.Errorf("SendFailed = %d, want %d", got, wantFailed)
+			}
+			if got := calls.Load(); got != wantCalls {
+				t.Errorf("server saw %d requests, want %d", got, wantCalls)
+			}
+		})
 	}
 }
 

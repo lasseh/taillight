@@ -522,9 +522,10 @@ func (h *Handler) Dropped() int64 {
 }
 
 // SendFailed returns the number of log entries that failed to send due to
-// HTTP errors or timeouts. After the library's bounded retry policy has been
-// exhausted (one retry on the following flush tick), entries are counted here
-// and dropped to keep memory bounded.
+// HTTP errors or timeouts. A batch the server rejects with a 4xx (other than
+// 408 or 429) is counted here at once; any other failure gets one retry on the
+// following flush tick. Entries are counted here and dropped once that policy
+// is exhausted, to keep memory bounded.
 func (h *Handler) SendFailed() int64 {
 	return h.state.sendFailed.Load()
 }
@@ -619,13 +620,16 @@ func (h *Handler) loop() {
 			return
 		}
 
+		willRetry := !wasRetry && retryable(err)
 		h.intLogger.Warn("logshipper send failed",
 			"error", err,
 			"batch_size", len(toSend),
 			"retry", wasRetry,
+			"will_retry", willRetry,
 		)
-		if wasRetry {
-			// Second consecutive failure — drop all, keep memory bounded.
+		if !willRetry {
+			// Second consecutive failure, or a rejection that a resend
+			// would get again — drop all, keep memory bounded.
 			h.state.sendFailed.Add(int64(len(toSend)))
 			pendingRetry = nil
 		} else {
@@ -697,10 +701,35 @@ func (h *Handler) send(ctx context.Context, batch []logEntry) error {
 	// so a 3xx means the entries never reached the ingest API.
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("ingest API returned %d: %s", resp.StatusCode, body)
+		return &statusError{code: resp.StatusCode, body: body}
 	}
 	_, _ = io.Copy(io.Discard, resp.Body) // Drain body to allow connection reuse.
 	return nil
+}
+
+// statusError is a non-2xx answer from the ingest API.
+type statusError struct {
+	code int
+	body []byte
+}
+
+func (e *statusError) Error() string {
+	return fmt.Sprintf("ingest API returned %d: %s", e.code, e.body)
+}
+
+// retryable reports whether a failed send is worth its one retry. A 4xx other
+// than 408 and 429 means the server rejected this payload, and a resend gets
+// the same answer. Network errors, timeouts and every other status are
+// retried.
+func retryable(err error) bool {
+	var se *statusError
+	if !errors.As(err, &se) {
+		return true
+	}
+	if se.code == http.StatusRequestTimeout || se.code == http.StatusTooManyRequests {
+		return true
+	}
+	return se.code < http.StatusBadRequest || se.code >= http.StatusInternalServerError
 }
 
 func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {

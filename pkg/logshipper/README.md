@@ -246,10 +246,15 @@ handler, err := logshipper.New(logshipper.Config{
    if full, counted in `Dropped()`).
 3. Entries are flushed as a JSON batch `POST` when the batch is full or the
    flush timer fires.
-4. **Failed batches get one retry.** On the first send failure the batch is
-   retained; on the next flush tick it is combined with any new entries and
-   re-sent. If the retry also fails, the entire combined set is counted in
-   `SendFailed()` and dropped. Peak retained memory is `~2 × BatchSize`.
+4. **Failed batches get one retry, unless the server rejected them.** A 4xx
+   response other than 408 or 429 means the server rejected the payload, so
+   the batch is counted in `SendFailed()` and dropped at once; a resend would
+   get the same answer. After a network error, timeout, 408, 429, 5xx or any
+   other status the batch is retained; on the next flush tick it is combined
+   with any new entries and re-sent. If the retry also fails, the entire
+   combined set is counted in `SendFailed()` and dropped. Peak retained
+   memory is `~2 × BatchSize`. The stderr warning for each failure says
+   whether the batch will be retried (`will_retry`).
 5. `Shutdown(ctx)` marks the handler as closing, takes a write-lock barrier
    so any in-flight `Handle` call completes its channel push before the
    drain begins, then drains remaining entries and waits for the final
@@ -285,7 +290,7 @@ handler, err := logshipper.New(logshipper.Config{
 
 ```go
 handler.Dropped()       // entries dropped due to full buffer or post-shutdown submission
-handler.SendFailed()    // entries in batches that failed twice in a row (first send + retry)
+handler.SendFailed()    // entries in batches the server rejected (4xx) or that failed twice in a row
 handler.EncodeFailed()  // entries whose attrs failed to JSON-marshal or exceeded 64 KB (still shipped with stub)
 ```
 
