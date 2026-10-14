@@ -78,6 +78,14 @@ func TestLogshipperContract(t *testing.T) {
 			log:        func(_ *testing.T, h *logshipper.Handler) { slog.New(h).Info(strings.Repeat("\xffa", 20000)) },
 			wantStored: 1,
 		},
+		{
+			// The attrs ship as a stub; the record still arrives.
+			name: "attrs over 64 KB",
+			log: func(_ *testing.T, h *logshipper.Handler) {
+				slog.New(h).Info("big", "body", strings.Repeat("x", 100*1024))
+			},
+			wantStored: 1,
+		},
 	}
 
 	for _, tt := range tests {

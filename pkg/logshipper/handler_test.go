@@ -1228,6 +1228,44 @@ func TestHandler_InvalidUTF8MsgStaysUnderCap(t *testing.T) {
 	}
 }
 
+func TestHandler_OversizedAttrsShipAsStub(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+	logger := slog.New(h)
+
+	// `{"body":"` + value + `"}` adds 11 bytes around the value.
+	atCap := strings.Repeat("y", maxAttrsBytes-11)
+	logger.Info("small", "k", "v")
+	logger.Info("big", "body", strings.Repeat("x", 100*1024)) // Encodes to 102,411 bytes.
+	logger.Info("at cap", "body", atCap)
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 3 {
+		t.Fatalf("received %d entries, want 3", len(got))
+	}
+	if string(got[0].Attrs) != `{"k":"v"}` {
+		t.Errorf("small attrs = %s, want {\"k\":\"v\"}", got[0].Attrs)
+	}
+	if want := `{"_attrs_dropped_bytes":102411}`; string(got[1].Attrs) != want {
+		t.Errorf("big attrs = %.80s, want %s", got[1].Attrs, want)
+	}
+	if got[1].Msg != "big" {
+		t.Errorf("big msg = %q, want %q", got[1].Msg, "big")
+	}
+	if want := `{"body":"` + atCap + `"}`; string(got[2].Attrs) != want {
+		t.Errorf("attrs at the cap were changed: %d bytes, want %d", len(got[2].Attrs), len(want))
+	}
+	if h.EncodeFailed() != 1 {
+		t.Errorf("EncodeFailed = %d, want 1", h.EncodeFailed())
+	}
+	if h.SendFailed() != 0 {
+		t.Errorf("SendFailed = %d, want 0", h.SendFailed())
+	}
+}
+
 func TestShortenSource(t *testing.T) {
 	longDir := "/" + strings.Repeat("deep/", 60) // 301 bytes.
 	tests := []struct {

@@ -44,6 +44,10 @@ const (
 	// one oversized entry cannot make the server reject the whole batch.
 	maxMsgBytes = 64 * 1024
 
+	// maxAttrsBytes is the ingest API's per-entry cap on the encoded attrs
+	// (64 KB). Attrs over it are replaced by a stub for the same reason.
+	maxAttrsBytes = 64 * 1024
+
 	// maxServiceBytes, maxComponentBytes and maxHostBytes are the ingest
 	// API's caps on those fields. The values are fixed per Handler, so New
 	// rejects a config over a cap instead of having every batch rejected.
@@ -380,14 +384,20 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 
 	if len(attrs) > 0 {
 		raw, err := json.Marshal(attrs)
-		if err != nil {
+		switch {
+		case err != nil:
 			// Don't lose the record — ship a stub payload and count the
 			// encode failure so it shows up in EncodeFailed(). slog
 			// discards Handle errors, so returning one here would be a
 			// silent drop.
 			h.state.encodeFailed.Add(1)
 			entry.Attrs = encodeErrorPayload(err)
-		} else {
+		case len(raw) > maxAttrsBytes:
+			// The server measures these same bytes and would reject the
+			// whole batch; ship the record with a stub instead.
+			h.state.encodeFailed.Add(1)
+			entry.Attrs = attrsDroppedPayload(len(raw))
+		default:
 			entry.Attrs = raw
 		}
 	}
@@ -446,6 +456,12 @@ func encodeErrorPayload(err error) json.RawMessage {
 	return b
 }
 
+// attrsDroppedPayload builds the stub shipped in place of attrs over
+// maxAttrsBytes. It records their encoded size.
+func attrsDroppedPayload(size int) json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(`{"_attrs_dropped_bytes":%d}`, size))
+}
+
 // WithAttrs returns a new Handler with the given pre-resolved attributes.
 // The returned handler shares the parent's state (counters, channel, goroutine)
 // so Dropped/SendFailed/EncodeFailed aggregate across all derived loggers.
@@ -499,9 +515,11 @@ func (h *Handler) SendFailed() int64 {
 	return h.state.sendFailed.Load()
 }
 
-// EncodeFailed returns the number of log entries whose attrs failed to
-// JSON-marshal. Those entries still ship with an "_encode_error" stub attr
-// so the record itself is not lost — only the attrs payload is replaced.
+// EncodeFailed returns the number of log entries whose attrs could not be
+// shipped: they failed to JSON-marshal, or their encoded size was over the
+// ingest API's 64 KB cap. Those entries still ship, with an "_encode_error"
+// or "_attrs_dropped_bytes" stub attr, so the record itself is not lost —
+// only the attrs payload is replaced.
 func (h *Handler) EncodeFailed() int64 {
 	return h.state.encodeFailed.Load()
 }

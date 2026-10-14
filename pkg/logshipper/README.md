@@ -173,6 +173,13 @@ with `…[truncated]`. Non-string values (numbers, bools, nested groups,
 `json.Marshaler` types like `time.Time`) are not affected. This is a safety
 net for accidental blowups — use `Redact` if you want per-key control.
 
+`MaxAttrBytes` caps each string value. The ingest API separately caps the
+whole encoded attrs object of an entry at 64 KB, whatever `MaxAttrBytes` is
+set to. When an entry's attrs encode to more than that, the shipper replaces
+them with a stub, `{"_attrs_dropped_bytes":<size>}`, counts the entry in
+`EncodeFailed()`, and still ships the message. Set `MaxAttrBytes` well below
+64 KB to keep the useful attrs instead of losing all of them.
+
 ### Server limits
 
 The taillight ingest API enforces per-request limits; the shipper handles
@@ -182,6 +189,8 @@ the ones it can so a single oversized entry never sinks a whole batch:
   (annotated with `…[truncated]`) instead of the server rejecting the batch.
   Invalid UTF-8 is replaced with U+FFFD before the length check, since the
   server measures the decoded message.
+- **`attrs` is capped at 64 KB per entry.** Encoded attrs over the cap are
+  replaced by an `_attrs_dropped_bytes` stub (see above).
 - **`source` is capped at 256 bytes.** With `AddSource`, a longer build path
   is shortened from the front and marked with a leading `…`, so the file
   name and line stay.
@@ -263,8 +272,10 @@ handler, err := logshipper.New(logshipper.Config{
   completed its channel push before drain begins.
 - **Records survive encode errors** — if `json.Marshal` fails on an attr
   value (unsupported type, cycle, etc.), the record still ships with a
-  stub `"_encode_error"` attr and `EncodeFailed()` is incremented. The
-  message and level are preserved; only the attrs payload is replaced.
+  stub `"_encode_error"` attr and `EncodeFailed()` is incremented. Attrs
+  over the ingest API's 64 KB cap get an `"_attrs_dropped_bytes"` stub the
+  same way. The message and level are preserved; only the attrs payload is
+  replaced.
 - **Bounded retained memory** — the retry policy holds at most one
   previously-failed batch. There is no unbounded queue growth.
 
@@ -273,7 +284,7 @@ handler, err := logshipper.New(logshipper.Config{
 ```go
 handler.Dropped()       // entries dropped due to full buffer or post-shutdown submission
 handler.SendFailed()    // entries in batches that failed twice in a row (first send + retry)
-handler.EncodeFailed()  // entries whose attrs failed to JSON-marshal (still shipped with stub)
+handler.EncodeFailed()  // entries whose attrs failed to JSON-marshal or exceeded 64 KB (still shipped with stub)
 ```
 
 All three counters are cumulative and shared across every handler derived
