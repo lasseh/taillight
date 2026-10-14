@@ -30,6 +30,10 @@ const (
 	// defaultBatchSize is the default number of log entries per HTTP request.
 	defaultBatchSize = 100
 
+	// maxBatchEntries is the ingest API's cap on entries per request. A larger
+	// BatchSize is clamped to it.
+	maxBatchEntries = 1000
+
 	// defaultFlushPeriod is the default interval at which logs are flushed.
 	defaultFlushPeriod = time.Second
 
@@ -116,7 +120,7 @@ type Config struct {
 	// explicitly to slog.LevelDebug to ship everything, or slog.LevelWarn /
 	// slog.LevelError to reduce volume.
 	MinLevel    slog.Level
-	BatchSize   int           // Flush when batch reaches this size.
+	BatchSize   int           // Flush when batch reaches this size. Clamped to 1000, the ingest API's cap per request.
 	FlushPeriod time.Duration // Flush at least this often.
 	BufferSize  int           // Buffered channel capacity.
 
@@ -161,6 +165,11 @@ var osHostname = os.Hostname
 func (c *Config) setDefaults() error {
 	if c.BatchSize <= 0 {
 		c.BatchSize = defaultBatchSize
+	}
+	// Clamped, not rejected: a large BatchSize works for a low-volume service
+	// whose timed flushes stay small.
+	if c.BatchSize > maxBatchEntries {
+		c.BatchSize = maxBatchEntries
 	}
 	if c.FlushPeriod <= 0 {
 		c.FlushPeriod = defaultFlushPeriod
@@ -590,58 +599,91 @@ func (h *Handler) loop() {
 	defer h.wg.Done()
 
 	batch := make([]logEntry, 0, h.cfg.BatchSize)
-	// pendingRetry holds a single previous batch that failed to send. It is
-	// retried (combined with the current batch) on the next flush tick. On a
-	// second consecutive failure the combined set is counted as SendFailed
-	// and dropped, keeping retained memory bounded to ~2 × BatchSize.
-	var pendingRetry []logEntry
+	// retry holds a single previous batch that failed with a retryable error.
+	// It is resent on its own at the next flush, never combined with new
+	// entries, so no request holds more than BatchSize entries. If the resend
+	// fails too, it is counted as SendFailed and dropped, keeping retained
+	// memory bounded to ~2 × BatchSize.
+	var retry []logEntry
 	ticker := time.NewTicker(h.cfg.FlushPeriod)
 	defer ticker.Stop()
 
-	flush := func(ctx context.Context) {
-		if len(batch) == 0 && len(pendingRetry) == 0 {
-			return
-		}
-
-		wasRetry := len(pendingRetry) > 0
-		var toSend []logEntry
-		if wasRetry {
-			toSend = make([]logEntry, 0, len(pendingRetry)+len(batch))
-			toSend = append(toSend, pendingRetry...)
-			toSend = append(toSend, batch...)
-		} else {
-			toSend = batch
-		}
-
-		err := h.send(ctx, toSend)
-		if err == nil {
-			pendingRetry = nil
-			batch = batch[:0]
-			return
-		}
-
-		willRetry := !wasRetry && retryable(err)
+	warn := func(err error, n int, wasRetry, willRetry bool) {
 		h.intLogger.Warn("logshipper send failed",
 			"error", err,
-			"batch_size", len(toSend),
+			"batch_size", n,
 			"retry", wasRetry,
 			"will_retry", willRetry,
 		)
-		if !willRetry {
-			// Second consecutive failure, or a rejection that a resend
-			// would get again — drop all, keep memory bounded.
-			h.state.sendFailed.Add(int64(len(toSend)))
-			pendingRetry = nil
-		} else {
-			// First failure — retain for one retry on the next flush tick.
-			// Copy so the backing array can be reused.
-			pendingRetry = make([]logEntry, len(toSend))
-			copy(pendingRetry, toSend)
+	}
+
+	flush := func(ctx context.Context) {
+		if len(retry) > 0 {
+			if err := h.send(ctx, retry); err != nil {
+				warn(err, len(retry), true, false)
+				h.state.sendFailed.Add(int64(len(retry)))
+			}
+			retry = nil
+		}
+		if len(batch) == 0 {
+			return
+		}
+		if err := h.send(ctx, batch); err != nil {
+			willRetry := retryable(err)
+			warn(err, len(batch), false, willRetry)
+			if willRetry {
+				// Copy so the backing array of batch can be reused.
+				retry = append([]logEntry(nil), batch...)
+			} else {
+				// A rejection that a resend would get again.
+				h.state.sendFailed.Add(int64(len(batch)))
+			}
 		}
 		batch = batch[:0]
 	}
 
+	// drain sends what is left after Shutdown in chunks of at most BatchSize,
+	// under the Shutdown context. Once that context expires nothing more is
+	// sent, and every unsent entry is counted in SendFailed. No Handle call
+	// can push after done is closed, so len(h.ch) is final here.
+	drain := func() {
+		ctx := h.state.shutdownCtx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		for {
+			if ctx.Err() != nil {
+				h.state.sendFailed.Add(int64(len(batch) + len(retry) + len(h.ch)))
+				return
+			}
+			select {
+			case entry := <-h.ch:
+				batch = append(batch, entry)
+				if len(batch) >= h.cfg.BatchSize {
+					flush(ctx)
+				}
+			default:
+				flush(ctx)
+				// A batch that failed in the final flush has no later
+				// flush to be retried in. Count it as failed so the
+				// caller's SendFailed() reflects reality.
+				h.state.sendFailed.Add(int64(len(retry)))
+				return
+			}
+		}
+	}
+
 	for {
+		// Once done is closed, drain under the Shutdown context instead of
+		// taking more entries on the normal path, whose sends that context
+		// does not bound.
+		select {
+		case <-h.done:
+			drain()
+			return
+		default:
+		}
+
 		select {
 		case entry := <-h.ch:
 			batch = append(batch, entry)
@@ -651,26 +693,7 @@ func (h *Handler) loop() {
 		case <-ticker.C:
 			flush(context.Background())
 		case <-h.done:
-			drainCtx := h.state.shutdownCtx
-			if drainCtx == nil {
-				drainCtx = context.Background()
-			}
-			for {
-				select {
-				case entry := <-h.ch:
-					batch = append(batch, entry)
-				default:
-					flush(drainCtx)
-					// Any entries still in pendingRetry after the final
-					// drain flush are unreachable. Count them as failed so
-					// the caller's SendFailed() reflects reality.
-					if len(pendingRetry) > 0 {
-						h.state.sendFailed.Add(int64(len(pendingRetry)))
-						pendingRetry = nil
-					}
-					return
-				}
-			}
+			// Handled at the top of the loop.
 		}
 	}
 }

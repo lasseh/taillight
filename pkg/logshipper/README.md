@@ -203,8 +203,9 @@ the ones it can so a single oversized entry never sinks a whole batch:
   name.
 - **`Service` and `Component` are capped at 128 bytes, `Host` at 256.** `New`
   returns an error above a cap, since every shipped entry would be rejected.
-- **Batches are capped at 1000 entries per request.** Keep `BatchSize` at or
-  below 1000 (the default is 100).
+- **Batches are capped at 1000 entries per request.** `New` clamps a larger
+  `BatchSize` to 1000 (the default is 100), and the shutdown drain and
+  retries go out in requests of at most `BatchSize` entries.
 
 ## Config reference
 
@@ -217,7 +218,7 @@ the ones it can so a single oversized entry never sinks a whole batch:
 | `Host`               | `string`                        | `os.Hostname()`  | Host/instance identifier. `New` returns an error if empty and the hostname lookup fails.    |
 | `AddSource`          | `bool`                          | `false`          | Include source `file:line` from the calling function.                                       |
 | `MinLevel`           | `slog.Level`                    | `slog.LevelInfo` | Minimum level to ship. Zero value is `LevelInfo`; set `LevelDebug` explicitly to ship everything. |
-| `BatchSize`          | `int`                           | `100`            | Flush when batch reaches this size. The ingest API caps batches at 1000 entries.            |
+| `BatchSize`          | `int`                           | `100`            | Flush when batch reaches this size. Clamped to 1000, the ingest API's cap per request.      |
 | `FlushPeriod`        | `time.Duration`                 | `1s`             | Flush at least this often.                                                                  |
 | `BufferSize`         | `int`                           | `1024`           | Buffered channel capacity. Entries are dropped (and counted) when full.                     |
 | `SendTimeout`        | `time.Duration`                 | `30s`            | Per-request HTTP timeout. Enforced whether or not `Client` is set.                          |
@@ -250,15 +251,17 @@ handler, err := logshipper.New(logshipper.Config{
    response other than 408 or 429 means the server rejected the payload, so
    the batch is counted in `SendFailed()` and dropped at once; a resend would
    get the same answer. After a network error, timeout, 408, 429, 5xx or any
-   other status the batch is retained; on the next flush tick it is combined
-   with any new entries and re-sent. If the retry also fails, the entire
-   combined set is counted in `SendFailed()` and dropped. Peak retained
-   memory is `~2 × BatchSize`. The stderr warning for each failure says
-   whether the batch will be retried (`will_retry`).
+   other status the batch is retained and resent on its own at the next
+   flush, never combined with new entries. If the retry also fails, the
+   batch is counted in `SendFailed()` and dropped. Peak retained memory is
+   `~2 × BatchSize`. The stderr warning for each failure says whether the
+   batch will be retried (`will_retry`).
 5. `Shutdown(ctx)` marks the handler as closing, takes a write-lock barrier
    so any in-flight `Handle` call completes its channel push before the
-   drain begins, then drains remaining entries and waits for the final
-   flush to finish or `ctx` to expire. It returns `ctx.Err()` on time even
+   drain begins, then sends the remaining entries in chunks of at most
+   `BatchSize` and waits for that to finish or `ctx` to expire. Once `ctx`
+   expires the drain sends nothing more and counts the unsent entries in
+   `SendFailed()`. `Shutdown` returns `ctx.Err()` on time even
    when a `Handle` call is stuck in user code such as `Redact`; `Handle`
    calls made while it waits are dropped and counted, never blocked.
 

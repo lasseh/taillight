@@ -40,7 +40,27 @@ func (s *recordingAppLogStore) stored() []model.AppLogEvent {
 	return append([]model.AppLogEvent(nil), s.events...)
 }
 
+// holdFirstTransport holds the first request until release is closed, so
+// entries queue up in the shipper behind it.
+type holdFirstTransport struct {
+	once    sync.Once
+	started chan struct{}
+	release chan struct{}
+}
+
+func (t *holdFirstTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	first := false
+	t.once.Do(func() { first = true })
+	if first {
+		close(t.started)
+		<-t.release
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
 func TestLogshipperContract(t *testing.T) {
+	held := &holdFirstTransport{started: make(chan struct{}), release: make(chan struct{})}
+
 	tests := []struct {
 		name       string
 		cfg        func(*logshipper.Config)
@@ -85,6 +105,30 @@ func TestLogshipperContract(t *testing.T) {
 				slog.New(h).Info("big", "body", strings.Repeat("x", 100*1024))
 			},
 			wantStored: 1,
+		},
+		{
+			// The first full batch is held, so 1,400 entries are still
+			// buffered when Shutdown starts. The drain must send them in
+			// requests the server accepts (at most 1,000 entries each).
+			name: "shutdown with over 1,000 buffered entries",
+			cfg: func(c *logshipper.Config) {
+				c.Client = &http.Client{Transport: held}
+				c.BatchSize = 1000
+				c.BufferSize = 2000
+			},
+			log: func(_ *testing.T, h *logshipper.Handler) {
+				logger := slog.New(h)
+				for range 1000 {
+					logger.Info("m")
+				}
+				<-held.started
+				for range 1400 {
+					logger.Info("m")
+				}
+				// Release once the Shutdown that follows has begun.
+				time.AfterFunc(50*time.Millisecond, func() { close(held.release) })
+			},
+			wantStored: 2400,
 		},
 	}
 

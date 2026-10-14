@@ -1644,14 +1644,15 @@ func firstStatusServer(t *testing.T, code int) (string, func() []logEntry, *atom
 	}, &calls
 }
 
-// waitForCalls waits until the server has seen at least n requests, so a test
-// knows a batch went out on the normal path rather than in the shutdown drain.
-func waitForCalls(t *testing.T, calls *atomic.Int64, n int64) {
+// waitForFirstCall waits until the server has seen a request, so a test knows
+// the first batch went out on the normal path rather than in the shutdown
+// drain.
+func waitForFirstCall(t *testing.T, calls *atomic.Int64) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
-	for calls.Load() < n {
+	for calls.Load() < 1 {
 		if time.Now().After(deadline) {
-			t.Fatalf("server saw %d requests after 5s, want %d", calls.Load(), n)
+			t.Fatal("server saw no request after 5s")
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -1665,7 +1666,7 @@ func TestHandler_RejectedBatchNotMergedIntoNext(t *testing.T) {
 	for i := range 3 {
 		logger.Info("m", "i", i)
 	}
-	waitForCalls(t, calls, 1)
+	waitForFirstCall(t, calls)
 	for i := 3; i < 6; i++ {
 		logger.Info("m", "i", i)
 	}
@@ -1705,7 +1706,7 @@ func TestHandler_RetryPolicyByStatus(t *testing.T) {
 			for range 3 {
 				logger.Info("m")
 			}
-			waitForCalls(t, calls, 1)
+			waitForFirstCall(t, calls)
 			// The final flush in Shutdown is where a retained batch is retried.
 			if err := h.Shutdown(context.Background()); err != nil {
 				t.Fatalf("Shutdown: %v", err)
@@ -1725,6 +1726,176 @@ func TestHandler_RetryPolicyByStatus(t *testing.T) {
 				t.Errorf("server saw %d requests, want %d", got, wantCalls)
 			}
 		})
+	}
+}
+
+// sizeServer records how many entries each accepted request carried. The
+// answer func picks the status for request n (1-based) and may block.
+type sizeServer struct {
+	mu    sync.Mutex
+	sizes []int
+	calls atomic.Int64
+}
+
+func newSizeServer(t *testing.T, answer func(n int64, r *http.Request) int) (*sizeServer, string) {
+	t.Helper()
+	s := &sizeServer{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := s.calls.Add(1)
+		var req ingestRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		code := answer(n, r)
+		if code == http.StatusAccepted {
+			s.mu.Lock()
+			s.sizes = append(s.sizes, len(req.Logs))
+			s.mu.Unlock()
+		}
+		w.WriteHeader(code)
+	}))
+	t.Cleanup(srv.Close)
+	return s, srv.URL
+}
+
+// delivered returns the total entries accepted and the largest request.
+func (s *sizeServer) delivered() (total, largest int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, n := range s.sizes {
+		total += n
+		largest = max(largest, n)
+	}
+	return total, largest
+}
+
+func TestHandler_DrainSendsInChunks(t *testing.T) {
+	release := make(chan struct{})
+	s, endpoint := newSizeServer(t, func(n int64, _ *http.Request) int {
+		if n == 1 {
+			<-release // Hold the first send so entries queue up.
+		}
+		return http.StatusAccepted
+	})
+	h := mustNew(t, Config{
+		Endpoint: endpoint, APIKey: "k", Service: "s",
+		BatchSize: 100, BufferSize: 2000, FlushPeriod: time.Hour, SendTimeout: 10 * time.Second,
+	})
+
+	logger := slog.New(h)
+	for range 100 {
+		logger.Info("m")
+	}
+	waitForFirstCall(t, &s.calls)
+	for range 1400 {
+		logger.Info("m")
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- h.Shutdown(context.Background()) }()
+	time.Sleep(50 * time.Millisecond) // Let Shutdown close done before the held send returns.
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	total, largest := s.delivered()
+	if total != 1500 {
+		t.Errorf("delivered %d entries, want 1500", total)
+	}
+	if largest > 100 {
+		t.Errorf("largest request held %d entries, want <= BatchSize 100", largest)
+	}
+	if h.SendFailed() != 0 || h.Dropped() != 0 {
+		t.Errorf("SendFailed = %d, Dropped = %d, want 0 and 0", h.SendFailed(), h.Dropped())
+	}
+}
+
+func TestHandler_RetryNotMergedWithNewEntries(t *testing.T) {
+	s, endpoint := newSizeServer(t, func(n int64, _ *http.Request) int {
+		if n == 1 {
+			return http.StatusServiceUnavailable
+		}
+		return http.StatusAccepted
+	})
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+	logger := slog.New(h)
+	for range 3 {
+		logger.Info("m")
+	}
+	waitForFirstCall(t, &s.calls)
+	for range 3 {
+		logger.Info("m")
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	total, largest := s.delivered()
+	if total != 6 {
+		t.Errorf("delivered %d entries, want 6", total)
+	}
+	if largest > 3 {
+		t.Errorf("largest request held %d entries, want <= BatchSize 3", largest)
+	}
+}
+
+func TestHandler_DrainStopsWhenShutdownContextExpires(t *testing.T) {
+	release := make(chan struct{})
+	s, endpoint := newSizeServer(t, func(n int64, r *http.Request) int {
+		if n == 1 {
+			<-release
+			return http.StatusAccepted
+		}
+		<-r.Context().Done() // Every later send hangs until the client gives up.
+		return http.StatusServiceUnavailable
+	})
+	h := mustNew(t, Config{
+		Endpoint: endpoint, APIKey: "k", Service: "s",
+		BatchSize: 10, BufferSize: 100, FlushPeriod: time.Hour, SendTimeout: 10 * time.Second,
+	})
+
+	logger := slog.New(h)
+	for range 10 {
+		logger.Info("m")
+	}
+	waitForFirstCall(t, &s.calls)
+	for range 40 {
+		logger.Info("m")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := h.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown = %v, want context.DeadlineExceeded", err)
+	}
+
+	start := time.Now()
+	close(release)
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("second Shutdown: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("drain ran %v after its context expired", elapsed)
+	}
+
+	if total, _ := s.delivered(); total != 10 {
+		t.Errorf("delivered %d entries, want 10", total)
+	}
+	if got := h.SendFailed(); got != 40 {
+		t.Errorf("SendFailed = %d, want 40 unsent entries", got)
+	}
+	if got := s.calls.Load(); got != 1 {
+		t.Errorf("server saw %d requests, want 1: nothing is sent after the context expires", got)
+	}
+}
+
+func TestNew_ClampsBatchSize(t *testing.T) {
+	h := mustNew(t, Config{Endpoint: "http://127.0.0.1:1/ingest", Service: "s", BatchSize: 5000})
+	defer h.Shutdown(context.Background()) //nolint:errcheck // Cleanup.
+	if h.cfg.BatchSize != maxBatchEntries {
+		t.Errorf("BatchSize = %d, want clamped to %d", h.cfg.BatchSize, maxBatchEntries)
 	}
 }
 
