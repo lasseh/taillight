@@ -29,8 +29,12 @@ build-shipper: ## Build taillight-shipper tool
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -o taillight-shipper ./cmd/taillight-shipper
 
 ##@ Quality
-test: ## Run tests (DB integration tests skip unless TEST_DATABASE_URL is set)
+# pkg/logshipper is its own Go module, so ./... from here does not reach it.
+LOGSHIPPER_DIR := ../pkg/logshipper
+
+test: ## Run tests, including pkg/logshipper (DB integration tests skip unless TEST_DATABASE_URL is set)
 	$(TEST_CMD) -race ./...
+	cd $(LOGSHIPPER_DIR) && $(TEST_CMD) -race ./...
 
 INTEGRATION_IMAGE ?= timescale/timescaledb:latest-pg18
 INTEGRATION_PORT  ?= 55432
@@ -53,8 +57,9 @@ else
 		$(TEST_CMD) -race -p 1 -run Integration ./internal/postgres/... ./cmd/taillight/
 endif
 
-lint: ## Run linter (includes vet, fmt, imports via golangci-lint)
+lint: ## Run linter on api and pkg/logshipper (includes vet, fmt, imports via golangci-lint)
 	golangci-lint run ./...
+	cd $(LOGSHIPPER_DIR) && golangci-lint run --config $(CURDIR)/.golangci.yml ./...
 
 coverage: ## Run tests with coverage
 	$(TEST_CMD) -race -coverprofile=coverage.out ./...
