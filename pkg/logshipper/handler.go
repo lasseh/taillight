@@ -72,7 +72,20 @@ const (
 
 	// truncationSuffix marks string values truncated to fit a byte cap.
 	truncationSuffix = "…[truncated]"
+
+	// requestPrefix and requestSuffix wrap the comma-separated encoded
+	// entries of a request body.
+	requestPrefix = `{"logs":[`
+	requestSuffix = `]}`
+
+	// emptyRequestBytes is the size of a request body with no entries.
+	emptyRequestBytes = len(requestPrefix) + len(requestSuffix)
 )
+
+// requestByteLimit caps the encoded size of one request, leaving 1 MB of
+// headroom below the ingest API's 5 MB body cap (it answers 413 above it). A
+// var so tests can lower it; New copies it into the Handler.
+var requestByteLimit = 4 * 1024 * 1024
 
 // Secret is a redacting string type for sensitive values like API keys.
 // Its String, GoString, and MarshalJSON methods all return "[REDACTED]",
@@ -282,6 +295,9 @@ type Handler struct {
 	wg        *sync.WaitGroup
 	closeOnce *sync.Once
 
+	// maxRequestBytes is requestByteLimit as it was when New ran.
+	maxRequestBytes int
+
 	// goas holds the WithGroup and WithAttrs calls in order, so attrs added
 	// by a With call land under the groups open at that call, not later ones.
 	goas []groupOrAttrs
@@ -309,10 +325,6 @@ type logEntry struct {
 	Attrs     json.RawMessage `json:"attrs,omitempty"`
 }
 
-type ingestRequest struct {
-	Logs []logEntry `json:"logs"`
-}
-
 // New creates and starts a Handler that batches and sends logs in the background.
 // It returns an error if Config.Service is empty, if Config.Host is empty and
 // the system hostname cannot be resolved, if Service, Component or Host is
@@ -324,13 +336,14 @@ func New(cfg Config) (*Handler, error) {
 	}
 
 	h := &Handler{
-		cfg:       cfg,
-		state:     &state{},
-		ch:        make(chan logEntry, cfg.BufferSize),
-		done:      make(chan struct{}),
-		wg:        &sync.WaitGroup{},
-		closeOnce: &sync.Once{},
-		intLogger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		cfg:             cfg,
+		state:           &state{},
+		ch:              make(chan logEntry, cfg.BufferSize),
+		done:            make(chan struct{}),
+		wg:              &sync.WaitGroup{},
+		closeOnce:       &sync.Once{},
+		maxRequestBytes: requestByteLimit,
+		intLogger:       slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 	}
 	h.wg.Add(1)
 	go h.loop()
@@ -534,7 +547,9 @@ func (h *Handler) Dropped() int64 {
 // HTTP errors or timeouts. A batch the server rejects with a 4xx (other than
 // 408 or 429) is counted here at once; any other failure gets one retry on the
 // following flush tick. Entries are counted here and dropped once that policy
-// is exhausted, to keep memory bounded.
+// is exhausted, to keep memory bounded. It also counts entries the shutdown
+// drain could not send before its context expired, and an entry dropped
+// because it would not fit in a request on its own or could not be encoded.
 func (h *Handler) SendFailed() int64 {
 	return h.state.sendFailed.Load()
 }
@@ -598,13 +613,16 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 func (h *Handler) loop() {
 	defer h.wg.Done()
 
-	batch := make([]logEntry, 0, h.cfg.BatchSize)
+	// batch holds entries encoded once, when received; batchBytes is the size
+	// of the request body they would make now.
+	batch := make([]json.RawMessage, 0, h.cfg.BatchSize)
+	batchBytes := emptyRequestBytes
 	// retry holds a single previous batch that failed with a retryable error.
 	// It is resent on its own at the next flush, never combined with new
-	// entries, so no request holds more than BatchSize entries. If the resend
-	// fails too, it is counted as SendFailed and dropped, keeping retained
-	// memory bounded to ~2 × BatchSize.
-	var retry []logEntry
+	// entries, so no request holds more than BatchSize entries or
+	// maxRequestBytes. If the resend fails too, it is counted as SendFailed
+	// and dropped, keeping retained memory bounded to ~2 × BatchSize.
+	var retry []json.RawMessage
 	ticker := time.NewTicker(h.cfg.FlushPeriod)
 	defer ticker.Stop()
 
@@ -633,13 +651,46 @@ func (h *Handler) loop() {
 			warn(err, len(batch), false, willRetry)
 			if willRetry {
 				// Copy so the backing array of batch can be reused.
-				retry = append([]logEntry(nil), batch...)
+				retry = append([]json.RawMessage(nil), batch...)
 			} else {
 				// A rejection that a resend would get again.
 				h.state.sendFailed.Add(int64(len(batch)))
 			}
 		}
 		batch = batch[:0]
+		batchBytes = emptyRequestBytes
+	}
+
+	// add encodes entry and appends it to batch. It flushes first if the
+	// entry would take the request past maxRequestBytes, and after if the
+	// batch has reached BatchSize.
+	add := func(ctx context.Context, entry logEntry) {
+		raw, err := json.Marshal(entry)
+		if err != nil {
+			// Only a timestamp outside years 0-9999 fails to encode.
+			h.state.sendFailed.Add(1)
+			h.intLogger.Warn("logshipper dropped an entry it could not encode", "error", err)
+			return
+		}
+		if emptyRequestBytes+len(raw) > h.maxRequestBytes {
+			h.state.sendFailed.Add(1)
+			h.intLogger.Warn("logshipper dropped an entry too large for one request",
+				"entry_bytes", len(raw),
+				"limit_bytes", h.maxRequestBytes,
+			)
+			return
+		}
+		if len(batch) > 0 && batchBytes+1+len(raw) > h.maxRequestBytes {
+			flush(ctx)
+		}
+		if len(batch) > 0 {
+			batchBytes++ // The comma before this entry.
+		}
+		batch = append(batch, raw)
+		batchBytes += len(raw)
+		if len(batch) >= h.cfg.BatchSize {
+			flush(ctx)
+		}
 	}
 
 	// drain sends what is left after Shutdown in chunks of at most BatchSize,
@@ -658,10 +709,7 @@ func (h *Handler) loop() {
 			}
 			select {
 			case entry := <-h.ch:
-				batch = append(batch, entry)
-				if len(batch) >= h.cfg.BatchSize {
-					flush(ctx)
-				}
+				add(ctx, entry)
 			default:
 				flush(ctx)
 				// A batch that failed in the final flush has no later
@@ -686,10 +734,7 @@ func (h *Handler) loop() {
 
 		select {
 		case entry := <-h.ch:
-			batch = append(batch, entry)
-			if len(batch) >= h.cfg.BatchSize {
-				flush(context.Background())
-			}
+			add(context.Background(), entry)
 		case <-ticker.C:
 			flush(context.Background())
 		case <-h.done:
@@ -698,16 +743,26 @@ func (h *Handler) loop() {
 	}
 }
 
-func (h *Handler) send(ctx context.Context, batch []logEntry) error {
+// send posts entries, each already encoded, as one ingest request.
+func (h *Handler) send(ctx context.Context, entries []json.RawMessage) error {
 	ctx, cancel := context.WithTimeout(ctx, h.cfg.SendTimeout)
 	defer cancel()
 
-	body, err := json.Marshal(ingestRequest{Logs: batch})
-	if err != nil {
-		return fmt.Errorf("marshal batch: %w", err)
+	size := emptyRequestBytes + len(entries) - 1
+	for _, e := range entries {
+		size += len(e)
 	}
+	body := bytes.NewBuffer(make([]byte, 0, size))
+	body.WriteString(requestPrefix)
+	for i, e := range entries {
+		if i > 0 {
+			body.WriteByte(',')
+		}
+		body.Write(e)
+	}
+	body.WriteString(requestSuffix)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.cfg.Endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.cfg.Endpoint, body)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

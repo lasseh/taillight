@@ -206,6 +206,12 @@ the ones it can so a single oversized entry never sinks a whole batch:
 - **Batches are capped at 1000 entries per request.** `New` clamps a larger
   `BatchSize` to 1000 (the default is 100), and the shutdown drain and
   retries go out in requests of at most `BatchSize` entries.
+- **The request body is capped at 5 MB.** A batch is also closed before the
+  next entry would take its encoded body over 4 MB, so a burst of large
+  entries goes out in several requests. Each entry is encoded once, so the
+  size is exact. A single entry too large for a request on its own (which
+  the caps above make practically impossible) is dropped and counted in
+  `SendFailed()`.
 
 ## Config reference
 

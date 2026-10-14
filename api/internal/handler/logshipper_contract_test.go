@@ -130,6 +130,18 @@ func TestLogshipperContract(t *testing.T) {
 			},
 			wantStored: 2400,
 		},
+		{
+			// About 6 MB in one BatchSize worth of entries: over the 5 MB body cap.
+			name: "large entries over the body cap",
+			log: func(_ *testing.T, h *logshipper.Handler) {
+				logger := slog.New(h)
+				msg := strings.Repeat("x", 60*1024)
+				for range 100 {
+					logger.Info(msg)
+				}
+			},
+			wantStored: 100,
+		},
 	}
 
 	for _, tt := range tests {

@@ -20,6 +20,13 @@ import (
 	"unicode/utf8"
 )
 
+// ingestRequest is the request body the shipper sends, for decoding in tests.
+// The shipper itself joins pre-encoded entries between requestPrefix and
+// requestSuffix.
+type ingestRequest struct {
+	Logs []logEntry `json:"logs"`
+}
+
 func mustNew(t *testing.T, cfg Config) *Handler {
 	t.Helper()
 	h, err := New(cfg)
@@ -1888,6 +1895,94 @@ func TestHandler_DrainStopsWhenShutdownContextExpires(t *testing.T) {
 	}
 	if got := s.calls.Load(); got != 1 {
 		t.Errorf("server saw %d requests, want 1: nothing is sent after the context expires", got)
+	}
+}
+
+// bodySizeServer accepts every request and records each body's size and
+// entry count.
+func bodySizeServer(t *testing.T) (endpoint string, requests func() (bodies, entries []int)) {
+	t.Helper()
+	var mu sync.Mutex
+	var bodies, entries []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		var req ingestRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		mu.Lock()
+		bodies = append(bodies, len(body))
+		entries = append(entries, len(req.Logs))
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() ([]int, []int) {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]int(nil), bodies...), append([]int(nil), entries...)
+	}
+}
+
+func TestHandler_LargeEntriesSplitUnderBodyCap(t *testing.T) {
+	endpoint, requests := bodySizeServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	// 100 entries of 60 KB is about 6 MB, over the ingest API's 5 MB cap.
+	logger := slog.New(h)
+	msg := strings.Repeat("x", 60*1024)
+	for range 100 {
+		logger.Info(msg)
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	bodies, entries := requests()
+	total := 0
+	for _, n := range entries {
+		total += n
+	}
+	if total != 100 {
+		t.Errorf("delivered %d entries, want 100", total)
+	}
+	if len(bodies) < 2 {
+		t.Errorf("sent %d requests, want 2 or more", len(bodies))
+	}
+	for i, n := range bodies {
+		if n > requestByteLimit {
+			t.Errorf("request %d is %d bytes, want <= %d (ingest cap is 5 MB)", i, n, requestByteLimit)
+		}
+	}
+	if h.SendFailed() != 0 {
+		t.Errorf("SendFailed = %d, want 0", h.SendFailed())
+	}
+}
+
+func TestHandler_EntryOverBodyCapDroppedAlone(t *testing.T) {
+	orig := requestByteLimit
+	requestByteLimit = 10 * 1024 // New copies it, so running handlers are unaffected.
+	t.Cleanup(func() { requestByteLimit = orig })
+
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+	logger := slog.New(h)
+	logger.Info("before")
+	logger.Info(strings.Repeat("x", 20*1024))
+	logger.Info("after")
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 2 || got[0].Msg != "before" || got[1].Msg != "after" {
+		t.Errorf("delivered %d entries, want only %q and %q", len(got), "before", "after")
+	}
+	if h.SendFailed() != 1 {
+		t.Errorf("SendFailed = %d, want 1 for the oversized entry", h.SendFailed())
 	}
 }
 
