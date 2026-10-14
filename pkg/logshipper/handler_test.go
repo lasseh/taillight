@@ -1471,6 +1471,91 @@ func TestHandler_ConcurrentHandleAndShutdown(t *testing.T) {
 	}
 }
 
+func TestHandler_ShutdownHonoursContextWithStuckHandle(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	h := mustNew(t, Config{
+		Endpoint:    endpoint,
+		APIKey:      "k",
+		Service:     "s",
+		FlushPeriod: time.Hour,
+		Redact: func(key string, v any) any {
+			if key == "block" {
+				close(entered)
+				<-release
+			}
+			return v
+		},
+	})
+	logger := slog.New(h)
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock) // Unwind the stuck call even if an assertion fails.
+
+	stuck := make(chan struct{})
+	go func() {
+		defer close(stuck)
+		logger.Info("stuck", "block", true)
+	}()
+	<-entered
+
+	// Two concurrent Shutdown calls, each must return at its own deadline.
+	const slack = 500 * time.Millisecond
+	deadlines := []time.Duration{100 * time.Millisecond, 300 * time.Millisecond}
+	var wg sync.WaitGroup
+	for _, d := range deadlines {
+		wg.Add(1)
+		go func(d time.Duration) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), d)
+			defer cancel()
+			start := time.Now()
+			done := make(chan error, 1)
+			go func() { done <- h.Shutdown(ctx) }()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Errorf("Shutdown(%v) = %v, want context.DeadlineExceeded", d, err)
+				}
+				if elapsed := time.Since(start); elapsed < d || elapsed > d+slack {
+					t.Errorf("Shutdown(%v) returned after %v", d, elapsed)
+				}
+			case <-time.After(d + slack):
+				t.Errorf("Shutdown(%v) had not returned after %v", d, d+slack)
+			}
+		}(d)
+	}
+	wg.Wait()
+
+	// A Handle call after the expired Shutdown is dropped and never blocks.
+	later := make(chan struct{})
+	go func() {
+		defer close(later)
+		logger.Info("later")
+	}()
+	select {
+	case <-later:
+	case <-time.After(slack):
+		t.Fatal("Handle blocked after an expired Shutdown")
+	}
+	if got := h.Dropped(); got != 1 {
+		t.Errorf("Dropped = %d, want 1 for the call after Shutdown", got)
+	}
+
+	// Once released, the stuck call finishes its push, the drain runs, and
+	// its entry is accounted for: delivered, or failed because the first
+	// Shutdown context had already expired.
+	unblock()
+	<-stuck
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("final Shutdown: %v", err)
+	}
+	if got := int64(len(entries())) + h.SendFailed(); got != 1 {
+		t.Errorf("stuck entry: delivered + SendFailed = %d, want 1", got)
+	}
+}
+
 func TestHandler_RetryOnFirstFailure(t *testing.T) {
 	var mu sync.Mutex
 	var received []ingestRequest

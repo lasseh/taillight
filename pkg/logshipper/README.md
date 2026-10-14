@@ -253,7 +253,9 @@ handler, err := logshipper.New(logshipper.Config{
 5. `Shutdown(ctx)` marks the handler as closing, takes a write-lock barrier
    so any in-flight `Handle` call completes its channel push before the
    drain begins, then drains remaining entries and waits for the final
-   flush to finish or `ctx` to expire.
+   flush to finish or `ctx` to expire. It returns `ctx.Err()` on time even
+   when a `Handle` call is stuck in user code such as `Redact`; `Handle`
+   calls made while it waits are dropped and counted, never blocked.
 
 ### Built-in guarantees
 

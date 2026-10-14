@@ -248,16 +248,18 @@ type state struct {
 	closing      atomic.Bool
 
 	// mu serializes Shutdown against in-flight Handle calls.
-	// Handle holds an RLock for the duration of its closing-check + channel
-	// push. Shutdown takes Lock as a barrier to wait for those calls to
-	// finish, so no entry can be added to h.ch after close(h.done). This
-	// fixes a lost-entry race where a concurrent Handle could push an entry
-	// after the drain loop had already emptied the channel.
+	// Handle holds a read lock (taken with TryRLock, so it never queues
+	// behind Shutdown) for the duration of its closing-check + channel push.
+	// Shutdown takes Lock as a barrier to wait for those calls to finish, so
+	// no entry can be added to h.ch after close(h.done). This fixes a
+	// lost-entry race where a concurrent Handle could push an entry after
+	// the drain loop had already emptied the channel.
 	mu sync.RWMutex
 
-	// shutdownCtx is written by Shutdown before close(done) and read by the
-	// drain branch in loop after receiving from done. The close/receive pair
-	// provides the happens-before, so no atomic is required for the field.
+	// shutdownCtx is written by Shutdown before it starts the barrier
+	// goroutine that closes done, and read by the drain branch in loop after
+	// receiving from done. The go statement and the close/receive pair
+	// provide the happens-before, so no atomic is required for the field.
 	shutdownCtx context.Context
 }
 
@@ -338,7 +340,15 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	// guarantees that either (a) we observe closing=true and drop, or
 	// (b) we complete our channel push before Shutdown's Lock can return.
 	// Either way, no entry is lost silently after shutdown.
-	h.state.mu.RLock()
+	//
+	// Only Shutdown takes the write side, after setting closing, so a failed
+	// TryRLock means Shutdown is waiting on the barrier: drop instead of
+	// queueing behind it. That keeps Handle from blocking during Shutdown,
+	// including a call made from inside a Redact or LogValuer callback.
+	if !h.state.mu.TryRLock() {
+		h.state.dropped.Add(1)
+		return nil
+	}
 	defer h.state.mu.RUnlock()
 
 	if h.state.closing.Load() {
@@ -530,30 +540,35 @@ func (h *Handler) EncodeFailed() int64 {
 
 // Shutdown flushes remaining buffered logs and stops the background goroutine.
 // It marks the handler as closing (so concurrent Handle calls drop fast),
-// records the caller's context for the final drain flush, and waits for the
-// drain goroutine to finish or the context to expire.
+// records the caller's context for the final drain flush, waits for in-flight
+// Handle calls to finish their push, and waits for the drain goroutine to
+// finish or the context to expire.
 //
-// If ctx expires while a send is in flight, Shutdown returns ctx.Err() and the
-// shipper goroutine will exit once the in-flight send finishes (bounded by
-// Config.SendTimeout).
+// If ctx expires first, Shutdown returns ctx.Err(). That covers a send still
+// in flight (bounded by Config.SendTimeout) and a Handle call stuck in user
+// code such as Redact or a LogValuer. The drain still runs once that call
+// returns, under the first caller's context, so entries it cannot send are
+// counted in SendFailed.
 //
 // Shutdown is safe to call multiple times and from multiple goroutines — only
-// the first call performs the close; subsequent calls wait for the drain
-// (or their own context) to complete.
+// the first call performs the close; every call waits for the drain or its
+// own context, whichever ends first.
 func (h *Handler) Shutdown(ctx context.Context) error {
 	h.closeOnce.Do(func() {
 		// Flip the fast-path flag first so new Handle callers drop.
 		h.state.closing.Store(true)
-
-		// Write-lock the barrier: this blocks until every in-flight Handle
-		// call has released its RLock. After this returns, no Handle call
-		// can still be mid-channel-push, so close(h.done) below cannot race
-		// with an enqueue that the drain loop would never see.
-		h.state.mu.Lock()
-		h.state.mu.Unlock() //nolint:staticcheck,gocritic // Intentional Lock+Unlock used as a barrier.
-
 		h.state.shutdownCtx = ctx
-		close(h.done)
+
+		// Write-lock the barrier: Lock blocks until every in-flight Handle
+		// call has released its read lock, so close(h.done) cannot race with
+		// an enqueue that the drain loop would never see. It runs in its own
+		// goroutine because a Handle call can stay in user code indefinitely,
+		// and every caller must be able to return when its context expires.
+		go func() {
+			h.state.mu.Lock()
+			h.state.mu.Unlock() //nolint:staticcheck,gocritic // Intentional Lock+Unlock used as a barrier.
+			close(h.done)
+		}()
 	})
 
 	finished := make(chan struct{})
