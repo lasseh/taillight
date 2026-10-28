@@ -12,6 +12,7 @@ const filterStore = useSrvlogFilterStore()
 <template>
   <LogDetail
     :event="event"
+    feed="srvlog"
     :filter-store="filterStore"
     detail-route="srvlog-detail"
     device-route="srvlog-device-detail"

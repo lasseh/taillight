@@ -23,6 +23,10 @@ type NetlogEvent struct {
 	StructuredData *string   `json:"structured_data,omitempty"`
 	Message        string    `json:"message"`
 	RawMessage     *string   `json:"raw_message,omitempty"`
+	// MutedBy is the id of the mute rule that matched this event. It is
+	// computed when the event is delivered, never stored, and omitted when no
+	// active rule matches.
+	MutedBy *int64 `json:"muted_by,omitempty"`
 }
 
 // NetlogFilter holds optional filter criteria for querying netlog events.
@@ -38,6 +42,11 @@ type NetlogFilter struct {
 	Search      string
 	From        *time.Time
 	To          *time.Time
+
+	// Exclude holds the filters of the active mute rules when the list
+	// request asks for hide_muted. Handlers set it; it is never parsed from
+	// the query, and Matches ignores it.
+	Exclude []NetlogFilter
 
 	searchLower string // precomputed strings.ToLower(Search); empty means not set
 }

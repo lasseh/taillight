@@ -52,6 +52,9 @@ const sevBarClass = computed(
   () => severityBgClassByLabel[event.value.severity_label] ?? 'bg-sev-info',
 )
 
+// Matched a mute rule. Dims the row itself, not the expanded detail.
+const muted = computed(() => event.value.muted_by != null)
+
 const highlightedMessage = computed(() =>
   highlightMessage(`${props.highlightPrefix}:${event.value.id}`, event.value.message),
 )
@@ -70,9 +73,9 @@ const copyText = computed(() => {
       role="button"
       tabindex="0"
       :aria-expanded="expanded"
-      :aria-label="`${event.severity_label} event from ${event.hostname}: ${event.message.slice(0, 80)}`"
+      :aria-label="`${muted ? 'muted ' : ''}${event.severity_label} event from ${event.hostname}: ${event.message.slice(0, 80)}`"
       class="hover:bg-t-bg-hover flex cursor-pointer gap-2 py-1 pr-2 md:hidden"
-      :class="sevBgClass"
+      :class="[sevBgClass, { 'opacity-50': muted }]"
       @click="toggle"
       @keydown.enter="toggle"
       @keydown.space.prevent="toggle"
@@ -89,9 +92,9 @@ const copyText = computed(() => {
       role="button"
       tabindex="0"
       :aria-expanded="expanded"
-      :aria-label="`${event.severity_label} event from ${event.hostname}: ${event.message.slice(0, 80)}`"
+      :aria-label="`${muted ? 'muted ' : ''}${event.severity_label} event from ${event.hostname}: ${event.message.slice(0, 80)}`"
       class="hover:bg-t-bg-hover hidden cursor-pointer items-baseline gap-3 px-4 py-px leading-snug md:flex"
-      :class="sevBgClass"
+      :class="[sevBgClass, { 'opacity-50': muted }]"
       @click="toggle"
       @keydown.enter="toggle"
       @keydown.space.prevent="toggle"

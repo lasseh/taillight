@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -16,11 +17,13 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lasseh/taillight/internal/broker"
 	"github.com/lasseh/taillight/internal/ingestbridge"
 	"github.com/lasseh/taillight/internal/model"
+	"github.com/lasseh/taillight/internal/mute"
 )
 
 // These tests exercise real query execution, row scanning, keyset pagination,
@@ -410,6 +413,146 @@ func TestIntegration_AnalysisScheduleNotifyChannels(t *testing.T) {
 	}
 }
 
+// TestIntegration_MuteRuleLifecycle runs migration 24 and the four mute rule
+// store methods against a real Postgres: empty match fields round-trip
+// through NULL, the list window and its ordering, LEAST on end, revive via
+// set-expiry, ErrNoRows on unknown ids, and the at-least-one-match CHECK.
+func TestIntegration_MuteRuleLifecycle(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "mute_rules")
+	store := NewStore(pool)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	var _ mute.Store = store
+
+	host, err := store.CreateMuteRule(ctx, mute.Rule{
+		Feed: mute.FeedNetlog, Hostname: "edge*", Search: "bundle ae30",
+		Reason: "known flap", CreatedBy: "lasse", ExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create netlog rule: %v", err)
+	}
+	if host.ID == 0 || host.CreatedAt.IsZero() {
+		t.Fatalf("create returned id=%d created_at=%v, want both set", host.ID, host.CreatedAt)
+	}
+	prog, err := store.CreateMuteRule(ctx, mute.Rule{
+		Feed: mute.FeedSrvlog, Programname: "cron",
+		Reason: "noisy", CreatedBy: "ops", ExpiresAt: now.Add(2 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create srvlog rule: %v", err)
+	}
+
+	// Ordered expires_at DESC; empty match fields come back as "".
+	active := listMuteRules(t, store, now, prog.ID, host.ID)
+	wantMuteRule(t, active[0], prog)
+	wantMuteRule(t, active[1], host)
+
+	// End: expires_at becomes now and the rule leaves the active list, but
+	// stays in the 7-day window. A later repeat end keeps the first time.
+	if err := store.EndMuteRule(ctx, host.ID, now); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+	if err := store.EndMuteRule(ctx, host.ID, now.Add(time.Minute)); err != nil {
+		t.Fatalf("repeat end: %v", err)
+	}
+	listMuteRules(t, store, now, prog.ID)
+	recent := listMuteRules(t, store, now.Add(-mute.ExpiredListWindow), prog.ID, host.ID)
+	ended := host
+	ended.ExpiresAt = now
+	wantMuteRule(t, recent[1], ended)
+
+	// Set-expiry revives the ended rule and returns the whole row.
+	revived, err := store.SetMuteRuleExpiry(ctx, host.ID, now.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("set expiry: %v", err)
+	}
+	ended.ExpiresAt = now.Add(3 * time.Hour)
+	wantMuteRule(t, revived, ended)
+	listMuteRules(t, store, now, host.ID, prog.ID)
+
+	if _, err := store.SetMuteRuleExpiry(ctx, 1<<40, now); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("set expiry on unknown id: err = %v, want pgx.ErrNoRows", err)
+	}
+	if err := store.EndMuteRule(ctx, 1<<40, now); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("end unknown id: err = %v, want pgx.ErrNoRows", err)
+	}
+
+	// The CHECK constraint backs Validate: no match field at all is rejected.
+	if _, err := store.CreateMuteRule(ctx, mute.Rule{
+		Feed: mute.FeedNetlog, Reason: "r", CreatedBy: "lasse", ExpiresAt: now.Add(time.Hour),
+	}); err == nil {
+		t.Fatal("create with no match field succeeded, want CHECK violation")
+	}
+}
+
+// TestIntegration_ListNetlogsExcludesMuted runs the hide_muted exclusion
+// against real Postgres: a row matching a rule's conjunction (with a
+// differently-cased search) is excluded, a row on the same host that misses
+// the search is kept, and a wildcard-host rule excludes by ILIKE.
+func TestIntegration_ListNetlogsExcludesMuted(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "netlog_events")
+	store := NewStore(pool)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	insertNetlogEvent(t, pool, now.Add(-3*time.Second), "leaf-02", "", 3, "bundle AE30 link down")
+	insertNetlogEvent(t, pool, now.Add(-2*time.Second), "leaf-02", "", 3, "bgp neighbor up")
+	insertNetlogEvent(t, pool, now.Add(-time.Second), "Edge-01", "", 3, "anything at all")
+
+	set := mute.NewSet(nil, func() time.Time { return now }, slog.New(slog.DiscardHandler))
+	set.Replace([]mute.Rule{
+		{ID: 1, Feed: mute.FeedNetlog, Hostname: "leaf-02", Search: "ae30", ExpiresAt: now.Add(time.Hour)},
+		{ID: 2, Feed: mute.FeedNetlog, Hostname: "edge*", ExpiresAt: now.Add(time.Hour)},
+	})
+
+	events, _, err := store.ListNetlogs(ctx, model.NetlogFilter{Exclude: set.Active().NetlogExclusions()}, nil, 100)
+	if err != nil {
+		t.Fatalf("ListNetlogs: %v", err)
+	}
+	if len(events) != 1 || events[0].Message != "bgp neighbor up" {
+		t.Fatalf("ListNetlogs with exclusions = %+v, want only the unmuted leaf-02 row", events)
+	}
+
+	all, _, err := store.ListNetlogs(ctx, model.NetlogFilter{}, nil, 100)
+	if err != nil {
+		t.Fatalf("ListNetlogs without exclusions: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("ListNetlogs without exclusions returned %d rows, want 3", len(all))
+	}
+}
+
+// listMuteRules lists the rules expiring after the given time and fails
+// unless their ids are exactly wantIDs, in order.
+func listMuteRules(t *testing.T, store *Store, expiresAfter time.Time, wantIDs ...int64) []mute.Rule {
+	t.Helper()
+	rules, err := store.ListMuteRules(context.Background(), expiresAfter)
+	if err != nil {
+		t.Fatalf("list mute rules: %v", err)
+	}
+	ids := make([]int64, len(rules))
+	for i, r := range rules {
+		ids[i] = r.ID
+	}
+	if !slices.Equal(ids, wantIDs) {
+		t.Fatalf("list mute rules after %v = ids %v, want %v", expiresAfter, ids, wantIDs)
+	}
+	return rules
+}
+
+// wantMuteRule compares every field, using time.Equal for the timestamps.
+func wantMuteRule(t *testing.T, got, want mute.Rule) {
+	t.Helper()
+	norm := got
+	norm.CreatedAt, norm.ExpiresAt = want.CreatedAt, want.ExpiresAt
+	if norm != want || !got.CreatedAt.Equal(want.CreatedAt) || !got.ExpiresAt.Equal(want.ExpiresAt) {
+		t.Fatalf("mute rule = %+v, want %+v", got, want)
+	}
+}
+
 // TestIntegration_ListenerShutdownWhileListening exercises Listen followed by
 // Shutdown while the recv goroutine is blocked in WaitForNotification. Under
 // -race this verifies the listen goroutine is the connection's single owner —
@@ -482,7 +625,7 @@ func TestIntegration_ListenerToBrokerDelivery(t *testing.T) {
 		defer close(workerDone)
 		for n := range notifications {
 			ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID},
-				store, srvlogBroker.Broadcast, nil, logger, 5*time.Second)
+				store, nil, ingestbridge.Sinks{BroadcastSrvlog: srvlogBroker.Broadcast}, logger, 5*time.Second)
 		}
 	}()
 

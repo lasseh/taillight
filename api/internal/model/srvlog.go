@@ -32,6 +32,10 @@ type SrvlogEvent struct {
 	StructuredData *string   `json:"structured_data,omitempty"`
 	Message        string    `json:"message"`
 	RawMessage     *string   `json:"raw_message,omitempty"`
+	// MutedBy is the id of the mute rule that matched this event. It is
+	// computed when the event is delivered, never stored, and omitted when no
+	// active rule matches.
+	MutedBy *int64 `json:"muted_by,omitempty"`
 }
 
 // Severity codes per RFC 5424.
@@ -115,6 +119,11 @@ type SrvlogFilter struct {
 	Search      string
 	From        *time.Time
 	To          *time.Time
+
+	// Exclude holds the filters of the active mute rules when the list
+	// request asks for hide_muted. Handlers set it; it is never parsed from
+	// the query, and Matches ignores it.
+	Exclude []SrvlogFilter
 
 	searchLower string // precomputed strings.ToLower(Search); empty means not set
 }
@@ -318,6 +327,20 @@ func ParseCursor(r *http.Request) *Cursor {
 		return nil
 	}
 	return &c
+}
+
+// ParseHideMuted reads the "hide_muted" query parameter of the netlog and
+// srvlog list endpoints. Absent means false; values follow strconv.ParseBool.
+func ParseHideMuted(r *http.Request) (bool, error) {
+	v := r.URL.Query().Get("hide_muted")
+	if v == "" {
+		return false, nil
+	}
+	hide, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("invalid query parameters: hide_muted: must be true or false")
+	}
+	return hide, nil
 }
 
 // ParseLimit extracts the limit from the "limit" query parameter.

@@ -209,7 +209,7 @@ PostgreSQL                        Go Listener                     ingestbridge w
 
 3. **Track**: A per-channel `lastSeenID` (`srvlog_ingest` and `netlog_ingest` each have their own atomic) is updated for gap-fill on reconnection.
 
-4. **Dispatch**: A `Notification{Channel, ID}` is sent on the buffered channel. On the consumer side, `notification_workers` goroutines (default 4, started in `serve.go:startBackgroundWorkers`) call `ingestbridge.Dispatch` — the routing step extracted behind a small `EventFetcher` port so it is unit-testable without a database (`docs/adr/0001-listener-stays-postgres-bound.md`). Dispatch fetches the full row by ID (30s timeout), broadcasts it to the feed's broker, and hands it to the notification engine.
+4. **Dispatch**: A `Notification{Channel, ID}` is sent on the buffered channel. On the consumer side, `notification_workers` goroutines (default 4, started in `serve.go:startBackgroundWorkers`) call `ingestbridge.Dispatch` — the routing step extracted behind a small `EventFetcher` port so it is unit-testable without a database (`docs/adr/0001-listener-stays-postgres-bound.md`). Dispatch fetches the full row by ID (30s timeout), sets `muted_by` from the active mute rules, broadcasts it to the feed's broker, and hands it to the notification engine only when it is not muted.
 
 ### Reconnection with gap fill
 
@@ -622,6 +622,7 @@ The `path` label uses the chi route pattern (e.g., `/api/v1/srvlog/{id}`) rather
 - `listener_gap_fill_truncated_total{channel}` -- gap fill hit the 10,000-row cap (events may be missing)
 - `listener_payload_parse_errors_total{channel}` -- malformed NOTIFY payloads
 - `notifications_received_total{channel}` -- notifications consumed by the bridge workers
+- `muted_events_total{feed}` -- netlog/srvlog events marked muted by a mute rule at dispatch
 
 ### Database metrics
 

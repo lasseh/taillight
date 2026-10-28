@@ -165,6 +165,15 @@ var (
 		Help:      "Total number of failed ingest requests.",
 	})
 
+	// MutedEventsTotal counts ingested events marked muted at dispatch, by
+	// feed. Only the dispatch broadcast increments it; REST and SSE backfill
+	// marking reuse the matcher and must not count.
+	MutedEventsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "taillight",
+		Name:      "muted_events_total",
+		Help:      "Total number of ingested events marked muted by a mute rule.",
+	}, []string{"feed"})
+
 	// NotificationsReceivedTotal counts LISTEN/NOTIFY notifications received.
 	NotificationsReceivedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "taillight",

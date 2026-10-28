@@ -16,12 +16,13 @@ import (
 type SrvlogSSEHandler struct {
 	broker *broker.SrvlogBroker
 	store  SrvlogStore
+	mutes  MuteRuleSet
 	logger *slog.Logger
 }
 
 // NewSrvlogSSEHandler creates a new SrvlogSSEHandler.
-func NewSrvlogSSEHandler(b *broker.SrvlogBroker, s SrvlogStore, l *slog.Logger) *SrvlogSSEHandler {
-	return &SrvlogSSEHandler{broker: b, store: s, logger: l}
+func NewSrvlogSSEHandler(b *broker.SrvlogBroker, s SrvlogStore, mutes MuteRuleSet, l *slog.Logger) *SrvlogSSEHandler {
+	return &SrvlogSSEHandler{broker: b, store: s, mutes: mutes, logger: l}
 }
 
 // Stream handles GET /api/v1/srvlog/stream.
@@ -71,9 +72,17 @@ func (h *SrvlogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		label:   "srvlog",
 		eventID: func(e model.SrvlogEvent) int64 { return e.ID },
 		logger:  logger,
-		since:   h.store.ListSrvlogsSince,
+		// Backfill is marked at connect, never excluded: live events were
+		// marked at dispatch, so a reconnecting client hides backfill the
+		// same way.
+		since: func(ctx context.Context, f model.SrvlogFilter, sinceID int64, limit int) ([]model.SrvlogEvent, error) {
+			events, err := h.store.ListSrvlogsSince(ctx, f, sinceID, limit)
+			markSrvlogs(h.mutes.Active(), events)
+			return events, err
+		},
 		recent: func(ctx context.Context, f model.SrvlogFilter, limit int) ([]model.SrvlogEvent, error) {
 			events, _, err := h.store.ListSrvlogs(ctx, f, nil, limit)
+			markSrvlogs(h.mutes.Active(), events)
 			return events, err
 		},
 	}

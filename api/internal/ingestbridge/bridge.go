@@ -38,22 +38,39 @@ type EventFetcher interface {
 	GetNetlog(ctx context.Context, id int64) (model.NetlogEvent, error)
 }
 
-// Dispatch fetches the notified row and hands it to the matching sink. A nil
-// sink means that plane is disabled — the row is not even fetched. Fetch
-// failures are logged and swallowed so one bad row never breaks the worker
-// loop. The caller owns worker concurrency and metrics.
+// Muter returns the id of the mute rule matching an event, or nil when no
+// active rule matches. *mute.Set satisfies this in production.
+type Muter interface {
+	MatchSrvlog(model.SrvlogEvent) *int64
+	MatchNetlog(model.NetlogEvent) *int64
+}
+
+// Sinks receive dispatched events. Broadcast fans an event out to SSE
+// clients; Notify hands it to the notification engine. A nil Broadcast
+// disables that feed, so its rows are not even fetched. A nil Notify means
+// no engine.
+type Sinks struct {
+	BroadcastSrvlog, NotifySrvlog func(model.SrvlogEvent)
+	BroadcastNetlog, NotifyNetlog func(model.NetlogEvent)
+}
+
+// Dispatch fetches the notified row, marks it with the mute rule that matches
+// it, broadcasts it, and notifies only when it is not muted. A nil Muter
+// means nothing is muted. Fetch failures are logged and swallowed so one bad
+// row never breaks the worker loop. The caller owns worker concurrency and
+// metrics.
 func Dispatch(
 	ctx context.Context,
 	n Notification,
 	f EventFetcher,
-	onSrvlog func(model.SrvlogEvent),
-	onNetlog func(model.NetlogEvent),
+	m Muter,
+	s Sinks,
 	logger *slog.Logger,
 	fetchTimeout time.Duration,
 ) {
 	switch n.Channel {
 	case ChannelSrvlog:
-		if onSrvlog == nil {
+		if s.BroadcastSrvlog == nil {
 			return
 		}
 		qctx, cancel := context.WithTimeout(ctx, fetchTimeout)
@@ -63,9 +80,15 @@ func Dispatch(
 			logger.Warn("fetch srvlog event for broadcast", "id", n.ID, "err", err)
 			return
 		}
-		onSrvlog(event)
+		if m != nil {
+			event.MutedBy = m.MatchSrvlog(event)
+		}
+		s.BroadcastSrvlog(event)
+		if event.MutedBy == nil && s.NotifySrvlog != nil {
+			s.NotifySrvlog(event)
+		}
 	case ChannelNetlog:
-		if onNetlog == nil {
+		if s.BroadcastNetlog == nil {
 			return
 		}
 		qctx, cancel := context.WithTimeout(ctx, fetchTimeout)
@@ -75,7 +98,13 @@ func Dispatch(
 			logger.Warn("fetch netlog event for broadcast", "id", n.ID, "err", err)
 			return
 		}
-		onNetlog(event)
+		if m != nil {
+			event.MutedBy = m.MatchNetlog(event)
+		}
+		s.BroadcastNetlog(event)
+		if event.MutedBy == nil && s.NotifyNetlog != nil {
+			s.NotifyNetlog(event)
+		}
 	default:
 		// Unknown channel — nothing to route. Metrics are recorded by the
 		// caller before Dispatch, matching the prior behaviour.

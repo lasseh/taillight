@@ -32,6 +32,7 @@ import (
 	ldapauth "github.com/lasseh/taillight/internal/ldap"
 	"github.com/lasseh/taillight/internal/metrics"
 	"github.com/lasseh/taillight/internal/model"
+	"github.com/lasseh/taillight/internal/mute"
 	"github.com/lasseh/taillight/internal/netbox"
 	"github.com/lasseh/taillight/internal/notification"
 	"github.com/lasseh/taillight/internal/notification/backend"
@@ -131,7 +132,18 @@ func runServe(_ *cobra.Command, _ []string) error {
 		notifEngine.Start(ctx)
 	}
 
-	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, srvlogBroker, netlogBroker, notifEngine, cfg.NotificationWorkers)
+	// Mute rules load before the NOTIFY workers start, so no early event is
+	// dispatched unmarked. A failed load starts with nothing muted; the tick
+	// retries every 30s.
+	mutes := mute.NewSet(store, time.Now, logger)
+	loadCtx, loadCancel := context.WithTimeout(ctx, 10*time.Second)
+	if err := mutes.Reload(loadCtx); err != nil {
+		logger.Warn("initial mute rule load failed; starting with nothing muted", "err", err)
+	}
+	loadCancel()
+	go mutes.Run(ctx)
+
+	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, srvlogBroker, netlogBroker, notifEngine, mutes, cfg.NotificationWorkers)
 
 	// Analysis (optional).
 	var analysis *analysisWiring
@@ -171,7 +183,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Netbox enrichment client (optional).
 	nbClient := setupNetbox(cfg, logger)
 
-	r := setupRouter(cfg, logger, store, authStore, ldapAuth, oidcAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler, nbClient)
+	r := setupRouter(cfg, logger, store, authStore, ldapAuth, oidcAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler, nbClient, mutes)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -322,26 +334,34 @@ func startBackgroundWorkers(
 	srvlogBroker *broker.SrvlogBroker,
 	netlogBroker *broker.NetlogBroker,
 	notifEngine *notification.Engine,
+	mutes ingestbridge.Muter,
 	notifWorkers int,
 ) {
 	if notifWorkers <= 0 {
 		notifWorkers = 4
 	}
 
-	// Bridge: fetch each notified row by ID and broadcast to SSE clients.
-	// Multiple workers drain the channel concurrently so that DB fetch
+	// Bridge: fetch each notified row by ID, mark it with its mute rule, and
+	// broadcast it to SSE clients. Only unmuted events reach the notification
+	// engine. Multiple workers drain the channel concurrently so that DB fetch
 	// latency doesn't cause backpressure under high event volume.
-	onSrvlog := func(e model.SrvlogEvent) {
-		srvlogBroker.Broadcast(e)
-		if notifEngine != nil {
-			notifEngine.HandleSrvlogEvent(e)
-		}
+	sinks := ingestbridge.Sinks{
+		BroadcastSrvlog: func(e model.SrvlogEvent) {
+			srvlogBroker.Broadcast(e)
+			if e.MutedBy != nil {
+				metrics.MutedEventsTotal.WithLabelValues("srvlog").Inc()
+			}
+		},
+		BroadcastNetlog: func(e model.NetlogEvent) {
+			netlogBroker.Broadcast(e)
+			if e.MutedBy != nil {
+				metrics.MutedEventsTotal.WithLabelValues("netlog").Inc()
+			}
+		},
 	}
-	onNetlog := func(e model.NetlogEvent) {
-		netlogBroker.Broadcast(e)
-		if notifEngine != nil {
-			notifEngine.HandleNetlogEvent(e)
-		}
+	if notifEngine != nil {
+		sinks.NotifySrvlog = notifEngine.HandleSrvlogEvent
+		sinks.NotifyNetlog = notifEngine.HandleNetlogEvent
 	}
 
 	for range notifWorkers {
@@ -349,7 +369,7 @@ func startBackgroundWorkers(
 			for n := range notifications {
 				metrics.NotificationsReceivedTotal.WithLabelValues(n.Channel).Inc()
 				ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID},
-					store, onSrvlog, onNetlog, logger, 30*time.Second)
+					store, mutes, sinks, logger, 30*time.Second)
 			}
 		}()
 	}
@@ -512,6 +532,7 @@ func setupRouter(
 	notifEngine *notification.Engine,
 	summaryScheduler *scheduler.SummaryScheduler,
 	nbClient *netbox.Client,
+	mutes *mute.Set,
 ) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -571,20 +592,20 @@ func setupRouter(
 	}
 
 	// Srvlog handlers.
-	srvlogHandler := handler.NewSrvlogHandler(store)
+	srvlogHandler := handler.NewSrvlogHandler(store, mutes)
 	srvlogMetaHandler := handler.NewSrvlogMetaHandler(store)
 	statsHandler := handler.NewStatsHandler(store)
 	juniperHandler := handler.NewJuniperHandler(store)
 	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
 	taillightMetricsHandler := handler.NewTaillightMetricsHandler(store)
-	srvlogSSEHandler := handler.NewSrvlogSSEHandler(srvlogBroker, store, logger)
-	srvlogDeviceHandler := handler.NewSrvlogDeviceHandler(store)
+	srvlogSSEHandler := handler.NewSrvlogSSEHandler(srvlogBroker, store, mutes, logger)
+	srvlogDeviceHandler := handler.NewSrvlogDeviceHandler(store, mutes)
 
 	// Netlog handlers.
-	netlogHandler := handler.NewNetlogHandler(store)
-	netlogSSEHandler := handler.NewNetlogSSEHandler(netlogBroker, store, logger)
+	netlogHandler := handler.NewNetlogHandler(store, mutes)
+	netlogSSEHandler := handler.NewNetlogSSEHandler(netlogBroker, store, mutes, logger)
 	netlogMetaHandler := handler.NewNetlogMetaHandler(store)
-	netlogDeviceHandler := handler.NewNetlogDeviceHandler(store)
+	netlogDeviceHandler := handler.NewNetlogDeviceHandler(store, mutes)
 
 	// Netbox enrichment handler (only enabled when configured).
 	var netboxHandler *handler.NetboxHandler
@@ -601,6 +622,7 @@ func setupRouter(
 	authHandler := handler.NewAuthHandler(authStore, ldapAuth, oidcAuth, cfg.CookieSecure)
 	notifHandler := handler.NewNotificationHandler(store, notifEngine)
 	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
+	muteRuleHandler := handler.NewMuteRuleHandler(store, mutes, time.Now)
 	exportHandler := handler.NewExportHandler(store, store, store)
 	juniperRefHandler := handler.NewJuniperRefHandler(store)
 	configHandler := handler.NewConfigHandler(cfg.Analysis.Enabled, cfg.OIDC.Enabled)
@@ -811,6 +833,12 @@ func setupRouter(
 				r.Get("/notifications/summaries", summaryHandler.ListSchedules)
 				r.Get("/notifications/summaries/{id}", summaryHandler.GetSchedule)
 			})
+
+			// Mute rule read endpoint.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.Timeout(30 * time.Second))
+				r.Get("/mute-rules", muteRuleHandler.List)
+			})
 		})
 
 		// Ingest-scoped route.
@@ -863,6 +891,14 @@ func setupRouter(
 				r.Put("/notifications/summaries/{id}", summaryHandler.UpdateSchedule)
 				r.Delete("/notifications/summaries/{id}", summaryHandler.DeleteSchedule)
 				r.Post("/notifications/summaries/{id}/trigger", summaryHandler.TriggerSchedule)
+			})
+
+			// Mute rule write endpoints: create, expire-in, unmute.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.Timeout(30 * time.Second))
+				r.Post("/mute-rules", muteRuleHandler.Create)
+				r.Patch("/mute-rules/{id}", muteRuleHandler.ExpireIn)
+				r.Delete("/mute-rules/{id}", muteRuleHandler.Unmute)
 			})
 
 			// Juniper reference XLSX upload — longer timeout for multipart parse+upsert.
