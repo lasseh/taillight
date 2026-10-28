@@ -3,6 +3,7 @@ import { api } from '@/lib/api'
 import { useNetlogStream } from '@/composables/useNetlogStream'
 import { useNetlogFilterStore } from '@/stores/netlog-filters'
 import { createEventStore } from '@/stores/event-store-factory'
+import { useColumnVisibility } from '@/composables/useColumnVisibility'
 import { wildcardMatch } from '@/lib/wildcard'
 
 function matchesFilters(event: NetlogEvent, filters: Record<string, string>): boolean {
@@ -32,4 +33,7 @@ export const useNetlogEventStore = createEventStore({
   useStream: useNetlogStream,
   useFilterStore: useNetlogFilterStore,
   matchesFilters,
+  // The only call site for this key: useColumnVisibility applies its default
+  // on the first call, so a second caller could flip the default to show.
+  showMuted: () => useColumnVisibility('netlog', 'muted', false).visible,
 })
