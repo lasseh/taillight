@@ -2,24 +2,31 @@
 import { computed } from 'vue'
 import type { SrvlogEvent } from '@/types/srvlog'
 import type { NetlogEvent } from '@/types/netlog'
+import type { MuteFeed } from '@/types/mute'
 import { severityBorderClass, severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
 import { formatDateTime } from '@/lib/format'
 import { selectedRowsText } from '@/lib/copy'
+import { muteSimilarQuery } from '@/lib/mute-rules'
+import { useAuthStore } from '@/stores/auth'
 
 // Shared srvlog/netlog inline detail panel. The two feeds are identical except
-// for the filter store and route names, which arrive as props from the thin
-// per-feed wrappers (SrvlogDetail, NetlogDetail).
+// for the feed, filter store and route names, which arrive as props from the
+// thin per-feed wrappers (SrvlogDetail, NetlogDetail).
 type LogEvent = SrvlogEvent | NetlogEvent
 
 const props = defineProps<{
   event: LogEvent
+  feed: MuteFeed
   filterStore: { filters: Record<'programname' | 'facility' | 'severity_max', string> }
   detailRoute: string
   deviceRoute: string
 }>()
 
 const filterStore = props.filterStore
+
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.user?.is_admin === true)
 
 interface Field {
   label: string
@@ -88,32 +95,77 @@ function applyFilter(field: Field) {
     :class="borderClass"
     @copy="onCopy"
   >
-    <!-- permalink -->
-    <RouterLink
-      :to="{ name: props.detailRoute, params: { id: event.id } }"
-      title="Open detail page"
-      aria-label="Open detail page"
-      class="absolute right-2 top-1.5 inline-flex items-center justify-center rounded border border-t-fuchsia/30 bg-t-fuchsia/10 p-1 text-t-fuchsia transition-colors hover:bg-t-fuchsia/20 hover:brightness-125"
-      @click.stop
-    >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="h-5 w-5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
+    <div class="absolute right-2 top-1.5 flex items-center gap-1">
+      <!-- mute similar: opens the Mutes tab with a create form prefilled from this event -->
+      <RouterLink
+        v-if="isAdmin"
+        :to="{ name: 'notifications', query: muteSimilarQuery(props.feed, event) }"
+        title="mute similar"
+        aria-label="mute similar"
+        class="inline-flex items-center justify-center rounded border border-t-yellow/30 bg-t-yellow/10 p-1 text-t-yellow transition-colors hover:bg-t-yellow/20 hover:brightness-125"
+        @click.stop
       >
-        <path d="M21 5H3" />
-        <path d="M10 12H3" />
-        <path d="M10 19H3" />
-        <circle cx="17" cy="15" r="3" />
-        <path d="m21 19-1.9-1.9" />
-      </svg>
-    </RouterLink>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="h-5 w-5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M10.268 21a2 2 0 0 0 3.464 0" />
+          <path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742" />
+          <path d="m2 2 20 20" />
+          <path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05" />
+        </svg>
+      </RouterLink>
+
+      <!-- permalink -->
+      <RouterLink
+        :to="{ name: props.detailRoute, params: { id: event.id } }"
+        title="Open detail page"
+        aria-label="Open detail page"
+        class="inline-flex items-center justify-center rounded border border-t-fuchsia/30 bg-t-fuchsia/10 p-1 text-t-fuchsia transition-colors hover:bg-t-fuchsia/20 hover:brightness-125"
+        @click.stop
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="h-5 w-5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 5H3" />
+          <path d="M10 12H3" />
+          <path d="M10 19H3" />
+          <circle cx="17" cy="15" r="3" />
+          <path d="m21 19-1.9-1.9" />
+        </svg>
+      </RouterLink>
+    </div>
+
+    <!-- muted-by indicator, for everyone; the id may point at a rule that has since ended -->
+    <div
+      v-if="event.muted_by != null"
+      class="flex gap-2 py-0.5 text-sm"
+      :data-copytext="`muted: rule #${event.muted_by}`"
+    >
+      <span class="w-24 shrink-0" />
+      <RouterLink
+        :to="{ name: 'notifications', query: { tab: 'mutes' } }"
+        class="text-t-yellow min-w-0 hover:underline"
+        @click.stop
+      >
+        muted · rule #{{ event.muted_by }} →
+      </RouterLink>
+    </div>
 
     <!-- fields -->
     <div
