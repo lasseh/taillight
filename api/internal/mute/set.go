@@ -38,8 +38,7 @@ type Set struct {
 	rules []Rule // sorted by ID ascending; never mutated after Replace
 }
 
-// NewSet returns an empty Set. store may be nil when the caller only uses
-// Replace.
+// NewSet returns an empty Set. Reload and Run load the rules from store.
 func NewSet(store Store, now func() time.Time, logger *slog.Logger) *Set {
 	return &Set{store: store, now: now, logger: logger}
 }
