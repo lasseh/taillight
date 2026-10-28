@@ -100,6 +100,13 @@ const programColumn = computed(() => {
   return null
 })
 
+// Muted toggle: only the syslog feeds hide muted events.
+const mutedFeed = computed(() => {
+  if (route.name === 'srvlog') return srvlogEvents
+  if (route.name === 'netlog') return netlogEvents
+  return null
+})
+
 // Clear button: wipe the current feed's buffer but keep filters and live tail.
 function clearEvents() {
   if (route.name === 'srvlog') srvlogEvents.clear()
@@ -263,6 +270,54 @@ onErrorCaptured((err) => {
           <circle cx="12" cy="12" r="9" />
           <line x1="5.6" y1="5.6" x2="18.4" y2="18.4" />
         </svg>
+      </button>
+      <button
+        v-if="mutedFeed"
+        class="text-t-fg-dark hover:text-t-fg flex items-center gap-1 p-1 transition-colors"
+        aria-label="Show muted events"
+        :aria-pressed="mutedFeed.showMuted"
+        :title="
+          mutedFeed.showMuted
+            ? 'Hide muted events'
+            : `Show muted events (${mutedFeed.hiddenMutedCount} live hidden since load)`
+        "
+        @click="mutedFeed.toggleMuted()"
+      >
+        <!-- Hiding (default) → eye-off -->
+        <svg
+          v-if="!mutedFeed.showMuted"
+          class="h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+          />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </svg>
+        <!-- Showing → eye -->
+        <svg
+          v-else
+          class="h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+        <span
+          v-if="!mutedFeed.showMuted && mutedFeed.hiddenMutedCount > 0"
+          class="text-[10px] leading-none tabular-nums"
+          >{{ mutedFeed.hiddenMutedCount > 999 ? '999+' : mutedFeed.hiddenMutedCount }}</span
+        >
       </button>
       <button
         v-if="programColumn"
