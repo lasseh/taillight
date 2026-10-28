@@ -38,6 +38,7 @@ import type {
   SummaryScheduleResponse,
   SummarySchedule,
 } from '@/types/summary'
+import type { CreateMuteRuleRequest, MuteRuleListResponse, MuteRuleResponse } from '@/types/mute'
 import type { DeviceSummaryResponse, AppLogDeviceSummaryResponse } from '@/types/device'
 import type { HostsResponse } from '@/types/host'
 import type {
@@ -438,6 +439,25 @@ export const api = {
 
   listNotificationLog(params: URLSearchParams): Promise<LogListResponse> {
     return fetchAPI(`/api/v1/notifications/log?${params}`)
+  },
+
+  // Mute rules
+  listMuteRules(): Promise<MuteRuleListResponse> {
+    return fetchAPI('/api/v1/mute-rules')
+  },
+
+  createMuteRule(req: CreateMuteRuleRequest): Promise<MuteRuleResponse> {
+    return postAPI('/api/v1/mute-rules', req)
+  },
+
+  // "Expire in…": expires_at = server now + durationMs. Also revives an ended rule.
+  setMuteRuleExpiry(id: number, durationMs: number): Promise<MuteRuleResponse> {
+    return patchAPI(`/api/v1/mute-rules/${id}`, { duration_ms: durationMs })
+  },
+
+  // "Unmute": ends the rule now (204). The row stays listed as ended.
+  endMuteRule(id: number): Promise<void> {
+    return deleteAPI(`/api/v1/mute-rules/${id}`)
   },
 
   // Analysis reports
