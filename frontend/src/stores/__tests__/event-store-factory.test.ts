@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ref } from 'vue'
+import { ref, type Ref } from 'vue'
 
 // Mock vue-router before importing the factory.
 vi.mock('vue-router', () => ({
@@ -10,6 +10,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import { createApp } from 'vue'
+import { flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import { createEventStore } from '../event-store-factory'
 import { useScrollStore } from '../scroll'
@@ -17,10 +18,12 @@ import { useScrollStore } from '../scroll'
 interface TestEvent {
   id: number
   message: string
+  muted_by?: number
 }
 
 function makeStore(
   fetchEvents = vi.fn(() => Promise.resolve({ data: [] as TestEvent[], has_more: false })),
+  showMuted?: Ref<boolean>,
 ) {
   // Captures the SSE callback so tests can push events into the store.
   let emit: ((event: TestEvent) => void) | null = null
@@ -38,6 +41,7 @@ function makeStore(
     }),
     useFilterStore: () => ({ activeFilters: {} }),
     matchesFilters: () => true,
+    ...(showMuted && { showMuted: () => showMuted }),
   })
   return { useStore, emit: (event: TestEvent) => emit!(event) }
 }
@@ -211,5 +215,99 @@ describe('createEventStore', () => {
     // Buffer kept (under MAX_EVENTS), no refetch beyond the initial enter().
     expect(store.events).toHaveLength(10)
     expect(fetchEvents).toHaveBeenCalledOnce()
+  })
+
+  describe('muted events', () => {
+    it('never hides without a showMuted input', async () => {
+      const { useStore, emit } = makeStore()
+      const store = useStore()
+
+      await store.enter()
+      emit({ id: 1, message: 'muted', muted_by: 5 })
+
+      expect(store.events.map((e) => e.id)).toEqual([1])
+      expect(store.hiddenMutedCount).toBe(0)
+    })
+
+    it('drops a muted event while hiding and counts it once, also when re-emitted', async () => {
+      const { useStore, emit } = makeStore(undefined, ref(false))
+      const store = useStore()
+
+      await store.enter()
+      emit({ id: 1, message: 'muted', muted_by: 5 })
+      emit({ id: 1, message: 'muted', muted_by: 5 })
+      emit({ id: 2, message: 'plain' })
+
+      expect(store.events.map((e) => e.id)).toEqual([2])
+      expect(store.hiddenMutedCount).toBe(1)
+    })
+
+    it('appends a muted event while showing and leaves the count at 0', async () => {
+      const { useStore, emit } = makeStore(undefined, ref(true))
+      const store = useStore()
+
+      await store.enter()
+      emit({ id: 1, message: 'muted', muted_by: 5 })
+
+      expect(store.events.map((e) => e.id)).toEqual([1])
+      expect(store.hiddenMutedCount).toBe(0)
+    })
+
+    it('keeps muted drops out of the detached buffer, "new" counter and append limit', async () => {
+      const { useStore, emit } = makeStore(undefined, ref(false))
+      const store = useStore()
+      const scrollStore = useScrollStore()
+
+      await store.enter()
+      scrollStore.setPinned('srvlog', false)
+
+      // More muted events than DETACHED_SSE_APPEND_LIMIT (500).
+      for (let i = 1; i <= 600; i++) {
+        emit({ id: i, message: `m${i}`, muted_by: 5 })
+      }
+      expect(store.events).toEqual([])
+      expect(scrollStore.getNewEventCount('srvlog')).toBe(0)
+      expect(store.hiddenMutedCount).toBe(600)
+
+      // The append allowance is untouched, so an unmuted event still lands.
+      emit({ id: 601, message: 'plain' })
+      expect(store.events.map((e) => e.id)).toEqual([601])
+    })
+
+    it('resets the count on clear, enter and reset', async () => {
+      const { useStore, emit } = makeStore(undefined, ref(false))
+      const store = useStore()
+      await store.enter()
+
+      emit({ id: 1, message: 'muted', muted_by: 5 })
+      expect(store.hiddenMutedCount).toBe(1)
+      store.clear()
+      expect(store.hiddenMutedCount).toBe(0)
+
+      emit({ id: 2, message: 'muted', muted_by: 5 })
+      expect(store.hiddenMutedCount).toBe(1)
+      await store.enter()
+      expect(store.hiddenMutedCount).toBe(0)
+
+      emit({ id: 3, message: 'muted', muted_by: 5 })
+      expect(store.hiddenMutedCount).toBe(1)
+      store.reset()
+      expect(store.hiddenMutedCount).toBe(0)
+    })
+
+    it('toggleMuted() flips the show state and refetches', async () => {
+      const fetchEvents = vi.fn(() => Promise.resolve({ data: [] as TestEvent[], has_more: false }))
+      const showMuted = ref(false)
+      const { useStore } = makeStore(fetchEvents, showMuted)
+      const store = useStore()
+      await store.enter()
+
+      store.toggleMuted()
+      await flushPromises()
+
+      expect(store.showMuted).toBe(true)
+      expect(showMuted.value).toBe(true)
+      expect(fetchEvents).toHaveBeenCalledTimes(2)
+    })
   })
 })
