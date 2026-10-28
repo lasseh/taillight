@@ -169,9 +169,10 @@ function applyFilter(field: Field) {
 
     <!-- fields -->
     <div
-      v-for="field in fields"
+      v-for="(field, i) in fields"
       :key="field.key"
       class="flex gap-2 py-0.5 text-sm"
+      :class="{ 'pr-16': isAdmin && i === 0 }"
       :data-copytext="rowCopyText(field)"
     >
       <span class="text-t-fg-dark w-24 shrink-0 text-right">{{ field.label }}</span>
