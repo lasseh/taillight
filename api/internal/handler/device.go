@@ -9,11 +9,12 @@ import (
 // SrvlogDeviceHandler handles srvlog device detail requests.
 type SrvlogDeviceHandler struct {
 	store SrvlogStore
+	mutes MuteRuleSet
 }
 
 // NewSrvlogDeviceHandler creates a new SrvlogDeviceHandler.
-func NewSrvlogDeviceHandler(store SrvlogStore) *SrvlogDeviceHandler {
-	return &SrvlogDeviceHandler{store: store}
+func NewSrvlogDeviceHandler(store SrvlogStore, mutes MuteRuleSet) *SrvlogDeviceHandler {
+	return &SrvlogDeviceHandler{store: store, mutes: mutes}
 }
 
 // Get handles GET /api/v1/srvlog/device/{hostname}.
@@ -33,6 +34,7 @@ func (h *SrvlogDeviceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to get device summary")
 		return
 	}
+	markSrvlogs(h.mutes.Active(), summary.CriticalLogs)
 
 	writeJSON(w, itemResponse{Data: summary})
 }

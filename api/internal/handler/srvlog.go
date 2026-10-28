@@ -19,22 +19,35 @@ const (
 // SrvlogHandler handles REST event queries.
 type SrvlogHandler struct {
 	store SrvlogStore
+	mutes MuteRuleSet
 }
 
 // NewSrvlogHandler creates a new SrvlogHandler.
-func NewSrvlogHandler(store SrvlogStore) *SrvlogHandler {
-	return &SrvlogHandler{store: store}
+func NewSrvlogHandler(store SrvlogStore, mutes MuteRuleSet) *SrvlogHandler {
+	return &SrvlogHandler{store: store, mutes: mutes}
 }
 
-// List handles GET /api/v1/srvlog with filter and cursor pagination.
+// List handles GET /api/v1/srvlog with filter and cursor pagination. With
+// hide_muted it excludes rows matching an active mute rule; either way it
+// marks the rows it returns.
 func (h *SrvlogHandler) List(w http.ResponseWriter, r *http.Request) {
 	filter, err := model.ParseSrvlogFilter(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_filter", err.Error())
 		return
 	}
+	hideMuted, err := model.ParseHideMuted(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_filter", err.Error())
+		return
+	}
 	cursor := model.ParseCursor(r)
 	limit := model.ParseLimit(r, defaultLimit, maxLimit)
+
+	snap := h.mutes.Active()
+	if hideMuted {
+		filter.Exclude = snap.SrvlogExclusions()
+	}
 
 	events, nextCursor, err := h.store.ListSrvlogs(r.Context(), filter, cursor, limit)
 	if err != nil {
@@ -52,6 +65,7 @@ func (h *SrvlogHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query events")
 		return
 	}
+	markSrvlogs(snap, events)
 
 	resp := listResponse{
 		Data:    emptySlice(events),
@@ -87,6 +101,7 @@ func (h *SrvlogHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to get event")
 		return
 	}
+	event.MutedBy = h.mutes.Active().MatchSrvlog(event)
 
 	writeJSON(w, itemResponse{Data: event})
 }

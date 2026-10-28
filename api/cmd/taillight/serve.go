@@ -592,20 +592,20 @@ func setupRouter(
 	}
 
 	// Srvlog handlers.
-	srvlogHandler := handler.NewSrvlogHandler(store)
+	srvlogHandler := handler.NewSrvlogHandler(store, mutes)
 	srvlogMetaHandler := handler.NewSrvlogMetaHandler(store)
 	statsHandler := handler.NewStatsHandler(store)
 	juniperHandler := handler.NewJuniperHandler(store)
 	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
 	taillightMetricsHandler := handler.NewTaillightMetricsHandler(store)
-	srvlogSSEHandler := handler.NewSrvlogSSEHandler(srvlogBroker, store, logger)
-	srvlogDeviceHandler := handler.NewSrvlogDeviceHandler(store)
+	srvlogSSEHandler := handler.NewSrvlogSSEHandler(srvlogBroker, store, mutes, logger)
+	srvlogDeviceHandler := handler.NewSrvlogDeviceHandler(store, mutes)
 
 	// Netlog handlers.
-	netlogHandler := handler.NewNetlogHandler(store)
-	netlogSSEHandler := handler.NewNetlogSSEHandler(netlogBroker, store, logger)
+	netlogHandler := handler.NewNetlogHandler(store, mutes)
+	netlogSSEHandler := handler.NewNetlogSSEHandler(netlogBroker, store, mutes, logger)
 	netlogMetaHandler := handler.NewNetlogMetaHandler(store)
-	netlogDeviceHandler := handler.NewNetlogDeviceHandler(store)
+	netlogDeviceHandler := handler.NewNetlogDeviceHandler(store, mutes)
 
 	// Netbox enrichment handler (only enabled when configured).
 	var netboxHandler *handler.NetboxHandler
