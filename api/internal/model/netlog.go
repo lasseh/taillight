@@ -23,6 +23,10 @@ type NetlogEvent struct {
 	StructuredData *string   `json:"structured_data,omitempty"`
 	Message        string    `json:"message"`
 	RawMessage     *string   `json:"raw_message,omitempty"`
+	// MutedBy is the id of the mute rule that matched this event. It is
+	// computed when the event is delivered, never stored, and omitted when no
+	// active rule matches.
+	MutedBy *int64 `json:"muted_by,omitempty"`
 }
 
 // NetlogFilter holds optional filter criteria for querying netlog events.

@@ -143,7 +143,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	loadCancel()
 	go mutes.Run(ctx)
 
-	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, srvlogBroker, netlogBroker, notifEngine, cfg.NotificationWorkers)
+	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, srvlogBroker, netlogBroker, notifEngine, mutes, cfg.NotificationWorkers)
 
 	// Analysis (optional).
 	var analysis *analysisWiring
@@ -334,26 +334,34 @@ func startBackgroundWorkers(
 	srvlogBroker *broker.SrvlogBroker,
 	netlogBroker *broker.NetlogBroker,
 	notifEngine *notification.Engine,
+	mutes ingestbridge.Muter,
 	notifWorkers int,
 ) {
 	if notifWorkers <= 0 {
 		notifWorkers = 4
 	}
 
-	// Bridge: fetch each notified row by ID and broadcast to SSE clients.
-	// Multiple workers drain the channel concurrently so that DB fetch
+	// Bridge: fetch each notified row by ID, mark it with its mute rule, and
+	// broadcast it to SSE clients. Only unmuted events reach the notification
+	// engine. Multiple workers drain the channel concurrently so that DB fetch
 	// latency doesn't cause backpressure under high event volume.
-	onSrvlog := func(e model.SrvlogEvent) {
-		srvlogBroker.Broadcast(e)
-		if notifEngine != nil {
-			notifEngine.HandleSrvlogEvent(e)
-		}
+	sinks := ingestbridge.Sinks{
+		BroadcastSrvlog: func(e model.SrvlogEvent) {
+			srvlogBroker.Broadcast(e)
+			if e.MutedBy != nil {
+				metrics.MutedEventsTotal.WithLabelValues("srvlog").Inc()
+			}
+		},
+		BroadcastNetlog: func(e model.NetlogEvent) {
+			netlogBroker.Broadcast(e)
+			if e.MutedBy != nil {
+				metrics.MutedEventsTotal.WithLabelValues("netlog").Inc()
+			}
+		},
 	}
-	onNetlog := func(e model.NetlogEvent) {
-		netlogBroker.Broadcast(e)
-		if notifEngine != nil {
-			notifEngine.HandleNetlogEvent(e)
-		}
+	if notifEngine != nil {
+		sinks.NotifySrvlog = notifEngine.HandleSrvlogEvent
+		sinks.NotifyNetlog = notifEngine.HandleNetlogEvent
 	}
 
 	for range notifWorkers {
@@ -361,7 +369,7 @@ func startBackgroundWorkers(
 			for n := range notifications {
 				metrics.NotificationsReceivedTotal.WithLabelValues(n.Channel).Inc()
 				ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID},
-					store, onSrvlog, onNetlog, logger, 30*time.Second)
+					store, mutes, sinks, logger, 30*time.Second)
 			}
 		}()
 	}

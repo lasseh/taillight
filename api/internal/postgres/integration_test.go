@@ -587,7 +587,7 @@ func TestIntegration_ListenerToBrokerDelivery(t *testing.T) {
 		defer close(workerDone)
 		for n := range notifications {
 			ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID},
-				store, srvlogBroker.Broadcast, nil, logger, 5*time.Second)
+				store, nil, ingestbridge.Sinks{BroadcastSrvlog: srvlogBroker.Broadcast}, logger, 5*time.Second)
 		}
 	}()
 
