@@ -49,6 +49,8 @@ function notifySrvlog(event: SrvlogEvent) {
   if (!supported) return
   if (!enabled.value) return
   if (permission.value !== 'granted') return
+  // Muted events never push, even while muted rows are shown.
+  if (event.muted_by != null) return
   if (isTooOld(event.received_at)) return
 
   const prefs = getPrefs()
@@ -75,6 +77,8 @@ function notifyNetlog(event: NetlogEvent) {
   if (!supported) return
   if (!enabled.value) return
   if (permission.value !== 'granted') return
+  // Muted events never push, even while muted rows are shown.
+  if (event.muted_by != null) return
   if (isTooOld(event.received_at)) return
 
   const prefs = getPrefs()
