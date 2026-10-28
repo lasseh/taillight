@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import NotificationChannels from '@/components/NotificationChannels.vue'
 import NotificationRules from '@/components/NotificationRules.vue'
@@ -13,13 +13,15 @@ type Tab = (typeof tabs)[number]
 const route = useRoute()
 const router = useRouter()
 
-// The initial tab comes from ?tab= (the lowercased label). The query is only
-// rewritten on a tab click, never on mount, so a mute-similar prefill in the
-// URL survives until MuteRules reads it.
-const activeTab = ref<Tab>(tabs.find((t) => t.toLowerCase() === route.query.tab) ?? 'Channels')
+// The tab is ?tab= (the lowercased label), read live so a query-only
+// navigation that reuses this view, like the top-nav link, switches it. The
+// query is only rewritten on a tab click, never on mount, so a mute-similar
+// prefill in the URL survives until MuteRules reads it.
+const activeTab = computed<Tab>(
+  () => tabs.find((t) => t.toLowerCase() === route.query.tab) ?? 'Channels',
+)
 
 function selectTab(tab: Tab) {
-  activeTab.value = tab
   router.replace({ query: tab === 'Channels' ? {} : { tab: tab.toLowerCase() } })
 }
 </script>
