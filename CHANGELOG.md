@@ -20,6 +20,14 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Added
 
+#### Mute rules
+- Time-boxed mute rules for the netlog and srvlog feeds: a rule matches hostname (exact or `*` wildcard), program and/or message text the same way the feed filter does, carries a required reason and its creator, and expires after 24h by default, capped at 7 days. `GET /api/v1/mute-rules` (read scope) lists active rules plus those ended in the last 7 days; `POST`, `PATCH /{id}` (expire in a new duration, also revives an ended rule) and `DELETE /{id}` (unmute) need admin scope. Stored in the new `mute_rules` table (migration 000024); writes take effect immediately, and the in-memory set also reloads every 30s
+- Netlog and srvlog events matching an active rule carry `muted_by` (the rule id) on live SSE events, SSE backfill, list, detail and device responses; unmuted events are unchanged. Muted events are still stored, but skip notification engine rules (Slack, webhook, ntfy, email) and browser push. Scheduled summary digests and AI analysis still include them
+- `hide_muted=true` on `GET /api/v1/netlog` and `GET /api/v1/srvlog` excludes rows matching active rules from history, keeping pages full; an invalid value is a 400
+- Show/hide-muted button next to clear in the netlog and srvlog bottom bar, hiding by default and remembered per browser and feed. While hiding, history loads send `hide_muted` and a badge counts live muted events hidden since load; muted rows that are shown render dimmed
+- Mutes tab on the Notifications page (`?tab=mutes`, visible to read-only users) lists the rules; admins can add a mute, expire it in 1h/4h/24h/7d, or unmute. The inline event detail gets an admin-only "mute similar" link that opens the create form prefilled from the event, and a "muted · rule #N" line on muted events
+- `taillight_muted_events_total{feed}` counts ingested events marked muted at dispatch
+
 #### Auth
 - OIDC single sign-on (`oidc.` config block, default off): Authorization Code + PKCE against any OpenID Connect provider, with endpoint discovery, ID-token validation, allowed-domain/user/group gating, and admin-group mapping. Users provision on first login keyed on the `(issuer, subject)` claims — never linked to existing local/LDAP accounts — carry no local password, and get an ordinary `tl_session` session; API-key auth is untouched. The login page shows a "Sign in with SSO" button when the `oidc` feature flag is on
 

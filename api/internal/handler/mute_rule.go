@@ -187,7 +187,7 @@ func parseMuteRuleID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 // decodeMuteBody reads a size-capped JSON body into v, writing the 400 on
 // failure.
 func decodeMuteBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, requestBodyLimit))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "read_error", "failed to read request body")
 		return false
