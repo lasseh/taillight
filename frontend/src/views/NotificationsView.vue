@@ -1,13 +1,27 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import NotificationChannels from '@/components/NotificationChannels.vue'
 import NotificationRules from '@/components/NotificationRules.vue'
+import MuteRules from '@/components/MuteRules.vue'
 import NotificationSummaries from '@/components/NotificationSummaries.vue'
 import NotificationLog from '@/components/NotificationLog.vue'
 
-const tabs = ['Channels', 'Rules', 'Summaries', 'Log'] as const
+const tabs = ['Channels', 'Rules', 'Mutes', 'Summaries', 'Log'] as const
 type Tab = (typeof tabs)[number]
-const activeTab = ref<Tab>('Channels')
+
+const route = useRoute()
+const router = useRouter()
+
+// The initial tab comes from ?tab= (the lowercased label). The query is only
+// rewritten on a tab click, never on mount, so a mute-similar prefill in the
+// URL survives until MuteRules reads it.
+const activeTab = ref<Tab>(tabs.find((t) => t.toLowerCase() === route.query.tab) ?? 'Channels')
+
+function selectTab(tab: Tab) {
+  activeTab.value = tab
+  router.replace({ query: tab === 'Channels' ? {} : { tab: tab.toLowerCase() } })
+}
 </script>
 
 <template>
@@ -21,13 +35,13 @@ const activeTab = ref<Tab>('Channels')
         </div>
 
         <!-- Tabs -->
-        <div class="border-t-border flex gap-0 border-b">
+        <div class="border-t-border flex gap-0 overflow-x-auto border-b">
           <button
             v-for="tab in tabs"
             :key="tab"
-            class="relative px-4 py-2 text-xs font-medium transition-colors"
+            class="relative whitespace-nowrap px-4 py-2 text-xs font-medium transition-colors"
             :class="activeTab === tab ? 'text-t-yellow' : 'text-t-fg-dark hover:text-t-fg'"
-            @click="activeTab = tab"
+            @click="selectTab(tab)"
           >
             {{ tab }}
             <span
@@ -40,6 +54,7 @@ const activeTab = ref<Tab>('Channels')
         <!-- Tab content -->
         <NotificationChannels v-if="activeTab === 'Channels'" />
         <NotificationRules v-else-if="activeTab === 'Rules'" />
+        <MuteRules v-else-if="activeTab === 'Mutes'" />
         <NotificationSummaries v-else-if="activeTab === 'Summaries'" />
         <NotificationLog v-else-if="activeTab === 'Log'" />
       </div>
