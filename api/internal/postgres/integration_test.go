@@ -487,6 +487,44 @@ func TestIntegration_MuteRuleLifecycle(t *testing.T) {
 	}
 }
 
+// TestIntegration_ListNetlogsExcludesMuted runs the hide_muted exclusion
+// against real Postgres: a row matching a rule's conjunction (with a
+// differently-cased search) is excluded, a row on the same host that misses
+// the search is kept, and a wildcard-host rule excludes by ILIKE.
+func TestIntegration_ListNetlogsExcludesMuted(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "netlog_events")
+	store := NewStore(pool)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	insertNetlogEvent(t, pool, now.Add(-3*time.Second), "leaf-02", "", 3, "bundle AE30 link down")
+	insertNetlogEvent(t, pool, now.Add(-2*time.Second), "leaf-02", "", 3, "bgp neighbor up")
+	insertNetlogEvent(t, pool, now.Add(-time.Second), "Edge-01", "", 3, "anything at all")
+
+	set := mute.NewSet(nil, func() time.Time { return now }, slog.New(slog.DiscardHandler))
+	set.Replace([]mute.Rule{
+		{ID: 1, Feed: mute.FeedNetlog, Hostname: "leaf-02", Search: "ae30", ExpiresAt: now.Add(time.Hour)},
+		{ID: 2, Feed: mute.FeedNetlog, Hostname: "edge*", ExpiresAt: now.Add(time.Hour)},
+	})
+
+	events, _, err := store.ListNetlogs(ctx, model.NetlogFilter{Exclude: set.Active().NetlogExclusions()}, nil, 100)
+	if err != nil {
+		t.Fatalf("ListNetlogs: %v", err)
+	}
+	if len(events) != 1 || events[0].Message != "bgp neighbor up" {
+		t.Fatalf("ListNetlogs with exclusions = %+v, want only the unmuted leaf-02 row", events)
+	}
+
+	all, _, err := store.ListNetlogs(ctx, model.NetlogFilter{}, nil, 100)
+	if err != nil {
+		t.Fatalf("ListNetlogs without exclusions: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("ListNetlogs without exclusions returned %d rows, want 3", len(all))
+	}
+}
+
 // listMuteRules lists the rules expiring after the given time and fails
 // unless their ids are exactly wantIDs, in order.
 func listMuteRules(t *testing.T, store *Store, expiresAfter time.Time, wantIDs ...int64) []mute.Rule {

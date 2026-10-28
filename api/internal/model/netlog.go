@@ -43,6 +43,11 @@ type NetlogFilter struct {
 	From        *time.Time
 	To          *time.Time
 
+	// Exclude holds the filters of the active mute rules when the list
+	// request asks for hide_muted. Handlers set it; it is never parsed from
+	// the query, and Matches ignores it.
+	Exclude []NetlogFilter
+
 	searchLower string // precomputed strings.ToLower(Search); empty means not set
 }
 
