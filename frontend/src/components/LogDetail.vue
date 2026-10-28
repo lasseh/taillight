@@ -193,9 +193,12 @@ function applyFilter(field: Field) {
       >
         {{ fieldValue(field) }}
       </button>
-      <span v-else class="min-w-0 break-all" :class="fieldColor(field)">{{
-        fieldValue(field)
-      }}</span>
+      <span
+        v-else
+        class="min-w-0"
+        :class="[fieldColor(field), field.key === 'received_at' ? 'break-words' : 'break-all']"
+        >{{ fieldValue(field) }}</span
+      >
     </div>
 
     <!-- message -->
