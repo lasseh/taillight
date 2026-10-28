@@ -2896,6 +2896,10 @@ components:
         raw_message:
           type: string
           description: Omitted entirely (not null) when the event has none
+        muted_by:
+          type: integer
+          format: int64
+          description: Id of the mute rule that matched the event. Omitted entirely (not null) when no active rule matches
 
     # ── Netlog ────────────────────────────────────────────────────────────
     NetlogEvent:
@@ -2940,6 +2944,10 @@ components:
         raw_message:
           type: string
           description: Omitted entirely (not null) when the event has none
+        muted_by:
+          type: integer
+          format: int64
+          description: Id of the mute rule that matched the event. Omitted entirely (not null) when no active rule matches
 
     # ── AppLog ────────────────────────────────────────────────────────────
     AppLogEvent:

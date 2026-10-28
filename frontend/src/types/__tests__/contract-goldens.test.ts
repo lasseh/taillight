@@ -54,6 +54,7 @@ const syslogEventKeys = [
   'structured_data',
   'message',
   'raw_message',
+  'muted_by',
 ] as const satisfies readonly (keyof SrvlogEvent)[] satisfies readonly (keyof NetlogEvent)[]
 
 const applogEventKeys = [
@@ -77,23 +78,28 @@ describe('event shape goldens', () => {
     const full: SrvlogEvent = srvlogEventGolden
     expect(full.id).toBe(1001)
     expect(full.structured_data).toBeTypeOf('string')
+    expect(full.muted_by).toBeTypeOf('number')
     expectOnlyKnownKeys(srvlogEventGolden, syslogEventKeys)
 
-    // Nil pointer fields (structured_data, raw_message) are omitted, not null.
+    // Nil pointer fields (structured_data, raw_message, muted_by) are
+    // omitted, not null.
     const minimal: SrvlogEvent = srvlogEventNilGolden
     expect(minimal.structured_data).toBeUndefined()
     expect(minimal.raw_message).toBeUndefined()
+    expect(minimal.muted_by).toBeUndefined()
     expectOnlyKnownKeys(srvlogEventNilGolden, syslogEventKeys)
   })
 
   it('NetlogEvent matches the golden wire shape', () => {
     const full: NetlogEvent = netlogEventGolden
     expect(full.id).toBe(2001)
+    expect(full.muted_by).toBeTypeOf('number')
     expectOnlyKnownKeys(netlogEventGolden, syslogEventKeys)
 
     const minimal: NetlogEvent = netlogEventNilGolden
     expect(minimal.structured_data).toBeUndefined()
     expect(minimal.raw_message).toBeUndefined()
+    expect(minimal.muted_by).toBeUndefined()
     expectOnlyKnownKeys(netlogEventNilGolden, syslogEventKeys)
   })
 

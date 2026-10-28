@@ -14,6 +14,8 @@ export interface SrvlogEvent {
   structured_data?: string
   message: string
   raw_message?: string
+  /** Id of the mute rule that matched; absent (never null) when unmuted. */
+  muted_by?: number
 }
 
 export interface SrvlogListResponse {
