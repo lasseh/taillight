@@ -194,14 +194,14 @@ func TestApplyNetlogFilterExclusions(t *testing.T) {
 // The whole point of the extraction: srvlog and netlog must produce identical
 // SQL for equivalent filters.
 func TestSrvlogNetlogFilterParity(t *testing.T) {
-	sev := 4
+	// Every field, so a slip in either field map shows up here.
+	net := fullNetlogFilter()
+	net.Exclude = []model.NetlogFilter{{Hostname: "fw-0*", Programname: "pf"}, {Search: "noise"}}
 	srv := model.SrvlogFilter{
-		Hostname: "fw*", FromhostIP: "10.0.0.2", Severity: &sev, Search: "deny",
+		Hostname: net.Hostname, FromhostIP: net.FromhostIP, Programname: net.Programname,
+		Severity: net.Severity, SeverityMax: net.SeverityMax, Facility: net.Facility,
+		SyslogTag: net.SyslogTag, MsgID: net.MsgID, Search: net.Search, From: net.From, To: net.To,
 		Exclude: []model.SrvlogFilter{{Hostname: "fw-0*", Programname: "pf"}, {Search: "noise"}},
-	}
-	net := model.NetlogFilter{
-		Hostname: "fw*", FromhostIP: "10.0.0.2", Severity: &sev, Search: "deny",
-		Exclude: []model.NetlogFilter{{Hostname: "fw-0*", Programname: "pf"}, {Search: "noise"}},
 	}
 
 	srvSQL, srvArgs, err := applySrvlogFilter(psq.Select("id").From("t"), srv).ToSql()

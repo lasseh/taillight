@@ -87,7 +87,7 @@ func applySyslogFilter(qb sq.SelectBuilder, f syslogFilterClause) sq.SelectBuild
 // excludeSyslog adds NOT (<conds>) for one mute rule, or nothing when f sets
 // no field. NOT is only correct because the columns a rule can match
 // (hostname, programname, message) are NOT NULL: on a NULL column the inner
-// condition would be NULL, NOT NULL is NULL, and the row would be dropped
+// condition would be NULL, NOT (NULL) is NULL, and the row would be dropped
 // instead of kept.
 func excludeSyslog(qb sq.SelectBuilder, f syslogFilterClause) sq.SelectBuilder {
 	conds := syslogConds(f)
