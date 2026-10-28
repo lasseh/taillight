@@ -118,22 +118,33 @@ func (s Snapshot) active(r *Rule, feed Feed) bool {
 // MatchNetlog returns a fresh pointer to the id of the lowest-id active
 // netlog rule matching e, or nil.
 func (s Snapshot) MatchNetlog(e model.NetlogEvent) *int64 {
-	for i := range s.rules {
-		r := &s.rules[i]
-		if s.active(r, FeedNetlog) && r.NetlogFilter().Matches(e) {
-			id := r.ID
-			return &id
-		}
-	}
-	return nil
+	return match(s, FeedNetlog, Rule.NetlogFilter, e)
 }
 
 // MatchSrvlog returns a fresh pointer to the id of the lowest-id active
 // srvlog rule matching e, or nil.
 func (s Snapshot) MatchSrvlog(e model.SrvlogEvent) *int64 {
+	return match(s, FeedSrvlog, Rule.SrvlogFilter, e)
+}
+
+// NetlogExclusions returns the filters of the active netlog rules, in id
+// order, or nil when there are none.
+func (s Snapshot) NetlogExclusions() []model.NetlogFilter {
+	return exclusions(s, FeedNetlog, Rule.NetlogFilter)
+}
+
+// SrvlogExclusions returns the filters of the active srvlog rules, in id
+// order, or nil when there are none.
+func (s Snapshot) SrvlogExclusions() []model.SrvlogFilter {
+	return exclusions(s, FeedSrvlog, Rule.SrvlogFilter)
+}
+
+// match returns a fresh pointer to the id of the lowest-id active rule of
+// feed whose filter, built by toFilter, matches e, or nil.
+func match[E any, F interface{ Matches(E) bool }](s Snapshot, feed Feed, toFilter func(Rule) F, e E) *int64 {
 	for i := range s.rules {
 		r := &s.rules[i]
-		if s.active(r, FeedSrvlog) && r.SrvlogFilter().Matches(e) {
+		if s.active(r, feed) && toFilter(*r).Matches(e) {
 			id := r.ID
 			return &id
 		}
@@ -141,25 +152,13 @@ func (s Snapshot) MatchSrvlog(e model.SrvlogEvent) *int64 {
 	return nil
 }
 
-// NetlogExclusions returns the filters of the active netlog rules, in id
-// order, or nil when there are none.
-func (s Snapshot) NetlogExclusions() []model.NetlogFilter {
-	var out []model.NetlogFilter
+// exclusions returns the filters, built by toFilter, of the active rules of
+// feed, in id order, or nil when there are none.
+func exclusions[F any](s Snapshot, feed Feed, toFilter func(Rule) F) []F {
+	var out []F
 	for i := range s.rules {
-		if r := &s.rules[i]; s.active(r, FeedNetlog) {
-			out = append(out, r.NetlogFilter())
-		}
-	}
-	return out
-}
-
-// SrvlogExclusions returns the filters of the active srvlog rules, in id
-// order, or nil when there are none.
-func (s Snapshot) SrvlogExclusions() []model.SrvlogFilter {
-	var out []model.SrvlogFilter
-	for i := range s.rules {
-		if r := &s.rules[i]; s.active(r, FeedSrvlog) {
-			out = append(out, r.SrvlogFilter())
+		if r := &s.rules[i]; s.active(r, feed) {
+			out = append(out, toFilter(*r))
 		}
 	}
 	return out
