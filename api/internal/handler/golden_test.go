@@ -86,6 +86,7 @@ func goldenSrvlogEvent() model.SrvlogEvent {
 		StructuredData: goldenPtr(`[timeQuality tzKnown="1" isSynced="1"]`),
 		Message:        "Failed password for invalid user admin from 198.51.100.7 port 52344 ssh2",
 		RawMessage:     goldenPtr("<38>Jun 15 12:00:00 web01 sshd[4242]: Failed password"),
+		MutedBy:        goldenPtr(int64(12)),
 	}
 }
 
@@ -106,6 +107,7 @@ func goldenNetlogEvent() model.NetlogEvent {
 		StructuredData: goldenPtr(`[junos@2636.1.1.1.2.29 peer-name="203.0.113.9"]`),
 		Message:        "BGP peer 203.0.113.9 (External AS 64511) changed state from Established to Idle",
 		RawMessage:     goldenPtr("<187>Jun 15 12:00:00 edge-rtr01 rpd[1523]: RPD_BGP_NEIGHBOR_STATE_CHANGED"),
+		MutedBy:        goldenPtr(int64(12)),
 	}
 }
 
@@ -135,6 +137,7 @@ func TestGoldenEventShapes(t *testing.T) {
 	srvlogNil := goldenSrvlogEvent()
 	srvlogNil.StructuredData = nil
 	srvlogNil.RawMessage = nil
+	srvlogNil.MutedBy = nil
 	checkGolden(t, "srvlog_event_nil_fields.json", srvlogNil)
 
 	checkGolden(t, "netlog_event.json", goldenNetlogEvent())
@@ -142,6 +145,7 @@ func TestGoldenEventShapes(t *testing.T) {
 	netlogNil := goldenNetlogEvent()
 	netlogNil.StructuredData = nil
 	netlogNil.RawMessage = nil
+	netlogNil.MutedBy = nil
 	checkGolden(t, "netlog_event_nil_fields.json", netlogNil)
 
 	checkGolden(t, "applog_event.json", goldenAppLogEvent())
