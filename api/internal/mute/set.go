@@ -16,6 +16,10 @@ import (
 // through the API reload immediately; the tick covers anything else.
 const refreshInterval = 30 * time.Second
 
+// tickReloadTimeout bounds each tick's reload, as the write path bounds its
+// own, so a stalled store cannot hold reloadMu and stall API writes behind it.
+const tickReloadTimeout = 5 * time.Second
+
 // Store loads mute rules. *postgres.Store satisfies it.
 type Store interface {
 	ListMuteRules(ctx context.Context, expiresAfter time.Time) ([]Rule, error)
@@ -72,7 +76,10 @@ func (s *Set) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.Reload(ctx); err != nil {
+			reloadCtx, cancel := context.WithTimeout(ctx, tickReloadTimeout)
+			err := s.Reload(reloadCtx)
+			cancel()
+			if err != nil {
 				s.logger.Warn("mute rule reload failed", "err", err)
 			}
 		}

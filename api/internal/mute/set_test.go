@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/lasseh/taillight/internal/model"
@@ -229,4 +230,45 @@ func TestSetReload(t *testing.T) {
 	if got := set.MatchNetlog(ev); got == nil || *got != 1 {
 		t.Fatalf("MatchNetlog after failed Reload = %v, want 1 (last good rules)", idOf(got))
 	}
+}
+
+// stalledStore's list blocks until its context is done, like a stalled pool
+// acquire, then reports how long it blocked.
+type stalledStore struct{ blocked chan time.Duration }
+
+func (s stalledStore) ListMuteRules(ctx context.Context, _ time.Time) ([]Rule, error) {
+	start := time.Now()
+	<-ctx.Done()
+	s.blocked <- time.Since(start)
+	return nil, ctx.Err()
+}
+
+// A stalled store must not hold a tick's reload, and with it the reload lock
+// that write-triggered reloads wait on, past the tick reload timeout.
+func TestRunBoundsTickReload(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := stalledStore{blocked: make(chan time.Duration, 1)}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() {
+			NewSet(store, time.Now, discard).Run(ctx)
+			close(done)
+		}()
+		defer func() {
+			cancel()
+			<-done
+		}()
+
+		time.Sleep(refreshInterval + tickReloadTimeout)
+		synctest.Wait()
+
+		select {
+		case d := <-store.blocked:
+			if d != tickReloadTimeout {
+				t.Fatalf("tick reload blocked %v, want %v", d, tickReloadTimeout)
+			}
+		default:
+			t.Fatalf("tick reload still blocked %v after the tick, want it bounded by %v", tickReloadTimeout, tickReloadTimeout)
+		}
+	})
 }
