@@ -521,6 +521,7 @@ paths:
         - $ref: "#/components/parameters/To"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/HideMuted"
       responses:
         "200":
           description: Paginated srvlog events
@@ -605,7 +606,8 @@ paths:
       summary: Export srvlog events as CSV
       description: |
         Streams up to 100 000 matching events as CSV. `from` and `to` are
-        required and must span at most 30 days.
+        required and must span at most 30 days. Events matching an active
+        mute rule are always included; there is no `hide_muted` here.
       parameters:
         - $ref: "#/components/parameters/SrvlogHostname"
         - $ref: "#/components/parameters/SrvlogProgramname"
@@ -823,6 +825,7 @@ paths:
         - $ref: "#/components/parameters/To"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/HideMuted"
       responses:
         "200":
           description: Paginated netlog events
@@ -951,7 +954,8 @@ paths:
       summary: Export netlog events as CSV
       description: |
         Streams up to 100 000 matching events as CSV. `from` and `to` are
-        required and must span at most 30 days.
+        required and must span at most 30 days. Events matching an active
+        mute rule are always included; there is no `hide_muted` here.
       parameters:
         - $ref: "#/components/parameters/SrvlogHostname"
         - $ref: "#/components/parameters/SrvlogProgramname"
@@ -2547,6 +2551,20 @@ components:
         minimum: 1
         maximum: 1000
         default: 100
+
+    HideMuted:
+      name: hide_muted
+      in: query
+      schema:
+        type: boolean
+        default: false
+      description: |
+        When true, events matching an active mute rule are excluded in the
+        query, so `limit` pages stay full; `cursor` and `has_more` work as
+        usual. When false or absent, they are included and carry
+        `muted_by`. Rows normally come back without `muted_by` when true,
+        but a client that hides must still drop any row that has it.
+        Values follow Go's strconv.ParseBool; anything else is a 400.
 
     Search:
       name: search

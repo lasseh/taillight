@@ -147,16 +147,29 @@ export function createEventStore<TEvent extends { id: number; muted_by?: number 
     })
 
     let _abortController: AbortController | null = null
+    // Bumped by each load that passes the guards; a load whose number is no
+    // longer current has been superseded and must not touch `loading`.
+    let _loadSeq = 0
 
-    async function loadHistory(reset = false, wrapMerge?: (mutate: () => void) => void) {
-      if (loading.value) return
-      if (!reset && !hasMore.value) return
+    /**
+     * Fetch a page of history. A reset load (enter(): first load, filter or
+     * show-muted change) supersedes one in flight, so the buffer always ends
+     * up loaded for the current filters and mode; a page-back load waits.
+     * Resolves to false when the load did not run or a newer one superseded it.
+     */
+    async function loadHistory(
+      reset = false,
+      wrapMerge?: (mutate: () => void) => void,
+    ): Promise<boolean> {
+      if (loading.value && !reset) return false
+      if (!reset && !hasMore.value) return false
 
       if (_abortController) {
         _abortController.abort()
       }
       _abortController = new AbortController()
       const signal = _abortController.signal
+      const seq = ++_loadSeq
 
       loading.value = true
       error.value = null
@@ -174,24 +187,35 @@ export function createEventStore<TEvent extends { id: number; muted_by?: number 
         if (cursor.value) {
           params.set('cursor', cursor.value)
         }
+        if (!showMuted.value) {
+          params.set('hide_muted', 'true')
+        }
 
         const res = await config.fetchEvents(params, signal)
+        // Aborted by a newer load, clear() or reset(): a response already in
+        // hand must not land.
+        if (signal.aborted) return seq === _loadSeq
         // API returns events in DESC order; reverse to chronological for display.
         const reversed = [...res.data].reverse()
 
         for (const e of reversed) {
           _knownIds.add(e.id)
         }
+        // Safety net: while hiding at response time, drop rows that still
+        // came back marked (SQL ILIKE and the Go matcher can disagree on
+        // non-ASCII case folding). Their ids stay known so SSE doesn't re-add
+        // them, and they don't count as hidden.
+        const page = showMuted.value ? reversed : reversed.filter((e) => e.muted_by == null)
 
         if (reset) {
-          events.value = reversed.length > MAX_EVENTS ? reversed.slice(-MAX_EVENTS) : reversed
+          events.value = page.length > MAX_EVENTS ? page.slice(-MAX_EVENTS) : page
         } else {
           const merge = () => {
             // Scrollback mode: prepend without trimming. The buffer holds the
             // complete chronological window from the oldest paged-back event
             // through the live tail. Re-attach to live (reattach()) trims it
             // back to MAX_EVENTS.
-            events.value = [...reversed, ...events.value]
+            events.value = [...page, ...events.value]
           }
           // wrapMerge lets the caller preserve scroll position when prepending
           // older events (see EventTable.preserveScrollForPrepend).
@@ -213,11 +237,13 @@ export function createEventStore<TEvent extends { id: number; muted_by?: number 
           hasMore.value = res.has_more
         }
       } catch (e) {
-        if (signal.aborted) return
+        if (signal.aborted) return seq === _loadSeq
         error.value = e instanceof Error ? e.message : 'failed to load events'
       } finally {
-        loading.value = false
+        // A newer load owns the flag until it settles.
+        if (seq === _loadSeq) loading.value = false
       }
+      return true
     }
 
     /**
@@ -253,8 +279,9 @@ export function createEventStore<TEvent extends { id: number; muted_by?: number 
       _droppedWhileDetached = false
       hiddenMutedCount.value = 0
 
-      await loadHistory(true)
-      _initialLoadComplete.value = true
+      // A superseded enter leaves the flag to the enter that replaced it, so
+      // live events wait for the load that will actually land.
+      if (await loadHistory(true)) _initialLoadComplete.value = true
     }
 
     /**

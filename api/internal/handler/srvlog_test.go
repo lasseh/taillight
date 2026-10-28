@@ -86,7 +86,7 @@ func TestSrvlogList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewSrvlogHandler(tt.store)
+			h := NewSrvlogHandler(tt.store, markRules())
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/srvlog", nil)
 			rec := httptest.NewRecorder()
 
@@ -151,7 +151,7 @@ func TestSrvlogGet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewSrvlogHandler(tt.store)
+			h := NewSrvlogHandler(tt.store, markRules())
 
 			r := chi.NewRouter()
 			r.Get("/srvlog/{id}", h.Get)

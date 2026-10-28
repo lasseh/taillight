@@ -176,6 +176,33 @@ func TestParseLimit(t *testing.T) {
 	}
 }
 
+func TestParseHideMuted(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		want    bool
+		wantErr bool
+	}{
+		{"absent is false", "", false, false},
+		{"true", "hide_muted=true", true, false},
+		{"1", "hide_muted=1", true, false},
+		{"false", "hide_muted=false", false, false},
+		{"0", "hide_muted=0", false, false},
+		{"garbage is an error", "hide_muted=yes", false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseHideMuted(&http.Request{URL: &url.URL{RawQuery: tt.query}})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseHideMuted() err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("ParseHideMuted() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseSrvlogFilter_Valid(t *testing.T) {
 	tests := []struct {
 		name  string
