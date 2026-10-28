@@ -51,9 +51,10 @@ type Rule struct {
 	ExpiresAt   time.Time `json:"expires_at"`
 }
 
-// Validate checks the feed, that at least one match field is set, and the
-// field lengths. A hostname made only of '*' counts as unset: it would match
-// every host, so a hostname-only "*" rule would mute the whole feed.
+// Validate checks the feed, that at least one match field is set, the field
+// lengths, and that no field holds a NUL byte, which Postgres text cannot
+// store. A hostname made only of '*' counts as unset: it would match every
+// host, so a hostname-only "*" rule would mute the whole feed.
 func (r Rule) Validate() error {
 	switch r.Feed {
 	case FeedNetlog, FeedSrvlog:
@@ -72,6 +73,9 @@ func (r Rule) Validate() error {
 	} {
 		if len(f.value) > maxFieldLen {
 			return fmt.Errorf("%s must be at most %d bytes", f.name, maxFieldLen)
+		}
+		if strings.ContainsRune(f.value, 0) {
+			return fmt.Errorf("%s must not contain a NUL byte", f.name)
 		}
 	}
 	if strings.TrimSpace(r.Reason) == "" {

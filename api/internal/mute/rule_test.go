@@ -70,6 +70,10 @@ func TestRuleValidate(t *testing.T) {
 		{name: "search over 500 bytes", mutate: func(r *Rule) { r.Search = long }, wantErr: true},
 		{name: "reason over 500 bytes", mutate: func(r *Rule) { r.Reason = long }, wantErr: true},
 		{name: "multibyte search over 500 bytes", mutate: func(r *Rule) { r.Search = strings.Repeat("æ", 251) }, wantErr: true},
+		{name: "NUL in hostname", mutate: func(r *Rule) { r.Hostname = "edge\x001" }, wantErr: true},
+		{name: "NUL in programname", mutate: func(r *Rule) { r.Programname = "rpd\x00" }, wantErr: true},
+		{name: "NUL in search", mutate: func(r *Rule) { r.Search = "\x00" }, wantErr: true},
+		{name: "NUL in reason", mutate: func(r *Rule) { r.Reason = "known\x00flap" }, wantErr: true},
 		{name: "bad feed", mutate: func(r *Rule) { r.Feed = "applog" }, wantErr: true},
 		{name: "empty feed", mutate: func(r *Rule) { r.Feed = "" }, wantErr: true},
 	}

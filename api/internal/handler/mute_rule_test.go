@@ -207,6 +207,7 @@ func TestMuteRuleCreate_Rejects(t *testing.T) {
 		{name: "blank reason", body: `{"feed":"netlog","hostname":"x","reason":"  "}`, wantCode: "validation_failed"},
 		{name: "bad feed", body: `{"feed":"applog","hostname":"x","reason":"r"}`, wantCode: "validation_failed"},
 		{name: "hostname over 500 bytes", body: `{"feed":"netlog","hostname":"` + strings.Repeat("h", 501) + `","reason":"r"}`, wantCode: "validation_failed"},
+		{name: "NUL in search", body: `{"feed":"netlog","search":"a\u0000b","reason":"r"}`, wantCode: "validation_failed"},
 		{name: "malformed json", body: `{"feed":`, wantCode: "invalid_json"},
 		{name: "duration as a string", body: `{"feed":"netlog","hostname":"x","reason":"r","duration_ms":"1h"}`, wantCode: "invalid_json"},
 	}
