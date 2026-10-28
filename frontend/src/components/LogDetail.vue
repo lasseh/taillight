@@ -151,10 +151,13 @@ function applyFilter(field: Field) {
       </RouterLink>
     </div>
 
-    <!-- muted-by indicator, for everyone; the id may point at a rule that has since ended -->
+    <!-- muted-by indicator, for everyone; the id may point at a rule that has since ended.
+         The admin icons are taller than one row, so this row and the time row
+         below both keep clear of them. -->
     <div
       v-if="event.muted_by != null"
       class="flex gap-2 py-0.5 text-sm"
+      :class="{ 'pr-16': isAdmin }"
       :data-copytext="`muted: rule #${event.muted_by}`"
     >
       <span class="w-24 shrink-0" />
