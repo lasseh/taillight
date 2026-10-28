@@ -25,7 +25,7 @@ const MAX_EVENTS_DETACHED = 10_000
 // the live allowance.
 const DETACHED_SSE_APPEND_LIMIT = 500
 
-interface EventStoreConfig<TEvent extends { id: number }> {
+interface EventStoreConfig<TEvent extends { id: number; muted_by?: number }> {
   /** Pinia store identifier. */
   id: string
   /** Route name to watch for filter changes. */
@@ -46,12 +46,20 @@ interface EventStoreConfig<TEvent extends { id: number }> {
   useFilterStore: () => { activeFilters: Record<string, string> }
   /** Client-side filter for SSE events. */
   matchesFilters: (event: TEvent, filters: Record<string, string>) => boolean
+  /**
+   * Get the persisted "show muted events" state. While it is false, live
+   * events marked muted_by are dropped and counted. Omitted, the feed never
+   * hides anything.
+   */
+  showMuted?: () => Ref<boolean>
 }
 
 /**
  * Creates a Pinia event store with SSE subscription, deduplication, and cursor-based pagination.
  */
-export function createEventStore<TEvent extends { id: number }>(config: EventStoreConfig<TEvent>) {
+export function createEventStore<TEvent extends { id: number; muted_by?: number }>(
+  config: EventStoreConfig<TEvent>,
+) {
   return defineStore(config.id, () => {
     const route = useRoute()
 
@@ -75,6 +83,11 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
     let _detachedAppends = 0
     let _droppedWhileDetached = false
 
+    const showMuted = config.showMuted?.() ?? ref(true)
+    // Live SSE events dropped as muted since the last enter/clear/reset.
+    // History rows excluded server-side are not counted.
+    const hiddenMutedCount = ref(0)
+
     // Subscribe to the global SSE stream.
     const stream = config.useStream()
 
@@ -96,6 +109,13 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
         for (let i = 0; i < 5000; i++) {
           _knownIds.delete(iter.next().value!)
         }
+      }
+      // After the dedup so a re-emitted muted event is counted once; before
+      // the pinned branch so muted drops neither tick the "N new" pill nor
+      // use up the detached append allowance.
+      if (!showMuted.value && event.muted_by != null) {
+        hiddenMutedCount.value++
+        return
       }
       if (scrollStore.isPinned(config.routeName)) {
         // Live-tail: append with cap, oldest trimmed.
@@ -217,6 +237,7 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
       _initialLoadComplete.value = false
       _detachedAppends = 0
       _droppedWhileDetached = false
+      hiddenMutedCount.value = 0
       error.value = null
     }
 
@@ -230,6 +251,7 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
       _initialLoadComplete.value = false
       _detachedAppends = 0
       _droppedWhileDetached = false
+      hiddenMutedCount.value = 0
 
       await loadHistory(true)
       _initialLoadComplete.value = true
@@ -288,12 +310,17 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
       _knownIds.clear()
       _detachedAppends = 0
       _droppedWhileDetached = false
+      hiddenMutedCount.value = 0
       scrollStore.setPinned(config.routeName, true)
     }
 
-    // Reconnect / refetch when filters change.
+    function toggleMuted() {
+      showMuted.value = !showMuted.value
+    }
+
+    // Reconnect / refetch when filters or the show-muted state change.
     const _stopFilterWatch = watch(
-      activeFilters,
+      [activeFilters, showMuted],
       () => {
         if (route.name === config.routeName) {
           enter()
@@ -336,11 +363,14 @@ export function createEventStore<TEvent extends { id: number }>(config: EventSto
       hasMore,
       atCap,
       connected: stream.connected,
+      showMuted,
+      hiddenMutedCount,
       enter,
       loadHistory,
       reattach,
       reset,
       clear,
+      toggleMuted,
     }
   })
 }
