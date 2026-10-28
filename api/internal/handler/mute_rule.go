@@ -47,8 +47,8 @@ func NewMuteRuleHandler(store MuteRuleStore, mutes MuteReloader, now func() time
 }
 
 // muteRuleCreate is the POST body. It is a dedicated type so that id,
-// created_by and expires_at sent by a client are dropped, and so that an
-// unknown duration key cannot silently become the default.
+// created_by and expires_at sent by a client are dropped. An omitted
+// duration_ms means the 24h default.
 type muteRuleCreate struct {
 	Feed        string `json:"feed"`
 	Hostname    string `json:"hostname"`
@@ -58,9 +58,10 @@ type muteRuleCreate struct {
 	DurationMS  int64  `json:"duration_ms"`
 }
 
-// muteRuleExpiry is the PATCH body.
+// muteRuleExpiry is the PATCH body. duration_ms is required, so a misspelled
+// key is a 400 and cannot re-time a rule to the 24h default.
 type muteRuleExpiry struct {
-	DurationMS int64 `json:"duration_ms"`
+	DurationMS *int64 `json:"duration_ms"`
 }
 
 // List handles GET /api/v1/mute-rules: active rules plus rules that ended in
@@ -123,7 +124,11 @@ func (h *MuteRuleHandler) ExpireIn(w http.ResponseWriter, r *http.Request) {
 	if !decodeMuteBody(w, r, &in) {
 		return
 	}
-	expiresAt, err := mute.ExpiresAt(h.now(), in.DurationMS)
+	if in.DurationMS == nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "duration_ms is required")
+		return
+	}
+	expiresAt, err := mute.ExpiresAt(h.now(), *in.DurationMS)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
 		return

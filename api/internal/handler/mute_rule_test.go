@@ -301,10 +301,10 @@ func TestMuteRuleExpireIn_RetimesAndRevives(t *testing.T) {
 	}
 }
 
-func TestMuteRuleExpireIn_OmittedDurationIs24h(t *testing.T) {
+func TestMuteRuleExpireIn_ZeroDurationIs24h(t *testing.T) {
 	f := newMuteFixture()
 	wantStatus(t, f.do(t, http.MethodPost, "", spaBody), http.StatusCreated)
-	rec := f.do(t, http.MethodPatch, "/1", `{}`)
+	rec := f.do(t, http.MethodPatch, "/1", `{"duration_ms":0}`)
 	wantStatus(t, rec, http.StatusOK)
 	if got := decodeMuteRule(t, rec).ExpiresAt; !got.Equal(muteT0.Add(24 * time.Hour)) {
 		t.Fatalf("expires_at = %v, want now+24h", got)
@@ -321,6 +321,9 @@ func TestMuteRuleExpireIn_Errors(t *testing.T) {
 		{name: "unknown id", path: "/999", body: `{"duration_ms":1000}`, wantStatus: http.StatusNotFound, wantCode: "not_found"},
 		{name: "malformed id", path: "/abc", body: `{"duration_ms":1000}`, wantStatus: http.StatusBadRequest, wantCode: "invalid_id"},
 		{name: "duration over 7d", path: "/1", body: `{"duration_ms":604800001}`, wantStatus: http.StatusBadRequest, wantCode: "validation_failed"},
+		{name: "duration omitted", path: "/1", body: `{}`, wantStatus: http.StatusBadRequest, wantCode: "validation_failed"},
+		{name: "duration key misspelled", path: "/1", body: `{"duration":60000}`, wantStatus: http.StatusBadRequest, wantCode: "validation_failed"},
+		{name: "duration null", path: "/1", body: `{"duration_ms":null}`, wantStatus: http.StatusBadRequest, wantCode: "validation_failed"},
 		{name: "malformed json", path: "/1", body: `{`, wantStatus: http.StatusBadRequest, wantCode: "invalid_json"},
 	}
 	for _, tt := range tests {

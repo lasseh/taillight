@@ -3979,13 +3979,14 @@ components:
 
     MuteRuleExpiry:
       type: object
+      required: [duration_ms]
       properties:
         duration_ms:
           type: integer
           format: int64
           minimum: 0
           maximum: 604800000
-          description: New lifetime from server now, in milliseconds. Omitted or 0 means 24h; otherwise 1 to 604800000 (7 days). Anything else is a 400.
+          description: New lifetime from server now, in milliseconds. Required; 0 means 24h, otherwise 1 to 604800000 (7 days). Anything else, or an omitted key, is a 400.
 
     NetboxEntity:
       type: object
