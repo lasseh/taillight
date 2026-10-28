@@ -55,6 +55,8 @@ tags:
     description: Taillight internal metrics
   - name: Notifications
     description: Alert channels, rules, summary schedules, and delivery log
+  - name: Mute Rules
+    description: Time-boxed rules that mark matching netlog/srvlog events as muted
   - name: Netbox
     description: Netbox enrichment lookups (routes registered only when Netbox is configured)
   - name: Device
@@ -1888,6 +1890,116 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Mute rules ─────────────────────────────────────────────────────────
+  /mute-rules:
+    get:
+      operationId: listMuteRules
+      x-required-scope: read
+      tags: [Mute Rules]
+      summary: List mute rules
+      description: |
+        Active rules plus rules that ended within the last 7 days, ordered
+        `expires_at` DESC, `id` DESC. A rule is active while server time is
+        before `expires_at`. `data` is never null.
+      responses:
+        "200":
+          description: Mute rule list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MuteRule"
+    post:
+      operationId: createMuteRule
+      x-required-scope: admin
+      tags: [Mute Rules]
+      summary: Create mute rule
+      description: |
+        Strings are trimmed before validation. The server sets
+        `expires_at = now + duration_ms` and takes `created_by` from the
+        authenticated user; `id`, `created_by`, `created_at` and
+        `expires_at` in the body are ignored. The in-memory rule set is
+        reloaded before the response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MuteRuleCreate"
+      responses:
+        "201":
+          description: Mute rule created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/MuteRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /mute-rules/{id}:
+    patch:
+      operationId: expireMuteRuleIn
+      x-required-scope: admin
+      tags: [Mute Rules]
+      summary: Set a mute rule to expire in a duration
+      description: |
+        Sets `expires_at = now + duration_ms` on any existing rule: it
+        extends or shortens an active rule and revives an ended one. `id`,
+        `created_by` and `created_at` are unchanged.
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MuteRuleExpiry"
+      responses:
+        "200":
+          description: Mute rule updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/MuteRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: unmuteMuteRule
+      x-required-scope: admin
+      tags: [Mute Rules]
+      summary: Unmute (end a mute rule)
+      description: |
+        Ends the rule: `expires_at = min(expires_at, now)`. The row is kept
+        and listed as ended for 7 days. A repeat call returns 204 and does
+        nothing.
+      parameters:
+        - $ref: "#/components/parameters/IntID"
+      responses:
+        "204":
+          description: Mute rule ended
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ── Device ─────────────────────────────────────────────────────────────
   /applog/device/{hostname}:
@@ -3776,6 +3888,78 @@ components:
           items:
             type: integer
             format: int64
+
+    # ── Mute rules ────────────────────────────────────────────────────────
+    MuteRule:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        feed:
+          type: string
+          enum: [netlog, srvlog]
+        hostname:
+          type: string
+          description: Exact, case-sensitive match; a case-insensitive glob when it contains `*`. Empty means not matched on.
+        programname:
+          type: string
+          description: Exact match. Empty means not matched on.
+        search:
+          type: string
+          description: Case-insensitive substring of the message. Empty means not matched on.
+        reason:
+          type: string
+        created_by:
+          type: string
+          description: Username at creation time (the key owner for an API key)
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: The rule is active while server time is before this.
+
+    MuteRuleCreate:
+      type: object
+      required: [feed, reason]
+      description: |
+        At least one of `hostname`, `programname` or `search` must be
+        non-empty after trimming; a hostname made only of `*` counts as
+        empty. Match fields and `reason` are at most 500 bytes.
+      properties:
+        feed:
+          type: string
+          enum: [netlog, srvlog]
+        hostname:
+          type: string
+          maxLength: 500
+        programname:
+          type: string
+          maxLength: 500
+        search:
+          type: string
+          maxLength: 500
+        reason:
+          type: string
+          maxLength: 500
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 604800000
+          description: Rule lifetime from server now, in milliseconds. Omitted or 0 means 24h; otherwise 1 to 604800000 (7 days). Anything else is a 400.
+
+    MuteRuleExpiry:
+      type: object
+      properties:
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 604800000
+          description: New lifetime from server now, in milliseconds. Omitted or 0 means 24h; otherwise 1 to 604800000 (7 days). Anything else is a 400.
 
     NetboxEntity:
       type: object
