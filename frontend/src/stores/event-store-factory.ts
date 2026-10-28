@@ -255,6 +255,10 @@ export function createEventStore<TEvent extends { id: number; muted_by?: number 
         _abortController.abort()
         _abortController = null
       }
+      // Supersede the in-flight load so its enter() doesn't mark the
+      // initial load complete; it no longer clears `loading`, so do it here.
+      _loadSeq++
+      loading.value = false
       events.value = []
       cursor.value = null
       hasMore.value = false

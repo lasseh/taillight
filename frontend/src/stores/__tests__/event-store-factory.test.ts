@@ -231,6 +231,28 @@ describe('createEventStore', () => {
     expect(store.loading).toBe(false)
   })
 
+  it('reset() during the first load leaves live events waiting for the next enter()', async () => {
+    const { calls, fetchEvents } = deferredFetch()
+    const { useStore, emit } = makeStore(fetchEvents)
+    const store = useStore()
+
+    void store.enter()
+    store.reset()
+    calls[0]!.resolve({ data: [{ id: 1, message: 'late' }], has_more: false })
+    await flushPromises()
+
+    // A live event must not refill the buffer, or the list view's
+    // empty-buffer check skips enter() and the feed never loads history.
+    emit({ id: 2, message: 'live' })
+    expect(store.events).toEqual([])
+
+    void store.enter()
+    calls[1]!.resolve({ data: [{ id: 3, message: 'history' }], has_more: false })
+    await flushPromises()
+    expect(store.events.map((e) => e.id)).toEqual([3])
+    expect(store.loading).toBe(false)
+  })
+
   it('clear() during the first load discards the late response and keeps live streaming', async () => {
     const { calls, fetchEvents } = deferredFetch()
     const { useStore, emit } = makeStore(fetchEvents)
