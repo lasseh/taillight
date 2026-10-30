@@ -1169,6 +1169,36 @@ func TestNew_ResolvesHost(t *testing.T) {
 	}
 }
 
+// JSON encoding turns each invalid byte into a 3-byte U+FFFD, so a field that
+// passes the byte caps in New could still exceed them at the server.
+func TestHandler_InvalidUTF8FieldsStayUnderIngestCaps(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	invalid := strings.Repeat("\xff", 100)
+	h := mustNew(t, Config{
+		Endpoint: endpoint, APIKey: "k", FlushPeriod: time.Hour,
+		Service: invalid, Component: invalid, Host: strings.Repeat("\xff", 200),
+	})
+
+	slog.New(h).Info("m")
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	if len(got[0].Service) > maxServiceBytes {
+		t.Errorf("service is %d bytes after encoding, cap is %d", len(got[0].Service), maxServiceBytes)
+	}
+	if len(got[0].Component) > maxComponentBytes {
+		t.Errorf("component is %d bytes after encoding, cap is %d", len(got[0].Component), maxComponentBytes)
+	}
+	if len(got[0].Host) > maxHostBytes {
+		t.Errorf("host is %d bytes after encoding, cap is %d", len(got[0].Host), maxHostBytes)
+	}
+}
+
 func TestNew_RejectsOverLengthFields(t *testing.T) {
 	tests := []struct {
 		name    string

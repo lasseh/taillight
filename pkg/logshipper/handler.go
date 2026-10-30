@@ -194,6 +194,12 @@ func (c *Config) setDefaults() error {
 		c.SendTimeout = defaultSendTimeout
 	}
 
+	// Invalid bytes are replaced before the length checks: JSON encoding would
+	// otherwise turn each one into a 3-byte U+FFFD after them, and the server
+	// measures the decoded field.
+	c.Service = strings.ToValidUTF8(c.Service, string(utf8.RuneError))
+	c.Component = strings.ToValidUTF8(c.Component, string(utf8.RuneError))
+
 	if c.Service == "" {
 		return errors.New("service is required: the ingest API rejects entries with an empty service")
 	}
@@ -227,6 +233,7 @@ func (c *Config) setDefaults() error {
 		}
 		c.Host = host
 	}
+	c.Host = strings.ToValidUTF8(c.Host, string(utf8.RuneError))
 	if len(c.Host) > maxHostBytes {
 		return fmt.Errorf("host is %d bytes: the ingest API rejects entries over %d", len(c.Host), maxHostBytes)
 	}

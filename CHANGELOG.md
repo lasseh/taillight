@@ -207,6 +207,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 - App log ingest replaces NUL bytes in entry fields and attrs with U+FFFD. Postgres cannot store them, so one such entry used to fail the whole batch insert with a 500
 - `pkg/logshipper`: group attrs are no longer written into a `map[string]any` attr with the same key as a later `WithGroup`. That mutated the caller's map and could crash with a concurrent map write. A key used as both a value and a group keeps both: the value moves into the group as `_value`
 - `pkg/logshipper`: group attrs that share a key merge instead of the last one replacing the rest
+- `pkg/logshipper`: invalid UTF-8 in `Service`, `Component` and `Host` is replaced before the length checks in `New`. JSON encoding could otherwise take a field over the ingest API's cap after `New` accepted it, and every batch would be rejected
 - `pkg/logshipper`: a flush makes one request while the endpoint is failing, so an unreachable endpoint costs one `SendTimeout` per flush instead of two. The batch that was due waits for the next flush and gets one send. The shutdown drain still sends it
 - `pkg/logshipper`: the shutdown drain writes a warning to stderr when its context expires with entries unsent
 - `taillight-shipper` logs entries that failed to ship at shutdown, not just dropped ones
