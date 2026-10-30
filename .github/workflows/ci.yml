@@ -33,6 +33,12 @@ jobs:
         with:
           version: latest
           working-directory: api
+          # make lint also lints pkg/logshipper, a separate module the action
+          # would not reach on its own.
+          install-only: true
+
+      - name: Run linter
+        run: make lint
 
       - name: Run tests
         run: make test
