@@ -378,9 +378,8 @@ class TestTaillightHandler(unittest.TestCase):
             TaillightHandler(endpoint="http://127.0.0.1:1/ingest")
 
     def test_empty_resolved_host_raises(self):
-        with mock.patch("socket.gethostname", return_value=""):
-            with self.assertRaises(ValueError) as ctx:
-                TaillightHandler(endpoint="http://127.0.0.1:1/ingest", service="svc")
+        with mock.patch("socket.gethostname", return_value=""), self.assertRaises(ValueError) as ctx:
+            TaillightHandler(endpoint="http://127.0.0.1:1/ingest", service="svc")
         self.assertIn("host is required", str(ctx.exception))
 
     def test_explicit_host_skips_lookup(self):
