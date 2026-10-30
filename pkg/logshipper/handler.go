@@ -879,7 +879,12 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 			v = s[:h.cfg.MaxAttrBytes] + truncationSuffix
 		}
 	}
-	groupMap(m, groups)[a.Key] = v
+	target := groupMap(m, groups)
+	if sub, ok := target[a.Key].(attrGroup); ok {
+		sub[groupValueKey] = v
+		return
+	}
+	target[a.Key] = v
 }
 
 // attrGroup is a group's attrs. Its own type keeps it apart from a
@@ -887,14 +892,21 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 // written to.
 type attrGroup map[string]any
 
+// groupValueKey holds a value whose key is also a group, inside that group:
+// one JSON key cannot be both.
+const groupValueKey = "_value"
+
 // groupMap returns the map at the group path below m, creating the maps on
-// the path as needed. A key that holds anything but a group is replaced: one
-// JSON key cannot be both a value and a group.
+// the path as needed. A value already at a key on the path moves into the new
+// group under groupValueKey.
 func groupMap(m map[string]any, groups []string) map[string]any {
 	for _, g := range groups {
 		sub, ok := m[g].(attrGroup)
 		if !ok {
 			sub = make(attrGroup)
+			if v, exists := m[g]; exists {
+				sub[groupValueKey] = v
+			}
 			m[g] = sub
 		}
 		m = sub

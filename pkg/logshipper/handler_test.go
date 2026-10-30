@@ -922,8 +922,53 @@ func TestHandler_WithGroupDoesNotWriteIntoCallerMap(t *testing.T) {
 	if len(got) != 8 {
 		t.Fatalf("received %d entries, want 8", len(got))
 	}
-	if want := `{"g":{"b":2}}`; string(got[0].Attrs) != want {
+	if want := `{"g":{"_value":{"owner":"caller"},"b":2}}`; string(got[0].Attrs) != want {
 		t.Errorf("attrs = %s, want %s", got[0].Attrs, want)
+	}
+}
+
+// One JSON key cannot be both a value and a group, so the value moves into the
+// group instead of being lost, in either order.
+func TestHandler_KeyUsedAsValueAndGroup(t *testing.T) {
+	tests := []struct {
+		name string
+		log  func(*slog.Logger)
+		want string
+	}{
+		{
+			name: "value then WithGroup",
+			log:  func(l *slog.Logger) { l.With("g", 1).WithGroup("g").Info("m", "b", 2) },
+			want: `{"g":{"_value":1,"b":2}}`,
+		},
+		{
+			name: "value then group attr",
+			log:  func(l *slog.Logger) { l.With("g", 1).Info("m", slog.Group("g", "b", 2)) },
+			want: `{"g":{"_value":1,"b":2}}`,
+		},
+		{
+			name: "group attr then value",
+			log:  func(l *slog.Logger) { l.With(slog.Group("g", "a", 1)).Info("m", "g", 2) },
+			want: `{"g":{"_value":2,"a":1}}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			endpoint, entries := captureServer(t)
+			h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+			tt.log(slog.New(h))
+			if err := h.Shutdown(context.Background()); err != nil {
+				t.Fatalf("Shutdown: %v", err)
+			}
+
+			got := entries()
+			if len(got) != 1 {
+				t.Fatalf("received %d entries, want 1", len(got))
+			}
+			if string(got[0].Attrs) != tt.want {
+				t.Errorf("attrs = %s, want %s", got[0].Attrs, tt.want)
+			}
+		})
 	}
 }
 
