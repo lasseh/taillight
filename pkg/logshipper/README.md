@@ -173,6 +173,13 @@ with `…[truncated]`. Non-string values (numbers, bools, nested groups,
 `json.Marshaler` types like `time.Time`) are not affected. This is a safety
 net for accidental blowups — use `Redact` if you want per-key control.
 
+`MaxAttrBytes` caps each string value. The ingest API separately caps the
+whole encoded attrs object of an entry at 64 KB, whatever `MaxAttrBytes` is
+set to. When an entry's attrs encode to more than that, the shipper replaces
+them with a stub, `{"_attrs_dropped_bytes":<size>}`, counts the entry in
+`EncodeFailed()`, and still ships the message. Set `MaxAttrBytes` well below
+64 KB to keep the useful attrs instead of losing all of them.
+
 ### Server limits
 
 The taillight ingest API enforces per-request limits; the shipper handles
@@ -180,6 +187,13 @@ the ones it can so a single oversized entry never sinks a whole batch:
 
 - **`msg` is capped at 64 KB.** Longer messages are truncated client-side
   (annotated with `…[truncated]`) instead of the server rejecting the batch.
+  Invalid UTF-8 is replaced with U+FFFD before the length check, since the
+  server measures the decoded message.
+- **`attrs` is capped at 64 KB per entry.** Encoded attrs over the cap are
+  replaced by an `_attrs_dropped_bytes` stub (see above).
+- **`source` is capped at 256 bytes.** With `AddSource`, a longer build path
+  is shortened from the front and marked with a leading `…`, so the file
+  name and line stay.
 - **`msg` and `timestamp` are required.** An empty message ships as `(empty)`
   and a record with a zero time is stamped with the current time.
 - **`Service` is required.** `New` returns an error if `Config.Service` is
@@ -189,8 +203,15 @@ the ones it can so a single oversized entry never sinks a whole batch:
   name.
 - **`Service` and `Component` are capped at 128 bytes, `Host` at 256.** `New`
   returns an error above a cap, since every shipped entry would be rejected.
-- **Batches are capped at 1000 entries per request.** Keep `BatchSize` at or
-  below 1000 (the default is 100).
+- **Batches are capped at 1000 entries per request.** `New` clamps a larger
+  `BatchSize` to 1000 (the default is 100), and the shutdown drain and
+  retries go out in requests of at most `BatchSize` entries.
+- **The request body is capped at 5 MB.** A batch is also closed before the
+  next entry would take its encoded body over 4 MB, so a burst of large
+  entries goes out in several requests. Each entry is encoded once, so the
+  size is exact. A single entry too large for a request on its own (which
+  the caps above make practically impossible) is dropped and counted in
+  `SendFailed()`.
 
 ## Config reference
 
@@ -203,7 +224,7 @@ the ones it can so a single oversized entry never sinks a whole batch:
 | `Host`               | `string`                        | `os.Hostname()`  | Host/instance identifier. `New` returns an error if empty and the hostname lookup fails.    |
 | `AddSource`          | `bool`                          | `false`          | Include source `file:line` from the calling function.                                       |
 | `MinLevel`           | `slog.Level`                    | `slog.LevelInfo` | Minimum level to ship. Zero value is `LevelInfo`; set `LevelDebug` explicitly to ship everything. |
-| `BatchSize`          | `int`                           | `100`            | Flush when batch reaches this size. The ingest API caps batches at 1000 entries.            |
+| `BatchSize`          | `int`                           | `100`            | Flush when batch reaches this size. Clamped to 1000, the ingest API's cap per request.      |
 | `FlushPeriod`        | `time.Duration`                 | `1s`             | Flush at least this often.                                                                  |
 | `BufferSize`         | `int`                           | `1024`           | Buffered channel capacity. Entries are dropped (and counted) when full.                     |
 | `SendTimeout`        | `time.Duration`                 | `30s`            | Per-request HTTP timeout. Enforced whether or not `Client` is set.                          |
@@ -232,14 +253,27 @@ handler, err := logshipper.New(logshipper.Config{
    if full, counted in `Dropped()`).
 3. Entries are flushed as a JSON batch `POST` when the batch is full or the
    flush timer fires.
-4. **Failed batches get one retry.** On the first send failure the batch is
-   retained; on the next flush tick it is combined with any new entries and
-   re-sent. If the retry also fails, the entire combined set is counted in
-   `SendFailed()` and dropped. Peak retained memory is `~2 × BatchSize`.
+4. **Failed batches get one retry, unless the server rejected them.** A 4xx
+   response other than 401, 408 or 429 means the server rejected the payload,
+   so the batch is counted in `SendFailed()` and dropped at once; a resend
+   would get the same answer. After a network error, timeout, 401, 408, 429,
+   5xx or any other status the batch is retained and resent on its own at the
+   next flush, never combined with new entries. A 401 is retried because the
+   ingest API also answers it when the API key lookup fails during a database
+   failover. If the retry also fails, the batch is counted in `SendFailed()`
+   and dropped. The next batch then waits for the following flush instead of
+   being sent straight after, so an unreachable endpoint costs one
+   `SendTimeout` per flush; that batch gets one send. Peak retained memory is
+   `~2 × BatchSize`. The stderr warning for each failure says whether the
+   batch will be retried (`will_retry`).
 5. `Shutdown(ctx)` marks the handler as closing, takes a write-lock barrier
    so any in-flight `Handle` call completes its channel push before the
-   drain begins, then drains remaining entries and waits for the final
-   flush to finish or `ctx` to expire.
+   drain begins, then sends the remaining entries in chunks of at most
+   `BatchSize` and waits for that to finish or `ctx` to expire. Once `ctx`
+   expires the drain sends nothing more and counts the unsent entries in
+   `SendFailed()`. `Shutdown` returns `ctx.Err()` on time even
+   when a `Handle` call is stuck in user code such as `Redact`; `Handle`
+   calls made while it waits are dropped and counted, never blocked.
 
 ### Built-in guarantees
 
@@ -258,8 +292,10 @@ handler, err := logshipper.New(logshipper.Config{
   completed its channel push before drain begins.
 - **Records survive encode errors** — if `json.Marshal` fails on an attr
   value (unsupported type, cycle, etc.), the record still ships with a
-  stub `"_encode_error"` attr and `EncodeFailed()` is incremented. The
-  message and level are preserved; only the attrs payload is replaced.
+  stub `"_encode_error"` attr and `EncodeFailed()` is incremented. Attrs
+  over the ingest API's 64 KB cap get an `"_attrs_dropped_bytes"` stub the
+  same way. The message and level are preserved; only the attrs payload is
+  replaced.
 - **Bounded retained memory** — the retry policy holds at most one
   previously-failed batch. There is no unbounded queue growth.
 
@@ -267,8 +303,8 @@ handler, err := logshipper.New(logshipper.Config{
 
 ```go
 handler.Dropped()       // entries dropped due to full buffer or post-shutdown submission
-handler.SendFailed()    // entries in batches that failed twice in a row (first send + retry)
-handler.EncodeFailed()  // entries whose attrs failed to JSON-marshal (still shipped with stub)
+handler.SendFailed()    // entries in batches the server rejected (4xx) or that failed twice in a row
+handler.EncodeFailed()  // entries whose attrs failed to JSON-marshal or exceeded 64 KB (still shipped with stub)
 ```
 
 All three counters are cumulative and shared across every handler derived

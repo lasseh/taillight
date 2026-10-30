@@ -99,32 +99,32 @@ The package exports these symbols:
 ```go
 logshipper.Config{
     Endpoint:    string          // Required
-    APIKey:      string          // Optional (required when auth is enabled)
-    Service:     string          // Required (server rejects entries without it)
+    APIKey:      logshipper.Secret // Optional (required when auth is enabled)
+    Service:     string          // Required (New returns an error if empty)
     Component:   string          // Optional
-    Host:        string          // Optional (defaults to os.Hostname())
+    Host:        string          // Optional (defaults to os.Hostname(); New returns an error if that fails)
     AddSource:   bool            // Optional (default: false)
-    MinLevel:    slog.Level      // Optional (default: slog.LevelDebug)
+    MinLevel:    slog.Level      // Optional (default: slog.LevelInfo, the zero value)
     BatchSize:   int             // Optional (default: 100)
     FlushPeriod: time.Duration   // Optional (default: 1s)
     BufferSize:  int             // Optional (default: 1024)
-    Client:      *http.Client    // Optional (default: http.DefaultClient)
+    Client:      *http.Client    // Optional (default: a client built by the package)
 }
 ```
 
 | Field         | Type            | Default              | Required | Description                                                                  |
 |---------------|-----------------|----------------------|----------|------------------------------------------------------------------------------|
 | `Endpoint`    | `string`        | —                    | **yes**  | Full ingest URL, must end with `/api/v1/applog/ingest`                       |
-| `APIKey`      | `string`        | `""`                 | no       | Bearer token sent as `Authorization: Bearer <key>`. Must have `ingest` scope when auth is enabled |
-| `Service`     | `string`        | `""`                 | no*      | Service name attached to every entry. *The server requires this field — set it here or entries fail validation |
-| `Component`   | `string`        | `""`                 | no       | Optional component label. Omitted from JSON when empty (`omitempty`)         |
-| `Host`        | `string`        | `os.Hostname()`      | no       | Host/instance identifier. Auto-detected via `os.Hostname()` if not set       |
+| `APIKey`      | `logshipper.Secret` | `""`             | no       | Bearer token sent as `Authorization: Bearer <key>`. Must have `ingest` scope when auth is enabled. A redacting string type: `String()`, `GoString()` and `MarshalJSON()` return `[REDACTED]` |
+| `Service`     | `string`        | `""`                 | **yes**  | Service name attached to every entry. `New` returns an error if it is empty or over 128 bytes |
+| `Component`   | `string`        | `""`                 | no       | Optional component label. Omitted from JSON when empty (`omitempty`). `New` returns an error if it is over 128 bytes |
+| `Host`        | `string`        | `os.Hostname()`      | no       | Host/instance identifier, auto-detected via `os.Hostname()` if not set. `New` returns an error if the lookup fails or returns an empty name, or if the host is over 256 bytes |
 | `AddSource`   | `bool`          | `false`              | no       | Include `source` field with `file.go:line` from `runtime.CallersFrames`      |
-| `MinLevel`    | `slog.Level`    | `slog.LevelDebug`    | no       | Minimum level to ship. Entries below this level are discarded by `Enabled()` before `Handle()` is called |
+| `MinLevel`    | `slog.Level`    | `slog.LevelInfo`     | no       | Minimum level to ship. Entries below this level are discarded by `Enabled()` before `Handle()` is called. The zero value is `slog.LevelInfo`, so Debug entries are filtered out unless you set `slog.LevelDebug` |
 | `BatchSize`   | `int`           | `100`                | no       | Flush when the batch reaches this many entries                               |
 | `FlushPeriod` | `time.Duration` | `1s`                 | no       | Flush at least this often. Whichever of `BatchSize` or `FlushPeriod` is reached first triggers a flush |
 | `BufferSize`  | `int`           | `1024`               | no       | Buffered channel capacity. Entries are silently dropped when the channel is full |
-| `Client`      | `*http.Client`  | `http.DefaultClient` | no       | HTTP client used for POST requests. Set timeouts here if needed              |
+| `Client`      | `*http.Client`  | built-in             | no       | HTTP client used for POST requests. The built-in client requires TLS 1.2 or newer, bounds the TLS handshake and response-header waits, uses `SendTimeout` (default 30s) as its timeout, and does not follow redirects |
 
 ## Level mapping
 
@@ -305,28 +305,35 @@ Whichever happens first triggers the HTTP POST.
 
 ### Error handling on send failure
 
-When a batch POST fails (HTTP >= 400, connection error, timeout):
+When a batch POST fails (HTTP >= 400, connection error, timeout), a warning is
+written to stderr: `"logshipper send failed"`. Its `will_retry` field says
+what happens to the batch:
 
-1. A warning is logged via `slog.Default()`: `"logshipper send failed"`
-2. `SendFailed()` counter is incremented by the batch size
-3. The batch is **retained** for retry on the next flush cycle
-4. If the retained batch grows to `BatchSize * 10` (default 1000), it is
-   cleared to prevent unbounded memory growth
+1. A 4xx other than 401, 408 or 429 means the server rejected the payload. The
+   batch is counted in `SendFailed()` and dropped, since a resend would get the
+   same answer.
+2. Any other failure keeps the batch for **one retry** at the next flush. It is
+   resent on its own, never combined with new entries.
+3. If the retry fails too, the batch is counted in `SendFailed()` and dropped.
+   The next batch then waits for the following flush, so an unreachable
+   endpoint costs one `SendTimeout` per flush.
 
-There is **no exponential backoff** — failed batches are retried on the next
-ticker tick or when new entries fill a batch. The retry interval is
-effectively `FlushPeriod` (default 1s).
+There is **no exponential backoff** — the retry happens at the next ticker tick
+or when new entries fill a batch. A 401 is retried because the ingest API also
+answers it when the API key lookup fails during a database failover.
 
 ### Batch retention on failure
 
 ```
-Send succeeds  → batch cleared, counter reset
-Send fails     → batch kept, retried next flush
-Batch >= 10x   → batch cleared to prevent OOM
+Send succeeds  → batch cleared
+Send rejected  → batch dropped, counted in SendFailed()
+Send fails     → batch kept, resent once at the next flush
+Retry fails    → batch dropped, counted in SendFailed()
 ```
 
 This means transient failures (brief network blip) are automatically retried,
-but persistent failures eventually shed entries to protect memory.
+but persistent failures shed entries to protect memory. At most one failed
+batch is held at a time.
 
 ## Shutdown and lifecycle
 
@@ -341,13 +348,19 @@ if err := handler.Shutdown(shutdownCtx); err != nil {
 ```
 
 **What `Shutdown(ctx)` does:**
-1. Closes the internal `done` channel (once, via `sync.Once`)
-2. The goroutine drains all remaining entries from the channel
-3. Flushes the final batch using `context.Background()` (not the shutdown
-   context) so the final POST is not cancelled prematurely
-4. Goroutine exits, `wg.Done()` is called
-5. If the goroutine finishes before `ctx` deadline → returns `nil`
-6. If `ctx` expires first → cancels internal context and returns `ctx.Err()`
+1. Marks the handler as closing, so new `Handle` calls drop their entries and
+   count them in `Dropped()`
+2. Closes the internal `done` channel (once, via `sync.Once`) after in-flight
+   `Handle` calls finish
+3. The goroutine sends all remaining entries in chunks of at most `BatchSize`,
+   **under the shutdown context**, so that context bounds the final sends
+4. If `ctx` expires during the drain, nothing more is sent, every unsent entry
+   is counted in `SendFailed()`, and a warning is written to stderr
+5. If the goroutine finishes before the `ctx` deadline → returns `nil`
+6. If `ctx` expires first → returns `ctx.Err()`
+
+Give the context enough time for what is buffered. Entries still unsent when it
+expires are lost.
 
 `Shutdown` is **idempotent** — safe to call multiple times (the channel is
 closed via `sync.Once`).
@@ -698,7 +711,7 @@ Validation errors include the array index of each failing entry.
 1. Verify the endpoint URL ends with `/api/v1/applog/ingest`
 2. Check that the API key has the `ingest` scope
 3. Check `handler.SendFailed()` — if > 0, the handler cannot reach the server
-4. Look for `"logshipper send failed"` warnings in stderr (logged via `slog.Default()`)
+4. Look for `"logshipper send failed"` warnings in stderr
 5. Ensure `Service` is set in Config (required by the server)
 6. Check that `MinLevel` isn't filtering out the entries you expect
 
@@ -722,7 +735,7 @@ The HTTP POST to the ingest endpoint is failing. Check:
 - Endpoint URL is correct and reachable
 - API key is valid and has `ingest` scope
 - Server is running and healthy
-- The `Client` timeout is sufficient (default is `http.DefaultClient` with no timeout)
+- The send timeout is sufficient (`SendTimeout`, default 30s, applies to every request, including with a custom `Client`)
 
 ### 401 Unauthorized or 403 Forbidden
 
@@ -738,7 +751,6 @@ without calling `Shutdown()`, buffered entries are lost. Always call
 
 ### Memory growing under persistent failures
 
-When send failures persist, the handler retains failed batches for retry.
-Batches are capped at `BatchSize * 10` (default 1000 entries) to prevent
-unbounded growth. If memory pressure is a concern, lower `BatchSize` or
-`BufferSize`.
+When send failures persist, the handler holds one failed batch for retry, so
+retained memory peaks at about `2 × BatchSize` plus the `BufferSize` channel.
+If memory pressure is a concern, lower `BatchSize` or `BufferSize`.

@@ -136,6 +136,58 @@ func TestIngest(t *testing.T) {
 	}
 }
 
+// capturingAppLogStore records the events handed to InsertLogBatch.
+type capturingAppLogStore struct {
+	mockAppLogStore
+	got []model.AppLogEvent
+}
+
+func (s *capturingAppLogStore) InsertLogBatch(ctx context.Context, events []model.AppLogEvent) ([]model.AppLogEvent, error) {
+	s.got = events
+	return s.mockAppLogStore.InsertLogBatch(ctx, events)
+}
+
+func TestIngestReplacesNULBytes(t *testing.T) {
+	ts := time.Now().UTC().Format(time.RFC3339)
+	body := `{"logs":[{"timestamp":"` + ts + `","level":"INFO","msg":"a\u0000b","service":"s\u0000","component":"c\u0000",` +
+		`"host":"h\u0000","source":"f\u0000","attrs":{"k\u0000":"v\u0000","path":"C:\\u0000"}}]}`
+
+	store := &capturingAppLogStore{}
+	h := NewAppLogIngestHandler(store, broker.NewAppLogBroker(slog.Default()), slog.Default(), nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/applog/ingest", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	h.Ingest(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("got status %d, want %d; body: %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if len(store.got) != 1 {
+		t.Fatalf("store got %d events, want 1", len(store.got))
+	}
+
+	e := store.got[0]
+	for name, got := range map[string]string{"msg": e.Msg, "service": e.Service, "component": e.Component, "host": e.Host, "source": e.Source} {
+		if strings.ContainsRune(got, 0) {
+			t.Errorf("%s = %q still holds a NUL byte", name, got)
+		}
+	}
+	if e.Msg != "a\uFFFDb" {
+		t.Errorf("msg = %q, want a\\uFFFDb", e.Msg)
+	}
+
+	var attrs map[string]string
+	if err := json.Unmarshal(e.Attrs, &attrs); err != nil {
+		t.Fatalf("decode attrs %s: %v", e.Attrs, err)
+	}
+	if attrs["k\uFFFD"] != "v\uFFFD" {
+		t.Errorf("attrs = %v, want the NUL in key and value replaced", attrs)
+	}
+	if attrs["path"] != `C:\u0000` {
+		t.Errorf("attrs path = %q, an escaped backslash must not be read as a NUL", attrs["path"])
+	}
+}
+
 func TestIngestMultipleEntries(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	ts := now.Format(time.RFC3339)

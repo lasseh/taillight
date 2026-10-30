@@ -10,13 +10,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/slogtest"
 	"time"
 	"unicode/utf8"
 )
+
+// ingestRequest is the request body the shipper sends, for decoding in tests.
+// The shipper itself joins pre-encoded entries between requestPrefix and
+// requestSuffix.
+type ingestRequest struct {
+	Logs []logEntry `json:"logs"`
+}
 
 func mustNew(t *testing.T, cfg Config) *Handler {
 	t.Helper()
@@ -843,6 +852,132 @@ func TestHandler_WithGroupNesting(t *testing.T) {
 	}
 }
 
+func TestHandler_WithBeforeWithGroupStaysOutside(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	slog.New(h).With("a", 1).WithGroup("g").Info("m", "b", 2)
+	slog.New(h).WithGroup("empty").Info("no attrs")
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 2 {
+		t.Fatalf("received %d entries, want 2", len(got))
+	}
+	if want := `{"a":1,"g":{"b":2}}`; string(got[0].Attrs) != want {
+		t.Errorf("attrs = %s, want %s", got[0].Attrs, want)
+	}
+	if len(got[1].Attrs) != 0 {
+		t.Errorf("group with no attrs was emitted: %s", got[1].Attrs)
+	}
+}
+
+func TestHandler_SameKeyGroupAttrsMerge(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	slog.New(h).With(slog.Group("req", "a", 1, slog.Group("sub", "x", 1))).
+		Info("m", slog.Group("req", "b", 2, slog.Group("sub", "y", 2)), slog.Group("req", slog.Group("empty")))
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	if want := `{"req":{"a":1,"b":2,"sub":{"x":1,"y":2}}}`; string(got[0].Attrs) != want {
+		t.Errorf("attrs = %s, want %s", got[0].Attrs, want)
+	}
+}
+
+// A map attr with the same key as a later group is the caller's map. Writing
+// the group's attrs into it would mutate shared state on every log call.
+func TestHandler_WithGroupDoesNotWriteIntoCallerMap(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	shared := map[string]any{"owner": "caller"}
+	logger := slog.New(h).With("g", shared).WithGroup("g")
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			logger.Info("m", "b", 2)
+		}()
+	}
+	wg.Wait()
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	if len(shared) != 1 || shared["owner"] != "caller" {
+		t.Errorf("caller's map was changed: %v", shared)
+	}
+	got := entries()
+	if len(got) != 8 {
+		t.Fatalf("received %d entries, want 8", len(got))
+	}
+	if want := `{"g":{"b":2}}`; string(got[0].Attrs) != want {
+		t.Errorf("attrs = %s, want %s", got[0].Attrs, want)
+	}
+}
+
+// TestHandler_SlogConformance runs the testing/slogtest suite. One case is an
+// intended deviation: slog expects a zero record time to be left out, but the
+// ingest API requires a timestamp, so the handler stamps the current time.
+func TestHandler_SlogConformance(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", AddSource: true, FlushPeriod: time.Hour})
+
+	results := func() []map[string]any {
+		if err := h.Shutdown(context.Background()); err != nil {
+			t.Fatalf("Shutdown: %v", err)
+		}
+		got := entries()
+		out := make([]map[string]any, 0, len(got))
+		for _, e := range got {
+			m := map[string]any{}
+			if len(e.Attrs) > 0 {
+				if err := json.Unmarshal(e.Attrs, &m); err != nil {
+					t.Fatalf("unmarshal attrs: %v", err)
+				}
+			}
+			m[slog.TimeKey] = e.Timestamp
+			m[slog.LevelKey] = e.Level
+			m[slog.MessageKey] = e.Msg
+			if e.Source != "" {
+				m[slog.SourceKey] = e.Source
+			}
+			out = append(out, m)
+		}
+		return out
+	}
+
+	err := slogtest.TestHandler(h, results)
+	if err == nil {
+		t.Fatal("slogtest passed the zero-time case; drop the deviation from this test")
+	}
+	var errs []error
+	if joined, ok := err.(interface{ Unwrap() []error }); ok { //nolint:errorlint // Splitting errors.Join output, not matching a cause.
+		errs = joined.Unwrap()
+	} else {
+		errs = []error{err}
+	}
+	for _, e := range errs {
+		if !strings.Contains(e.Error(), "a Handler should ignore a zero Record.Time") {
+			t.Errorf("slogtest: %v", e)
+		}
+	}
+	if len(errs) != 1 {
+		t.Errorf("slogtest reported %d problems, want only the zero-time deviation", len(errs))
+	}
+}
+
 // roundTripperFunc is a test hook for injecting a custom http.RoundTripper.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
@@ -1204,6 +1339,104 @@ func TestHandler_TruncatesOversizedMsg(t *testing.T) {
 	}
 }
 
+func TestHandler_InvalidUTF8MsgStaysUnderCap(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	// 40 KB on the client. JSON encoding turns each invalid byte into a
+	// 3-byte U+FFFD, so the server would decode 80 KB, over the 64 KB cap.
+	slog.New(h).Info(strings.Repeat("\xffa", 20000))
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	msg := got[0].Msg
+	if !utf8.ValidString(msg) {
+		t.Error("shipped msg is not valid UTF-8")
+	}
+	if len(msg) > maxMsgBytes {
+		t.Errorf("decoded msg is %d bytes, want <= %d", len(msg), maxMsgBytes)
+	}
+}
+
+func TestHandler_OversizedAttrsShipAsStub(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+	logger := slog.New(h)
+
+	// `{"body":"` + value + `"}` adds 11 bytes around the value.
+	atCap := strings.Repeat("y", maxAttrsBytes-11)
+	logger.Info("small", "k", "v")
+	logger.Info("big", "body", strings.Repeat("x", 100*1024)) // Encodes to 102,411 bytes.
+	logger.Info("at cap", "body", atCap)
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 3 {
+		t.Fatalf("received %d entries, want 3", len(got))
+	}
+	if string(got[0].Attrs) != `{"k":"v"}` {
+		t.Errorf("small attrs = %s, want {\"k\":\"v\"}", got[0].Attrs)
+	}
+	if want := `{"_attrs_dropped_bytes":102411}`; string(got[1].Attrs) != want {
+		t.Errorf("big attrs = %.80s, want %s", got[1].Attrs, want)
+	}
+	if got[1].Msg != "big" {
+		t.Errorf("big msg = %q, want %q", got[1].Msg, "big")
+	}
+	if want := `{"body":"` + atCap + `"}`; string(got[2].Attrs) != want {
+		t.Errorf("attrs at the cap were changed: %d bytes, want %d", len(got[2].Attrs), len(want))
+	}
+	if h.EncodeFailed() != 1 {
+		t.Errorf("EncodeFailed = %d, want 1", h.EncodeFailed())
+	}
+	if h.SendFailed() != 0 {
+		t.Errorf("SendFailed = %d, want 0", h.SendFailed())
+	}
+}
+
+func TestShortenSource(t *testing.T) {
+	longDir := "/" + strings.Repeat("deep/", 60) // 301 bytes.
+	tests := []struct {
+		name   string
+		source string
+		want   string // Exact result; empty means check only the cap and tail.
+		tail   string
+	}{
+		{name: "short", source: "/src/app/main.go:42", want: "/src/app/main.go:42"},
+		{name: "exactly_at_cap", source: strings.Repeat("a", maxSourceBytes-len("x.go:1")) + "x.go:1", tail: "x.go:1"},
+		{name: "long_path", source: longDir + "handler.go:120", tail: "/handler.go:120"},
+		{name: "multibyte_at_cut", source: "/" + strings.Repeat("é", 200) + "/main.go:7", tail: "/main.go:7"},
+		{name: "invalid_bytes", source: "/src/\xff/main.go:3", want: "/src/�/main.go:3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shortenSource(tt.source)
+			if tt.want != "" && got != tt.want {
+				t.Errorf("shortenSource = %q, want %q", got, tt.want)
+			}
+			if len(got) > maxSourceBytes {
+				t.Errorf("result is %d bytes, want <= %d", len(got), maxSourceBytes)
+			}
+			if !strings.HasSuffix(got, tt.tail) {
+				t.Errorf("result %q does not end with %q", got, tt.tail)
+			}
+			if !utf8.ValidString(got) {
+				t.Error("result is not valid UTF-8")
+			}
+			if len(tt.source) > maxSourceBytes && !strings.HasPrefix(got, sourceCutPrefix) {
+				t.Errorf("shortened result %q lacks the %q prefix", got, sourceCutPrefix)
+			}
+		})
+	}
+}
+
 func TestHandler_SendTimeoutBoundsHungEndpoint(t *testing.T) {
 	// Server that hangs longer than SendTimeout.
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -1299,6 +1532,91 @@ func TestHandler_ConcurrentHandleAndShutdown(t *testing.T) {
 	}
 }
 
+func TestHandler_ShutdownHonoursContextWithStuckHandle(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	h := mustNew(t, Config{
+		Endpoint:    endpoint,
+		APIKey:      "k",
+		Service:     "s",
+		FlushPeriod: time.Hour,
+		Redact: func(key string, v any) any {
+			if key == "block" {
+				close(entered)
+				<-release
+			}
+			return v
+		},
+	})
+	logger := slog.New(h)
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock) // Unwind the stuck call even if an assertion fails.
+
+	stuck := make(chan struct{})
+	go func() {
+		defer close(stuck)
+		logger.Info("stuck", "block", true)
+	}()
+	<-entered
+
+	// Two concurrent Shutdown calls, each must return at its own deadline.
+	const slack = 500 * time.Millisecond
+	deadlines := []time.Duration{100 * time.Millisecond, 300 * time.Millisecond}
+	var wg sync.WaitGroup
+	for _, d := range deadlines {
+		wg.Add(1)
+		go func(d time.Duration) {
+			defer wg.Done()
+			start := time.Now() // Before the context, so its deadline is not earlier than start+d.
+			ctx, cancel := context.WithTimeout(context.Background(), d)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- h.Shutdown(ctx) }()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Errorf("Shutdown(%v) = %v, want context.DeadlineExceeded", d, err)
+				}
+				if elapsed := time.Since(start); elapsed < d || elapsed > d+slack {
+					t.Errorf("Shutdown(%v) returned after %v", d, elapsed)
+				}
+			case <-time.After(d + slack):
+				t.Errorf("Shutdown(%v) had not returned after %v", d, d+slack)
+			}
+		}(d)
+	}
+	wg.Wait()
+
+	// A Handle call after the expired Shutdown is dropped and never blocks.
+	later := make(chan struct{})
+	go func() {
+		defer close(later)
+		logger.Info("later")
+	}()
+	select {
+	case <-later:
+	case <-time.After(slack):
+		t.Fatal("Handle blocked after an expired Shutdown")
+	}
+	if got := h.Dropped(); got != 1 {
+		t.Errorf("Dropped = %d, want 1 for the call after Shutdown", got)
+	}
+
+	// Once released, the stuck call finishes its push, the drain runs, and
+	// its entry is accounted for: delivered, or failed because the first
+	// Shutdown context had already expired.
+	unblock()
+	<-stuck
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("final Shutdown: %v", err)
+	}
+	if got := int64(len(entries())) + h.SendFailed(); got != 1 {
+		t.Errorf("stuck entry: delivered + SendFailed = %d, want 1", got)
+	}
+}
+
 func TestHandler_RetryOnFirstFailure(t *testing.T) {
 	var mu sync.Mutex
 	var received []ingestRequest
@@ -1354,6 +1672,453 @@ func TestHandler_RetryOnFirstFailure(t *testing.T) {
 	}
 	if h.SendFailed() != 0 {
 		t.Errorf("SendFailed = %d, want 0 (retry succeeded)", h.SendFailed())
+	}
+}
+
+// firstStatusServer answers code to the first request and 202 to the rest.
+func firstStatusServer(t *testing.T, code int) (string, func() []logEntry, *atomic.Int64) {
+	t.Helper()
+	return failingServer(t, code, 1)
+}
+
+// failingServer answers code to the first failures requests and 202 to the
+// rest. It returns the endpoint, the entries accepted so far, and the request
+// count.
+func failingServer(t *testing.T, code int, failures int64) (string, func() []logEntry, *atomic.Int64) {
+	t.Helper()
+	var mu sync.Mutex
+	var got []logEntry
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) <= failures {
+			w.WriteHeader(code)
+			return
+		}
+		var req ingestRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		mu.Lock()
+		got = append(got, req.Logs...)
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() []logEntry {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]logEntry(nil), got...)
+	}, &calls
+}
+
+// waitForFirstCall waits until the server has seen a request, so a test knows
+// the first batch went out on the normal path rather than in the shutdown
+// drain.
+func waitForFirstCall(t *testing.T, calls *atomic.Int64) {
+	t.Helper()
+	waitForCalls(t, calls, 1)
+}
+
+// waitForCalls waits until the server has seen want requests.
+func waitForCalls(t *testing.T, calls *atomic.Int64, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for calls.Load() < want {
+		if time.Now().After(deadline) {
+			t.Fatalf("server saw %d requests after 5s, want %d", calls.Load(), want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestHandler_RejectedBatchNotMergedIntoNext(t *testing.T) {
+	endpoint, entries, calls := firstStatusServer(t, http.StatusBadRequest)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+	logger := slog.New(h)
+	for i := range 3 {
+		logger.Info("m", "i", i)
+	}
+	waitForFirstCall(t, calls)
+	for i := 3; i < 6; i++ {
+		logger.Info("m", "i", i)
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 3 {
+		t.Fatalf("delivered %d entries, want the 3 of the second batch", len(got))
+	}
+	if h.SendFailed() != 3 {
+		t.Errorf("SendFailed = %d, want 3 (the rejected first batch)", h.SendFailed())
+	}
+}
+
+// While the endpoint is failing, a flush makes one request: a second one would
+// hold the loop for another SendTimeout while the buffer fills.
+func TestHandler_FailedRetrySkipsNewBatch(t *testing.T) {
+	endpoint, entries, calls := failingServer(t, http.StatusServiceUnavailable, 2)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+	logger := slog.New(h)
+	for range 3 {
+		logger.Info("first")
+	}
+	waitForCalls(t, calls, 1)
+	for range 3 {
+		logger.Info("second")
+	}
+	waitForCalls(t, calls, 2)
+	time.Sleep(50 * time.Millisecond) // Room for a third request, if one is coming.
+	if got := calls.Load(); got != 2 {
+		t.Errorf("server saw %d requests before shutdown, want 2", got)
+	}
+
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 3 {
+		t.Fatalf("delivered %d entries, want the 3 of the second batch", len(got))
+	}
+	if got[0].Msg != "second" {
+		t.Errorf("delivered %q, want the second batch", got[0].Msg)
+	}
+	if h.SendFailed() != 3 {
+		t.Errorf("SendFailed = %d, want 3 (the first batch)", h.SendFailed())
+	}
+}
+
+// The final flush has no later flush to retry in, so its batch is still sent
+// after the retry before it fails.
+func TestHandler_DrainSendsBatchAfterFailedRetry(t *testing.T) {
+	endpoint, entries, calls := failingServer(t, http.StatusServiceUnavailable, 2)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+	logger := slog.New(h)
+	for range 3 {
+		logger.Info("first")
+	}
+	waitForCalls(t, calls, 1)
+	for range 2 {
+		logger.Info("second")
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	if got := len(entries()); got != 2 {
+		t.Errorf("delivered %d entries, want the 2 of the second batch", got)
+	}
+	if h.SendFailed() != 3 {
+		t.Errorf("SendFailed = %d, want 3 (the first batch)", h.SendFailed())
+	}
+}
+
+func TestHandler_RetryPolicyByStatus(t *testing.T) {
+	tests := []struct {
+		code      int
+		wantRetry bool
+	}{
+		{http.StatusBadRequest, false},
+		{http.StatusUnauthorized, true},
+		{http.StatusForbidden, false},
+		{http.StatusRequestEntityTooLarge, false},
+		{http.StatusRequestTimeout, true},
+		{http.StatusTooManyRequests, true},
+		{http.StatusInternalServerError, true},
+		{http.StatusServiceUnavailable, true},
+	}
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.code), func(t *testing.T) {
+			endpoint, entries, calls := firstStatusServer(t, tt.code)
+			h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+			logger := slog.New(h)
+			for range 3 {
+				logger.Info("m")
+			}
+			waitForFirstCall(t, calls)
+			// The final flush in Shutdown is where a retained batch is retried.
+			if err := h.Shutdown(context.Background()); err != nil {
+				t.Fatalf("Shutdown: %v", err)
+			}
+
+			wantDelivered, wantFailed, wantCalls := 0, int64(3), int64(1)
+			if tt.wantRetry {
+				wantDelivered, wantFailed, wantCalls = 3, 0, 2
+			}
+			if got := len(entries()); got != wantDelivered {
+				t.Errorf("delivered %d entries, want %d", got, wantDelivered)
+			}
+			if got := h.SendFailed(); got != wantFailed {
+				t.Errorf("SendFailed = %d, want %d", got, wantFailed)
+			}
+			if got := calls.Load(); got != wantCalls {
+				t.Errorf("server saw %d requests, want %d", got, wantCalls)
+			}
+		})
+	}
+}
+
+// sizeServer records how many entries each accepted request carried. The
+// answer func picks the status for request n (1-based) and may block.
+type sizeServer struct {
+	mu    sync.Mutex
+	sizes []int
+	calls atomic.Int64
+}
+
+func newSizeServer(t *testing.T, answer func(n int64, r *http.Request) int) (*sizeServer, string) {
+	t.Helper()
+	s := &sizeServer{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := s.calls.Add(1)
+		var req ingestRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		code := answer(n, r)
+		if code == http.StatusAccepted {
+			s.mu.Lock()
+			s.sizes = append(s.sizes, len(req.Logs))
+			s.mu.Unlock()
+		}
+		w.WriteHeader(code)
+	}))
+	t.Cleanup(srv.Close)
+	return s, srv.URL
+}
+
+// delivered returns the total entries accepted and the largest request.
+func (s *sizeServer) delivered() (total, largest int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, n := range s.sizes {
+		total += n
+		largest = max(largest, n)
+	}
+	return total, largest
+}
+
+func TestHandler_DrainSendsInChunks(t *testing.T) {
+	release := make(chan struct{})
+	s, endpoint := newSizeServer(t, func(n int64, _ *http.Request) int {
+		if n == 1 {
+			<-release // Hold the first send so entries queue up.
+		}
+		return http.StatusAccepted
+	})
+	h := mustNew(t, Config{
+		Endpoint: endpoint, APIKey: "k", Service: "s",
+		BatchSize: 100, BufferSize: 2000, FlushPeriod: time.Hour, SendTimeout: 10 * time.Second,
+	})
+
+	logger := slog.New(h)
+	for range 100 {
+		logger.Info("m")
+	}
+	waitForFirstCall(t, &s.calls)
+	for range 1400 {
+		logger.Info("m")
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- h.Shutdown(context.Background()) }()
+	time.Sleep(50 * time.Millisecond) // Let Shutdown close done before the held send returns.
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	total, largest := s.delivered()
+	if total != 1500 {
+		t.Errorf("delivered %d entries, want 1500", total)
+	}
+	if largest > 100 {
+		t.Errorf("largest request held %d entries, want <= BatchSize 100", largest)
+	}
+	if h.SendFailed() != 0 || h.Dropped() != 0 {
+		t.Errorf("SendFailed = %d, Dropped = %d, want 0 and 0", h.SendFailed(), h.Dropped())
+	}
+}
+
+func TestHandler_RetryNotMergedWithNewEntries(t *testing.T) {
+	s, endpoint := newSizeServer(t, func(n int64, _ *http.Request) int {
+		if n == 1 {
+			return http.StatusServiceUnavailable
+		}
+		return http.StatusAccepted
+	})
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+	logger := slog.New(h)
+	for range 3 {
+		logger.Info("m")
+	}
+	waitForFirstCall(t, &s.calls)
+	for range 3 {
+		logger.Info("m")
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	total, largest := s.delivered()
+	if total != 6 {
+		t.Errorf("delivered %d entries, want 6", total)
+	}
+	if largest > 3 {
+		t.Errorf("largest request held %d entries, want <= BatchSize 3", largest)
+	}
+}
+
+func TestHandler_DrainStopsWhenShutdownContextExpires(t *testing.T) {
+	release := make(chan struct{})
+	s, endpoint := newSizeServer(t, func(n int64, r *http.Request) int {
+		if n == 1 {
+			<-release
+			return http.StatusAccepted
+		}
+		<-r.Context().Done() // Every later send hangs until the client gives up.
+		return http.StatusServiceUnavailable
+	})
+	h := mustNew(t, Config{
+		Endpoint: endpoint, APIKey: "k", Service: "s",
+		BatchSize: 10, BufferSize: 100, FlushPeriod: time.Hour, SendTimeout: 10 * time.Second,
+	})
+
+	logger := slog.New(h)
+	for range 10 {
+		logger.Info("m")
+	}
+	waitForFirstCall(t, &s.calls)
+	for range 40 {
+		logger.Info("m")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := h.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown = %v, want context.DeadlineExceeded", err)
+	}
+
+	start := time.Now()
+	close(release)
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("second Shutdown: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("drain ran %v after its context expired", elapsed)
+	}
+
+	if total, _ := s.delivered(); total != 10 {
+		t.Errorf("delivered %d entries, want 10", total)
+	}
+	if got := h.SendFailed(); got != 40 {
+		t.Errorf("SendFailed = %d, want 40 unsent entries", got)
+	}
+	if got := s.calls.Load(); got != 1 {
+		t.Errorf("server saw %d requests, want 1: nothing is sent after the context expires", got)
+	}
+}
+
+// bodySizeServer accepts every request and records each body's size and
+// entry count.
+func bodySizeServer(t *testing.T) (endpoint string, requests func() (bodies, entries []int)) {
+	t.Helper()
+	var mu sync.Mutex
+	var bodies, entries []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		var req ingestRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		mu.Lock()
+		bodies = append(bodies, len(body))
+		entries = append(entries, len(req.Logs))
+		mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() ([]int, []int) {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]int(nil), bodies...), append([]int(nil), entries...)
+	}
+}
+
+func TestHandler_LargeEntriesSplitUnderBodyCap(t *testing.T) {
+	endpoint, requests := bodySizeServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	// 100 entries of 60 KB is about 6 MB, over the ingest API's 5 MB cap.
+	logger := slog.New(h)
+	msg := strings.Repeat("x", 60*1024)
+	for range 100 {
+		logger.Info(msg)
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	bodies, entries := requests()
+	total := 0
+	for _, n := range entries {
+		total += n
+	}
+	if total != 100 {
+		t.Errorf("delivered %d entries, want 100", total)
+	}
+	if len(bodies) < 2 {
+		t.Errorf("sent %d requests, want 2 or more", len(bodies))
+	}
+	for i, n := range bodies {
+		if n > requestByteLimit {
+			t.Errorf("request %d is %d bytes, want <= %d (ingest cap is 5 MB)", i, n, requestByteLimit)
+		}
+	}
+	if h.SendFailed() != 0 {
+		t.Errorf("SendFailed = %d, want 0", h.SendFailed())
+	}
+}
+
+func TestHandler_EntryOverBodyCapDroppedAlone(t *testing.T) {
+	orig := requestByteLimit
+	requestByteLimit = 10 * 1024 // New copies it, so running handlers are unaffected.
+	t.Cleanup(func() { requestByteLimit = orig })
+
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+	logger := slog.New(h)
+	logger.Info("before")
+	logger.Info(strings.Repeat("x", 20*1024))
+	logger.Info("after")
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 2 || got[0].Msg != "before" || got[1].Msg != "after" {
+		t.Errorf("delivered %d entries, want only %q and %q", len(got), "before", "after")
+	}
+	if h.SendFailed() != 1 {
+		t.Errorf("SendFailed = %d, want 1 for the oversized entry", h.SendFailed())
+	}
+}
+
+func TestNew_ClampsBatchSize(t *testing.T) {
+	h := mustNew(t, Config{Endpoint: "http://127.0.0.1:1/ingest", Service: "s", BatchSize: 5000})
+	defer h.Shutdown(context.Background()) //nolint:errcheck // Cleanup.
+	if h.cfg.BatchSize != maxBatchEntries {
+		t.Errorf("BatchSize = %d, want clamped to %d", h.cfg.BatchSize, maxBatchEntries)
 	}
 }
 

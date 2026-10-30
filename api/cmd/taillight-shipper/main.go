@@ -11,10 +11,8 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -63,12 +61,6 @@ func run(_ *cobra.Command, _ []string) error {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	// Resolve host: config value takes priority, fall back to os.Hostname().
-	host := cfg.Host
-	if host == "" {
-		host, _ = os.Hostname()
-	}
-
 	piped := isStdinPiped()
 	hasFiles := len(cfg.Files) > 0
 
@@ -79,47 +71,47 @@ func run(_ *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// handlers tracks every Handler so we can shut them all down.
-	var handlers []*logshipper.Handler
-
-	var httpClient *http.Client
 	if cfg.TLSSkipVerify {
-		httpClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // user-requested skip
-			},
-		}
 		logger.Warn("TLS certificate verification disabled")
 	}
 
-	minLevel := parseMinLevel(cfg.MinLevel)
-
-	newHandler := func(service, component, hostOverride string) *logshipper.Handler {
-		h, err := logshipper.New(logshipper.Config{
-			Endpoint:    cfg.Endpoint,
-			APIKey:      logshipper.Secret(cfg.APIKey),
-			Service:     service,
-			Component:   component,
-			Host:        hostOverride,
-			MinLevel:    minLevel,
-			BatchSize:   cfg.BatchSize,
-			FlushPeriod: flushPeriod,
-			BufferSize:  cfg.BufferSize,
-			Client:      httpClient,
-		})
-		if err != nil {
-			logger.Error("logshipper init failed", "error", err)
-			os.Exit(1)
-		}
-		handlers = append(handlers, h)
-		return h
+	base := logshipper.Config{
+		Endpoint:           cfg.Endpoint,
+		APIKey:             logshipper.Secret(cfg.APIKey),
+		MinLevel:           parseMinLevel(cfg.MinLevel),
+		BatchSize:          cfg.BatchSize,
+		FlushPeriod:        flushPeriod,
+		BufferSize:         cfg.BufferSize,
+		InsecureSkipVerify: cfg.TLSSkipVerify,
 	}
+
+	// Create every handler before any reader starts, so a config the library
+	// rejects (no resolvable host, empty service, over-long field) stops the
+	// command before it reads stdin or opens a file. An empty host is
+	// resolved by the library.
+	var specs []handlerSpec
+	if piped {
+		specs = append(specs, handlerSpec{service: cfg.Service, component: cfg.Component, host: cfg.Host})
+	}
+	for _, fc := range cfg.Files {
+		specs = append(specs, handlerSpec{
+			service:   fc.resolvedService(cfg.Service),
+			component: fc.resolvedComponent(cfg.Component),
+			host:      fc.resolvedHost(cfg.Host),
+		})
+	}
+	handlers, err := newHandlers(base, specs, logger)
+	if err != nil {
+		return err
+	}
+	fileHandlers := handlers
 
 	var wg sync.WaitGroup
 
 	// Stdin reader.
 	if piped {
-		stdinHandler := newHandler(cfg.Service, cfg.Component, host)
+		stdinHandler := handlers[0]
+		fileHandlers = handlers[1:]
 		wg.Add(1)
 		go func() {
 			<-ctx.Done()
@@ -133,8 +125,8 @@ func run(_ *cobra.Command, _ []string) error {
 	}
 
 	// File tailers.
-	for _, fc := range cfg.Files {
-		h := newHandler(fc.resolvedService(cfg.Service), fc.resolvedComponent(cfg.Component), fc.resolvedHost(host))
+	for i, fc := range cfg.Files {
+		h := fileHandlers[i]
 		logger.Info("tailing file", "path", fc.Path, "service", fc.resolvedService(cfg.Service))
 		wg.Go(func() {
 			tailFile(ctx, fc.Path, h, logger)
@@ -144,6 +136,33 @@ func run(_ *cobra.Command, _ []string) error {
 	wg.Wait()
 	shutdown(handlers, logger)
 	return nil
+}
+
+// handlerSpec holds the per-handler fields: one spec for the stdin reader and
+// one per tailed file.
+type handlerSpec struct {
+	service, component, host string
+}
+
+// newShipper is logshipper.New, replaced in tests to observe created handlers.
+var newShipper = logshipper.New
+
+// newHandlers creates one handler per spec, in order. If one fails, the
+// handlers already created are shut down before the error is returned, so no
+// handler is left running without a shutdown.
+func newHandlers(base logshipper.Config, specs []handlerSpec, logger *slog.Logger) ([]*logshipper.Handler, error) {
+	handlers := make([]*logshipper.Handler, 0, len(specs))
+	for _, s := range specs {
+		cfg := base
+		cfg.Service, cfg.Component, cfg.Host = s.service, s.component, s.host
+		h, err := newShipper(cfg)
+		if err != nil {
+			shutdown(handlers, logger)
+			return nil, fmt.Errorf("logshipper init (service %q): %w", s.service, err)
+		}
+		handlers = append(handlers, h)
+	}
+	return handlers, nil
 }
 
 // readStdin scans lines from stdin until EOF or ctx cancellation.
@@ -174,7 +193,7 @@ func readStdin(ctx context.Context, handler *logshipper.Handler, tee bool) {
 	}
 }
 
-// shutdown flushes all handlers and reports any dropped entries.
+// shutdown flushes all handlers and reports any entries that were lost.
 func shutdown(handlers []*logshipper.Handler, logger *slog.Logger) {
 	for _, h := range handlers {
 		hCtx, hCancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -184,6 +203,9 @@ func shutdown(handlers []*logshipper.Handler, logger *slog.Logger) {
 		hCancel()
 		if dropped := h.Dropped(); dropped > 0 {
 			logger.Warn("dropped log entries", "count", dropped)
+		}
+		if failed := h.SendFailed(); failed > 0 {
+			logger.Warn("failed to ship log entries", "count", failed)
 		}
 	}
 }

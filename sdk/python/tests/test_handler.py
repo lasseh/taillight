@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from unittest import mock
 
 from taillight_sdk import TaillightHandler
 
@@ -375,6 +376,22 @@ class TestTaillightHandler(unittest.TestCase):
     def test_empty_service_raises(self):
         with self.assertRaises(ValueError):
             TaillightHandler(endpoint="http://127.0.0.1:1/ingest")
+
+    def test_empty_resolved_host_raises(self):
+        with mock.patch("socket.gethostname", return_value=""), self.assertRaises(ValueError) as ctx:
+            TaillightHandler(endpoint="http://127.0.0.1:1/ingest", service="svc")
+        self.assertIn("host is required", str(ctx.exception))
+
+    def test_explicit_host_skips_lookup(self):
+        with mock.patch("socket.gethostname") as gethostname:
+            handler = TaillightHandler(
+                endpoint="http://127.0.0.1:1/ingest", service="svc", host="web01"
+            )
+        try:
+            gethostname.assert_not_called()
+            self.assertEqual(handler.host, "web01")
+        finally:
+            handler.shutdown()
 
     def test_oversized_msg_truncated(self):
         server, url = start_server(CaptureHandler)

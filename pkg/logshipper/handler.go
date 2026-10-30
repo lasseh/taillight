@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +29,10 @@ const LevelFatal = slog.Level(12) // slog.LevelError + 4
 const (
 	// defaultBatchSize is the default number of log entries per HTTP request.
 	defaultBatchSize = 100
+
+	// maxBatchEntries is the ingest API's cap on entries per request. A larger
+	// BatchSize is clamped to it.
+	maxBatchEntries = 1000
 
 	// defaultFlushPeriod is the default interval at which logs are flushed.
 	defaultFlushPeriod = time.Second
@@ -43,6 +48,10 @@ const (
 	// one oversized entry cannot make the server reject the whole batch.
 	maxMsgBytes = 64 * 1024
 
+	// maxAttrsBytes is the ingest API's per-entry cap on the encoded attrs
+	// (64 KB). Attrs over it are replaced by a stub for the same reason.
+	maxAttrsBytes = 64 * 1024
+
 	// maxServiceBytes, maxComponentBytes and maxHostBytes are the ingest
 	// API's caps on those fields. The values are fixed per Handler, so New
 	// rejects a config over a cap instead of having every batch rejected.
@@ -50,13 +59,33 @@ const (
 	maxComponentBytes = 128
 	maxHostBytes      = 256
 
+	// maxSourceBytes is the ingest API's cap on the source field. A longer
+	// file:line source is shortened from the front.
+	maxSourceBytes = 256
+
+	// sourceCutPrefix marks a source shortened from the front.
+	sourceCutPrefix = "…"
+
 	// emptyMsgPlaceholder is shipped in place of an empty message, which the
 	// ingest API rejects.
 	emptyMsgPlaceholder = "(empty)"
 
 	// truncationSuffix marks string values truncated to fit a byte cap.
 	truncationSuffix = "…[truncated]"
+
+	// requestPrefix and requestSuffix wrap the comma-separated encoded
+	// entries of a request body.
+	requestPrefix = `{"logs":[`
+	requestSuffix = `]}`
+
+	// emptyRequestBytes is the size of a request body with no entries.
+	emptyRequestBytes = len(requestPrefix) + len(requestSuffix)
 )
+
+// requestByteLimit caps the encoded size of one request, leaving 1 MB of
+// headroom below the ingest API's 5 MB body cap (it answers 413 above it). A
+// var so tests can lower it; New copies it into the Handler.
+var requestByteLimit = 4 * 1024 * 1024
 
 // Secret is a redacting string type for sensitive values like API keys.
 // Its String, GoString, and MarshalJSON methods all return "[REDACTED]",
@@ -104,7 +133,7 @@ type Config struct {
 	// explicitly to slog.LevelDebug to ship everything, or slog.LevelWarn /
 	// slog.LevelError to reduce volume.
 	MinLevel    slog.Level
-	BatchSize   int           // Flush when batch reaches this size.
+	BatchSize   int           // Flush when batch reaches this size. Clamped to 1000, the ingest API's cap per request.
 	FlushPeriod time.Duration // Flush at least this often.
 	BufferSize  int           // Buffered channel capacity.
 
@@ -149,6 +178,11 @@ var osHostname = os.Hostname
 func (c *Config) setDefaults() error {
 	if c.BatchSize <= 0 {
 		c.BatchSize = defaultBatchSize
+	}
+	// Clamped, not rejected: a large BatchSize works for a low-volume service
+	// whose timed flushes stay small.
+	if c.BatchSize > maxBatchEntries {
+		c.BatchSize = maxBatchEntries
 	}
 	if c.FlushPeriod <= 0 {
 		c.FlushPeriod = defaultFlushPeriod
@@ -236,16 +270,18 @@ type state struct {
 	closing      atomic.Bool
 
 	// mu serializes Shutdown against in-flight Handle calls.
-	// Handle holds an RLock for the duration of its closing-check + channel
-	// push. Shutdown takes Lock as a barrier to wait for those calls to
-	// finish, so no entry can be added to h.ch after close(h.done). This
-	// fixes a lost-entry race where a concurrent Handle could push an entry
-	// after the drain loop had already emptied the channel.
+	// Handle holds a read lock (taken with TryRLock, so it never queues
+	// behind Shutdown) for the duration of its closing-check + channel push.
+	// Shutdown takes Lock as a barrier to wait for those calls to finish, so
+	// no entry can be added to h.ch after close(h.done). This fixes a
+	// lost-entry race where a concurrent Handle could push an entry after
+	// the drain loop had already emptied the channel.
 	mu sync.RWMutex
 
-	// shutdownCtx is written by Shutdown before close(done) and read by the
-	// drain branch in loop after receiving from done. The close/receive pair
-	// provides the happens-before, so no atomic is required for the field.
+	// shutdownCtx is written by Shutdown before it starts the barrier
+	// goroutine that closes done, and read by the drain branch in loop after
+	// receiving from done. The go statement and the close/receive pair
+	// provide the happens-before, so no atomic is required for the field.
 	shutdownCtx context.Context
 }
 
@@ -258,13 +294,24 @@ type Handler struct {
 	done      chan struct{}
 	wg        *sync.WaitGroup
 	closeOnce *sync.Once
-	preAttrs  []slog.Attr
-	groups    []string
+
+	// maxRequestBytes is requestByteLimit as it was when New ran.
+	maxRequestBytes int
+
+	// goas holds the WithGroup and WithAttrs calls in order, so attrs added
+	// by a With call land under the groups open at that call, not later ones.
+	goas []groupOrAttrs
 
 	// intLogger emits internal diagnostics (send failures) to stderr. It is
 	// deliberately NOT slog.Default(), to avoid a feedback loop if callers
 	// later replace the default with a logger routed through this shipper.
 	intLogger *slog.Logger
+}
+
+// groupOrAttrs is one WithGroup call (group set) or one WithAttrs call.
+type groupOrAttrs struct {
+	group string
+	attrs []slog.Attr
 }
 
 type logEntry struct {
@@ -278,10 +325,6 @@ type logEntry struct {
 	Attrs     json.RawMessage `json:"attrs,omitempty"`
 }
 
-type ingestRequest struct {
-	Logs []logEntry `json:"logs"`
-}
-
 // New creates and starts a Handler that batches and sends logs in the background.
 // It returns an error if Config.Service is empty, if Config.Host is empty and
 // the system hostname cannot be resolved, if Service, Component or Host is
@@ -293,13 +336,14 @@ func New(cfg Config) (*Handler, error) {
 	}
 
 	h := &Handler{
-		cfg:       cfg,
-		state:     &state{},
-		ch:        make(chan logEntry, cfg.BufferSize),
-		done:      make(chan struct{}),
-		wg:        &sync.WaitGroup{},
-		closeOnce: &sync.Once{},
-		intLogger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		cfg:             cfg,
+		state:           &state{},
+		ch:              make(chan logEntry, cfg.BufferSize),
+		done:            make(chan struct{}),
+		wg:              &sync.WaitGroup{},
+		closeOnce:       &sync.Once{},
+		maxRequestBytes: requestByteLimit,
+		intLogger:       slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 	}
 	h.wg.Add(1)
 	go h.loop()
@@ -318,7 +362,15 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	// guarantees that either (a) we observe closing=true and drop, or
 	// (b) we complete our channel push before Shutdown's Lock can return.
 	// Either way, no entry is lost silently after shutdown.
-	h.state.mu.RLock()
+	//
+	// Only Shutdown takes the write side, after setting closing, so a failed
+	// TryRLock means Shutdown is waiting on the barrier: drop instead of
+	// queueing behind it. That keeps Handle from blocking during Shutdown,
+	// including a call made from inside a Redact or LogValuer callback.
+	if !h.state.mu.TryRLock() {
+		h.state.dropped.Add(1)
+		return nil
+	}
 	defer h.state.mu.RUnlock()
 
 	if h.state.closing.Load() {
@@ -346,17 +398,23 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		Host:      h.cfg.Host,
 	}
 
-	// Pre-size to avoid map growth reallocs on the hot path.
-	attrs := make(map[string]any, len(h.preAttrs)+r.NumAttrs())
+	attrs := make(map[string]any, r.NumAttrs())
 
-	// Pre-resolved attrs from WithAttrs.
-	for _, a := range h.preAttrs {
-		h.setAttr(attrs, h.groups, a)
+	// Attrs from WithAttrs, each under the groups open when it was added.
+	var groups []string
+	for _, goa := range h.goas {
+		if goa.group != "" {
+			groups = append(groups, goa.group)
+			continue
+		}
+		for _, a := range goa.attrs {
+			h.setAttr(attrs, groups, a)
+		}
 	}
 
-	// Record attrs.
+	// Record attrs go under every group.
 	r.Attrs(func(a slog.Attr) bool {
-		h.setAttr(attrs, h.groups, a)
+		h.setAttr(attrs, groups, a)
 		return true
 	})
 
@@ -367,19 +425,25 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	if h.cfg.AddSource && r.PC != 0 {
 		fs := runtime.CallersFrames([]uintptr{r.PC})
 		f, _ := fs.Next()
-		entry.Source = fmt.Sprintf("%s:%d", f.File, f.Line)
+		entry.Source = shortenSource(fmt.Sprintf("%s:%d", f.File, f.Line))
 	}
 
 	if len(attrs) > 0 {
 		raw, err := json.Marshal(attrs)
-		if err != nil {
+		switch {
+		case err != nil:
 			// Don't lose the record — ship a stub payload and count the
 			// encode failure so it shows up in EncodeFailed(). slog
 			// discards Handle errors, so returning one here would be a
 			// silent drop.
 			h.state.encodeFailed.Add(1)
 			entry.Attrs = encodeErrorPayload(err)
-		} else {
+		case len(raw) > maxAttrsBytes:
+			// The server measures these same bytes and would reject the
+			// whole batch; ship the record with a stub instead.
+			h.state.encodeFailed.Add(1)
+			entry.Attrs = attrsDroppedPayload(len(raw))
+		default:
 			entry.Attrs = raw
 		}
 	}
@@ -393,11 +457,14 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	return nil
 }
 
-// truncateMsg caps msg at maxMsgBytes (the ingest API's per-entry limit) so
-// an oversized message is truncated instead of the server rejecting the whole
-// batch. The cut backs up to a rune boundary so the result stays valid UTF-8
-// and cannot grow past the cap when JSON escaping replaces invalid bytes.
+// truncateMsg makes msg valid UTF-8 and caps it at maxMsgBytes (the ingest
+// API's per-entry limit), so an oversized message is truncated instead of the
+// server rejecting the whole batch. Invalid bytes are replaced before the
+// length check: JSON encoding would otherwise turn each one into a 3-byte
+// U+FFFD after it, and the server measures the decoded message. The cut backs
+// up to a rune boundary so the result stays valid UTF-8.
 func truncateMsg(msg string) string {
+	msg = strings.ToValidUTF8(msg, string(utf8.RuneError))
 	if len(msg) <= maxMsgBytes {
 		return msg
 	}
@@ -406,6 +473,21 @@ func truncateMsg(msg string) string {
 		cut--
 	}
 	return msg[:cut] + truncationSuffix
+}
+
+// shortenSource makes a file:line source valid UTF-8 and caps it at
+// maxSourceBytes, keeping the tail (file name and line), which is the useful
+// part of a long build path. The cut moves forward to a rune boundary.
+func shortenSource(source string) string {
+	source = strings.ToValidUTF8(source, string(utf8.RuneError))
+	if len(source) <= maxSourceBytes {
+		return source
+	}
+	cut := len(source) - (maxSourceBytes - len(sourceCutPrefix))
+	for cut < len(source) && !utf8.RuneStart(source[cut]) {
+		cut++
+	}
+	return sourceCutPrefix + source[cut:]
 }
 
 // encodeErrorPayload builds a JSON object recording that the original attrs
@@ -420,6 +502,12 @@ func encodeErrorPayload(err error) json.RawMessage {
 	return b
 }
 
+// attrsDroppedPayload builds the stub shipped in place of attrs over
+// maxAttrsBytes. It records their encoded size.
+func attrsDroppedPayload(size int) json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(`{"_attrs_dropped_bytes":%d}`, size))
+}
+
 // WithAttrs returns a new Handler with the given pre-resolved attributes.
 // The returned handler shares the parent's state (counters, channel, goroutine)
 // so Dropped/SendFailed/EncodeFailed aggregate across all derived loggers.
@@ -427,17 +515,7 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	if len(attrs) == 0 {
 		return h
 	}
-	return &Handler{
-		cfg:       h.cfg,
-		state:     h.state,
-		ch:        h.ch,
-		done:      h.done,
-		wg:        h.wg,
-		closeOnce: h.closeOnce,
-		preAttrs:  append(cloneAttrs(h.preAttrs), attrs...),
-		groups:    cloneStrings(h.groups),
-		intLogger: h.intLogger,
-	}
+	return h.withGroupOrAttrs(groupOrAttrs{attrs: attrs})
 }
 
 // WithGroup returns a new Handler with the given group prefix.
@@ -446,17 +524,17 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	return &Handler{
-		cfg:       h.cfg,
-		state:     h.state,
-		ch:        h.ch,
-		done:      h.done,
-		wg:        h.wg,
-		closeOnce: h.closeOnce,
-		preAttrs:  cloneAttrs(h.preAttrs),
-		groups:    append(cloneStrings(h.groups), name),
-		intLogger: h.intLogger,
-	}
+	return h.withGroupOrAttrs(groupOrAttrs{group: name})
+}
+
+// withGroupOrAttrs returns a copy of h with goa appended. The goas slice is
+// copied so sibling handlers derived from h never share a backing array.
+func (h *Handler) withGroupOrAttrs(goa groupOrAttrs) *Handler {
+	h2 := *h
+	h2.goas = make([]groupOrAttrs, len(h.goas)+1)
+	copy(h2.goas, h.goas)
+	h2.goas[len(h.goas)] = goa
+	return &h2
 }
 
 // Dropped returns the number of log entries dropped due to a full buffer or
@@ -466,46 +544,56 @@ func (h *Handler) Dropped() int64 {
 }
 
 // SendFailed returns the number of log entries that failed to send due to
-// HTTP errors or timeouts. After the library's bounded retry policy has been
-// exhausted (one retry on the following flush tick), entries are counted here
-// and dropped to keep memory bounded.
+// HTTP errors or timeouts. A batch the server rejects with a 4xx (other than
+// 401, 408 or 429) is counted here at once; any other failure gets one retry
+// on the following flush tick. Entries are counted here and dropped once that
+// policy is exhausted, to keep memory bounded. It also counts entries the
+// shutdown drain could not send before its context expired, and an entry dropped
+// because it would not fit in a request on its own or could not be encoded.
 func (h *Handler) SendFailed() int64 {
 	return h.state.sendFailed.Load()
 }
 
-// EncodeFailed returns the number of log entries whose attrs failed to
-// JSON-marshal. Those entries still ship with an "_encode_error" stub attr
-// so the record itself is not lost — only the attrs payload is replaced.
+// EncodeFailed returns the number of log entries whose attrs could not be
+// shipped: they failed to JSON-marshal, or their encoded size was over the
+// ingest API's 64 KB cap. Those entries still ship, with an "_encode_error"
+// or "_attrs_dropped_bytes" stub attr, so the record itself is not lost —
+// only the attrs payload is replaced.
 func (h *Handler) EncodeFailed() int64 {
 	return h.state.encodeFailed.Load()
 }
 
 // Shutdown flushes remaining buffered logs and stops the background goroutine.
 // It marks the handler as closing (so concurrent Handle calls drop fast),
-// records the caller's context for the final drain flush, and waits for the
-// drain goroutine to finish or the context to expire.
+// records the caller's context for the final drain flush, waits for in-flight
+// Handle calls to finish their push, and waits for the drain goroutine to
+// finish or the context to expire.
 //
-// If ctx expires while a send is in flight, Shutdown returns ctx.Err() and the
-// shipper goroutine will exit once the in-flight send finishes (bounded by
-// Config.SendTimeout).
+// If ctx expires first, Shutdown returns ctx.Err(). That covers a send still
+// in flight (bounded by Config.SendTimeout) and a Handle call stuck in user
+// code such as Redact or a LogValuer. The drain still runs once that call
+// returns, under the first caller's context, so entries it cannot send are
+// counted in SendFailed.
 //
 // Shutdown is safe to call multiple times and from multiple goroutines — only
-// the first call performs the close; subsequent calls wait for the drain
-// (or their own context) to complete.
+// the first call performs the close; every call waits for the drain or its
+// own context, whichever ends first.
 func (h *Handler) Shutdown(ctx context.Context) error {
 	h.closeOnce.Do(func() {
 		// Flip the fast-path flag first so new Handle callers drop.
 		h.state.closing.Store(true)
-
-		// Write-lock the barrier: this blocks until every in-flight Handle
-		// call has released its RLock. After this returns, no Handle call
-		// can still be mid-channel-push, so close(h.done) below cannot race
-		// with an enqueue that the drain loop would never see.
-		h.state.mu.Lock()
-		h.state.mu.Unlock() //nolint:staticcheck,gocritic // Intentional Lock+Unlock used as a barrier.
-
 		h.state.shutdownCtx = ctx
-		close(h.done)
+
+		// Write-lock the barrier: Lock blocks until every in-flight Handle
+		// call has released its read lock, so close(h.done) cannot race with
+		// an enqueue that the drain loop would never see. It runs in its own
+		// goroutine because a Handle call can stay in user code indefinitely,
+		// and every caller must be able to return when its context expires.
+		go func() {
+			h.state.mu.Lock()
+			h.state.mu.Unlock() //nolint:staticcheck,gocritic // Intentional Lock+Unlock used as a barrier.
+			close(h.done)
+		}()
 	})
 
 	finished := make(chan struct{})
@@ -525,99 +613,172 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 func (h *Handler) loop() {
 	defer h.wg.Done()
 
-	batch := make([]logEntry, 0, h.cfg.BatchSize)
-	// pendingRetry holds a single previous batch that failed to send. It is
-	// retried (combined with the current batch) on the next flush tick. On a
-	// second consecutive failure the combined set is counted as SendFailed
+	// batch holds entries encoded once, when received; batchBytes is the size
+	// of the request body they would make now.
+	batch := make([]json.RawMessage, 0, h.cfg.BatchSize)
+	batchBytes := emptyRequestBytes
+	// retry holds a single previous batch that failed with a retryable error.
+	// It is resent on its own at the next flush, never combined with new
+	// entries, so no request holds more than BatchSize entries or
+	// maxRequestBytes. If the resend fails too, it is counted as SendFailed
 	// and dropped, keeping retained memory bounded to ~2 × BatchSize.
-	var pendingRetry []logEntry
+	var retry []json.RawMessage
 	ticker := time.NewTicker(h.cfg.FlushPeriod)
 	defer ticker.Stop()
 
-	flush := func(ctx context.Context) {
-		if len(batch) == 0 && len(pendingRetry) == 0 {
-			return
-		}
-
-		wasRetry := len(pendingRetry) > 0
-		var toSend []logEntry
-		if wasRetry {
-			toSend = make([]logEntry, 0, len(pendingRetry)+len(batch))
-			toSend = append(toSend, pendingRetry...)
-			toSend = append(toSend, batch...)
-		} else {
-			toSend = batch
-		}
-
-		err := h.send(ctx, toSend)
-		if err == nil {
-			pendingRetry = nil
-			batch = batch[:0]
-			return
-		}
-
+	warn := func(err error, n int, wasRetry, willRetry bool) {
 		h.intLogger.Warn("logshipper send failed",
 			"error", err,
-			"batch_size", len(toSend),
+			"batch_size", n,
 			"retry", wasRetry,
+			"will_retry", willRetry,
 		)
-		if wasRetry {
-			// Second consecutive failure — drop all, keep memory bounded.
-			h.state.sendFailed.Add(int64(len(toSend)))
-			pendingRetry = nil
-		} else {
-			// First failure — retain for one retry on the next flush tick.
-			// Copy so the backing array can be reused.
-			pendingRetry = make([]logEntry, len(toSend))
-			copy(pendingRetry, toSend)
+	}
+
+	// draining is set for the final flushes, which have no later flush to
+	// retry in.
+	draining := false
+
+	flush := func(ctx context.Context) {
+		endpointFailing := false
+		if len(retry) > 0 {
+			if err := h.send(ctx, retry); err != nil {
+				warn(err, len(retry), true, false)
+				h.state.sendFailed.Add(int64(len(retry)))
+				endpointFailing = retryable(err)
+			}
+			retry = nil
+		}
+		if len(batch) == 0 {
+			return
+		}
+		if endpointFailing && !draining {
+			// A second send would hold the loop for another SendTimeout
+			// while h.ch fills, so batch waits for the next flush instead.
+			retry = append([]json.RawMessage(nil), batch...)
+		} else if err := h.send(ctx, batch); err != nil {
+			willRetry := retryable(err)
+			warn(err, len(batch), false, willRetry)
+			if willRetry {
+				// Copy so the backing array of batch can be reused.
+				retry = append([]json.RawMessage(nil), batch...)
+			} else {
+				// A rejection that a resend would get again.
+				h.state.sendFailed.Add(int64(len(batch)))
+			}
 		}
 		batch = batch[:0]
+		batchBytes = emptyRequestBytes
+	}
+
+	// add encodes entry and appends it to batch. It flushes first if the
+	// entry would take the request past maxRequestBytes, and after if the
+	// batch has reached BatchSize.
+	add := func(ctx context.Context, entry logEntry) {
+		raw, err := json.Marshal(entry)
+		if err != nil {
+			// Only a timestamp outside years 0-9999 fails to encode.
+			h.state.sendFailed.Add(1)
+			h.intLogger.Warn("logshipper dropped an entry it could not encode", "error", err)
+			return
+		}
+		if emptyRequestBytes+len(raw) > h.maxRequestBytes {
+			h.state.sendFailed.Add(1)
+			h.intLogger.Warn("logshipper dropped an entry too large for one request",
+				"entry_bytes", len(raw),
+				"limit_bytes", h.maxRequestBytes,
+			)
+			return
+		}
+		if len(batch) > 0 && batchBytes+1+len(raw) > h.maxRequestBytes {
+			flush(ctx)
+		}
+		if len(batch) > 0 {
+			batchBytes++ // The comma before this entry.
+		}
+		batch = append(batch, raw)
+		batchBytes += len(raw)
+		if len(batch) >= h.cfg.BatchSize {
+			flush(ctx)
+		}
+	}
+
+	// drain sends what is left after Shutdown in chunks of at most BatchSize,
+	// under the Shutdown context. Once that context expires nothing more is
+	// sent, and every unsent entry is counted in SendFailed. No Handle call
+	// can push after done is closed, so len(h.ch) is final here.
+	drain := func() {
+		draining = true
+		ctx := h.state.shutdownCtx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		for {
+			if ctx.Err() != nil {
+				unsent := len(batch) + len(retry) + len(h.ch)
+				h.state.sendFailed.Add(int64(unsent))
+				h.intLogger.Warn("logshipper shutdown context expired before the drain finished",
+					"error", ctx.Err(),
+					"unsent", unsent,
+				)
+				return
+			}
+			select {
+			case entry := <-h.ch:
+				add(ctx, entry)
+			default:
+				flush(ctx)
+				// A batch that failed in the final flush has no later
+				// flush to be retried in. Count it as failed so the
+				// caller's SendFailed() reflects reality.
+				h.state.sendFailed.Add(int64(len(retry)))
+				return
+			}
+		}
 	}
 
 	for {
+		// Once done is closed, drain under the Shutdown context instead of
+		// taking more entries on the normal path, whose sends that context
+		// does not bound.
+		select {
+		case <-h.done:
+			drain()
+			return
+		default:
+		}
+
 		select {
 		case entry := <-h.ch:
-			batch = append(batch, entry)
-			if len(batch) >= h.cfg.BatchSize {
-				flush(context.Background())
-			}
+			add(context.Background(), entry)
 		case <-ticker.C:
 			flush(context.Background())
 		case <-h.done:
-			drainCtx := h.state.shutdownCtx
-			if drainCtx == nil {
-				drainCtx = context.Background()
-			}
-			for {
-				select {
-				case entry := <-h.ch:
-					batch = append(batch, entry)
-				default:
-					flush(drainCtx)
-					// Any entries still in pendingRetry after the final
-					// drain flush are unreachable. Count them as failed so
-					// the caller's SendFailed() reflects reality.
-					if len(pendingRetry) > 0 {
-						h.state.sendFailed.Add(int64(len(pendingRetry)))
-						pendingRetry = nil
-					}
-					return
-				}
-			}
+			// Handled at the top of the loop.
 		}
 	}
 }
 
-func (h *Handler) send(ctx context.Context, batch []logEntry) error {
+// send posts entries, each already encoded, as one ingest request.
+func (h *Handler) send(ctx context.Context, entries []json.RawMessage) error {
 	ctx, cancel := context.WithTimeout(ctx, h.cfg.SendTimeout)
 	defer cancel()
 
-	body, err := json.Marshal(ingestRequest{Logs: batch})
-	if err != nil {
-		return fmt.Errorf("marshal batch: %w", err)
+	size := emptyRequestBytes + len(entries) - 1
+	for _, e := range entries {
+		size += len(e)
 	}
+	body := bytes.NewBuffer(make([]byte, 0, size))
+	body.WriteString(requestPrefix)
+	for i, e := range entries {
+		if i > 0 {
+			body.WriteByte(',')
+		}
+		body.Write(e)
+	}
+	body.WriteString(requestSuffix)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.cfg.Endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.cfg.Endpoint, body)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -634,10 +795,38 @@ func (h *Handler) send(ctx context.Context, batch []logEntry) error {
 	// so a 3xx means the entries never reached the ingest API.
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("ingest API returned %d: %s", resp.StatusCode, body)
+		return &statusError{code: resp.StatusCode, body: body}
 	}
 	_, _ = io.Copy(io.Discard, resp.Body) // Drain body to allow connection reuse.
 	return nil
+}
+
+// statusError is a non-2xx answer from the ingest API.
+type statusError struct {
+	code int
+	body []byte
+}
+
+func (e *statusError) Error() string {
+	return fmt.Sprintf("ingest API returned %d: %s", e.code, e.body)
+}
+
+// retryable reports whether a failed send is worth its one retry. A 4xx other
+// than 401, 408 and 429 means the server rejected this payload, and a resend
+// gets the same answer. A 401 is retried because the ingest auth middleware
+// also answers 401 when the API key lookup itself fails, as it does during a
+// database failover. Network errors, timeouts and every other status are
+// retried.
+func retryable(err error) bool {
+	var se *statusError
+	if !errors.As(err, &se) {
+		return true
+	}
+	switch se.code {
+	case http.StatusUnauthorized, http.StatusRequestTimeout, http.StatusTooManyRequests:
+		return true
+	}
+	return se.code < http.StatusBadRequest || se.code >= http.StatusInternalServerError
 }
 
 func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
@@ -646,25 +835,16 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 		return
 	}
 
-	target := m
-	for _, g := range groups {
-		sub, ok := target[g].(map[string]any)
-		if !ok {
-			sub = make(map[string]any)
-			target[g] = sub
-		}
-		target = sub
-	}
-
+	// The group maps along the path are created only once there is a value
+	// to store, so a group with no attrs is not emitted.
 	if a.Value.Kind() == slog.KindGroup {
-		groupAttrs := a.Value.Group()
+		// An inline group's attrs belong to the enclosing level.
 		if a.Key != "" {
-			sub := make(map[string]any)
-			target[a.Key] = sub
-			target = sub
+			// Clip so the append never writes into the caller's slice.
+			groups = append(groups[:len(groups):len(groups)], a.Key)
 		}
-		for _, ga := range groupAttrs {
-			h.setAttr(target, nil, ga)
+		for _, ga := range a.Value.Group() {
+			h.setAttr(m, groups, ga)
 		}
 		return
 	}
@@ -699,23 +879,25 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 			v = s[:h.cfg.MaxAttrBytes] + truncationSuffix
 		}
 	}
-	target[a.Key] = v
+	groupMap(m, groups)[a.Key] = v
 }
 
-func cloneAttrs(attrs []slog.Attr) []slog.Attr {
-	if attrs == nil {
-		return nil
-	}
-	c := make([]slog.Attr, len(attrs))
-	copy(c, attrs)
-	return c
-}
+// attrGroup is a group's attrs. Its own type keeps it apart from a
+// map[string]any attr value, which belongs to the caller and must not be
+// written to.
+type attrGroup map[string]any
 
-func cloneStrings(s []string) []string {
-	if s == nil {
-		return nil
+// groupMap returns the map at the group path below m, creating the maps on
+// the path as needed. A key that holds anything but a group is replaced: one
+// JSON key cannot be both a value and a group.
+func groupMap(m map[string]any, groups []string) map[string]any {
+	for _, g := range groups {
+		sub, ok := m[g].(attrGroup)
+		if !ok {
+			sub = make(attrGroup)
+			m[g] = sub
+		}
+		m = sub
 	}
-	c := make([]string, len(s))
-	copy(c, s)
-	return c
+	return m
 }

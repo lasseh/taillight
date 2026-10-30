@@ -60,7 +60,9 @@ class TaillightHandler(logging.Handler):
     dropped and a warning is printed to stderr on the first failure.
 
     ``service`` is required — the ingest API rejects entries without one, so
-    an empty service raises ``ValueError`` at construction. Messages longer
+    an empty service raises ``ValueError`` at construction. ``host`` defaults
+    to ``socket.gethostname()``; if that is empty too, construction raises
+    ``ValueError`` for the same reason. Messages longer
     than the server's 64 KB cap are truncated (marked with ``…[truncated]``)
     rather than letting the server reject the whole batch.
     """
@@ -83,12 +85,19 @@ class TaillightHandler(logging.Handler):
             raise ValueError(
                 "service is required: the ingest API rejects entries with an empty service"
             )
+        # Resolved before super().__init__() for the same reason.
+        host = host or socket.gethostname()
+        if not host:
+            raise ValueError(
+                "host is required: the ingest API rejects entries with an empty host, "
+                "and the system hostname is empty"
+            )
         super().__init__()
         self.endpoint = endpoint
         self.api_key = api_key
         self.service = service
         self.component = component
-        self.host = host or socket.gethostname()
+        self.host = host
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self.timeout = timeout
