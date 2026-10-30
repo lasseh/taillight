@@ -796,15 +796,18 @@ func (e *statusError) Error() string {
 }
 
 // retryable reports whether a failed send is worth its one retry. A 4xx other
-// than 408 and 429 means the server rejected this payload, and a resend gets
-// the same answer. Network errors, timeouts and every other status are
+// than 401, 408 and 429 means the server rejected this payload, and a resend
+// gets the same answer. A 401 is retried because the ingest auth middleware
+// also answers 401 when the API key lookup itself fails, as it does during a
+// database failover. Network errors, timeouts and every other status are
 // retried.
 func retryable(err error) bool {
 	var se *statusError
 	if !errors.As(err, &se) {
 		return true
 	}
-	if se.code == http.StatusRequestTimeout || se.code == http.StatusTooManyRequests {
+	switch se.code {
+	case http.StatusUnauthorized, http.StatusRequestTimeout, http.StatusTooManyRequests:
 		return true
 	}
 	return se.code < http.StatusBadRequest || se.code >= http.StatusInternalServerError

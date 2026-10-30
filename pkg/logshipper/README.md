@@ -254,14 +254,15 @@ handler, err := logshipper.New(logshipper.Config{
 3. Entries are flushed as a JSON batch `POST` when the batch is full or the
    flush timer fires.
 4. **Failed batches get one retry, unless the server rejected them.** A 4xx
-   response other than 408 or 429 means the server rejected the payload, so
-   the batch is counted in `SendFailed()` and dropped at once; a resend would
-   get the same answer. After a network error, timeout, 408, 429, 5xx or any
-   other status the batch is retained and resent on its own at the next
-   flush, never combined with new entries. If the retry also fails, the
-   batch is counted in `SendFailed()` and dropped. Peak retained memory is
-   `~2 × BatchSize`. The stderr warning for each failure says whether the
-   batch will be retried (`will_retry`).
+   response other than 401, 408 or 429 means the server rejected the payload,
+   so the batch is counted in `SendFailed()` and dropped at once; a resend
+   would get the same answer. After a network error, timeout, 401, 408, 429,
+   5xx or any other status the batch is retained and resent on its own at the
+   next flush, never combined with new entries. A 401 is retried because the
+   ingest API also answers it when the API key lookup fails during a database
+   failover. If the retry also fails, the batch is counted in `SendFailed()`
+   and dropped. Peak retained memory is `~2 × BatchSize`. The stderr warning
+   for each failure says whether the batch will be retried (`will_retry`).
 5. `Shutdown(ctx)` marks the handler as closing, takes a write-lock barrier
    so any in-flight `Handle` call completes its channel push before the
    drain begins, then sends the remaining entries in chunks of at most

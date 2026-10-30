@@ -1696,7 +1696,7 @@ func TestHandler_RetryPolicyByStatus(t *testing.T) {
 		wantRetry bool
 	}{
 		{http.StatusBadRequest, false},
-		{http.StatusUnauthorized, false},
+		{http.StatusUnauthorized, true},
 		{http.StatusForbidden, false},
 		{http.StatusRequestEntityTooLarge, false},
 		{http.StatusRequestTimeout, true},
