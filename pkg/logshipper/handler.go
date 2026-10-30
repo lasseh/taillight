@@ -635,18 +635,28 @@ func (h *Handler) loop() {
 		)
 	}
 
+	// draining is set for the final flushes, which have no later flush to
+	// retry in.
+	draining := false
+
 	flush := func(ctx context.Context) {
+		endpointFailing := false
 		if len(retry) > 0 {
 			if err := h.send(ctx, retry); err != nil {
 				warn(err, len(retry), true, false)
 				h.state.sendFailed.Add(int64(len(retry)))
+				endpointFailing = retryable(err)
 			}
 			retry = nil
 		}
 		if len(batch) == 0 {
 			return
 		}
-		if err := h.send(ctx, batch); err != nil {
+		if endpointFailing && !draining {
+			// A second send would hold the loop for another SendTimeout
+			// while h.ch fills, so batch waits for the next flush instead.
+			retry = append([]json.RawMessage(nil), batch...)
+		} else if err := h.send(ctx, batch); err != nil {
 			willRetry := retryable(err)
 			warn(err, len(batch), false, willRetry)
 			if willRetry {
@@ -698,6 +708,7 @@ func (h *Handler) loop() {
 	// sent, and every unsent entry is counted in SendFailed. No Handle call
 	// can push after done is closed, so len(h.ch) is final here.
 	drain := func() {
+		draining = true
 		ctx := h.state.shutdownCtx
 		if ctx == nil {
 			ctx = context.Background()

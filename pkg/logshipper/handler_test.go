@@ -1675,15 +1675,22 @@ func TestHandler_RetryOnFirstFailure(t *testing.T) {
 	}
 }
 
-// firstStatusServer answers code to the first request and 202 to the rest. It
-// returns the endpoint, the entries accepted so far, and the request count.
+// firstStatusServer answers code to the first request and 202 to the rest.
 func firstStatusServer(t *testing.T, code int) (string, func() []logEntry, *atomic.Int64) {
+	t.Helper()
+	return failingServer(t, code, 1)
+}
+
+// failingServer answers code to the first failures requests and 202 to the
+// rest. It returns the endpoint, the entries accepted so far, and the request
+// count.
+func failingServer(t *testing.T, code int, failures int64) (string, func() []logEntry, *atomic.Int64) {
 	t.Helper()
 	var mu sync.Mutex
 	var got []logEntry
 	var calls atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if calls.Add(1) == 1 {
+		if calls.Add(1) <= failures {
 			w.WriteHeader(code)
 			return
 		}
@@ -1709,10 +1716,16 @@ func firstStatusServer(t *testing.T, code int) (string, func() []logEntry, *atom
 // drain.
 func waitForFirstCall(t *testing.T, calls *atomic.Int64) {
 	t.Helper()
+	waitForCalls(t, calls, 1)
+}
+
+// waitForCalls waits until the server has seen want requests.
+func waitForCalls(t *testing.T, calls *atomic.Int64, want int64) {
+	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
-	for calls.Load() < 1 {
+	for calls.Load() < want {
 		if time.Now().After(deadline) {
-			t.Fatal("server saw no request after 5s")
+			t.Fatalf("server saw %d requests after 5s, want %d", calls.Load(), want)
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -1740,6 +1753,68 @@ func TestHandler_RejectedBatchNotMergedIntoNext(t *testing.T) {
 	}
 	if h.SendFailed() != 3 {
 		t.Errorf("SendFailed = %d, want 3 (the rejected first batch)", h.SendFailed())
+	}
+}
+
+// While the endpoint is failing, a flush makes one request: a second one would
+// hold the loop for another SendTimeout while the buffer fills.
+func TestHandler_FailedRetrySkipsNewBatch(t *testing.T) {
+	endpoint, entries, calls := failingServer(t, http.StatusServiceUnavailable, 2)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+	logger := slog.New(h)
+	for range 3 {
+		logger.Info("first")
+	}
+	waitForCalls(t, calls, 1)
+	for range 3 {
+		logger.Info("second")
+	}
+	waitForCalls(t, calls, 2)
+	time.Sleep(50 * time.Millisecond) // Room for a third request, if one is coming.
+	if got := calls.Load(); got != 2 {
+		t.Errorf("server saw %d requests before shutdown, want 2", got)
+	}
+
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 3 {
+		t.Fatalf("delivered %d entries, want the 3 of the second batch", len(got))
+	}
+	if got[0].Msg != "second" {
+		t.Errorf("delivered %q, want the second batch", got[0].Msg)
+	}
+	if h.SendFailed() != 3 {
+		t.Errorf("SendFailed = %d, want 3 (the first batch)", h.SendFailed())
+	}
+}
+
+// The final flush has no later flush to retry in, so its batch is still sent
+// after the retry before it fails.
+func TestHandler_DrainSendsBatchAfterFailedRetry(t *testing.T) {
+	endpoint, entries, calls := failingServer(t, http.StatusServiceUnavailable, 2)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", BatchSize: 3, FlushPeriod: time.Hour})
+
+	logger := slog.New(h)
+	for range 3 {
+		logger.Info("first")
+	}
+	waitForCalls(t, calls, 1)
+	for range 2 {
+		logger.Info("second")
+	}
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	if got := len(entries()); got != 2 {
+		t.Errorf("delivered %d entries, want the 2 of the second batch", got)
+	}
+	if h.SendFailed() != 3 {
+		t.Errorf("SendFailed = %d, want 3 (the first batch)", h.SendFailed())
 	}
 }
 

@@ -261,8 +261,11 @@ handler, err := logshipper.New(logshipper.Config{
    next flush, never combined with new entries. A 401 is retried because the
    ingest API also answers it when the API key lookup fails during a database
    failover. If the retry also fails, the batch is counted in `SendFailed()`
-   and dropped. Peak retained memory is `~2 × BatchSize`. The stderr warning
-   for each failure says whether the batch will be retried (`will_retry`).
+   and dropped. The next batch then waits for the following flush instead of
+   being sent straight after, so an unreachable endpoint costs one
+   `SendTimeout` per flush; that batch gets one send. Peak retained memory is
+   `~2 × BatchSize`. The stderr warning for each failure says whether the
+   batch will be retried (`will_retry`).
 5. `Shutdown(ctx)` marks the handler as closing, takes a write-lock barrier
    so any in-flight `Handle` call completes its channel push before the
    drain begins, then sends the remaining entries in chunks of at most
