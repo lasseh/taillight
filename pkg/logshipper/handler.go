@@ -822,22 +822,14 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 	// The group maps along the path are created only once there is a value
 	// to store, so a group with no attrs is not emitted.
 	if a.Value.Kind() == slog.KindGroup {
-		sub := make(attrGroup)
+		// An inline group's attrs belong to the enclosing level.
+		if a.Key != "" {
+			// Clip so the append never writes into the caller's slice.
+			groups = append(groups[:len(groups):len(groups)], a.Key)
+		}
 		for _, ga := range a.Value.Group() {
-			h.setAttr(sub, nil, ga)
+			h.setAttr(m, groups, ga)
 		}
-		if len(sub) == 0 {
-			return
-		}
-		target := groupMap(m, groups)
-		if a.Key == "" {
-			// An inline group's attrs belong to the enclosing level.
-			for k, v := range sub {
-				target[k] = v
-			}
-			return
-		}
-		target[a.Key] = sub
 		return
 	}
 

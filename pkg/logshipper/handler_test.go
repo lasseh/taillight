@@ -874,6 +874,25 @@ func TestHandler_WithBeforeWithGroupStaysOutside(t *testing.T) {
 	}
 }
 
+func TestHandler_SameKeyGroupAttrsMerge(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	slog.New(h).With(slog.Group("req", "a", 1, slog.Group("sub", "x", 1))).
+		Info("m", slog.Group("req", "b", 2, slog.Group("sub", "y", 2)), slog.Group("req", slog.Group("empty")))
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	if want := `{"req":{"a":1,"b":2,"sub":{"x":1,"y":2}}}`; string(got[0].Attrs) != want {
+		t.Errorf("attrs = %s, want %s", got[0].Attrs, want)
+	}
+}
+
 // A map attr with the same key as a later group is the caller's map. Writing
 // the group's attrs into it would mutate shared state on every log call.
 func TestHandler_WithGroupDoesNotWriteIntoCallerMap(t *testing.T) {
