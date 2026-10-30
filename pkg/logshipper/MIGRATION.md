@@ -248,8 +248,8 @@ next flush tick — the most common recovery case (a deploy blip, a 1-2s
 network glitch) now succeeds automatically instead of surfacing as
 `SendFailed()` counts.
 
-If the retry also fails, the combined set is counted in `SendFailed()` and
-dropped. Peak retained memory is `~2 × BatchSize`.
+If the retry also fails, the batch is counted in `SendFailed()` and dropped.
+Peak retained memory is `~2 × BatchSize`.
 
 No API change. If you were relying on `SendFailed()` firing after exactly
 one failed POST, note that it now fires after two consecutive failures.

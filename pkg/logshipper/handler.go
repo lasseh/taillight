@@ -545,10 +545,10 @@ func (h *Handler) Dropped() int64 {
 
 // SendFailed returns the number of log entries that failed to send due to
 // HTTP errors or timeouts. A batch the server rejects with a 4xx (other than
-// 408 or 429) is counted here at once; any other failure gets one retry on the
-// following flush tick. Entries are counted here and dropped once that policy
-// is exhausted, to keep memory bounded. It also counts entries the shutdown
-// drain could not send before its context expired, and an entry dropped
+// 401, 408 or 429) is counted here at once; any other failure gets one retry
+// on the following flush tick. Entries are counted here and dropped once that
+// policy is exhausted, to keep memory bounded. It also counts entries the
+// shutdown drain could not send before its context expired, and an entry dropped
 // because it would not fit in a request on its own or could not be encoded.
 func (h *Handler) SendFailed() int64 {
 	return h.state.sendFailed.Load()

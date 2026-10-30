@@ -305,28 +305,35 @@ Whichever happens first triggers the HTTP POST.
 
 ### Error handling on send failure
 
-When a batch POST fails (HTTP >= 400, connection error, timeout):
+When a batch POST fails (HTTP >= 400, connection error, timeout), a warning is
+written to stderr: `"logshipper send failed"`. Its `will_retry` field says
+what happens to the batch:
 
-1. A warning is logged via `slog.Default()`: `"logshipper send failed"`
-2. `SendFailed()` counter is incremented by the batch size
-3. The batch is **retained** for retry on the next flush cycle
-4. If the retained batch grows to `BatchSize * 10` (default 1000), it is
-   cleared to prevent unbounded memory growth
+1. A 4xx other than 401, 408 or 429 means the server rejected the payload. The
+   batch is counted in `SendFailed()` and dropped, since a resend would get the
+   same answer.
+2. Any other failure keeps the batch for **one retry** at the next flush. It is
+   resent on its own, never combined with new entries.
+3. If the retry fails too, the batch is counted in `SendFailed()` and dropped.
+   The next batch then waits for the following flush, so an unreachable
+   endpoint costs one `SendTimeout` per flush.
 
-There is **no exponential backoff** — failed batches are retried on the next
-ticker tick or when new entries fill a batch. The retry interval is
-effectively `FlushPeriod` (default 1s).
+There is **no exponential backoff** — the retry happens at the next ticker tick
+or when new entries fill a batch. A 401 is retried because the ingest API also
+answers it when the API key lookup fails during a database failover.
 
 ### Batch retention on failure
 
 ```
-Send succeeds  → batch cleared, counter reset
-Send fails     → batch kept, retried next flush
-Batch >= 10x   → batch cleared to prevent OOM
+Send succeeds  → batch cleared
+Send rejected  → batch dropped, counted in SendFailed()
+Send fails     → batch kept, resent once at the next flush
+Retry fails    → batch dropped, counted in SendFailed()
 ```
 
 This means transient failures (brief network blip) are automatically retried,
-but persistent failures eventually shed entries to protect memory.
+but persistent failures shed entries to protect memory. At most one failed
+batch is held at a time.
 
 ## Shutdown and lifecycle
 
@@ -341,13 +348,19 @@ if err := handler.Shutdown(shutdownCtx); err != nil {
 ```
 
 **What `Shutdown(ctx)` does:**
-1. Closes the internal `done` channel (once, via `sync.Once`)
-2. The goroutine drains all remaining entries from the channel
-3. Flushes the final batch using `context.Background()` (not the shutdown
-   context) so the final POST is not cancelled prematurely
-4. Goroutine exits, `wg.Done()` is called
-5. If the goroutine finishes before `ctx` deadline → returns `nil`
-6. If `ctx` expires first → cancels internal context and returns `ctx.Err()`
+1. Marks the handler as closing, so new `Handle` calls drop their entries and
+   count them in `Dropped()`
+2. Closes the internal `done` channel (once, via `sync.Once`) after in-flight
+   `Handle` calls finish
+3. The goroutine sends all remaining entries in chunks of at most `BatchSize`,
+   **under the shutdown context**, so that context bounds the final sends
+4. If `ctx` expires during the drain, nothing more is sent, every unsent entry
+   is counted in `SendFailed()`, and a warning is written to stderr
+5. If the goroutine finishes before the `ctx` deadline → returns `nil`
+6. If `ctx` expires first → returns `ctx.Err()`
+
+Give the context enough time for what is buffered. Entries still unsent when it
+expires are lost.
 
 `Shutdown` is **idempotent** — safe to call multiple times (the channel is
 closed via `sync.Once`).
@@ -698,7 +711,7 @@ Validation errors include the array index of each failing entry.
 1. Verify the endpoint URL ends with `/api/v1/applog/ingest`
 2. Check that the API key has the `ingest` scope
 3. Check `handler.SendFailed()` — if > 0, the handler cannot reach the server
-4. Look for `"logshipper send failed"` warnings in stderr (logged via `slog.Default()`)
+4. Look for `"logshipper send failed"` warnings in stderr
 5. Ensure `Service` is set in Config (required by the server)
 6. Check that `MinLevel` isn't filtering out the entries you expect
 
@@ -738,7 +751,6 @@ without calling `Shutdown()`, buffered entries are lost. Always call
 
 ### Memory growing under persistent failures
 
-When send failures persist, the handler retains failed batches for retry.
-Batches are capped at `BatchSize * 10` (default 1000 entries) to prevent
-unbounded growth. If memory pressure is a concern, lower `BatchSize` or
-`BufferSize`.
+When send failures persist, the handler holds one failed batch for retry, so
+retained memory peaks at about `2 × BatchSize` plus the `BufferSize` channel.
+If memory pressure is a concern, lower `BatchSize` or `BufferSize`.

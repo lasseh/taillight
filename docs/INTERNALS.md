@@ -719,7 +719,7 @@ default:
 }
 ```
 
-If the ingest endpoint is down or slow, the buffer fills and new entries are dropped. The `Dropped()` counter tracks how many entries were lost. A failed send is retained for exactly one retry on the next flush tick; a second consecutive failure drops the whole batch (counted by `SendFailed()`) so memory stays bounded.
+If the ingest endpoint is down or slow, the buffer fills and new entries are dropped. The `Dropped()` counter tracks how many entries were lost. A failed send is retained for exactly one retry on the next flush tick, unless the server rejected it with a 4xx other than 401, 408 or 429; a rejected batch, or one whose retry also fails, is dropped and counted by `SendFailed()` so memory stays bounded.
 
 ### Level mapping
 
