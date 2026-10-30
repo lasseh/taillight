@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -71,6 +72,38 @@ func TestShutdown_ReportsEntriesTheServerRejected(t *testing.T) {
 
 	if got := buf.String(); !strings.Contains(got, "failed to ship log entries") || !strings.Contains(got, "count=1") {
 		t.Errorf("shutdown logged %q, want the 1 entry that failed", got)
+	}
+}
+
+// tls_skip_verify must keep the library's client: its redirect rule stops the
+// POST becoming a GET and the API key reaching the redirect target.
+func TestBaseConfig_SkipVerifyDoesNotFollowRedirects(t *testing.T) {
+	var posts, redirected atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ingest", func(w http.ResponseWriter, r *http.Request) {
+		posts.Add(1)
+		http.Redirect(w, r, "/other", http.StatusFound)
+	})
+	mux.HandleFunc("/other", func(http.ResponseWriter, *http.Request) {
+		redirected.Add(1)
+	})
+	srv := httptest.NewTLSServer(mux)
+	t.Cleanup(srv.Close)
+
+	base := baseConfig(config{Endpoint: srv.URL + "/ingest", APIKey: "k", TLSSkipVerify: true}, time.Hour)
+	base.Service, base.Host = "s", "h"
+	h, err := logshipper.New(base)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	slog.New(h).Info("m")
+	shutdown([]*logshipper.Handler{h}, slog.New(slog.DiscardHandler))
+
+	if posts.Load() == 0 {
+		t.Error("no request reached the server: the self-signed certificate was not accepted")
+	}
+	if got := redirected.Load(); got != 0 {
+		t.Errorf("redirect target saw %d requests, want 0", got)
 	}
 }
 
