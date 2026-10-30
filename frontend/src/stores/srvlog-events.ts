@@ -3,6 +3,7 @@ import { api } from '@/lib/api'
 import { useSrvlogStream } from '@/composables/useSrvlogStream'
 import { useSrvlogFilterStore } from '@/stores/srvlog-filters'
 import { createEventStore } from '@/stores/event-store-factory'
+import { useColumnVisibility } from '@/composables/useColumnVisibility'
 import { wildcardMatch } from '@/lib/wildcard'
 
 function matchesFilters(event: SrvlogEvent, filters: Record<string, string>): boolean {
@@ -32,4 +33,7 @@ export const useSrvlogEventStore = createEventStore({
   useStream: useSrvlogStream,
   useFilterStore: useSrvlogFilterStore,
   matchesFilters,
+  // The only call site for this key: useColumnVisibility applies its default
+  // on the first call, so a second caller could flip the default to show.
+  showMuted: () => useColumnVisibility('srvlog', 'muted', false).visible,
 })

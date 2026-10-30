@@ -12,6 +12,7 @@ const filterStore = useNetlogFilterStore()
 <template>
   <LogDetail
     :event="event"
+    feed="netlog"
     :filter-store="filterStore"
     detail-route="netlog-detail"
     device-route="netlog-device-detail"

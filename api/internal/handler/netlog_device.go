@@ -9,11 +9,12 @@ import (
 // NetlogDeviceHandler handles netlog device detail requests.
 type NetlogDeviceHandler struct {
 	store NetlogStore
+	mutes MuteRuleSet
 }
 
 // NewNetlogDeviceHandler creates a new NetlogDeviceHandler.
-func NewNetlogDeviceHandler(store NetlogStore) *NetlogDeviceHandler {
-	return &NetlogDeviceHandler{store: store}
+func NewNetlogDeviceHandler(store NetlogStore, mutes MuteRuleSet) *NetlogDeviceHandler {
+	return &NetlogDeviceHandler{store: store, mutes: mutes}
 }
 
 // Get handles GET /api/v1/netlog/device/{hostname}.
@@ -33,6 +34,7 @@ func (h *NetlogDeviceHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to get netlog device summary")
 		return
 	}
+	markNetlogs(h.mutes.Active(), summary.CriticalLogs)
 
 	writeJSON(w, itemResponse{Data: summary})
 }

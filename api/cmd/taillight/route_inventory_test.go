@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -14,6 +17,7 @@ import (
 	"github.com/lasseh/taillight/internal/broker"
 	"github.com/lasseh/taillight/internal/config"
 	"github.com/lasseh/taillight/internal/handler"
+	"github.com/lasseh/taillight/internal/mute"
 	"github.com/lasseh/taillight/internal/netbox"
 	oidcauth "github.com/lasseh/taillight/internal/oidc"
 	"github.com/lasseh/taillight/internal/postgres"
@@ -33,17 +37,40 @@ var routeExclusions = map[string]bool{
 // inert stub dependencies. Route registration never touches the database or
 // the network, so zero-value stores and nil engines are safe here.
 func buildFullRouter() chi.Router {
+	return buildRouter(config.Config{AuthEnabled: true})
+}
+
+// buildRouter is buildFullRouter with the given config.
+func buildRouter(cfg config.Config) chi.Router {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store := &postgres.Store{}
 	authStore := &postgres.AuthStore{}
-	cfg := config.Config{AuthEnabled: true}
 	analysis := &analysisWiring{
 		reports:   handler.NewAnalysisHandler(store, nil),
 		schedules: handler.NewAnalysisScheduleHandler(store, nil),
 	}
 	return setupRouter(cfg, logger, store, authStore, nil, oidcauth.New(oidcauth.Config{}, logger),
 		broker.NewSrvlogBroker(logger), broker.NewNetlogBroker(logger), broker.NewAppLogBroker(logger),
-		analysis, nil, nil, &netbox.Client{})
+		analysis, nil, nil, &netbox.Client{}, mute.NewSet(nil, time.Now, logger))
+}
+
+// TestMuteRuleWritesForbiddenWithAuthDisabled pins that the mute rule writes
+// sit in the admin group: with auth disabled the anonymous user is not an
+// admin, so each write is refused before it reaches the handler.
+func TestMuteRuleWritesForbiddenWithAuthDisabled(t *testing.T) {
+	router := buildRouter(config.Config{AuthEnabled: false})
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/v1/mute-rules", `{"feed":"netlog","hostname":"x","reason":"r"}`},
+		{http.MethodPatch, "/api/v1/mute-rules/1", `{"duration_ms":1000}`},
+		{http.MethodDelete, "/api/v1/mute-rules/1", ""},
+	} {
+		req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s = %d, want 403; body %s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
 }
 
 // specPaths parses the embedded openapi.yml into path -> set of lowercase

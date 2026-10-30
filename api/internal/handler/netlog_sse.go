@@ -16,12 +16,13 @@ import (
 type NetlogSSEHandler struct {
 	broker *broker.NetlogBroker
 	store  NetlogStore
+	mutes  MuteRuleSet
 	logger *slog.Logger
 }
 
 // NewNetlogSSEHandler creates a new NetlogSSEHandler.
-func NewNetlogSSEHandler(b *broker.NetlogBroker, s NetlogStore, l *slog.Logger) *NetlogSSEHandler {
-	return &NetlogSSEHandler{broker: b, store: s, logger: l}
+func NewNetlogSSEHandler(b *broker.NetlogBroker, s NetlogStore, mutes MuteRuleSet, l *slog.Logger) *NetlogSSEHandler {
+	return &NetlogSSEHandler{broker: b, store: s, mutes: mutes, logger: l}
 }
 
 // Stream handles GET /api/v1/netlog/stream.
@@ -71,9 +72,17 @@ func (h *NetlogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		label:   "netlog",
 		eventID: func(e model.NetlogEvent) int64 { return e.ID },
 		logger:  logger,
-		since:   h.store.ListNetlogsSince,
+		// Backfill is marked at connect, never excluded: live events were
+		// marked at dispatch, so a reconnecting client hides backfill the
+		// same way.
+		since: func(ctx context.Context, f model.NetlogFilter, sinceID int64, limit int) ([]model.NetlogEvent, error) {
+			events, err := h.store.ListNetlogsSince(ctx, f, sinceID, limit)
+			markNetlogs(h.mutes.Active(), events)
+			return events, err
+		},
 		recent: func(ctx context.Context, f model.NetlogFilter, limit int) ([]model.NetlogEvent, error) {
 			events, _, err := h.store.ListNetlogs(ctx, f, nil, limit)
+			markNetlogs(h.mutes.Active(), events)
 			return events, err
 		},
 	}

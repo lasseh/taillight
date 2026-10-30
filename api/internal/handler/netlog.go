@@ -20,22 +20,35 @@ type netlogDetailData struct {
 // NetlogHandler handles REST event queries for network device logs.
 type NetlogHandler struct {
 	store NetlogStore
+	mutes MuteRuleSet
 }
 
 // NewNetlogHandler creates a new NetlogHandler.
-func NewNetlogHandler(store NetlogStore) *NetlogHandler {
-	return &NetlogHandler{store: store}
+func NewNetlogHandler(store NetlogStore, mutes MuteRuleSet) *NetlogHandler {
+	return &NetlogHandler{store: store, mutes: mutes}
 }
 
-// List handles GET /api/v1/netlog with filter and cursor pagination.
+// List handles GET /api/v1/netlog with filter and cursor pagination. With
+// hide_muted it excludes rows matching an active mute rule; either way it
+// marks the rows it returns.
 func (h *NetlogHandler) List(w http.ResponseWriter, r *http.Request) {
 	filter, err := model.ParseNetlogFilter(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_filter", err.Error())
 		return
 	}
+	hideMuted, err := model.ParseHideMuted(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_filter", err.Error())
+		return
+	}
 	cursor := model.ParseCursor(r)
 	limit := model.ParseLimit(r, defaultLimit, maxLimit)
+
+	snap := h.mutes.Active()
+	if hideMuted {
+		filter.Exclude = snap.NetlogExclusions()
+	}
 
 	events, nextCursor, err := h.store.ListNetlogs(r.Context(), filter, cursor, limit)
 	if err != nil {
@@ -53,6 +66,7 @@ func (h *NetlogHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query events")
 		return
 	}
+	markNetlogs(snap, events)
 
 	resp := listResponse{
 		Data:    emptySlice(events),
@@ -89,6 +103,7 @@ func (h *NetlogHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	event.MutedBy = h.mutes.Active().MatchNetlog(event)
 	detail := netlogDetailData{Event: event}
 
 	// Enrich with Juniper reference if MsgID is set.

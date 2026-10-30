@@ -13,5 +13,6 @@
   "syslogtag": "rpd[1523]:",
   "structured_data": "[junos@2636.1.1.1.2.29 peer-name=\"203.0.113.9\"]",
   "message": "BGP peer 203.0.113.9 (External AS 64511) changed state from Established to Idle",
-  "raw_message": "\u003c187\u003eJun 15 12:00:00 edge-rtr01 rpd[1523]: RPD_BGP_NEIGHBOR_STATE_CHANGED"
+  "raw_message": "\u003c187\u003eJun 15 12:00:00 edge-rtr01 rpd[1523]: RPD_BGP_NEIGHBOR_STATE_CHANGED",
+  "muted_by": 12
 }
