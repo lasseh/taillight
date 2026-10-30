@@ -874,6 +874,40 @@ func TestHandler_WithBeforeWithGroupStaysOutside(t *testing.T) {
 	}
 }
 
+// A map attr with the same key as a later group is the caller's map. Writing
+// the group's attrs into it would mutate shared state on every log call.
+func TestHandler_WithGroupDoesNotWriteIntoCallerMap(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+	shared := map[string]any{"owner": "caller"}
+	logger := slog.New(h).With("g", shared).WithGroup("g")
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			logger.Info("m", "b", 2)
+		}()
+	}
+	wg.Wait()
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	if len(shared) != 1 || shared["owner"] != "caller" {
+		t.Errorf("caller's map was changed: %v", shared)
+	}
+	got := entries()
+	if len(got) != 8 {
+		t.Fatalf("received %d entries, want 8", len(got))
+	}
+	if want := `{"g":{"b":2}}`; string(got[0].Attrs) != want {
+		t.Errorf("attrs = %s, want %s", got[0].Attrs, want)
+	}
+}
+
 // TestHandler_SlogConformance runs the testing/slogtest suite. One case is an
 // intended deviation: slog expects a zero record time to be left out, but the
 // ingest API requires a timestamp, so the handler stamps the current time.
