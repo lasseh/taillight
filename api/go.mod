@@ -12,7 +12,7 @@ require (
 	github.com/go-ldap/ldap/v3 v3.4.15
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/lasseh/jink v0.1.2
+	github.com/lasseh/jink v0.2.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/sony/gobreaker/v2 v2.4.0
