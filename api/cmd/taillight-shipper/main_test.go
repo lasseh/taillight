@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +51,26 @@ func TestNewHandlers_ShutsDownEarlierHandlersOnError(t *testing.T) {
 	}
 	if got := created[0].Dropped(); got != 1 {
 		t.Errorf("first handler Dropped = %d, want 1: it was left running without a shutdown", got)
+	}
+}
+
+func TestShutdown_ReportsEntriesTheServerRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	t.Cleanup(srv.Close)
+
+	h, err := logshipper.New(logshipper.Config{Endpoint: srv.URL, Service: "s", Host: "h", FlushPeriod: time.Hour})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	slog.New(h).Info("m")
+
+	var buf bytes.Buffer
+	shutdown([]*logshipper.Handler{h}, slog.New(slog.NewTextHandler(&buf, nil)))
+
+	if got := buf.String(); !strings.Contains(got, "failed to ship log entries") || !strings.Contains(got, "count=1") {
+		t.Errorf("shutdown logged %q, want the 1 entry that failed", got)
 	}
 }
 

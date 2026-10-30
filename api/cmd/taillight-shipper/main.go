@@ -201,9 +201,12 @@ func readStdin(ctx context.Context, handler *logshipper.Handler, tee bool) {
 	}
 }
 
-// shutdown flushes all handlers and reports any dropped entries.
+// shutdown flushes all handlers and reports any entries that were lost.
 func shutdown(handlers []*logshipper.Handler, logger *slog.Logger) {
 	for _, h := range handlers {
+		if failed := h.SendFailed(); failed > 0 {
+			logger.Warn("failed to ship log entries", "count", failed)
+		}
 		hCtx, hCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		if err := h.Shutdown(hCtx); err != nil {
 			logger.Error("shutdown error", "error", err)

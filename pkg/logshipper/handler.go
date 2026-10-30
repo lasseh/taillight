@@ -715,7 +715,12 @@ func (h *Handler) loop() {
 		}
 		for {
 			if ctx.Err() != nil {
-				h.state.sendFailed.Add(int64(len(batch) + len(retry) + len(h.ch)))
+				unsent := len(batch) + len(retry) + len(h.ch)
+				h.state.sendFailed.Add(int64(unsent))
+				h.intLogger.Warn("logshipper shutdown context expired before the drain finished",
+					"error", ctx.Err(),
+					"unsent", unsent,
+				)
 				return
 			}
 			select {
