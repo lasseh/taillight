@@ -11,10 +11,8 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -73,24 +71,18 @@ func run(_ *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	var httpClient *http.Client
 	if cfg.TLSSkipVerify {
-		httpClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // user-requested skip
-			},
-		}
 		logger.Warn("TLS certificate verification disabled")
 	}
 
 	base := logshipper.Config{
-		Endpoint:    cfg.Endpoint,
-		APIKey:      logshipper.Secret(cfg.APIKey),
-		MinLevel:    parseMinLevel(cfg.MinLevel),
-		BatchSize:   cfg.BatchSize,
-		FlushPeriod: flushPeriod,
-		BufferSize:  cfg.BufferSize,
-		Client:      httpClient,
+		Endpoint:           cfg.Endpoint,
+		APIKey:             logshipper.Secret(cfg.APIKey),
+		MinLevel:           parseMinLevel(cfg.MinLevel),
+		BatchSize:          cfg.BatchSize,
+		FlushPeriod:        flushPeriod,
+		BufferSize:         cfg.BufferSize,
+		InsecureSkipVerify: cfg.TLSSkipVerify,
 	}
 
 	// Create every handler before any reader starts, so a config the library
@@ -204,9 +196,6 @@ func readStdin(ctx context.Context, handler *logshipper.Handler, tee bool) {
 // shutdown flushes all handlers and reports any entries that were lost.
 func shutdown(handlers []*logshipper.Handler, logger *slog.Logger) {
 	for _, h := range handlers {
-		if failed := h.SendFailed(); failed > 0 {
-			logger.Warn("failed to ship log entries", "count", failed)
-		}
 		hCtx, hCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		if err := h.Shutdown(hCtx); err != nil {
 			logger.Error("shutdown error", "error", err)
@@ -214,6 +203,9 @@ func shutdown(handlers []*logshipper.Handler, logger *slog.Logger) {
 		hCancel()
 		if dropped := h.Dropped(); dropped > 0 {
 			logger.Warn("dropped log entries", "count", dropped)
+		}
+		if failed := h.SendFailed(); failed > 0 {
+			logger.Warn("failed to ship log entries", "count", failed)
 		}
 	}
 }
