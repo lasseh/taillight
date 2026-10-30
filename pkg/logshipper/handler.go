@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -194,6 +195,12 @@ func (c *Config) setDefaults() error {
 		c.SendTimeout = defaultSendTimeout
 	}
 
+	// Invalid bytes are replaced before the length checks: JSON encoding would
+	// otherwise turn each one into a 3-byte U+FFFD after them, and the server
+	// measures the decoded field.
+	c.Service = strings.ToValidUTF8(c.Service, string(utf8.RuneError))
+	c.Component = strings.ToValidUTF8(c.Component, string(utf8.RuneError))
+
 	if c.Service == "" {
 		return errors.New("service is required: the ingest API rejects entries with an empty service")
 	}
@@ -227,6 +234,7 @@ func (c *Config) setDefaults() error {
 		}
 		c.Host = host
 	}
+	c.Host = strings.ToValidUTF8(c.Host, string(utf8.RuneError))
 	if len(c.Host) > maxHostBytes {
 		return fmt.Errorf("host is %d bytes: the ingest API rejects entries over %d", len(c.Host), maxHostBytes)
 	}
@@ -298,9 +306,13 @@ type Handler struct {
 	// maxRequestBytes is requestByteLimit as it was when New ran.
 	maxRequestBytes int
 
-	// goas holds the WithGroup and WithAttrs calls in order, so attrs added
-	// by a With call land under the groups open at that call, not later ones.
-	goas []groupOrAttrs
+	// withAttrs holds the WithAttrs calls in order, each with the groups open
+	// at that call, so its attrs land under those groups and not later ones.
+	withAttrs     []attrsInGroups
+	withAttrCount int
+
+	// groups is the WithGroup path that record attrs go under.
+	groups []string
 
 	// intLogger emits internal diagnostics (send failures) to stderr. It is
 	// deliberately NOT slog.Default(), to avoid a feedback loop if callers
@@ -308,10 +320,10 @@ type Handler struct {
 	intLogger *slog.Logger
 }
 
-// groupOrAttrs is one WithGroup call (group set) or one WithAttrs call.
-type groupOrAttrs struct {
-	group string
-	attrs []slog.Attr
+// attrsInGroups is one WithAttrs call and the groups open when it was made.
+type attrsInGroups struct {
+	groups []string
+	attrs  []slog.Attr
 }
 
 type logEntry struct {
@@ -398,23 +410,18 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		Host:      h.cfg.Host,
 	}
 
-	attrs := make(map[string]any, r.NumAttrs())
+	attrs := make(map[string]any, h.withAttrCount+r.NumAttrs())
 
 	// Attrs from WithAttrs, each under the groups open when it was added.
-	var groups []string
-	for _, goa := range h.goas {
-		if goa.group != "" {
-			groups = append(groups, goa.group)
-			continue
-		}
-		for _, a := range goa.attrs {
-			h.setAttr(attrs, groups, a)
+	for _, w := range h.withAttrs {
+		for _, a := range w.attrs {
+			h.setAttr(attrs, w.groups, a)
 		}
 	}
 
 	// Record attrs go under every group.
 	r.Attrs(func(a slog.Attr) bool {
-		h.setAttr(attrs, groups, a)
+		h.setAttr(attrs, h.groups, a)
 		return true
 	})
 
@@ -515,7 +522,10 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	if len(attrs) == 0 {
 		return h
 	}
-	return h.withGroupOrAttrs(groupOrAttrs{attrs: attrs})
+	h2 := *h
+	h2.withAttrs = append(slices.Clip(h.withAttrs), attrsInGroups{groups: h.groups, attrs: attrs})
+	h2.withAttrCount += len(attrs)
+	return &h2
 }
 
 // WithGroup returns a new Handler with the given group prefix.
@@ -524,16 +534,8 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	return h.withGroupOrAttrs(groupOrAttrs{group: name})
-}
-
-// withGroupOrAttrs returns a copy of h with goa appended. The goas slice is
-// copied so sibling handlers derived from h never share a backing array.
-func (h *Handler) withGroupOrAttrs(goa groupOrAttrs) *Handler {
 	h2 := *h
-	h2.goas = make([]groupOrAttrs, len(h.goas)+1)
-	copy(h2.goas, h.goas)
-	h2.goas[len(h.goas)] = goa
+	h2.groups = append(slices.Clip(h.groups), name)
 	return &h2
 }
 
@@ -879,7 +881,12 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 			v = s[:h.cfg.MaxAttrBytes] + truncationSuffix
 		}
 	}
-	groupMap(m, groups)[a.Key] = v
+	target := groupMap(m, groups)
+	if sub, ok := target[a.Key].(attrGroup); ok {
+		sub[groupValueKey] = v
+		return
+	}
+	target[a.Key] = v
 }
 
 // attrGroup is a group's attrs. Its own type keeps it apart from a
@@ -887,14 +894,21 @@ func (h *Handler) setAttr(m map[string]any, groups []string, a slog.Attr) {
 // written to.
 type attrGroup map[string]any
 
+// groupValueKey holds a value whose key is also a group, inside that group:
+// one JSON key cannot be both.
+const groupValueKey = "_value"
+
 // groupMap returns the map at the group path below m, creating the maps on
-// the path as needed. A key that holds anything but a group is replaced: one
-// JSON key cannot be both a value and a group.
+// the path as needed. A value already at a key on the path moves into the new
+// group under groupValueKey.
 func groupMap(m map[string]any, groups []string) map[string]any {
 	for _, g := range groups {
 		sub, ok := m[g].(attrGroup)
 		if !ok {
 			sub = make(attrGroup)
+			if v, exists := m[g]; exists {
+				sub[groupValueKey] = v
+			}
 			m[g] = sub
 		}
 		m = sub

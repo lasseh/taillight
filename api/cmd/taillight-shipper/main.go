@@ -75,15 +75,7 @@ func run(_ *cobra.Command, _ []string) error {
 		logger.Warn("TLS certificate verification disabled")
 	}
 
-	base := logshipper.Config{
-		Endpoint:           cfg.Endpoint,
-		APIKey:             logshipper.Secret(cfg.APIKey),
-		MinLevel:           parseMinLevel(cfg.MinLevel),
-		BatchSize:          cfg.BatchSize,
-		FlushPeriod:        flushPeriod,
-		BufferSize:         cfg.BufferSize,
-		InsecureSkipVerify: cfg.TLSSkipVerify,
-	}
+	base := baseConfig(cfg, flushPeriod)
 
 	// Create every handler before any reader starts, so a config the library
 	// rejects (no resolvable host, empty service, over-long field) stops the
@@ -146,6 +138,19 @@ type handlerSpec struct {
 
 // newShipper is logshipper.New, replaced in tests to observe created handlers.
 var newShipper = logshipper.New
+
+// baseConfig returns the library config every handler shares.
+func baseConfig(cfg config, flushPeriod time.Duration) logshipper.Config {
+	return logshipper.Config{
+		Endpoint:           cfg.Endpoint,
+		APIKey:             logshipper.Secret(cfg.APIKey),
+		MinLevel:           parseMinLevel(cfg.MinLevel),
+		BatchSize:          cfg.BatchSize,
+		FlushPeriod:        flushPeriod,
+		BufferSize:         cfg.BufferSize,
+		InsecureSkipVerify: cfg.TLSSkipVerify,
+	}
+}
 
 // newHandlers creates one handler per spec, in order. If one fails, the
 // handlers already created are shut down before the error is returned, so no

@@ -922,8 +922,53 @@ func TestHandler_WithGroupDoesNotWriteIntoCallerMap(t *testing.T) {
 	if len(got) != 8 {
 		t.Fatalf("received %d entries, want 8", len(got))
 	}
-	if want := `{"g":{"b":2}}`; string(got[0].Attrs) != want {
+	if want := `{"g":{"_value":{"owner":"caller"},"b":2}}`; string(got[0].Attrs) != want {
 		t.Errorf("attrs = %s, want %s", got[0].Attrs, want)
+	}
+}
+
+// One JSON key cannot be both a value and a group, so the value moves into the
+// group instead of being lost, in either order.
+func TestHandler_KeyUsedAsValueAndGroup(t *testing.T) {
+	tests := []struct {
+		name string
+		log  func(*slog.Logger)
+		want string
+	}{
+		{
+			name: "value then WithGroup",
+			log:  func(l *slog.Logger) { l.With("g", 1).WithGroup("g").Info("m", "b", 2) },
+			want: `{"g":{"_value":1,"b":2}}`,
+		},
+		{
+			name: "value then group attr",
+			log:  func(l *slog.Logger) { l.With("g", 1).Info("m", slog.Group("g", "b", 2)) },
+			want: `{"g":{"_value":1,"b":2}}`,
+		},
+		{
+			name: "group attr then value",
+			log:  func(l *slog.Logger) { l.With(slog.Group("g", "a", 1)).Info("m", "g", 2) },
+			want: `{"g":{"_value":2,"a":1}}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			endpoint, entries := captureServer(t)
+			h := mustNew(t, Config{Endpoint: endpoint, APIKey: "k", Service: "s", FlushPeriod: time.Hour})
+
+			tt.log(slog.New(h))
+			if err := h.Shutdown(context.Background()); err != nil {
+				t.Fatalf("Shutdown: %v", err)
+			}
+
+			got := entries()
+			if len(got) != 1 {
+				t.Fatalf("received %d entries, want 1", len(got))
+			}
+			if string(got[0].Attrs) != tt.want {
+				t.Errorf("attrs = %s, want %s", got[0].Attrs, tt.want)
+			}
+		})
 	}
 }
 
@@ -1121,6 +1166,36 @@ func TestNew_ResolvesHost(t *testing.T) {
 				t.Errorf("Host = %q, want %q", h.cfg.Host, tt.wantHost)
 			}
 		})
+	}
+}
+
+// JSON encoding turns each invalid byte into a 3-byte U+FFFD, so a field that
+// passes the byte caps in New could still exceed them at the server.
+func TestHandler_InvalidUTF8FieldsStayUnderIngestCaps(t *testing.T) {
+	endpoint, entries := captureServer(t)
+	invalid := strings.Repeat("\xff", 100)
+	h := mustNew(t, Config{
+		Endpoint: endpoint, APIKey: "k", FlushPeriod: time.Hour,
+		Service: invalid, Component: invalid, Host: strings.Repeat("\xff", 200),
+	})
+
+	slog.New(h).Info("m")
+	if err := h.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	got := entries()
+	if len(got) != 1 {
+		t.Fatalf("received %d entries, want 1", len(got))
+	}
+	if len(got[0].Service) > maxServiceBytes {
+		t.Errorf("service is %d bytes after encoding, cap is %d", len(got[0].Service), maxServiceBytes)
+	}
+	if len(got[0].Component) > maxComponentBytes {
+		t.Errorf("component is %d bytes after encoding, cap is %d", len(got[0].Component), maxComponentBytes)
+	}
+	if len(got[0].Host) > maxHostBytes {
+		t.Errorf("host is %d bytes after encoding, cap is %d", len(got[0].Host), maxHostBytes)
 	}
 }
 
@@ -2310,4 +2385,24 @@ func TestHandler_InsecureSkipVerify(t *testing.T) {
 			t.Errorf("SendFailed = %d, want 0 with InsecureSkipVerify", h.SendFailed())
 		}
 	})
+}
+
+// BenchmarkHandler_HandleWithAttrsAndGroups measures the record path of a
+// logger with With attrs and open groups, which stay fixed per derived Handler.
+func BenchmarkHandler_HandleWithAttrsAndGroups(b *testing.B) {
+	h, err := New(Config{
+		Endpoint: "http://127.0.0.1:1/ingest", APIKey: "k", Service: "s",
+		BufferSize: 1, FlushPeriod: time.Hour, SendTimeout: time.Millisecond,
+	})
+	if err != nil {
+		b.Fatalf("New: %v", err)
+	}
+	logger := slog.New(h).
+		With("a", 1, "b", 2, "c", 3, "d", 4, "e", 5, "f", 6, "g", 7, "h", 8).
+		WithGroup("req").With("id", "x").WithGroup("db")
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		logger.Info("m", "query", "q", "rows", 1)
+	}
 }

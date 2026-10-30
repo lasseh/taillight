@@ -97,9 +97,9 @@ func TestIntegration_ApplogScenarioAnalysis(t *testing.T) {
 	}
 }
 
-// runScenarioAnalysis seeds the scenario and runs the analyzer once,
-// skipping when no test database is configured.
-func runScenarioAnalysis(t *testing.T) scenarioRun {
+// applogTestPool connects to a migrated test database with an empty
+// applog_events table, skipping when no test database is configured.
+func applogTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -127,6 +127,15 @@ func runScenarioAnalysis(t *testing.T) scenarioRun {
 	if _, err := pool.Exec(ctx, "TRUNCATE applog_events"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
+	return pool
+}
+
+// runScenarioAnalysis seeds the scenario and runs the analyzer once,
+// skipping when no test database is configured.
+func runScenarioAnalysis(t *testing.T) scenarioRun {
+	t.Helper()
+	pool := applogTestPool(t)
+	ctx := context.Background()
 
 	// Seed on the hour so day boundaries line up with the aggregate window
 	// the analyzer reads (postgres.hourFloor), exactly as the CLI does.
