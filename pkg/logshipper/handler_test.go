@@ -2386,3 +2386,23 @@ func TestHandler_InsecureSkipVerify(t *testing.T) {
 		}
 	})
 }
+
+// BenchmarkHandler_HandleWithAttrsAndGroups measures the record path of a
+// logger with With attrs and open groups, which stay fixed per derived Handler.
+func BenchmarkHandler_HandleWithAttrsAndGroups(b *testing.B) {
+	h, err := New(Config{
+		Endpoint: "http://127.0.0.1:1/ingest", APIKey: "k", Service: "s",
+		BufferSize: 1, FlushPeriod: time.Hour, SendTimeout: time.Millisecond,
+	})
+	if err != nil {
+		b.Fatalf("New: %v", err)
+	}
+	logger := slog.New(h).
+		With("a", 1, "b", 2, "c", 3, "d", 4, "e", 5, "f", 6, "g", 7, "h", 8).
+		WithGroup("req").With("id", "x").WithGroup("db")
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		logger.Info("m", "query", "q", "rows", 1)
+	}
+}
