@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -157,12 +158,12 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		events[i] = model.AppLogEvent{
 			Timestamp: entry.Timestamp,
 			Level:     entry.Level, // Already normalized during validation.
-			Service:   entry.Service,
-			Component: entry.Component,
-			Host:      entry.Host,
-			Msg:       entry.Msg,
-			Source:    entry.Source,
-			Attrs:     entry.Attrs,
+			Service:   replaceNUL(entry.Service),
+			Component: replaceNUL(entry.Component),
+			Host:      replaceNUL(entry.Host),
+			Msg:       replaceNUL(entry.Msg),
+			Source:    replaceNUL(entry.Source),
+			Attrs:     replaceNULEscapes(entry.Attrs),
 			SourceIP:  sourceIP,
 			APIKeyID:  apiKeyID,
 		}
@@ -194,6 +195,29 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONStatus(w, http.StatusAccepted, map[string]int{"accepted": len(inserted)})
+}
+
+// replaceNUL swaps NUL bytes for U+FFFD. Postgres text cannot store a NUL, and
+// one such entry would otherwise fail the whole batch insert.
+func replaceNUL(s string) string {
+	return strings.ReplaceAll(s, "\x00", "\ufffd")
+}
+
+// replaceNULEscapes swaps every \u0000 escape in raw JSON for \ufffd, in place,
+// because Postgres jsonb rejects it for the same reason. The escapes have the
+// same length. The scan skips each escaped byte, so the text \\u0000, an
+// escaped backslash, is left alone.
+func replaceNULEscapes(raw json.RawMessage) json.RawMessage {
+	for i := 0; i < len(raw)-1; i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		if bytes.HasPrefix(raw[i:], []byte(`\u0000`)) {
+			copy(raw[i:], `\ufffd`)
+		}
+		i++
+	}
+	return raw
 }
 
 // resolveSourceIP normalizes a resolved client IP for storage in the Postgres
