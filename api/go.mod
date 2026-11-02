@@ -20,7 +20,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/xuri/excelize/v2 v2.11.1-0.20261020033641-611b222fd8f7
 	github.com/yuin/goldmark v1.8.6
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.58.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/time v0.16.0
