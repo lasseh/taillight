@@ -853,7 +853,7 @@ func TestIntegration_ListenerToBrokerDelivery(t *testing.T) {
 	go func() {
 		defer close(workerDone)
 		for n := range notifications {
-			ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID},
+			ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID, ReceivedAt: n.ReceivedAt},
 				store, nil, ingestbridge.Sinks{BroadcastSrvlog: srvlogBroker.Broadcast}, logger, 5*time.Second)
 		}
 	}()
@@ -909,14 +909,17 @@ func TestIntegration_ListenerToBrokerDelivery(t *testing.T) {
 }
 
 // TestIntegration_ListenerGapFillAfterReconnect kills the LISTEN connection
-// server-side, inserts a row while the listener is disconnected (that row's
-// pg_notify is lost), and verifies the row ID is still delivered after
-// reconnect via the gap-fill query. The test waits for the terminated
+// server-side, inserts rows while the listener is disconnected (their
+// pg_notify is lost), and verifies each row ID and its received_at are still
+// delivered after reconnect via the gap-fill query; a row whose received_at
+// is infinite goes out with its ID alone. The test waits for the terminated
 // backend's PID to disappear from pg_stat_activity before inserting, so the
 // notification is provably lost rather than racing the disconnect.
 func TestIntegration_ListenerGapFillAfterReconnect(t *testing.T) {
 	pool := testPool(t)
 	truncate(t, pool, "srvlog_events")
+	// The infinite received_at row would break later list scans.
+	t.Cleanup(func() { truncate(t, pool, "srvlog_events") })
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	ctx := context.Background()
 
@@ -985,22 +988,32 @@ func TestIntegration_ListenerGapFillAfterReconnect(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// This row's pg_notify has no listener to reach; only the gap fill (or a
-	// re-established LISTEN, if reconnect won the race) can deliver its ID.
+	// These rows' pg_notify has no listener to reach; only the gap fill (or a
+	// re-established LISTEN, if reconnect won the race) can deliver their IDs.
+	infiniteID := insertFeedRow(t, pool, "srvlog_events", "infinity")
 	missedID := insertEvent("missed while disconnected")
+	var missedAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT received_at FROM srvlog_events WHERE id = $1`, missedID).Scan(&missedAt); err != nil {
+		t.Fatalf("read missed row: %v", err)
+	}
 
 	// Reconnect backoff starts at 1s, then the gap fill replays IDs above
 	// the baseline. Generous timeout for slow CI.
-	select {
-	case n, ok := <-ch:
-		if !ok {
-			t.Fatal("notification channel closed before gap-fill delivery")
+	for _, want := range []Notification{
+		{Channel: "srvlog_ingest", ID: infiniteID},
+		{Channel: "srvlog_ingest", ID: missedID, ReceivedAt: missedAt},
+	} {
+		select {
+		case n, ok := <-ch:
+			if !ok {
+				t.Fatal("notification channel closed before gap-fill delivery")
+			}
+			if n.Channel != want.Channel || n.ID != want.ID || !n.ReceivedAt.Equal(want.ReceivedAt) {
+				t.Fatalf("notification = %+v, want %+v", n, want)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("timed out waiting for gap-fill delivery after reconnect")
 		}
-		if n.Channel != "srvlog_ingest" || n.ID != missedID {
-			t.Fatalf("notification = %+v, want srvlog_ingest/%d", n, missedID)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("timed out waiting for gap-fill delivery after reconnect")
 	}
 }
 

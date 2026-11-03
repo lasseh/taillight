@@ -61,6 +61,36 @@ func (s *Store) GetSrvlog(ctx context.Context, id int64) (model.SrvlogEvent, err
 	return e, nil
 }
 
+// GetSrvlogAt returns the event with the given id and received_at. The
+// received_at match lets the planner skip every chunk but the one holding the
+// row, so the ingest bridge's per-event fetch does not scan compressed
+// history. GetSrvlog stays unbounded for detail views of events of any age.
+func (s *Store) GetSrvlogAt(ctx context.Context, id int64, receivedAt time.Time) (model.SrvlogEvent, error) {
+	query, args, err := srvlogAtQuery(id, receivedAt)
+	if err != nil {
+		return model.SrvlogEvent{}, fmt.Errorf("build query: %w", err)
+	}
+
+	var e model.SrvlogEvent
+	err = scanSrvlog(s.pool.QueryRow(ctx, query, args...), &e)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.SrvlogEvent{}, err
+	}
+	if err != nil {
+		return model.SrvlogEvent{}, fmt.Errorf("get event %d at %s: %w", id, receivedAt.Format(time.RFC3339Nano), err)
+	}
+	return e, nil
+}
+
+// srvlogAtQuery builds GetSrvlogAt's query.
+func srvlogAtQuery(id int64, receivedAt time.Time) (string, []any, error) {
+	return psq.
+		Select(srvlogColumns...).
+		From("srvlog_events").
+		Where(sq.Eq{"id": id, "received_at": receivedAt}).
+		ToSql()
+}
+
 // ListSrvlogs returns events matching the filter with cursor-based pagination.
 // It returns one extra row to determine if more pages exist. Rows carry the
 // full text; CSV export and the SSE recent backfill rely on this.

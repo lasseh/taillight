@@ -61,6 +61,36 @@ func (s *Store) GetNetlog(ctx context.Context, id int64) (model.NetlogEvent, err
 	return e, nil
 }
 
+// GetNetlogAt returns the netlog event with the given id and received_at. The
+// received_at match lets the planner skip every chunk but the one holding the
+// row, so the ingest bridge's per-event fetch does not scan compressed
+// history. GetNetlog stays unbounded for detail views of events of any age.
+func (s *Store) GetNetlogAt(ctx context.Context, id int64, receivedAt time.Time) (model.NetlogEvent, error) {
+	query, args, err := netlogAtQuery(id, receivedAt)
+	if err != nil {
+		return model.NetlogEvent{}, fmt.Errorf("build query: %w", err)
+	}
+
+	var e model.NetlogEvent
+	err = scanNetlog(s.pool.QueryRow(ctx, query, args...), &e)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.NetlogEvent{}, err
+	}
+	if err != nil {
+		return model.NetlogEvent{}, fmt.Errorf("get netlog event %d at %s: %w", id, receivedAt.Format(time.RFC3339Nano), err)
+	}
+	return e, nil
+}
+
+// netlogAtQuery builds GetNetlogAt's query.
+func netlogAtQuery(id int64, receivedAt time.Time) (string, []any, error) {
+	return psq.
+		Select(netlogColumns...).
+		From("netlog_events").
+		Where(sq.Eq{"id": id, "received_at": receivedAt}).
+		ToSql()
+}
+
 // ListNetlogs returns netlog events matching the filter with cursor-based pagination.
 // It returns one extra row to determine if more pages exist. Rows carry the
 // full text; CSV export and the SSE recent backfill rely on this.

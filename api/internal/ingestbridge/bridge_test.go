@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/lasseh/taillight/internal/mute"
 )
 
+// fakeFetcher counts every fetch per feed in srvCalls/netCalls and records
+// the received_at bound of each bounded (At) fetch in srvAt/netAt.
 type fakeFetcher struct {
 	srvlog    model.SrvlogEvent
 	netlog    model.NetlogEvent
@@ -19,6 +22,8 @@ type fakeFetcher struct {
 	netlogErr error
 	srvCalls  int
 	netCalls  int
+	srvAt     []time.Time
+	netAt     []time.Time
 }
 
 func (f *fakeFetcher) GetSrvlog(_ context.Context, id int64) (model.SrvlogEvent, error) {
@@ -30,6 +35,11 @@ func (f *fakeFetcher) GetSrvlog(_ context.Context, id int64) (model.SrvlogEvent,
 	return f.srvlog, nil
 }
 
+func (f *fakeFetcher) GetSrvlogAt(ctx context.Context, id int64, receivedAt time.Time) (model.SrvlogEvent, error) {
+	f.srvAt = append(f.srvAt, receivedAt)
+	return f.GetSrvlog(ctx, id)
+}
+
 func (f *fakeFetcher) GetNetlog(_ context.Context, id int64) (model.NetlogEvent, error) {
 	f.netCalls++
 	if f.netlogErr != nil {
@@ -39,13 +49,18 @@ func (f *fakeFetcher) GetNetlog(_ context.Context, id int64) (model.NetlogEvent,
 	return f.netlog, nil
 }
 
+func (f *fakeFetcher) GetNetlogAt(ctx context.Context, id int64, receivedAt time.Time) (model.NetlogEvent, error) {
+	f.netAt = append(f.netAt, receivedAt)
+	return f.GetNetlog(ctx, id)
+}
+
 func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 func TestDispatch_RoutesSrvlog(t *testing.T) {
 	f := &fakeFetcher{}
 	var gotSrv []int64
 	var gotNet []int64
-	Dispatch(context.Background(), Notification{ChannelSrvlog, 7}, f, nil, Sinks{
+	Dispatch(context.Background(), Notification{Channel: ChannelSrvlog, ID: 7}, f, nil, Sinks{
 		BroadcastSrvlog: func(e model.SrvlogEvent) { gotSrv = append(gotSrv, e.ID) },
 		BroadcastNetlog: func(e model.NetlogEvent) { gotNet = append(gotNet, e.ID) },
 	}, discard(), time.Second)
@@ -64,7 +79,7 @@ func TestDispatch_RoutesSrvlog(t *testing.T) {
 func TestDispatch_RoutesNetlog(t *testing.T) {
 	f := &fakeFetcher{}
 	var gotNet []int64
-	Dispatch(context.Background(), Notification{ChannelNetlog, 9}, f, nil, Sinks{
+	Dispatch(context.Background(), Notification{Channel: ChannelNetlog, ID: 9}, f, nil, Sinks{
 		BroadcastSrvlog: func(model.SrvlogEvent) { t.Fatal("srvlog sink must not fire") },
 		BroadcastNetlog: func(e model.NetlogEvent) { gotNet = append(gotNet, e.ID) },
 	}, discard(), time.Second)
@@ -74,9 +89,58 @@ func TestDispatch_RoutesNetlog(t *testing.T) {
 	}
 }
 
+func TestDispatch_FetchBoundedByReceivedAt(t *testing.T) {
+	at := time.Date(2026, 11, 3, 9, 32, 15, 123457000, time.UTC)
+
+	tests := []struct {
+		name       string
+		receivedAt time.Time
+		wantAt     []time.Time // nil: the fetch must be the unbounded one
+	}{
+		{name: "payload with received_at", receivedAt: at, wantAt: []time.Time{at}},
+		{name: "id-only payload", receivedAt: time.Time{}, wantAt: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run("srvlog/"+tt.name, func(t *testing.T) {
+			f := &fakeFetcher{}
+			var rec srvlogRecorder
+			Dispatch(context.Background(), Notification{Channel: ChannelSrvlog, ID: 3, ReceivedAt: tt.receivedAt},
+				f, nil, rec.sinks(), discard(), time.Second)
+
+			if f.srvCalls != 1 {
+				t.Fatalf("srvlog fetches = %d, want 1", f.srvCalls)
+			}
+			if !slices.EqualFunc(f.srvAt, tt.wantAt, time.Time.Equal) {
+				t.Errorf("bounded fetches = %v, want %v", f.srvAt, tt.wantAt)
+			}
+			if len(rec.broadcast) != 1 || rec.broadcast[0].ID != 3 || len(rec.notified) != 1 {
+				t.Fatalf("broadcast %+v, notified %d; want event 3 broadcast and notified once", rec.broadcast, len(rec.notified))
+			}
+		})
+
+		t.Run("netlog/"+tt.name, func(t *testing.T) {
+			f := &fakeFetcher{}
+			var rec netlogRecorder
+			Dispatch(context.Background(), Notification{Channel: ChannelNetlog, ID: 4, ReceivedAt: tt.receivedAt},
+				f, nil, rec.sinks(), discard(), time.Second)
+
+			if f.netCalls != 1 {
+				t.Fatalf("netlog fetches = %d, want 1", f.netCalls)
+			}
+			if !slices.EqualFunc(f.netAt, tt.wantAt, time.Time.Equal) {
+				t.Errorf("bounded fetches = %v, want %v", f.netAt, tt.wantAt)
+			}
+			if len(rec.broadcast) != 1 || rec.broadcast[0].ID != 4 || len(rec.notified) != 1 {
+				t.Fatalf("broadcast %+v, notified %d; want event 4 broadcast and notified once", rec.broadcast, len(rec.notified))
+			}
+		})
+	}
+}
+
 func TestDispatch_FetchErrorIsSwallowed(t *testing.T) {
 	f := &fakeFetcher{srvlogErr: errors.New("db down")}
-	Dispatch(context.Background(), Notification{ChannelSrvlog, 1}, f, nil, Sinks{
+	Dispatch(context.Background(), Notification{Channel: ChannelSrvlog, ID: 1}, f, nil, Sinks{
 		BroadcastSrvlog: func(model.SrvlogEvent) { t.Fatal("sink must not fire on fetch error") },
 		NotifySrvlog:    func(model.SrvlogEvent) { t.Fatal("notify must not fire on fetch error") },
 	}, discard(), time.Second)
@@ -88,7 +152,7 @@ func TestDispatch_FetchErrorIsSwallowed(t *testing.T) {
 
 func TestDispatch_UnknownChannelIgnored(t *testing.T) {
 	f := &fakeFetcher{}
-	Dispatch(context.Background(), Notification{"mystery_ingest", 1}, f, nil, Sinks{
+	Dispatch(context.Background(), Notification{Channel: "mystery_ingest", ID: 1}, f, nil, Sinks{
 		BroadcastSrvlog: func(model.SrvlogEvent) { t.Fatal("must not fire") },
 		BroadcastNetlog: func(model.NetlogEvent) { t.Fatal("must not fire") },
 	}, discard(), time.Second)
@@ -105,8 +169,8 @@ func TestDispatch_NilBroadcastSkipsFetch(t *testing.T) {
 		NotifySrvlog: func(model.SrvlogEvent) { t.Fatal("notify must not fire without broadcast") },
 		NotifyNetlog: func(model.NetlogEvent) { t.Fatal("notify must not fire without broadcast") },
 	}
-	Dispatch(context.Background(), Notification{ChannelNetlog, 1}, f, nil, s, discard(), time.Second)
-	Dispatch(context.Background(), Notification{ChannelSrvlog, 1}, f, nil, s, discard(), time.Second)
+	Dispatch(context.Background(), Notification{Channel: ChannelNetlog, ID: 1}, f, nil, s, discard(), time.Second)
+	Dispatch(context.Background(), Notification{Channel: ChannelSrvlog, ID: 1}, f, nil, s, discard(), time.Second)
 	if f.netCalls != 0 || f.srvCalls != 0 {
 		t.Fatalf("fetch should be skipped when broadcast is nil, got net=%d srv=%d", f.netCalls, f.srvCalls)
 	}
@@ -214,7 +278,7 @@ func TestDispatch_Muting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run("netlog/"+tt.name, func(t *testing.T) {
 			var rec netlogRecorder
-			Dispatch(context.Background(), Notification{ChannelNetlog, 11}, flapFetcher(),
+			Dispatch(context.Background(), Notification{Channel: ChannelNetlog, ID: 11}, flapFetcher(),
 				tt.muter(mute.FeedNetlog), rec.sinks(), discard(), time.Second)
 
 			if len(rec.broadcast) != 1 {
@@ -233,7 +297,7 @@ func TestDispatch_Muting(t *testing.T) {
 
 		t.Run("srvlog/"+tt.name, func(t *testing.T) {
 			var rec srvlogRecorder
-			Dispatch(context.Background(), Notification{ChannelSrvlog, 12}, flapFetcher(),
+			Dispatch(context.Background(), Notification{Channel: ChannelSrvlog, ID: 12}, flapFetcher(),
 				tt.muter(mute.FeedSrvlog), rec.sinks(), discard(), time.Second)
 
 			if len(rec.broadcast) != 1 {
@@ -256,7 +320,7 @@ func TestDispatch_RuleForOtherFeedDoesNotMark(t *testing.T) {
 	// A netlog rule never mutes a srvlog event with the same host and text.
 	set := ruleSet(flapRule(7, mute.FeedNetlog, muteNow.Add(time.Hour)))
 	var rec srvlogRecorder
-	Dispatch(context.Background(), Notification{ChannelSrvlog, 1}, flapFetcher(), set, rec.sinks(), discard(), time.Second)
+	Dispatch(context.Background(), Notification{Channel: ChannelSrvlog, ID: 1}, flapFetcher(), set, rec.sinks(), discard(), time.Second)
 	if len(rec.broadcast) != 1 || rec.broadcast[0].MutedBy != nil {
 		t.Fatalf("srvlog event marked by a netlog rule: %+v", rec.broadcast)
 	}
@@ -274,8 +338,8 @@ func TestDispatch_NilNotifyStillBroadcasts(t *testing.T) {
 		BroadcastSrvlog: func(e model.SrvlogEvent) { gotSrv = append(gotSrv, e) },
 	}
 	f := flapFetcher()
-	Dispatch(context.Background(), Notification{ChannelNetlog, 5}, f, set, s, discard(), time.Second)
-	Dispatch(context.Background(), Notification{ChannelSrvlog, 6}, f, set, s, discard(), time.Second)
+	Dispatch(context.Background(), Notification{Channel: ChannelNetlog, ID: 5}, f, set, s, discard(), time.Second)
+	Dispatch(context.Background(), Notification{Channel: ChannelSrvlog, ID: 6}, f, set, s, discard(), time.Second)
 
 	if f.netCalls != 1 || f.srvCalls != 1 {
 		t.Fatalf("fetches = net %d, srv %d; want 1 each", f.netCalls, f.srvCalls)

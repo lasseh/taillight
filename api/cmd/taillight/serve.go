@@ -337,10 +337,10 @@ func startBackgroundWorkers(
 		notifWorkers = 4
 	}
 
-	// Bridge: fetch each notified row by ID, mark it with its mute rule, and
-	// broadcast it to SSE clients. Only unmuted events reach the notification
-	// engine. Multiple workers drain the channel concurrently so that DB fetch
-	// latency doesn't cause backpressure under high event volume.
+	// Bridge: fetch each notified row by ID and received_at, mark it with its
+	// mute rule, and broadcast it to SSE clients. Only unmuted events reach the
+	// notification engine. Multiple workers drain the channel concurrently so
+	// that DB fetch latency doesn't cause backpressure under high event volume.
 	sinks := ingestbridge.Sinks{
 		BroadcastSrvlog: func(e model.SrvlogEvent) {
 			srvlogBroker.Broadcast(e)
@@ -364,7 +364,7 @@ func startBackgroundWorkers(
 		go func() {
 			for n := range notifications {
 				metrics.NotificationsReceivedTotal.WithLabelValues(n.Channel).Inc()
-				ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID},
+				ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID, ReceivedAt: n.ReceivedAt},
 					store, mutes, sinks, logger, 30*time.Second)
 			}
 		}()

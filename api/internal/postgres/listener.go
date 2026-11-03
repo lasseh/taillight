@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lasseh/taillight/internal/metrics"
@@ -42,10 +43,32 @@ var channelTable = map[string]string{
 	"netlog_ingest": "netlog_events",
 }
 
-// Notification carries a row ID and the channel it arrived on.
+// Notification carries a row ID, the row's received_at, and the channel it
+// arrived on. ReceivedAt is zero when the payload carried only the ID.
 type Notification struct {
-	Channel string
-	ID      int64
+	Channel    string
+	ID         int64
+	ReceivedAt time.Time
+}
+
+// parsePayload reads a NOTIFY payload. The trigger sends "<id> <received_at
+// in unix microseconds>", or "<id>" alone for a row whose received_at is not
+// finite. The id-only form is also what the trigger sent before it carried
+// received_at. The returned time is zero for the id-only form.
+func parsePayload(payload string) (int64, time.Time, error) {
+	idText, atText, hasAt := strings.Cut(payload, " ")
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("parse id: %w", err)
+	}
+	if !hasAt {
+		return id, time.Time{}, nil
+	}
+	us, err := strconv.ParseInt(atText, 10, 64)
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("parse received_at: %w", err)
+	}
+	return id, time.UnixMicro(us), nil
 }
 
 // Listener holds a dedicated LISTEN connection and publishes notifications.
@@ -220,7 +243,7 @@ func (l *Listener) recv(ctx context.Context, conn *pgx.Conn, ch chan<- Notificat
 			return err
 		}
 
-		id, err := strconv.ParseInt(notification.Payload, 10, 64)
+		id, receivedAt, err := parsePayload(notification.Payload)
 		if err != nil {
 			metrics.ListenerPayloadParseErrorsTotal.WithLabelValues(notification.Channel).Inc()
 			l.logger.Warn("invalid notification payload", "channel", notification.Channel, "payload", notification.Payload)
@@ -228,7 +251,7 @@ func (l *Listener) recv(ctx context.Context, conn *pgx.Conn, ch chan<- Notificat
 		}
 
 		select {
-		case ch <- Notification{Channel: notification.Channel, ID: id}:
+		case ch <- Notification{Channel: notification.Channel, ID: id, ReceivedAt: receivedAt}:
 			l.storeLastSeenID(notification.Channel, id)
 		case <-ctx.Done():
 			return ctx.Err()
@@ -286,7 +309,7 @@ func (l *Listener) fillGapForChannel(ctx context.Context, ch chan<- Notification
 	}()
 
 	//nolint:gosec // table name comes from a hardcoded map, not user input
-	query := fmt.Sprintf("SELECT id FROM %s WHERE id > $1 ORDER BY id ASC LIMIT %d", table, gapFillLimit)
+	query := fmt.Sprintf("SELECT id, received_at FROM %s WHERE id > $1 ORDER BY id ASC LIMIT %d", table, gapFillLimit)
 	rows, err := l.pool.Query(ctx, query, lastID)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -300,15 +323,22 @@ func (l *Listener) fillGapForChannel(ctx context.Context, ch chan<- Notification
 	var count int
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var receivedAt pgtype.Timestamptz
+		if err := rows.Scan(&id, &receivedAt); err != nil {
 			if ctx.Err() != nil {
 				return // shutting down
 			}
 			l.logger.Error("gap fill scan failed", "channel", notifyCh, "err", err)
 			return
 		}
+		// A received_at that is not finite cannot bound the fetch; the row
+		// goes out id-only, as the trigger sends it.
+		n := Notification{Channel: notifyCh, ID: id}
+		if receivedAt.InfinityModifier == pgtype.Finite {
+			n.ReceivedAt = receivedAt.Time
+		}
 		select {
-		case ch <- Notification{Channel: notifyCh, ID: id}:
+		case ch <- n:
 			l.storeLastSeenID(notifyCh, id)
 			count++
 		case <-ctx.Done():
