@@ -5,9 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestIsBlockedIP(t *testing.T) {
@@ -75,6 +79,117 @@ func TestRedactURLError_NonURLErrorUnchanged(t *testing.T) {
 	plain := errors.New("marshal payload: boom")
 	if got := redactURLError(plain); !errors.Is(got, plain) {
 		t.Errorf("non-url.Error should pass through unchanged, got %v", got)
+	}
+}
+
+func TestValidateExternalURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{"public ipv4", "http://93.184.216.34/hook", false},
+		{"public ipv6", "https://[2606:4700:4700::1111]/hook", false},
+		{"loopback", "http://127.0.0.1:8080/", true},
+		{"mapped loopback with zone", "http://[::ffff:127.0.0.1%25x]:8080/", true},
+		{"ipv6 loopback with zone", "http://[::1%25lo]/", true},
+		{"link-local with zone", "http://[fe80::1%25eth0]/", true},
+		{"public ipv6 with zone", "http://[2606:4700:4700::1111%25eth0]/", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateExternalURL(context.Background(), tt.url)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateExternalURL(%q) = %v, wantErr %v", tt.url, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestCheckResolved(t *testing.T) {
+	tests := []struct {
+		name    string
+		ips     []string
+		wantErr bool
+	}{
+		{"public addresses", []string{"93.184.216.34", "2606:4700:4700::1111"}, false},
+		{"one blocked among public", []string{"93.184.216.34", "10.0.0.1"}, true},
+		{"mapped blocked", []string{"::ffff:169.254.169.254"}, true},
+		{"zoned", []string{"::ffff:127.0.0.1%x"}, true},
+		{"unparseable", []string{"not-an-address"}, true},
+		{"empty string", []string{""}, true},
+		{"no addresses", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkResolved("h", tt.ips)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("checkResolved(%q) = %v, wantErr %v", tt.ips, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// redirectFirstHop answers requests for host with a 307 to location and hands
+// every other request to next, so a test can drive the client's redirect
+// handling without reaching a public host.
+type redirectFirstHop struct {
+	host     string
+	location string
+	next     http.RoundTripper
+}
+
+func (rt redirectFirstHop) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Host != rt.host {
+		return rt.next.RoundTrip(req)
+	}
+	if req.Body != nil {
+		req.Body.Close() //nolint:errcheck // Test stub never reads the body.
+	}
+	return &http.Response{
+		StatusCode: http.StatusTemporaryRedirect,
+		Header:     http.Header{"Location": {rt.location}},
+		Body:       http.NoBody,
+		Request:    req,
+	}, nil
+}
+
+// TestSSRFSafeClientRefusesRedirectToZonedAddress follows a redirect from an
+// allowed first hop to a zoned literal and checks the dial guard refuses it
+// before any connection is made.
+func TestSSRFSafeClientRefusesRedirectToZonedAddress(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer target.Close()
+	_, port, err := net.SplitHostPort(target.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, host := range []string{"[::ffff:127.0.0.1%25x]", "[::1%25lo]", "[fe80::1%25eth0]"} {
+		t.Run(host, func(t *testing.T) {
+			client := newSSRFSafeClient(5 * time.Second)
+			client.Transport = redirectFirstHop{
+				host:     "198.51.100.20",
+				location: "http://" + host + ":" + port + "/internal",
+				next:     client.Transport,
+			}
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://198.51.100.20/hook", strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close() //nolint:errcheck // Test cleanup.
+				t.Fatalf("redirect to %s was followed, status %d", host, resp.StatusCode)
+			}
+			if !strings.Contains(err.Error(), "unusable address") {
+				t.Errorf("redirect to %s failed for another reason than the guard: %v", host, err)
+			}
+		})
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("internal target received %d requests, want 0", n)
 	}
 }
 

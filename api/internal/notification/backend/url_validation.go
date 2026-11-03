@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"time"
 )
@@ -77,16 +78,26 @@ func validateExternalURL(ctx context.Context, rawURL string) error {
 		return fmt.Errorf("cannot resolve hostname %q", host)
 	}
 
-	for _, ipStr := range ips {
-		ip := net.ParseIP(ipStr)
-		if ip == nil {
-			continue
+	return checkResolved(host, ips)
+}
+
+// checkResolved is the address check shared by validation and the dial guard.
+// It refuses host unless it resolved to at least one address and every
+// address parses, carries no IPv6 zone, and is outside the blocked ranges. An
+// address it cannot classify is refused, never skipped.
+func checkResolved(host string, ips []string) error {
+	if len(ips) == 0 {
+		return fmt.Errorf("url host %q resolves to no address", host)
+	}
+	for _, s := range ips {
+		addr, err := netip.ParseAddr(s)
+		if err != nil || addr.Zone() != "" {
+			return fmt.Errorf("url host %q resolves to an unusable address", host)
 		}
-		if isBlockedIP(ip) {
+		if isBlockedIP(net.IP(addr.Unmap().AsSlice())) {
 			return fmt.Errorf("url host %q resolves to a blocked internal address", host)
 		}
 	}
-
 	return nil
 }
 
@@ -108,11 +119,8 @@ func ssrfSafeTransport() *http.Transport {
 				return nil, fmt.Errorf("cannot resolve %q: %w", host, err)
 			}
 
-			for _, ipStr := range ips {
-				ip := net.ParseIP(ipStr)
-				if ip != nil && isBlockedIP(ip) {
-					return nil, fmt.Errorf("connection to %q blocked: resolves to internal address", host)
-				}
+			if err := checkResolved(host, ips); err != nil {
+				return nil, fmt.Errorf("connection blocked: %w", err)
 			}
 
 			dialer := &net.Dialer{Timeout: 10 * time.Second}
