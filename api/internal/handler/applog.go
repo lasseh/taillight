@@ -33,6 +33,10 @@ func (h *AppLogHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_filter", err.Error())
 		return
 	}
+	if filter.Search != "" && filter.From == nil {
+		writeError(w, http.StatusBadRequest, "invalid_filter", searchNeedsFrom)
+		return
+	}
 	cursor := model.ParseCursor(r)
 	limit := model.ParseLimit(r, applogDefaultLimit, applogMaxLimit)
 

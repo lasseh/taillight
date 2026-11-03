@@ -2700,7 +2700,11 @@ components:
       schema:
         type: string
         maxLength: 500
-      description: Case-insensitive substring search on message text
+      description: |
+        Case-insensitive substring search on message text. On the list
+        routes a search needs `from` to bound its time window; without it
+        the request is a 400. On a stream with no `from`, the connect-time
+        backfill covers the last 24 hours (or the 24 hours before `to`).
 
     From:
       name: from

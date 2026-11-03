@@ -12,7 +12,7 @@ vi.mock('vue-router', () => ({
 import { createApp } from 'vue'
 import { flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
-import { createEventStore } from '../event-store-factory'
+import { createEventStore, SEARCH_WINDOW_MS } from '../event-store-factory'
 import { useScrollStore } from '../scroll'
 
 interface TestEvent {
@@ -28,6 +28,7 @@ function makeStore(
     Promise.resolve({ data: [] as TestEvent[], has_more: false }),
   ),
   showMuted?: Ref<boolean>,
+  activeFilters: Record<string, string> = {},
 ) {
   // Captures the SSE callback so tests can push events into the store.
   let emit: ((event: TestEvent) => void) | null = null
@@ -45,7 +46,7 @@ function makeStore(
         return () => {}
       },
     }),
-    useFilterStore: () => ({ activeFilters: {} }),
+    useFilterStore: () => ({ activeFilters }),
     matchesFilters: () => true,
     ...(showMuted && { showMuted: () => showMuted }),
   })
@@ -521,6 +522,52 @@ describe('createEventStore', () => {
       expect(store.showMuted).toBe(true)
       expect(showMuted.value).toBe(true)
       expect(fetchEvents).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // The list API refuses a search without 'from'.
+  describe('search window', () => {
+    function pagedFetch() {
+      return vi.fn<(params: URLSearchParams) => Promise<Page>>(() =>
+        Promise.resolve({ data: [], cursor: 'c1', has_more: true }),
+      )
+    }
+
+    it('sends a default from with a search that has none, the same on every page', async () => {
+      const fetchEvents = pagedFetch()
+      const { useStore } = makeStore(fetchEvents, undefined, { search: 'disk' })
+      const store = useStore()
+      const before = Date.now()
+      await store.enter()
+      await store.loadHistory()
+
+      const froms = fetchEvents.mock.calls.map(([p]) => p.get('from'))
+      expect(froms).toHaveLength(2)
+      expect(froms[1]).toBe(froms[0])
+      const from = Date.parse(froms[0]!)
+      expect(from).toBeGreaterThanOrEqual(before - SEARCH_WINDOW_MS)
+      expect(from).toBeLessThanOrEqual(Date.now() - SEARCH_WINDOW_MS)
+    })
+
+    it('ends the default window at the to bound', async () => {
+      const fetchEvents = pagedFetch()
+      const to = '2026-10-20T12:00:00.000Z'
+      const { useStore } = makeStore(fetchEvents, undefined, { search: 'disk', to })
+      await useStore().enter()
+
+      const from = fetchEvents.mock.calls[0]![0].get('from')
+      expect(Date.parse(from!)).toBe(Date.parse(to) - SEARCH_WINDOW_MS)
+    })
+
+    it.each([
+      ['keeps the user-set from', { search: 'disk', from: '2026-09-01T00:00:00.000Z' }],
+      ['adds no from without a search', {}],
+    ])('%s', async (_name, filters: Record<string, string>) => {
+      const fetchEvents = pagedFetch()
+      const { useStore } = makeStore(fetchEvents, undefined, filters)
+      await useStore().enter()
+
+      expect(fetchEvents.mock.calls[0]![0].get('from')).toBe(filters.from ?? null)
     })
   })
 })
