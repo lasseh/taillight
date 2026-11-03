@@ -298,7 +298,7 @@ Passwords, ports, and feature toggles that change between environments. Docker C
 | `AUTH_ENABLED` | `true` | Enable authentication (sessions + API keys) |
 | `DEMO_MODE` | `false` | Read-only demo mode: all write endpoints return 403 |
 | `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = use `real_ip_header` from `config.yml`; empty there too = trust only the TCP peer. |
-| `TRUSTED_PROXIES` | *(empty)* | Proxy CIDRs or bare IPs allowed to set `REAL_IP_HEADER`, separated by spaces (a comma-separated list stops startup), e.g. `172.18.0.0/16 127.0.0.1`. Set it whenever `REAL_IP_HEADER` is set. Empty = use `trusted_proxies` from `config.yml`; empty there too = the header is trusted from any peer. |
+| `TRUSTED_PROXIES` | *(empty)* | Proxy CIDRs or bare IPs allowed to set `REAL_IP_HEADER`, separated by spaces (a comma-separated list stops startup), e.g. `172.18.0.0/16 127.0.0.1`. Empty = use `trusted_proxies` from `config.yml`. Required when `REAL_IP_HEADER` is set: if neither lists a proxy, the API stops at startup. |
 | `API_URL` | *(empty)* | Frontend API URL (empty = same-origin proxy via nginx) |
 
 ### `api/config.yml` -- application tuning

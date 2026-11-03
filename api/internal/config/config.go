@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -297,6 +298,15 @@ func Load(configFile ...string) (Config, error) {
 	trustedProxies, err := parseTrustedProxies(v.GetStringSlice("trusted_proxies"))
 	if err != nil {
 		return Config{}, err
+	}
+	// A header set through the environment (the .env route compose uses, with
+	// the API port published on all interfaces) must name the proxies allowed
+	// to send it. Compose passes an unset .env value as empty, which viper
+	// ignores, so a non-empty value is exactly a header viper read from the
+	// environment. A header set only in the config file keeps loading without
+	// trusted_proxies; serve warns about it.
+	if os.Getenv("REAL_IP_HEADER") != "" && len(trustedProxies) == 0 {
+		return Config{}, errors.New("REAL_IP_HEADER is set but no trusted proxies are configured: set TRUSTED_PROXIES (or trusted_proxies in config.yml) to the addresses of the proxies that send the header")
 	}
 
 	// Booleans parse with strconv.ParseBool, and a value it rejects stops

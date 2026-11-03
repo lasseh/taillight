@@ -161,6 +161,76 @@ func TestLoadTrustedProxies(t *testing.T) {
 	}
 }
 
+// TestLoadEnvRealIPHeaderNeedsTrustedProxies verifies a REAL_IP_HEADER set in
+// the environment stops Load unless trusted proxies come from the environment
+// or the config file, while a header set only in the config file still loads
+// without them. Both variables are always set, empty as compose passes them
+// when .env leaves them unset.
+func TestLoadEnvRealIPHeaderNeedsTrustedProxies(t *testing.T) {
+	tests := []struct {
+		name        string
+		envHeader   string
+		envProxies  string
+		yml         string
+		wantHeader  string
+		wantProxies []netip.Prefix
+		wantErr     bool
+	}{
+		{
+			name:      "env header without proxies",
+			envHeader: "X-Real-IP",
+			yml:       "log_level: info\n",
+			wantErr:   true,
+		},
+		{
+			name:        "env header with env proxies",
+			envHeader:   "X-Real-IP",
+			envProxies:  "172.18.0.0/16",
+			yml:         "log_level: info\n",
+			wantHeader:  "X-Real-IP",
+			wantProxies: []netip.Prefix{netip.MustParsePrefix("172.18.0.0/16")},
+		},
+		{
+			name:        "env header with file proxies",
+			envHeader:   "X-Real-IP",
+			yml:         "trusted_proxies:\n  - \"10.1.0.0/16\"\n",
+			wantHeader:  "X-Real-IP",
+			wantProxies: []netip.Prefix{netip.MustParsePrefix("10.1.0.0/16")},
+		},
+		{
+			name:       "file header without proxies",
+			yml:        "real_ip_header: X-Real-IP\n",
+			wantHeader: "X-Real-IP",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("REAL_IP_HEADER", tt.envHeader)
+			t.Setenv("TRUSTED_PROXIES", tt.envProxies)
+			path := filepath.Join(t.TempDir(), "config.yml")
+			if err := os.WriteFile(path, []byte(tt.yml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "TRUSTED_PROXIES") {
+					t.Fatalf("Load() error = %v, want one naming TRUSTED_PROXIES", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.RealIPHeader != tt.wantHeader {
+				t.Errorf("RealIPHeader = %q, want %q", cfg.RealIPHeader, tt.wantHeader)
+			}
+			if !slices.Equal(cfg.TrustedProxies, tt.wantProxies) {
+				t.Errorf("TrustedProxies = %v, want %v", cfg.TrustedProxies, tt.wantProxies)
+			}
+		})
+	}
+}
+
 func TestLoadEnvOverride(t *testing.T) {
 	t.Setenv("LISTEN_ADDR", ":9090")
 	t.Setenv("LOG_LEVEL", "debug")
