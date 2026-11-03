@@ -1093,3 +1093,112 @@ func TestIntegration_RetentionPoliciesMatchIntent(t *testing.T) {
 		}
 	}
 }
+
+// TestIntegration_SafeReportedAtFallsBackToNow covers the function the rsyslog
+// insert templates wrap the sender's timestamp in: a value Postgres cannot
+// store as timestamptz yields now() instead of an error.
+func TestIntegration_SafeReportedAtFallsBackToNow(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		in      string
+		wantNow bool
+	}{
+		{"valid rfc3339", "2026-10-30T12:00:00.123456+02:00", false},
+		{"impossible calendar date", "2026-02-30T12:00:00+00:00", true},
+		{"year zero", "0000-01-01T00:00:00+00:00", true},
+		{"utc offset out of range", "2026-10-30T12:00:00+16:00", true},
+		{"empty", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got, now time.Time
+			if err := pool.QueryRow(ctx, `SELECT safe_reported_at($1), now()`, tt.in).Scan(&got, &now); err != nil {
+				t.Fatalf("safe_reported_at(%q): %v", tt.in, err)
+			}
+			if tt.wantNow {
+				if !got.Equal(now) {
+					t.Errorf("safe_reported_at(%q) = %v, want now() %v", tt.in, got, now)
+				}
+				return
+			}
+			want, err := time.Parse(time.RFC3339Nano, tt.in)
+			if err != nil {
+				t.Fatalf("parse %q: %v", tt.in, err)
+			}
+			if !got.Equal(want) {
+				t.Errorf("safe_reported_at(%q) = %v, want %v", tt.in, got, want)
+			}
+		})
+	}
+}
+
+// TestIntegration_SyslogBatchWithRefusedTimestampCommits replays an ompgsql
+// batch: a row whose sender timestamp Postgres refuses, then a normal row, in
+// one transaction. Both rows must commit, the first with now() as reported_at,
+// so one bad timestamp cannot fail the batch and hold the feed's queue.
+func TestIntegration_SyslogBatchWithRefusedTimestampCommits(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	for _, table := range []string{"srvlog_events", "netlog_events"} {
+		t.Run(table, func(t *testing.T) {
+			truncate(t, pool, table)
+
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin: %v", err)
+			}
+			defer tx.Rollback(ctx) //nolint:errcheck // Rollback after commit is a no-op.
+
+			var txNow time.Time
+			if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&txNow); err != nil {
+				t.Fatalf("select now: %v", err)
+			}
+			insert := `INSERT INTO ` + table + ` (received_at, reported_at, hostname, fromhost_ip, severity, facility, message)
+				VALUES (now(), safe_reported_at($1), $2, '10.0.0.1'::inet, 5, 1, 'msg')`
+			for _, row := range []struct{ ts, host string }{
+				{"2026-02-30T12:00:00+00:00", "refused-ts"},
+				{"2026-10-30T12:00:00+00:00", "valid-ts"},
+			} {
+				if _, err := tx.Exec(ctx, insert, row.ts, row.host); err != nil {
+					t.Fatalf("insert %s: %v", row.host, err)
+				}
+			}
+			if err := tx.Commit(ctx); err != nil {
+				t.Fatalf("commit: %v", err)
+			}
+
+			want := map[string]time.Time{
+				"refused-ts": txNow,
+				"valid-ts":   time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC),
+			}
+			rows, err := pool.Query(ctx, `SELECT hostname, reported_at FROM `+table)
+			if err != nil {
+				t.Fatalf("query rows: %v", err)
+			}
+			got := make(map[string]time.Time)
+			for rows.Next() {
+				var host string
+				var reportedAt time.Time
+				if err := rows.Scan(&host, &reportedAt); err != nil {
+					t.Fatalf("scan: %v", err)
+				}
+				got[host] = reportedAt
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatalf("rows: %v", err)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("stored %d rows, want %d: %v", len(got), len(want), got)
+			}
+			for host, wantAt := range want {
+				if !got[host].Equal(wantAt) {
+					t.Errorf("%s reported_at = %v, want %v", host, got[host], wantAt)
+				}
+			}
+		})
+	}
+}

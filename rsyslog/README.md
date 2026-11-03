@@ -120,7 +120,7 @@ Every filter that drops messages has exception keywords checked via `re_match(to
 - **Add a new msgid filter**: Add a block to `filters/05-by-msgid.conf`
 - **Add a new daemon filter**: Add a block to `filters/10-by-programname.conf`
 - **Filter specific hosts**: Uncomment and edit examples in `filters/50-by-hostname.conf`
-- **Enable PostgreSQL output**: Uncomment `module(load="ompgsql")` in `conf.d/00-modules.conf`, the `PgSQLSrvlogInsert` template in `conf.d/01-templates.conf`, the `output_pgsql_srvlog` ruleset in `conf.d/02-outputs.conf`, and `call output_pgsql_srvlog` in `conf.d/20-ruleset.conf`. Requires `rsyslog-pgsql` package and the DDL below.
+- **Enable PostgreSQL output**: Uncomment `module(load="ompgsql")` in `conf.d/00-modules.conf`, the `PgSQLSrvlogInsert` template in `conf.d/01-templates.conf`, the `output_pgsql_srvlog` ruleset in `conf.d/02-outputs.conf`, and `call output_pgsql_srvlog` in `conf.d/20-ruleset.conf`. Requires `rsyslog-pgsql` package and the DDL below. The netlog and srvlog insert templates call `safe_reported_at()`, which the API's migration 000025 creates, so run migrations before deploying these templates.
 - **Enable remote forwarding**: Uncomment `call output_remote` in `conf.d/20-ruleset.conf` and set `target`/`port` in `conf.d/02-outputs.conf`. Keep the `RSYSLOG_SyslogProtocol23Format` template — the file templates carry no `<PRI>`, so a receiver mis-parses severity, facility and hostname.
 - **Enable JSON output**: Add `call output_json` to the output phase in `conf.d/20-ruleset.conf`
 - **Enable Prometheus stats**: Uncomment `impstats` and `rsyslog_stats` in `conf.d/00-modules.conf` (requires [rsyslog_exporter](https://github.com/digitalocean/rsyslog_exporter))
