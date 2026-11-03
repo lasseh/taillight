@@ -19,6 +19,19 @@ var srvlogColumns = []string{
 	"structured_data", "message", "raw_message",
 }
 
+// srvlogPreviewColumns is srvlogColumns for list responses, in the same order
+// so scanSrvlog reads both. structured_data and raw_message are cut in SQL to
+// one character past the preview limit: a few KB per row at most, and still
+// enough for model.SrvlogEvent.WithPreview to see that a row was cut. message
+// stays whole so mute marking sees all of it.
+var srvlogPreviewColumns = []string{
+	"id", "received_at", "reported_at", "hostname", "fromhost_ip",
+	"programname", "msgid", "severity", "facility", "syslogtag",
+	fmt.Sprintf("left(structured_data, %d) AS structured_data", model.RawPreviewLimit+1),
+	"message",
+	fmt.Sprintf("left(raw_message, %d) AS raw_message", model.RawPreviewLimit+1),
+}
+
 // allowedMetaColumns is a whitelist of columns that can be used in meta queries.
 var allowedMetaColumns = map[string]struct{}{
 	"hostname":    {},
@@ -49,9 +62,21 @@ func (s *Store) GetSrvlog(ctx context.Context, id int64) (model.SrvlogEvent, err
 }
 
 // ListSrvlogs returns events matching the filter with cursor-based pagination.
-// It returns one extra row to determine if more pages exist.
+// It returns one extra row to determine if more pages exist. Rows carry the
+// full text; CSV export and the SSE recent backfill rely on this.
 func (s *Store) ListSrvlogs(ctx context.Context, f model.SrvlogFilter, cursor *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error) {
-	qb := psq.Select(srvlogColumns...).From("srvlog_events")
+	return s.listSrvlogs(ctx, srvlogColumns, f, cursor, limit)
+}
+
+// ListSrvlogPreviews is ListSrvlogs for list responses: structured_data and
+// raw_message may come back cut (see srvlogPreviewColumns), so callers apply
+// model.SrvlogEvent.WithPreview to every row.
+func (s *Store) ListSrvlogPreviews(ctx context.Context, f model.SrvlogFilter, cursor *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error) {
+	return s.listSrvlogs(ctx, srvlogPreviewColumns, f, cursor, limit)
+}
+
+func (s *Store) listSrvlogs(ctx context.Context, columns []string, f model.SrvlogFilter, cursor *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error) {
+	qb := psq.Select(columns...).From("srvlog_events")
 	qb = applySrvlogFilter(qb, f)
 
 	// Keyset (cursor) pagination using tuple comparison — Postgres evaluates

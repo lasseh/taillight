@@ -60,6 +60,8 @@ export interface NotificationLogEntry {
   status_code?: number | null
   duration_ms: number
   payload?: Record<string, unknown> | null
+  /** True when the listing left out a payload over the server's size cap. */
+  payload_truncated?: boolean
 }
 
 export interface ChannelListResponse {

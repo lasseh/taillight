@@ -16,6 +16,9 @@ import (
 type SrvlogStore interface {
 	GetSrvlog(ctx context.Context, id int64) (model.SrvlogEvent, error)
 	ListSrvlogs(ctx context.Context, f model.SrvlogFilter, cursor *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error)
+	// ListSrvlogPreviews is ListSrvlogs for list responses; callers apply
+	// WithPreview to each row after marking.
+	ListSrvlogPreviews(ctx context.Context, f model.SrvlogFilter, cursor *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error)
 	ListSrvlogsSince(ctx context.Context, f model.SrvlogFilter, sinceID int64, limit int) ([]model.SrvlogEvent, error)
 	ListSrvlogHosts(ctx context.Context) ([]string, error)
 	ListSrvlogPrograms(ctx context.Context) ([]string, error)
@@ -32,6 +35,9 @@ type SrvlogStore interface {
 type NetlogStore interface {
 	GetNetlog(ctx context.Context, id int64) (model.NetlogEvent, error)
 	ListNetlogs(ctx context.Context, f model.NetlogFilter, cursor *model.Cursor, limit int) ([]model.NetlogEvent, *model.Cursor, error)
+	// ListNetlogPreviews is ListNetlogs for list responses; callers apply
+	// WithPreview to each row after marking.
+	ListNetlogPreviews(ctx context.Context, f model.NetlogFilter, cursor *model.Cursor, limit int) ([]model.NetlogEvent, *model.Cursor, error)
 	ListNetlogsSince(ctx context.Context, f model.NetlogFilter, sinceID int64, limit int) ([]model.NetlogEvent, error)
 	ListNetlogHosts(ctx context.Context) ([]string, error)
 	ListNetlogPrograms(ctx context.Context) ([]string, error)

@@ -29,7 +29,7 @@ func NewSrvlogHandler(store SrvlogStore, mutes MuteRuleSet) *SrvlogHandler {
 
 // List handles GET /api/v1/srvlog with filter and cursor pagination. With
 // hide_muted it excludes rows matching an active mute rule; either way it
-// marks the rows it returns.
+// marks the rows it returns. Row text is cut to the preview limits.
 func (h *SrvlogHandler) List(w http.ResponseWriter, r *http.Request) {
 	filter, err := model.ParseSrvlogFilter(r)
 	if err != nil {
@@ -49,7 +49,7 @@ func (h *SrvlogHandler) List(w http.ResponseWriter, r *http.Request) {
 		filter.Exclude = snap.SrvlogExclusions()
 	}
 
-	events, nextCursor, err := h.store.ListSrvlogs(r.Context(), filter, cursor, limit)
+	events, nextCursor, err := h.store.ListSrvlogPreviews(r.Context(), filter, cursor, limit)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -65,7 +65,12 @@ func (h *SrvlogHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query events")
 		return
 	}
+	// Mark before cutting, so a rule that matches past the preview limit
+	// still marks the row.
 	markSrvlogs(snap, events)
+	for i := range events {
+		events[i] = events[i].WithPreview()
+	}
 
 	resp := listResponse{
 		Data:    emptySlice(events),

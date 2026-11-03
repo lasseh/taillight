@@ -507,6 +507,11 @@ paths:
       x-required-scope: read
       tags: [Srvlog]
       summary: List srvlog events
+      description: |
+        Rows carry a preview of their text: longer `message`,
+        `raw_message` and `structured_data` values are cut and the row
+        has `truncated: true`. The detail route and CSV export return the
+        full text.
       parameters:
         - $ref: "#/components/parameters/SrvlogHostname"
         - $ref: "#/components/parameters/SrvlogProgramname"
@@ -857,6 +862,11 @@ paths:
       x-required-scope: read
       tags: [Netlog]
       summary: List netlog events
+      description: |
+        Rows carry a preview of their text: longer `message`,
+        `raw_message` and `structured_data` values are cut and the row
+        has `truncated: true`. The detail route and CSV export return the
+        full text.
       parameters:
         - $ref: "#/components/parameters/SrvlogHostname"
         - $ref: "#/components/parameters/SrvlogProgramname"
@@ -2973,6 +2983,13 @@ components:
         raw_message:
           type: string
           description: Omitted entirely (not null) when the event has none
+        truncated:
+          type: boolean
+          description: |
+            Set only on list rows (GET /srvlog and /netlog). True when
+            `message` was cut to 4096 bytes, or `raw_message` or
+            `structured_data` to 1024 bytes, on a UTF-8 character boundary.
+            Fetch the event by id for the full text. Omitted when false.
         muted_by:
           type: integer
           format: int64
@@ -3021,6 +3038,13 @@ components:
         raw_message:
           type: string
           description: Omitted entirely (not null) when the event has none
+        truncated:
+          type: boolean
+          description: |
+            Set only on list rows (GET /srvlog and /netlog). True when
+            `message` was cut to 4096 bytes, or `raw_message` or
+            `structured_data` to 1024 bytes, on a UTF-8 character boundary.
+            Fetch the event by id for the full text. Omitted when false.
         muted_by:
           type: integer
           format: int64
@@ -3536,6 +3560,10 @@ components:
           type: object
           nullable: true
           additionalProperties: true
+          description: Omitted when the payload is over 8192 bytes of JSON text; see `payload_truncated`
+        payload_truncated:
+          type: boolean
+          description: True when the stored payload was left out for its size. Omitted when false.
 
     TestChannelResult:
       type: object

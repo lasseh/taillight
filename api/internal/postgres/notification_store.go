@@ -398,9 +398,13 @@ func (s *Store) InsertNotificationLog(ctx context.Context, entry notification.Lo
 }
 
 // ListNotificationLog returns notification log entries matching the filter.
+// A payload over notification.LogPayloadPreviewLimit bytes of JSON text is
+// left out in SQL and the entry flagged, so no entry adds more than that.
 func (s *Store) ListNotificationLog(ctx context.Context, f notification.LogFilter) ([]notification.LogEntry, error) {
 	qb := psq.
-		Select("id", "created_at", "rule_id", "channel_id", "event_kind", "event_id", "status", "reason", "event_count", "status_code", "duration_ms", "payload").
+		Select("id", "created_at", "rule_id", "channel_id", "event_kind", "event_id", "status", "reason", "event_count", "status_code", "duration_ms").
+		Column(sq.Expr("CASE WHEN octet_length(payload::text) <= ? THEN payload END AS payload", notification.LogPayloadPreviewLimit)).
+		Column(sq.Expr("COALESCE(octet_length(payload::text) > ?, false) AS payload_truncated", notification.LogPayloadPreviewLimit)).
 		From("notification_log").
 		OrderBy("created_at DESC").
 		Limit(500)
@@ -436,7 +440,7 @@ func (s *Store) ListNotificationLog(ctx context.Context, f notification.LogFilte
 		err := row.Scan(
 			&e.ID, &e.CreatedAt, &e.RuleID, &e.ChannelID,
 			&e.EventKind, &e.EventID, &e.Status, &e.Reason,
-			&e.EventCount, &e.StatusCode, &e.DurationMS, &e.Payload,
+			&e.EventCount, &e.StatusCode, &e.DurationMS, &e.Payload, &e.PayloadTruncated,
 		)
 		return e, err
 	})

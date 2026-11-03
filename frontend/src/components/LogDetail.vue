@@ -209,5 +209,17 @@ function applyFilter(field: Field) {
       <span class="text-t-fg-dark w-24 shrink-0 text-right">message</span>
       <span class="text-t-fg min-w-0 break-all font-mono text-xs" v-html="highlightedMsg"></span>
     </div>
+
+    <!-- list rows carry at most a preview of long text; the detail page has all of it -->
+    <div v-if="event.truncated" class="flex gap-2 py-0.5 text-sm" data-truncated>
+      <span class="w-24 shrink-0" />
+      <RouterLink
+        :to="{ name: props.detailRoute, params: { id: event.id } }"
+        class="text-t-fg-dark min-w-0 text-xs hover:underline"
+        @click.stop
+      >
+        preview only · open full event →
+      </RouterLink>
+    </div>
   </div>
 </template>

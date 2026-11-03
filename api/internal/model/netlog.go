@@ -23,10 +23,26 @@ type NetlogEvent struct {
 	StructuredData *string   `json:"structured_data,omitempty"`
 	Message        string    `json:"message"`
 	RawMessage     *string   `json:"raw_message,omitempty"`
+	// Truncated is true when a list response cut message, raw_message or
+	// structured_data to the preview limits. Fetch the event by id for the
+	// full text. Other endpoints never set it.
+	Truncated bool `json:"truncated,omitempty"`
 	// MutedBy is the id of the mute rule that matched this event. It is
 	// computed when the event is delivered, never stored, and omitted when no
 	// active rule matches.
 	MutedBy *int64 `json:"muted_by,omitempty"`
+}
+
+// WithPreview returns a copy of e with message, raw_message and
+// structured_data cut to the preview limits, and Truncated set when any was
+// cut. Mark mute rules before calling it, so matching sees the full message.
+func (e NetlogEvent) WithPreview() NetlogEvent {
+	var cutMsg, cutRaw, cutSD bool
+	e.Message, cutMsg = cutText(e.Message, MessagePreviewLimit)
+	e.RawMessage, cutRaw = cutRawPreview(e.RawMessage)
+	e.StructuredData, cutSD = cutRawPreview(e.StructuredData)
+	e.Truncated = cutMsg || cutRaw || cutSD
+	return e
 }
 
 // NetlogFilter holds optional filter criteria for querying netlog events.

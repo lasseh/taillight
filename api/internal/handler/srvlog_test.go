@@ -35,6 +35,10 @@ func (m *mockSrvlogStore) ListSrvlogs(_ context.Context, _ model.SrvlogFilter, _
 	return m.events, nil, m.listErr
 }
 
+func (m *mockSrvlogStore) ListSrvlogPreviews(ctx context.Context, f model.SrvlogFilter, c *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error) {
+	return m.ListSrvlogs(ctx, f, c, limit)
+}
+
 func (m *mockSrvlogStore) ListSrvlogsSince(_ context.Context, _ model.SrvlogFilter, _ int64, _ int) ([]model.SrvlogEvent, error) {
 	return m.events, m.listErr
 }
