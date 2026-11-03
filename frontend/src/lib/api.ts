@@ -124,6 +124,13 @@ async function fetchAPI<T>(path: string, signal?: AbortSignal): Promise<T> {
   return handleResponse(res)
 }
 
+// withSearch adds the optional search parameter of the meta list and analysis
+// picker endpoints. Without a search the path is returned as it was.
+function withSearch(path: string, search?: string): string {
+  if (!search) return path
+  return `${path}${path.includes('?') ? '&' : '?'}search=${encodeURIComponent(search)}`
+}
+
 async function postAPI<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const url = `${config.apiUrl}${path}`
   const res = await fetch(url, {
@@ -249,20 +256,20 @@ export const api = {
     return fetchAPI(`/api/v1/srvlog/${id}`)
   },
 
-  getHosts(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/srvlog/meta/hosts')
+  getHosts(search?: string): Promise<MetaResponse<string>> {
+    return fetchAPI(withSearch('/api/v1/srvlog/meta/hosts', search))
   },
 
-  getPrograms(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/srvlog/meta/programs')
+  getPrograms(search?: string): Promise<MetaResponse<string>> {
+    return fetchAPI(withSearch('/api/v1/srvlog/meta/programs', search))
   },
 
   getFacilities(): Promise<MetaResponse<number>> {
     return fetchAPI('/api/v1/srvlog/meta/facilities')
   },
 
-  getTags(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/srvlog/meta/tags')
+  getTags(search?: string): Promise<MetaResponse<string>> {
+    return fetchAPI(withSearch('/api/v1/srvlog/meta/tags', search))
   },
 
   getSrvlogVolume(params: URLSearchParams): Promise<VolumeResponse> {
@@ -282,20 +289,20 @@ export const api = {
     return fetchAPI(`/api/v1/netlog/${id}/netbox`)
   },
 
-  getNetlogHosts(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/netlog/meta/hosts')
+  getNetlogHosts(search?: string): Promise<MetaResponse<string>> {
+    return fetchAPI(withSearch('/api/v1/netlog/meta/hosts', search))
   },
 
-  getNetlogPrograms(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/netlog/meta/programs')
+  getNetlogPrograms(search?: string): Promise<MetaResponse<string>> {
+    return fetchAPI(withSearch('/api/v1/netlog/meta/programs', search))
   },
 
   getNetlogFacilities(): Promise<MetaResponse<number>> {
     return fetchAPI('/api/v1/netlog/meta/facilities')
   },
 
-  getNetlogTags(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/netlog/meta/tags')
+  getNetlogTags(search?: string): Promise<MetaResponse<string>> {
+    return fetchAPI(withSearch('/api/v1/netlog/meta/tags', search))
   },
 
   getNetlogVolume(params: URLSearchParams): Promise<VolumeResponse> {
@@ -324,16 +331,16 @@ export const api = {
     return fetchAPI(`/api/v1/applog/${id}`)
   },
 
-  getAppLogServices(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/applog/meta/services')
+  getAppLogServices(search?: string): Promise<MetaResponse<string>> {
+    return fetchAPI(withSearch('/api/v1/applog/meta/services', search))
   },
 
-  getAppLogComponents(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/applog/meta/components')
+  getAppLogComponents(search?: string): Promise<MetaResponse<string>> {
+    return fetchAPI(withSearch('/api/v1/applog/meta/components', search))
   },
 
-  getAppLogHosts(): Promise<MetaResponse<string>> {
-    return fetchAPI('/api/v1/applog/meta/hosts')
+  getAppLogHosts(search?: string): Promise<MetaResponse<string>> {
+    return fetchAPI(withSearch('/api/v1/applog/meta/hosts', search))
   },
 
   getAppLogVolume(params: URLSearchParams): Promise<VolumeResponse> {
@@ -485,12 +492,12 @@ export const api = {
     return deleteAPI(`/api/v1/analysis/reports/${encodeURIComponent(slug)}`)
   },
 
-  listAnalysisHosts(feed: AnalysisFeed): Promise<AnalysisHostListResponse> {
-    return fetchAPI(`/api/v1/analysis/hosts?feed=${encodeURIComponent(feed)}`)
+  listAnalysisHosts(feed: AnalysisFeed, search?: string): Promise<AnalysisHostListResponse> {
+    return fetchAPI(withSearch(`/api/v1/analysis/hosts?feed=${encodeURIComponent(feed)}`, search))
   },
 
-  listAnalysisServices(): Promise<AnalysisServiceListResponse> {
-    return fetchAPI('/api/v1/analysis/services')
+  listAnalysisServices(search?: string): Promise<AnalysisServiceListResponse> {
+    return fetchAPI(withSearch('/api/v1/analysis/services', search))
   },
 
   // Analysis schedules

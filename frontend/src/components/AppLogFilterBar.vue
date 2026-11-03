@@ -14,17 +14,18 @@ const meta = useAppLogMetaStore()
 const mobileOpen = ref(false)
 const activeFilterCount = computed(() => Object.keys(filterStore.activeFilters).length)
 
-const serviceOptions = computed(() =>
-  meta.services.map((s) => ({ value: s, label: s, colorClass: 'text-t-purple' })),
-)
+const serviceOption = (s: string) => ({ value: s, label: s, colorClass: 'text-t-purple' })
+const componentOption = (c: string) => ({ value: c, label: c, colorClass: 'text-t-yellow' })
+const hostOption = (h: string) => ({ value: h, label: h, colorClass: 'text-t-teal' })
 
-const componentOptions = computed(() =>
-  meta.components.map((c) => ({ value: c, label: c, colorClass: 'text-t-yellow' })),
-)
+const serviceOptions = computed(() => meta.services.map(serviceOption))
+const componentOptions = computed(() => meta.components.map(componentOption))
+const hostOptions = computed(() => meta.hosts.map(hostOption))
 
-const hostOptions = computed(() =>
-  meta.hosts.map((h) => ({ value: h, label: h, colorClass: 'text-t-teal' })),
-)
+const fetchServiceOptions = async (q: string) => (await meta.searchServices(q)).map(serviceOption)
+const fetchComponentOptions = async (q: string) =>
+  (await meta.searchComponents(q)).map(componentOption)
+const fetchHostOptions = async (q: string) => (await meta.searchHosts(q)).map(hostOption)
 
 const searchInput = computed({
   get: () => filterStore.filters.search,
@@ -107,17 +108,22 @@ function exportCSV() {
         v-model="filterStore.filters.host"
         label="host"
         :options="hostOptions"
+        :fetch-options="fetchHostOptions"
         searchable
       />
       <FilterSelect
         v-model="filterStore.filters.service"
         label="service"
         :options="serviceOptions"
+        :fetch-options="fetchServiceOptions"
+        searchable
       />
       <FilterSelect
         v-model="filterStore.filters.component"
         label="component"
         :options="componentOptions"
+        :fetch-options="fetchComponentOptions"
+        searchable
       />
       <label class="flex items-center gap-1">
         <span class="text-t-fg-dark text-xs">search</span>
@@ -153,13 +159,22 @@ function exportCSV() {
       v-model="filterStore.filters.host"
       label="host"
       :options="hostOptions"
+      :fetch-options="fetchHostOptions"
       searchable
     />
-    <FilterSelect v-model="filterStore.filters.service" label="service" :options="serviceOptions" />
+    <FilterSelect
+      v-model="filterStore.filters.service"
+      label="service"
+      :options="serviceOptions"
+      :fetch-options="fetchServiceOptions"
+      searchable
+    />
     <FilterSelect
       v-model="filterStore.filters.component"
       label="component"
       :options="componentOptions"
+      :fetch-options="fetchComponentOptions"
+      searchable
     />
     <label class="flex items-center gap-1">
       <span class="text-t-fg-dark text-xs">search</span>

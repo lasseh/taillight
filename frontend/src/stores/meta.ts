@@ -24,5 +24,23 @@ export const useMetaStore = defineStore('meta', () => {
     }
   }
 
-  return { hosts, programs, facilities, loading, error, fetchAll }
+  // The loaded lists are capped; these look typed text up on the server.
+  async function searchHosts(q: string) {
+    return (await api.getHosts(q)).data
+  }
+
+  async function searchPrograms(q: string) {
+    return (await api.getPrograms(q)).data
+  }
+
+  return {
+    hosts,
+    programs,
+    facilities,
+    loading,
+    error,
+    fetchAll,
+    searchHosts,
+    searchPrograms,
+  }
 })

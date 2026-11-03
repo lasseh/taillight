@@ -28,5 +28,28 @@ export const useAppLogMetaStore = defineStore('applog-meta', () => {
     }
   }
 
-  return { services, components, hosts, loading, error, fetchAll }
+  // The loaded lists are capped; these look typed text up on the server.
+  async function searchServices(q: string) {
+    return (await api.getAppLogServices(q)).data
+  }
+
+  async function searchComponents(q: string) {
+    return (await api.getAppLogComponents(q)).data
+  }
+
+  async function searchHosts(q: string) {
+    return (await api.getAppLogHosts(q)).data
+  }
+
+  return {
+    services,
+    components,
+    hosts,
+    loading,
+    error,
+    fetchAll,
+    searchServices,
+    searchComponents,
+    searchHosts,
+  }
 })
