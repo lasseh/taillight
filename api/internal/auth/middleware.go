@@ -3,12 +3,15 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/lasseh/taillight/internal/httputil"
@@ -55,15 +58,22 @@ func APIKeyIDFromContext(ctx context.Context) (pgtype.UUID, bool) {
 }
 
 // SessionLookup is the interface for looking up sessions by token hash.
+// An error wrapping pgx.ErrNoRows means no live session matches.
 type SessionLookup interface {
 	GetSessionUser(ctx context.Context, tokenHash string) (*model.User, error)
 }
 
 // APIKeyLookup is the interface for looking up API keys by hash.
-// Returns the owning user, the key's scopes, and the key's row ID.
+// Returns the owning user, the key's scopes, and the key's row ID. An error
+// wrapping pgx.ErrNoRows means no live key matches.
 type APIKeyLookup interface {
 	GetAPIKeyUser(ctx context.Context, keyHash string) (*model.User, []string, pgtype.UUID, error)
 }
+
+// lookupTimeout bounds each credential lookup, so a request whose lookup
+// cannot get a database connection fails fast instead of waiting in the
+// pool's queue.
+const lookupTimeout = 5 * time.Second
 
 // AllowAnonymous is a middleware that stores an anonymous user in the context.
 // Used when authentication is disabled.
@@ -77,24 +87,37 @@ func AllowAnonymous(next http.Handler) http.Handler {
 // SessionOrAPIKey returns a middleware that authenticates via session cookie
 // or Bearer API key. On success, the authenticated user (and scopes for API
 // keys) are stored in the context.
+//
+// Each lookup has its own short deadline. A lookup that fails for any reason
+// other than "no matching credential" (a timeout, an unavailable database)
+// answers 503 rather than 401, unless the other credential succeeds: the
+// caller's credential may well be valid, so clients must not treat the
+// failure as a logout.
 func SessionOrAPIKey(sessions SessionLookup, apiKeys APIKeyLookup) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			unavailable := false
+
 			// 1. Try session cookie.
 			if cookie, err := r.Cookie("tl_session"); err == nil && cookie.Value != "" {
 				tokenHash := HashToken(cookie.Value)
-				user, err := sessions.GetSessionUser(r.Context(), tokenHash)
+				ctx, cancel := context.WithTimeout(r.Context(), lookupTimeout)
+				user, err := sessions.GetSessionUser(ctx, tokenHash)
+				cancel()
 				if err == nil && user != nil {
 					next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), user)))
 					return
 				}
+				unavailable = lookupFailed(err)
 			}
 
 			// 2. Try Bearer token (DB-backed API key).
 			if bearer := extractBearer(r); bearer != "" {
 				if strings.HasPrefix(bearer, "tl_") {
 					keyHash := HashToken(bearer)
-					user, scopes, keyID, err := apiKeys.GetAPIKeyUser(r.Context(), keyHash)
+					lookupCtx, cancel := context.WithTimeout(r.Context(), lookupTimeout)
+					user, scopes, keyID, err := apiKeys.GetAPIKeyUser(lookupCtx, keyHash)
+					cancel()
 					if err == nil && user != nil {
 						ctx := WithUser(r.Context(), user)
 						ctx = WithScopes(ctx, scopes)
@@ -102,12 +125,24 @@ func SessionOrAPIKey(sessions SessionLookup, apiKeys APIKeyLookup) func(http.Han
 						next.ServeHTTP(w, r.WithContext(ctx))
 						return
 					}
+					unavailable = unavailable || lookupFailed(err)
 				}
 			}
 
+			if unavailable {
+				w.Header().Set("Retry-After", "1")
+				httputil.WriteError(w, http.StatusServiceUnavailable, "auth_unavailable", "credential check unavailable, retry shortly")
+				return
+			}
 			httputil.WriteError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		})
 	}
+}
+
+// lookupFailed reports whether a credential lookup error means the lookup
+// could not finish, as opposed to finding no matching credential.
+func lookupFailed(err error) bool {
+	return err != nil && !errors.Is(err, pgx.ErrNoRows)
 }
 
 // ScopeAdmin is the privileged scope that grants access to write/admin routes.

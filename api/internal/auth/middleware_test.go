@@ -2,12 +2,16 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/lasseh/taillight/internal/httputil"
@@ -104,11 +108,49 @@ func TestSessionOrAPIKey(t *testing.T) {
 			wantScopes: []string{"read"},
 		},
 		{
-			name:       "api key lookup error returns unauthorized",
+			name:       "unknown api key returns unauthorized",
 			sessions:   &mockSessionLookup{},
-			apiKeys:    &mockAPIKeyLookup{err: errors.New("not found")},
+			apiKeys:    &mockAPIKeyLookup{err: fmt.Errorf("get api key by hash: %w", pgx.ErrNoRows)},
 			bearer:     "tl_badkey",
 			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "unknown session returns unauthorized",
+			sessions:   &mockSessionLookup{err: fmt.Errorf("get session: %w", pgx.ErrNoRows)},
+			apiKeys:    &mockAPIKeyLookup{},
+			cookie:     &http.Cookie{Name: "tl_session", Value: "expired-token"},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "failed session lookup returns unavailable",
+			sessions:   &mockSessionLookup{err: context.DeadlineExceeded},
+			apiKeys:    &mockAPIKeyLookup{},
+			cookie:     &http.Cookie{Name: "tl_session", Value: "valid-token"},
+			wantStatus: http.StatusServiceUnavailable,
+		},
+		{
+			name:       "failed api key lookup returns unavailable",
+			sessions:   &mockSessionLookup{},
+			apiKeys:    &mockAPIKeyLookup{err: errors.New("db error")},
+			bearer:     "tl_someapikey123",
+			wantStatus: http.StatusServiceUnavailable,
+		},
+		{
+			name:       "failed session lookup with unknown api key returns unavailable",
+			sessions:   &mockSessionLookup{err: errors.New("db error")},
+			apiKeys:    &mockAPIKeyLookup{err: pgx.ErrNoRows},
+			cookie:     &http.Cookie{Name: "tl_session", Value: "valid-token"},
+			bearer:     "tl_badkey",
+			wantStatus: http.StatusServiceUnavailable,
+		},
+		{
+			name:       "failed session lookup with valid api key succeeds",
+			sessions:   &mockSessionLookup{err: errors.New("db error")},
+			apiKeys:    &mockAPIKeyLookup{user: testUser, scopes: []string{"read"}},
+			cookie:     &http.Cookie{Name: "tl_session", Value: "valid-token"},
+			bearer:     "tl_someapikey123",
+			wantStatus: http.StatusOK,
+			wantUser:   "testuser",
 		},
 		{
 			name:       "non-tl_ bearer returns unauthorized",
@@ -167,7 +209,63 @@ func TestSessionOrAPIKey(t *testing.T) {
 			if rec.Code != tt.wantStatus {
 				t.Errorf("got status %d, want %d", rec.Code, tt.wantStatus)
 			}
+			if tt.wantStatus == http.StatusServiceUnavailable {
+				var body httputil.ErrorBody
+				if err := json.NewDecoder(rec.Body).Decode(&body); err != nil || body.Error.Code != "auth_unavailable" {
+					t.Errorf("503 body = %+v (decode err %v), want code auth_unavailable", body, err)
+				}
+			}
 		})
+	}
+}
+
+// deadlineLookup records the deadline each credential lookup ran under.
+type deadlineLookup struct {
+	deadlines []time.Duration
+}
+
+func (d *deadlineLookup) record(ctx context.Context) {
+	if dl, ok := ctx.Deadline(); ok {
+		d.deadlines = append(d.deadlines, time.Until(dl))
+	} else {
+		d.deadlines = append(d.deadlines, -1)
+	}
+}
+
+func (d *deadlineLookup) GetSessionUser(ctx context.Context, _ string) (*model.User, error) {
+	d.record(ctx)
+	return nil, pgx.ErrNoRows
+}
+
+func (d *deadlineLookup) GetAPIKeyUser(ctx context.Context, _ string) (*model.User, []string, pgtype.UUID, error) {
+	d.record(ctx)
+	return nil, nil, pgtype.UUID{}, pgx.ErrNoRows
+}
+
+// Each credential lookup runs under its own short deadline even when the
+// request has none, so a lookup stuck waiting for a database connection
+// cannot hold the request open.
+func TestSessionOrAPIKeyLookupsHaveDeadline(t *testing.T) {
+	lookups := &deadlineLookup{}
+	handler := SessionOrAPIKey(lookups, lookups)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("handler reached with unknown credentials")
+	}))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "tl_session", Value: "token"})
+	req.Header.Set("Authorization", "Bearer tl_key")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+	if len(lookups.deadlines) != 2 {
+		t.Fatalf("got %d lookups, want 2 (session, then API key)", len(lookups.deadlines))
+	}
+	for i, d := range lookups.deadlines {
+		if d <= 0 || d > lookupTimeout {
+			t.Errorf("lookup %d deadline in %v, want within (0, %v]", i, d, lookupTimeout)
+		}
 	}
 }
 
