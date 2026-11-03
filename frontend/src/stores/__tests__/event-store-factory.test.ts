@@ -31,13 +31,15 @@ function makeStore(
 ) {
   // Captures the SSE callback so tests can push events into the store.
   let emit: ((event: TestEvent) => void) | null = null
+  // Bumped by tests to simulate a long outage or a server resync.
+  const reconnectAfterGap = ref(0)
   const useStore = createEventStore<TestEvent>({
     id: `test-events-${Math.random()}`,
     routeName: 'srvlog',
     fetchEvents,
     useStream: () => ({
       connected: ref(true),
-      reconnectAfterGap: ref(0),
+      reconnectAfterGap,
       subscribe: (cb) => {
         emit = cb
         return () => {}
@@ -47,7 +49,7 @@ function makeStore(
     matchesFilters: () => true,
     ...(showMuted && { showMuted: () => showMuted }),
   })
-  return { useStore, emit: (event: TestEvent) => emit!(event) }
+  return { useStore, emit: (event: TestEvent) => emit!(event), reconnectAfterGap }
 }
 
 // A fetchEvents whose calls stay pending until the test resolves them. It
@@ -286,6 +288,43 @@ describe('createEventStore', () => {
     // Buffer kept (under MAX_EVENTS), no refetch beyond the initial enter().
     expect(store.events).toHaveLength(10)
     expect(fetchEvents).toHaveBeenCalledOnce()
+  })
+
+  it('a stream gap while pinned refetches at once', async () => {
+    const fetchEvents = vi.fn(() => Promise.resolve({ data: [] as TestEvent[], has_more: false }))
+    const { useStore, reconnectAfterGap } = makeStore(fetchEvents)
+    const store = useStore()
+
+    await store.enter()
+    reconnectAfterGap.value++
+    await flushPromises()
+
+    expect(fetchEvents).toHaveBeenCalledTimes(2)
+  })
+
+  it('a stream gap while detached keeps the scrollback and refetches once on reattach', async () => {
+    const fetchEvents = vi.fn(() => Promise.resolve({ data: [] as TestEvent[], has_more: false }))
+    const { useStore, emit, reconnectAfterGap } = makeStore(fetchEvents)
+    const store = useStore()
+    const scrollStore = useScrollStore()
+
+    await store.enter()
+    scrollStore.setPinned('srvlog', false)
+    emit({ id: 1, message: 'kept' })
+
+    reconnectAfterGap.value++
+    await flushPromises()
+
+    // No refetch while the user reads scrollback; the buffer is untouched.
+    expect(fetchEvents).toHaveBeenCalledOnce()
+    expect(store.events.map((e) => e.id)).toEqual([1])
+
+    store.reattach()
+    await flushPromises()
+
+    // Returning to live closes the gap with one refetch.
+    expect(fetchEvents).toHaveBeenCalledTimes(2)
+    expect(store.events).toEqual([])
   })
 
   describe('muted events', () => {
