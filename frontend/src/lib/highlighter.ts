@@ -95,14 +95,25 @@ Prism.languages.insertBefore('log', 'string', {
 // match so anything unexpected (e.g. a bad grammar extension) can't introduce attrs.
 const PRISM_SANITIZE = { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] }
 
+// Prism.highlight runs on the main thread, and on crafted text some grammar
+// patterns cost far more than linear time. Text longer than this is shown as
+// escaped plaintext instead, which bounds what one message can cost.
+export const MAX_HIGHLIGHT_LEN = 2048
+
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' }
+
+function toHtml(text: string, lang: 'log' | 'json'): string {
+  if (text.length > MAX_HIGHLIGHT_LEN) return text.replace(/[&<>]/g, (c) => HTML_ESCAPES[c]!)
+  return DOMPurify.sanitize(Prism.highlight(text, Prism.languages[lang]!, lang), PRISM_SANITIZE)
+}
+
 export function highlight(msg: string): string {
-  return DOMPurify.sanitize(Prism.highlight(msg, Prism.languages['log']!, 'log'), PRISM_SANITIZE)
+  return toHtml(msg, 'log')
 }
 
 export function highlightJson(obj: Record<string, unknown> | null): string {
   if (!obj) return ''
-  const json = JSON.stringify(obj, null, 2)
-  return DOMPurify.sanitize(Prism.highlight(json, Prism.languages['json']!, 'json'), PRISM_SANITIZE)
+  return toHtml(JSON.stringify(obj, null, 2), 'json')
 }
 
 // Keyed by a feed-namespaced string (e.g. "srvlog:42" / "netlog:42"), not the
@@ -115,7 +126,7 @@ export function highlightMessage(key: string, msg: string): string {
   let result = cache.get(key)
   if (result !== undefined) return result
 
-  result = DOMPurify.sanitize(Prism.highlight(msg, Prism.languages['log']!, 'log'), PRISM_SANITIZE)
+  result = toHtml(msg, 'log')
   cache.set(key, result)
 
   // Batch-evict oldest 500 entries when cache exceeds 3000 to avoid

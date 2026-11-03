@@ -7,7 +7,7 @@
 // even if Prism or a grammar extension misbehaves.
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Prism } from '@/lib/prism-global'
-import { highlight, highlightJson, highlightMessage } from '@/lib/highlighter'
+import { MAX_HIGHLIGHT_LEN, highlight, highlightJson, highlightMessage } from '@/lib/highlighter'
 
 /** Render highlighter output the way v-html would. */
 function render(html: string): HTMLElement {
@@ -83,6 +83,40 @@ describe('sanitization boundary — DOMPurify allow-list holds even if Prism mis
     expect(span!.getAttribute('class')).toBe('token')
     expect(span!.getAttributeNames()).toEqual(['class'])
     expectSpanClassOnly(root)
+  })
+})
+
+describe('length cap — text above the cap skips Prism and renders as plaintext', () => {
+  /** Hostile markup padded to exactly len characters. */
+  const text = (len: number) => '<img src=x onerror=alert(1)> & '.padEnd(len, 'x')
+  /** An object whose pretty-printed JSON is exactly len characters. */
+  const obj = (len: number) => ({ k: text(len - JSON.stringify({ k: '' }, null, 2).length) })
+
+  const renderers: [string, (len: number) => { html: string; text: string }][] = [
+    ['highlight', (len) => ({ html: highlight(text(len)), text: text(len) })],
+    [
+      'highlightMessage',
+      (len) => ({ html: highlightMessage(`cap:${len}`, text(len)), text: text(len) }),
+    ],
+    [
+      'highlightJson',
+      (len) => ({ html: highlightJson(obj(len)), text: JSON.stringify(obj(len), null, 2) }),
+    ],
+  ]
+
+  it.each(renderers)('%s escapes text above the cap without calling Prism', (_name, run) => {
+    const spy = vi.spyOn(Prism, 'highlight')
+    const out = run(MAX_HIGHLIGHT_LEN + 1)
+    expect(spy).not.toHaveBeenCalled()
+    const root = render(out.html)
+    expect(root.children).toHaveLength(0)
+    expect(root.textContent).toBe(out.text)
+  })
+
+  it.each(renderers)('%s still highlights text at the cap', (_name, run) => {
+    const spy = vi.spyOn(Prism, 'highlight')
+    run(MAX_HIGHLIGHT_LEN)
+    expect(spy).toHaveBeenCalledTimes(1)
   })
 })
 
