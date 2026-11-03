@@ -5,8 +5,12 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"slices"
 	"testing"
+	"time"
+
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -43,9 +47,13 @@ func (s *fakeLoginStore) RevokeLDAPUser(_ context.Context, username string) erro
 	return s.revokeErr
 }
 
-func (s *fakeLoginStore) GetUserByUsername(_ context.Context, username string) (model.User, error) {
+func (s *fakeLoginStore) GetUserByUsername(ctx context.Context, username string) (model.User, error) {
 	if s.getErr != nil {
 		return model.User{}, s.getErr
+	}
+	// A real store fails a lookup on an ended context too.
+	if err := ctx.Err(); err != nil {
+		return model.User{}, err
 	}
 	u, ok := s.users[username]
 	if !ok {
@@ -180,6 +188,82 @@ func TestLoginPassword(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestLoginFallsBackWhenDirectoryStalls runs a real directory client against a
+// loopback listener that accepts and never answers. Login must give up on the
+// directory within directoryTimeout and log a local row in on the request
+// context, which still has most of its time left.
+func TestLoginFallsBackWhenDirectoryStalls(t *testing.T) {
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() }) //nolint:errcheck // test teardown
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()        //nolint:errcheck // test teardown
+				io.Copy(io.Discard, conn) //nolint:errcheck // read until the client hangs up
+			}()
+		}
+	}()
+
+	orig := directoryTimeout
+	directoryTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { directoryTimeout = orig })
+
+	dir := ldap.NewClient(ldap.Config{
+		URL:            "ldap://" + ln.Addr().String(),
+		BindDN:         "cn=svc,dc=example,dc=com",
+		BindPassword:   "svc-password", // a bind with an empty password never reaches the server
+		UserSearchBase: "dc=example,dc=com",
+		UserFilter:     "(uid=%s)",
+	}, slog.New(slog.DiscardHandler))
+	hash, err := bcrypt.GenerateFromPassword([]byte("hunter2"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeLoginStore{users: map[string]model.User{
+		"alice": {Username: "alice", PasswordHash: string(hash), AuthSource: SourceLocal, IsActive: true},
+	}}
+	compares := countComparisons(t)
+
+	// The route's own timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	type result struct {
+		user model.User
+		err  error
+	}
+	done := make(chan result, 1)
+	start := time.Now()
+	go func() {
+		user, err := NewLogin(store, dir).Password(ctx, slog.New(slog.DiscardHandler), "alice", "hunter2")
+		done <- result{user, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("err = %v, want the local row to log in", r.err)
+		}
+		if r.user.Username != "alice" || r.user.AuthSource != SourceLocal {
+			t.Errorf("user = %s/%s, want alice/%s", r.user.Username, r.user.AuthSource, SourceLocal)
+		}
+		if elapsed := time.Since(start); elapsed > directoryTimeout+2*time.Second {
+			t.Errorf("login took %v, want about %v", elapsed, directoryTimeout)
+		}
+		if *compares != 1 {
+			t.Errorf("bcrypt comparisons = %d, want 1", *compares)
+		}
+	case <-time.After(directoryTimeout + 5*time.Second):
+		t.Fatal("login still waiting on a silent directory")
 	}
 }
 
