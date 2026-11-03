@@ -162,7 +162,8 @@ func TestComposeAPIEnvironmentCoversDocumentedEnvVars(t *testing.T) {
 // TestComposeAPIEnvironmentReachesLoad renders services.api.environment from
 // .env.example and loads config under it. The example files load as shipped,
 // an empty proxy setting leaves the config file value in force, a set one
-// reaches the config, and TRUSTED_PROXIES splits on spaces, not commas.
+// reaches the config, a header set without proxies stops startup, and
+// TRUSTED_PROXIES splits on spaces, not commas.
 func TestComposeAPIEnvironmentReachesLoad(t *testing.T) {
 	example, err := os.ReadFile("../../config.yml.example")
 	if err != nil {
@@ -193,6 +194,12 @@ func TestComposeAPIEnvironmentReachesLoad(t *testing.T) {
 			yml:         proxyYML,
 			wantHeader:  "X-Real-IP",
 			wantProxies: []netip.Prefix{netip.MustParsePrefix("172.18.0.0/16"), netip.MustParsePrefix("127.0.0.1/32")},
+		},
+		{
+			name:    "header set in .env without proxies stops startup",
+			set:     map[string]string{"REAL_IP_HEADER": "X-Real-IP"},
+			yml:     string(example),
+			wantErr: true,
 		},
 		{
 			name:    "comma separated proxies stop startup",

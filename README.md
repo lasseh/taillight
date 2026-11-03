@@ -266,8 +266,8 @@ clients of this API — see that repo for installation, configuration, and usage
 | `FRONTEND_HOST_PORT` | `3000` | Host port for the web UI |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `AUTH_ENABLED` | `true` | Enable authentication |
-| `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = use `real_ip_header` from `api/config.yml`; empty there too = trust only the TCP peer. Set it behind nginx or clients are attributed to the proxy IP. |
-| `TRUSTED_PROXIES` | *(empty)* | Proxy CIDRs or bare IPs allowed to set `REAL_IP_HEADER`, separated by spaces (a comma-separated list stops startup), e.g. `172.18.0.0/16 127.0.0.1`. Set it whenever `REAL_IP_HEADER` is set. Empty = use `trusted_proxies` from `api/config.yml`; empty there too = the header is trusted from any peer. |
+| `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = use `real_ip_header` from `api/config.yml`; empty there too = trust only the TCP peer. Set it behind nginx, with `TRUSTED_PROXIES`, or clients are attributed to the proxy IP. |
+| `TRUSTED_PROXIES` | *(empty)* | Proxy CIDRs or bare IPs allowed to set `REAL_IP_HEADER`, separated by spaces (a comma-separated list stops startup), e.g. `172.18.0.0/16 127.0.0.1`. Empty = use `trusted_proxies` from `api/config.yml`. Required when `REAL_IP_HEADER` is set: if neither lists a proxy, the API stops at startup. |
 | `API_URL` | *(empty)* | Frontend API URL (empty = same-origin) |
 
 ### `api/config.yml` — application tuning
