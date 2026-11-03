@@ -110,7 +110,8 @@ func (l *Login) Password(ctx context.Context, logger *slog.Logger, username, pas
 		if ok {
 			// A directory login ran no bcrypt. Run the comparison the
 			// directory denials run, so a correct password for a disabled
-			// account takes as long as a wrong one.
+			// account differs from a wrong one only by the upsert's
+			// database round trips.
 			DummyCheckPassword(password)
 		}
 		return model.User{}, denied("inactive account")
@@ -138,8 +139,9 @@ func (l *Login) directory(ctx context.Context, logger *slog.Logger, username, pa
 		return model.User{}, false, nil
 	case errors.Is(err, ldap.ErrNotAuthorized):
 		// Both directory denials run the bcrypt work the local check runs,
-		// so response time matches an unknown username, and a correct
-		// password here takes as long as a wrong one.
+		// so response time matches an unknown username. A correct password
+		// here still costs the revoke's database round trips more than a
+		// wrong one.
 		DummyCheckPassword(password)
 		// The directory returns this only after the user's password bind
 		// succeeded, so the caller knows the password and the directory has
