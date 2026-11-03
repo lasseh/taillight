@@ -186,7 +186,7 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 	// before-bytes error contract above (audit N4).
 	sink.flush()
 
-	lastBackfilledID := s.backfill(ctx, sink, filter, lastEventID)
+	backfilled := s.backfill(ctx, sink, filter, lastEventID)
 
 	heartbeat := time.NewTicker(s.heartbeatPeriod())
 	defer heartbeat.Stop()
@@ -199,7 +199,7 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 			}
 			sub.Consumed(msg)
 			// Skip events already sent during backfill.
-			if msg.ID <= lastBackfilledID {
+			if _, sent := backfilled[msg.ID]; sent {
 				continue
 			}
 			if err := sink.setWriteDeadline(time.Now().Add(s.writeDeadline())); err != nil {
@@ -228,11 +228,13 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 }
 
 // backfill sends recent events (or events since lastEventID) to a newly
-// connected client and returns the highest event ID sent, so the live loop can
-// skip duplicates. The query runs under its own deadline; a cancel is told
-// apart from a failed query by the request context ctx, so a resume that runs
-// out of time still gets its resync.
-func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F, lastEventID int64) int64 {
+// connected client and returns the IDs it sent, so the live loop skips those
+// and only those. Events reach the broker out of ID order, so a live event
+// below the highest backfilled ID, or below lastEventID, can still be new to
+// the client. The query runs under its own deadline; a cancel is told apart
+// from a failed query by the request context ctx, so a resume that runs out of
+// time still gets its resync.
+func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F, lastEventID int64) map[int64]struct{} {
 	queryCtx, cancel := context.WithTimeout(ctx, s.backfillDeadline())
 	defer cancel()
 
@@ -251,34 +253,36 @@ func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F,
 					sink.flush()
 				}
 			}
-			return lastEventID
+			return nil
 		}
 		truncated := len(events) > sseBackfillLimit
 		if truncated {
 			events = events[:sseBackfillLimit]
 		}
+		sent := make(map[int64]struct{}, len(events))
 		// since() is already in chronological order (ASC).
 		for i := range events {
 			data, ok := mustJSON(events[i])
 			if !ok {
 				continue
 			}
-			if err := sink.writeEvent(s.eventID(events[i]), s.label, data); err != nil {
-				return lastEventID
+			id := s.eventID(events[i])
+			if err := sink.writeEvent(id, s.label, data); err != nil {
+				return sent
 			}
+			sent[id] = struct{}{}
 		}
 		if truncated {
 			// Live delivery starts at the subscription, so the events past
 			// the limit would be skipped silently.
 			if err := sink.writeResync(); err != nil {
-				return lastEventID
+				return sent
 			}
 		}
 		if len(events) > 0 {
 			sink.flush()
-			return s.eventID(events[len(events)-1])
 		}
-		return lastEventID
+		return sent
 	}
 
 	// Default: send recent matching events.
@@ -289,22 +293,23 @@ func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F,
 		} else {
 			s.logger.Warn(s.label+" backfill failed", "err", err)
 		}
-		return 0
+		return nil
 	}
+	sent := make(map[int64]struct{}, len(recent))
 	// recent() is newest-first (DESC); emit oldest-first.
 	for i := len(recent) - 1; i >= 0; i-- {
 		data, ok := mustJSON(recent[i])
 		if !ok {
 			continue
 		}
-		if err := sink.writeEvent(s.eventID(recent[i]), s.label, data); err != nil {
-			return 0
+		id := s.eventID(recent[i])
+		if err := sink.writeEvent(id, s.label, data); err != nil {
+			return sent
 		}
+		sent[id] = struct{}{}
 	}
 	if len(recent) > 0 {
 		sink.flush()
-		// recent is ordered DESC, so [0] has the highest ID.
-		return s.eventID(recent[0])
 	}
-	return 0
+	return sent
 }

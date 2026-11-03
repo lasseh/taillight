@@ -275,7 +275,7 @@ The backfill logic handles two cases:
 
 **Without `Last-Event-ID`** (fresh connection): Queries the most recent 100 matching events, then sends them oldest-first by iterating in reverse.
 
-The backfill returns the highest event ID sent, which is used for duplicate suppression.
+The backfill returns the set of event IDs it sent, and the live loop skips only those. Events reach the broker out of ID order (rsyslog batches commit from several workers, the ingest bridge runs several workers), so a live event below the highest backfilled ID, or below the resume cursor, can still be new to the client.
 
 ### 4. Event loop
 
@@ -288,7 +288,7 @@ for {
     case msg, ok := <-sub.Chan():
         if !ok { return }                           // channel closed (broker shutdown or eviction)
         sub.Consumed(msg)                           // release from the byte budget
-        if msg.ID <= lastBackfilledID { continue }  // duplicate suppression
+        if _, sent := backfilled[msg.ID]; sent { continue }  // duplicate suppression
         sink.setWriteDeadline(time.Now().Add(30 * time.Second))
         sink.writeEvent(msg.ID, label, msg.Data)
         sink.flush()

@@ -193,6 +193,50 @@ func TestSSEStreamer_DedupBackfilledLive(t *testing.T) {
 	}
 }
 
+// Events reach the broker out of ID order, so the live loop skips only the IDs
+// the backfill sent: a live event below the highest backfilled ID, or below
+// the resume cursor, was committed after the backfill query and is new to the
+// client.
+func TestSSEStreamer_LiveDedupSkipsOnlyBackfilledIDs(t *testing.T) {
+	tests := []struct {
+		name        string
+		lastEventID int64
+		recent      []model.SrvlogEvent // DESC
+		since       []model.SrvlogEvent // ASC
+		want        []int64
+	}{
+		{"fresh connect", 0, srvlogEvents(7, 6, 5), nil, []int64{5, 6, 7, 4, 8}},
+		{"resume", 2, nil, srvlogEvents(5, 6, 7), []int64{5, 6, 7, 4, 8}},
+		{"resume with nothing to backfill", 7, nil, nil, []int64{6, 4, 8}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := broker.NewSrvlogBroker(testLogger())
+			s := newSrvlogStreamer(b,
+				func() ([]model.SrvlogEvent, error) { return tt.recent, nil },
+				func() ([]model.SrvlogEvent, error) { return tt.since, nil },
+			)
+			sink := &recordSink{}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, tt.lastEventID, "test") }()
+			waitForSubscriber(t, b)
+			// Buffered until the backfill is done. 8 comes last, so once it
+			// is written the earlier two have been delivered or skipped.
+			for _, id := range []int64{6, 4, 8} {
+				b.Broadcast(model.SrvlogEvent{ID: id})
+			}
+
+			ids := waitForIDs(t, sink, len(tt.want))
+			cancel()
+			if !slices.Equal(ids, tt.want) {
+				t.Fatalf("ids = %v, want %v", ids, tt.want)
+			}
+		})
+	}
+}
+
 // An event broadcast while the backfill query is running must not be lost,
 // because Subscribe happens before backfill.
 func TestSSEStreamer_NoLossDuringBackfill(t *testing.T) {
@@ -240,7 +284,7 @@ func TestSSEStreamer_SinceMode(t *testing.T) {
 	waitForSubscriber(t, b)
 	waitForIDs(t, sink, 2)
 
-	b.Broadcast(model.SrvlogEvent{ID: 7}) // <= last backfilled (7) → skipped
+	b.Broadcast(model.SrvlogEvent{ID: 7}) // already backfilled → skipped
 	b.Broadcast(model.SrvlogEvent{ID: 8}) // new → delivered
 
 	ids := waitForIDs(t, sink, 3)
