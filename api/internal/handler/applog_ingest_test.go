@@ -137,6 +137,38 @@ func TestIngest(t *testing.T) {
 	}
 }
 
+func TestIngestTimestampRange(t *testing.T) {
+	tests := []struct {
+		timestamp  string
+		wantStatus int
+	}{
+		{"9998-12-31T23:59:59Z", http.StatusAccepted},
+		{"0001-01-01T00:00:01Z", http.StatusAccepted},
+		{"9998-12-31T23:59:59+14:00", http.StatusAccepted},
+		{"0001-01-01T00:00:01-12:00", http.StatusAccepted},
+		{"9999-06-01T00:00:00Z", http.StatusBadRequest},
+		{"9999-12-31T23:59:59-23:59", http.StatusBadRequest},
+		{"0000-06-01T00:00:00Z", http.StatusBadRequest},
+		{"0000-01-01T00:00:00+23:59", http.StatusBadRequest},
+		{"0001-01-01T00:00:00Z", http.StatusBadRequest}, // the zero time
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.timestamp, func(t *testing.T) {
+			body := `{"logs":[{"timestamp":"` + tt.timestamp + `","level":"INFO","msg":"m","service":"api","host":"web01"}]}`
+			h := NewAppLogIngestHandler(&mockAppLogStore{}, broker.NewAppLogBroker(slog.Default()), slog.Default(), nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/applog/ingest", bytes.NewBufferString(body))
+			rec := httptest.NewRecorder()
+			h.Ingest(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("got status %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
 // numberArray returns a JSON array holding n copies of num.
 func numberArray(num string, n int) string {
 	return "[" + strings.TrimSuffix(strings.Repeat(num+",", n), ",") + "]"

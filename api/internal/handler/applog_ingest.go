@@ -114,6 +114,11 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		idx := "logs[" + strconv.Itoa(i) + "]: "
 		if entry.Timestamp.IsZero() {
 			errs = append(errs, idx+"timestamp is required")
+		} else if y := entry.Timestamp.UTC().Year(); y < 1 || y > 9998 {
+			// Reads return the timestamp in the server's zone, and JSON
+			// encoding fails outside years 0 to 9999. The margin keeps every
+			// zone in range.
+			errs = append(errs, idx+"timestamp must be within UTC years 1 to 9998")
 		}
 		if entry.Level == "" {
 			errs = append(errs, idx+"level is required")
