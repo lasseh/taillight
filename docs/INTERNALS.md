@@ -297,6 +297,7 @@ for {
         sink.writeHeartbeat()
         sink.flush()
     case <-lifetime.C:
+        drain(sink, sub)                            // write what is already queued
         return                                      // lifetime (5 min ± 45 s) reached
     case <-ctx.Done():
         return                                      // client disconnected
@@ -304,7 +305,7 @@ for {
 }
 ```
 
-Every write (event or heartbeat) sets a 30-second per-write deadline via `http.ResponseController`, so a dead TCP peer cannot wedge the handler goroutine.
+Every write (event or heartbeat) sets a 30-second per-write deadline via `http.ResponseController`, so a dead TCP peer cannot wedge the handler goroutine. When the lifetime runs out, the events already queued on the subscription are written under one such deadline before the stream ends, so events broadcast just before the end are not discarded. A broker shutdown, an eviction or a client disconnect ends the stream without that drain.
 
 Auth runs only when a stream connects, so every stream ends after `sseMaxLifetime` (5 minutes) give or take `sseLifetimeJitter` (45 s, drawn per stream), timed from the subscribe. The jitter keeps the streams a client opens together, and every client after an API restart, from reconnecting in step. The client reconnects with `Last-Event-ID` through the auth middleware again, so a revoked key, ended session or deactivated user stops receiving events within 5 minutes 45 seconds.
 

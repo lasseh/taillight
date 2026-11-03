@@ -226,11 +226,43 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 			}
 			sink.flush()
 		case <-lifetime.C:
+			s.drain(sink, sub, backfilled)
 			return nil
 		case <-ctx.Done():
 			return nil
 		}
 	}
+}
+
+// drain writes the events queued on sub when the lifetime runs out, so those
+// broadcast just before the end are not discarded. It takes only what is
+// queued when it starts, under one write deadline, so neither a busy feed nor
+// a slow client keeps the stream open past one write timeout.
+func (s sseStreamer[E, F]) drain(sink sseSink, sub *broker.Subscription[F], backfilled map[int64]struct{}) {
+	queued := len(sub.Chan())
+	if queued == 0 {
+		return
+	}
+	if err := sink.setWriteDeadline(time.Now().Add(s.writeDeadline())); err != nil {
+		s.logger.Warn(s.label+" sse: failed to set write deadline", "err", err)
+		return
+	}
+	for range queued {
+		// Only this goroutine receives, so the counted messages are there
+		// unless an eviction closed the channel.
+		msg, ok := <-sub.Chan()
+		if !ok {
+			break
+		}
+		sub.Consumed(msg)
+		if _, sent := backfilled[msg.ID]; sent {
+			continue
+		}
+		if err := sink.writeEvent(msg.ID, s.label, msg.Data); err != nil {
+			return
+		}
+	}
+	sink.flush()
 }
 
 // backfill sends recent events (or events since lastEventID) to a newly

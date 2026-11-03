@@ -475,6 +475,50 @@ func TestSSEStreamer_EvictedSlowReaderEndsStream(t *testing.T) {
 	}
 }
 
+// When the lifetime runs out, the events already queued on the subscription
+// are written before the stream ends, so events broadcast just before the end
+// are not discarded.
+func TestSSEStreamer_LifetimeEndWritesQueuedEvents(t *testing.T) {
+	b := broker.NewSrvlogBroker(testLogger())
+	s := newSrvlogStreamer(b,
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+	)
+	s.lifetime = 200 * time.Millisecond
+	sink := &gatedSink{entered: make(chan struct{}), release: make(chan struct{})}
+
+	done := make(chan struct{})
+	go func() {
+		_ = s.run(context.Background(), sink, model.SrvlogFilter{}, 0, "test")
+		close(done)
+	}()
+	waitForSubscriber(t, b)
+	b.Broadcast(model.SrvlogEvent{ID: 1})
+	select {
+	case <-sink.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first event never reached the sink")
+	}
+
+	// Queued behind the write in progress, which outlasts the lifetime.
+	want := []int64{1}
+	for id := int64(2); id <= 11; id++ {
+		b.Broadcast(model.SrvlogEvent{ID: id})
+		want = append(want, id)
+	}
+	time.Sleep(2 * s.lifetime)
+	close(sink.release)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not return after its lifetime ran out")
+	}
+	if ids, _ := sink.snapshot(); !slices.Equal(ids, want) {
+		t.Fatalf("ids = %v, want %v: queued events were discarded", ids, want)
+	}
+}
+
 // A stream that keeps up is never evicted, however many bytes pass through
 // it: the streamer releases each event from the byte budget as it takes it.
 func TestSSEStreamer_ReaderKeepingUpStaysSubscribed(t *testing.T) {
