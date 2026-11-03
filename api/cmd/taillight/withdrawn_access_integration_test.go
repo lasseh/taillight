@@ -21,10 +21,7 @@ import (
 	"github.com/lasseh/taillight/internal/postgres"
 )
 
-const (
-	muteRuleBody    = `{"feed":"netlog","hostname":"edge-1","reason":"maintenance"}`
-	mintAdminKeyReq = `{"name":"child","scopes":["admin"]}`
-)
+const muteRuleBody = `{"feed":"netlog","hostname":"edge-1","reason":"maintenance"}`
 
 // fakeDirectory is an LDAP directory whose answer a test changes between
 // logins. err, when set, is returned instead of a result.
@@ -162,9 +159,6 @@ func TestIntegration_AdminScopeFollowsOwnerAdminFlag(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if rec := call(t, router, http.MethodPost, "/api/v1/mute-rules", muteRuleBody, tt.key, nil); rec.Code != tt.want {
 				t.Errorf("POST /mute-rules = %d, want %d; body %s", rec.Code, tt.want, rec.Body.String())
-			}
-			if rec := call(t, router, http.MethodPost, "/api/v1/auth/keys", mintAdminKeyReq, tt.key, nil); rec.Code != tt.want {
-				t.Errorf("mint admin key = %d, want %d; body %s", rec.Code, tt.want, rec.Body.String())
 			}
 		})
 	}

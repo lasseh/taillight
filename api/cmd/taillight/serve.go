@@ -648,12 +648,20 @@ func setupRouter(
 				r.Use(middleware.Timeout(30 * time.Second))
 				r.Use(auth.SessionOrAPIKey(authStore, authStore))
 				r.Get("/auth/me", authHandler.Me)
-				r.Patch("/auth/me/email", authHandler.UpdateEmail)
-				r.Patch("/auth/me/preferences", authHandler.UpdatePreferences)
 				r.Get("/auth/keys", authHandler.ListKeys)
-				r.Post("/auth/keys", authHandler.CreateKey)
-				r.Delete("/auth/keys/{id}", authHandler.RevokeKey)
-				r.Post("/auth/sessions/revoke-all", authHandler.LogoutAll)
+
+				// Keys are minted from a session only, so no key can create
+				// another key that outlives it.
+				r.With(auth.RequireSession).Post("/auth/keys", authHandler.CreateKey)
+
+				// Account writes — a session, or an API key with the admin grant.
+				r.Group(func(r chi.Router) {
+					r.Use(auth.RequireSessionOrAdminKey)
+					r.Patch("/auth/me/email", authHandler.UpdateEmail)
+					r.Patch("/auth/me/preferences", authHandler.UpdatePreferences)
+					r.Delete("/auth/keys/{id}", authHandler.RevokeKey)
+					r.Post("/auth/sessions/revoke-all", authHandler.LogoutAll)
+				})
 
 				// User management — admin scope + handler-level checks (defense-in-depth).
 				r.Group(func(r chi.Router) {
