@@ -17,7 +17,7 @@ type AppLogSSEHandler struct {
 	broker   *broker.AppLogBroker
 	store    AppLogStore
 	logger   *slog.Logger
-	lifetime time.Duration // 0 → sseMaxLifetime (overridable in tests)
+	lifetime time.Duration // 0 → sseMaxLifetime ± sseLifetimeJitter (overridable in tests)
 }
 
 // NewAppLogSSEHandler creates a new AppLogSSEHandler.

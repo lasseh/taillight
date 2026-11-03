@@ -297,7 +297,7 @@ for {
         sink.writeHeartbeat()
         sink.flush()
     case <-lifetime.C:
-        return                                      // 5-minute lifetime reached
+        return                                      // lifetime (5 min ± 45 s) reached
     case <-ctx.Done():
         return                                      // client disconnected
     }
@@ -306,7 +306,7 @@ for {
 
 Every write (event or heartbeat) sets a 30-second per-write deadline via `http.ResponseController`, so a dead TCP peer cannot wedge the handler goroutine.
 
-Auth runs only when a stream connects, so every stream ends after `sseMaxLifetime` (5 minutes, timed from the subscribe). The client reconnects with `Last-Event-ID` through the auth middleware again, so a revoked key, ended session or deactivated user stops receiving events within that bound.
+Auth runs only when a stream connects, so every stream ends after `sseMaxLifetime` (5 minutes) give or take `sseLifetimeJitter` (45 s, drawn per stream), timed from the subscribe. The jitter keeps the streams a client opens together, and every client after an API restart, from reconnecting in step. The client reconnects with `Last-Event-ID` through the auth middleware again, so a revoked key, ended session or deactivated user stops receiving events within 5 minutes 45 seconds.
 
 ### 5. SSE frame format
 

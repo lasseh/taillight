@@ -18,7 +18,7 @@ type SrvlogSSEHandler struct {
 	store    SrvlogStore
 	mutes    MuteRuleSet
 	logger   *slog.Logger
-	lifetime time.Duration // 0 → sseMaxLifetime (overridable in tests)
+	lifetime time.Duration // 0 → sseMaxLifetime ± sseLifetimeJitter (overridable in tests)
 }
 
 // NewSrvlogSSEHandler creates a new SrvlogSSEHandler.

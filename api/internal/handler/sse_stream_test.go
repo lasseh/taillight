@@ -389,6 +389,29 @@ func TestSSEStreamer_LifetimeEndsStream(t *testing.T) {
 	}
 }
 
+// Each stream draws its default lifetime within sseLifetimeJitter of
+// sseMaxLifetime, so streams opened together do not end together. A lifetime
+// set by a test is used exactly.
+func TestSSEStreamer_LifetimeJitter(t *testing.T) {
+	var s sseStreamer[model.SrvlogEvent, model.SrvlogFilter]
+	drawn := make(map[time.Duration]bool)
+	for range 20 {
+		d := s.maxLifetime()
+		if d < sseMaxLifetime-sseLifetimeJitter || d > sseMaxLifetime+sseLifetimeJitter {
+			t.Fatalf("lifetime %v outside %v ± %v", d, sseMaxLifetime, sseLifetimeJitter)
+		}
+		drawn[d] = true
+	}
+	if len(drawn) < 2 {
+		t.Fatalf("20 streams all drew the same lifetime %v", drawn)
+	}
+
+	s.lifetime = 200 * time.Millisecond
+	if d := s.maxLifetime(); d != s.lifetime {
+		t.Fatalf("set lifetime came back as %v, want exactly %v", d, s.lifetime)
+	}
+}
+
 // largeEventBody makes each event a quarter of the broker's 16 MiB
 // per-subscription byte budget, so a few events pass it.
 var largeEventBody = strings.Repeat("x", 4<<20)

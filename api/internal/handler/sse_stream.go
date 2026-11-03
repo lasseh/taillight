@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"time"
@@ -40,11 +41,16 @@ const (
 	sseBackfillLimit   = 100
 	sseHeartbeatPeriod = 15 * time.Second
 	sseWriteTimeout    = 30 * time.Second
-	// sseMaxLifetime ends every stream after this long. Auth runs only when a
-	// stream connects, so the client's reconnect is what re-checks its
-	// credential: a revoked key, ended session or deactivated user stops
-	// receiving events within this bound.
+	// sseMaxLifetime ends every stream after this long, give or take
+	// sseLifetimeJitter. Auth runs only when a stream connects, so the
+	// client's reconnect is what re-checks its credential: a revoked key,
+	// ended session or deactivated user stops receiving events within
+	// sseMaxLifetime + sseLifetimeJitter.
 	sseMaxLifetime = 5 * time.Minute
+	// sseLifetimeJitter spreads the forced reconnects, so the streams one
+	// client opens together, and every client's streams after an API restart,
+	// do not end and resume in step.
+	sseLifetimeJitter = sseMaxLifetime * 15 / 100
 	// sseBackfillTimeout bounds the connect-time backfill query, including
 	// the wait for a database connection, so a busy read pool delays a new
 	// stream by at most this long before live delivery starts.
@@ -118,7 +124,7 @@ type sseStreamer[E any, F interface{ Matches(E) bool }] struct {
 
 	heartbeat       time.Duration // 0 → sseHeartbeatPeriod (overridable in tests)
 	writeTimeout    time.Duration // 0 → sseWriteTimeout (overridable in tests)
-	lifetime        time.Duration // 0 → sseMaxLifetime (overridable in tests)
+	lifetime        time.Duration // 0 → sseMaxLifetime ± sseLifetimeJitter (overridable in tests)
 	backfillTimeout time.Duration // 0 → sseBackfillTimeout (overridable in tests)
 }
 
@@ -133,7 +139,7 @@ func (s sseStreamer[E, F]) maxLifetime() time.Duration {
 	if s.lifetime > 0 {
 		return s.lifetime
 	}
-	return sseMaxLifetime
+	return sseMaxLifetime - sseLifetimeJitter + rand.N(2*sseLifetimeJitter+1)
 }
 
 func (s sseStreamer[E, F]) backfillDeadline() time.Duration {

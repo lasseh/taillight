@@ -639,7 +639,7 @@ The router's `beforeEach` hook redirects unauthenticated users to `/login` unles
 - **Max subscribers** -- 1000 concurrent SSE clients per broker (3000 total across the three feeds), 20 per user/IP.
 - **Heartbeat** -- 15-second interval keeps connections alive through proxies; every write carries a 30s deadline so a dead client can't wedge a handler.
 - **Backfill** -- Up to 100 recent events sent on connect, avoiding empty initial state. A resume that misses more than 100 events gets `event: resync` and the SPA reloads history.
-- **Lifetime** -- Every stream ends after 5 minutes and the client reconnects through auth again, so withdrawn credentials stop receiving events within that bound.
+- **Lifetime** -- Every stream ends after 5 minutes, give or take 45 s drawn per stream so reconnects do not line up, and the client reconnects through auth again, so withdrawn credentials stop receiving events within 5 minutes 45 seconds.
 - **Drop-on-full** -- Slow clients get events dropped rather than blocking the broadcast loop.
 - **Byte budget** -- A client more than 16 MiB of events behind is disconnected and resumes from its last event, so a slow reader holds a bounded share of API heap.
 
