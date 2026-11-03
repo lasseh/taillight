@@ -16,6 +16,12 @@
 <165>1 2024-11-28T12:00:14.000Z juniper-mx1 dcd 1234 DCD_INTF_INIT [junos@2636.1.1.1.2.18] interface ge-0/0/1 speed 1000mbps
 <165>1 2024-11-28T12:00:15.000Z juniper-mx1 mgd 3046 UI_CFG_AUDIT_SET [junos@2636.1.1.1.2.18 username="admin"] config change
 <165>1 2024-11-28T12:00:17.000Z juniper-mx1 lldpd 2345 LLDP_NEIGHBOR_UP [junos@2636.1.1.1.2.18] neighbor discovered on ge-0/0/1: switch2.example.com
+# Branch SRX internal noise with no app name (programname "-")
+<3>1 2024-11-28T12:00:18.000Z juniper-srx2 - - - - fwdd_ifd_set_eff_bandwidth: can't find outq ifd entry for ifd sp-0/0/0
+<3>1 2024-11-28T12:00:19.000Z juniper-srx2 - - - - cosman_compute_install_sched_params: Failed to get subunit b/w for sp-0/0/0
+<3>1 2024-11-28T12:00:20.000Z juniper-srx2 - - - - cosman_update_sched_policy_for_ifd: policy update failed for ifd 150 (sp-0/0/0)
+<3>1 2024-11-28T12:00:21.000Z juniper-srx2 - - - - COSMAN: media speed change cos policy update failed for sp-0/0/0
+<4>1 2024-11-28T12:00:22.000Z juniper-srx2 - - - - mtj_nh_ucast_process_static_mac: Invalid subtype 2 or NULL underlying_ifl_index 0(flags 0x0)
 
 # Messages that MUST NOT be filtered (important -- keep these)
 <161>1 2024-11-28T12:01:00.000Z juniper-mx1 sshd 1234 UI_LOGIN_EVENT [junos@2636.1.1.1.2.18 username="unknown"] Failed password for invalid user root from 10.99.0.1
@@ -34,6 +40,17 @@
 <160>1 2024-11-28T12:01:13.000Z juniper-mx1 kernel 0 KERNEL_PANIC [junos@2636.1.1.1.2.18] PANIC: unrecoverable error
 <165>1 2024-11-28T12:01:14.000Z juniper-mx1 license 0 LICENSE_EXPIRING [junos@2636.1.1.1.2.18] license expiring in 7 days
 <161>1 2024-11-28T12:01:15.000Z juniper-mx1 dcd 1234 DCD_INTF_INIT [junos@2636.1.1.1.2.18] failed to initialize interface ge-0/0/2
+# sshd and mgd events that quote the branch SRX noise text above
+<38>1 2024-11-28T12:01:16.000Z juniper-srx2 sshd 1234 SSHD_LOGIN_FAILED [junos@2636.1.1.1.2.18 username="unknown" source-address="10.99.0.1"] Failed password for invalid user fwdd_ifd_set_eff_bandwidth: can't find outq ifd entry for ifd sp-0/0/0 from 10.99.0.1
+<38>1 2024-11-28T12:01:17.000Z juniper-srx2 sshd 1234 SSHD_LOGIN_FAILED [junos@2636.1.1.1.2.18 username="unknown" source-address="10.99.0.1"] Failed password for invalid user cosman_compute_install_sched_params: Failed to get subunit b/w for sp-0/0/0 from 10.99.0.1
+<38>1 2024-11-28T12:01:18.000Z juniper-srx2 sshd 1234 SSHD_LOGIN_FAILED [junos@2636.1.1.1.2.18 username="unknown" source-address="10.99.0.1"] Failed password for invalid user cosman_update_sched_policy_for_ifd (sp-0/0/0) from 10.99.0.1
+<38>1 2024-11-28T12:01:19.000Z juniper-srx2 sshd 1234 SSHD_LOGIN_FAILED [junos@2636.1.1.1.2.18 username="unknown" source-address="10.99.0.1"] Failed password for invalid user COSMAN: media speed change cos policy update failed from 10.99.0.1
+<38>1 2024-11-28T12:01:20.000Z juniper-srx2 sshd 1234 SSHD_LOGIN_FAILED [junos@2636.1.1.1.2.18 username="unknown" source-address="10.99.0.1"] Failed password for invalid user mtj_nh_ucast_process_static_mac from 10.99.0.1
+<165>1 2024-11-28T12:01:21.000Z juniper-srx2 mgd 3046 UI_COMMIT [junos@2636.1.1.1.2.18 username="admin"] User 'admin' requested 'commit' operation (comment: fwdd_ifd_set_eff_bandwidth: can't find outq ifd entry for ifd sp-0/0/0)
+<165>1 2024-11-28T12:01:22.000Z juniper-srx2 mgd 3046 UI_COMMIT [junos@2636.1.1.1.2.18 username="admin"] User 'admin' requested 'commit' operation (comment: cosman_compute_install_sched_params: Failed to get subunit b/w for sp-0/0/0)
+<165>1 2024-11-28T12:01:23.000Z juniper-srx2 mgd 3046 UI_COMMIT [junos@2636.1.1.1.2.18 username="admin"] User 'admin' requested 'commit' operation (comment: cosman_update_sched_policy_for_ifd (sp-0/0/0))
+<165>1 2024-11-28T12:01:24.000Z juniper-srx2 mgd 3046 UI_COMMIT [junos@2636.1.1.1.2.18 username="admin"] User 'admin' requested 'commit' operation (comment: COSMAN: media speed change cos policy update failed)
+<165>1 2024-11-28T12:01:25.000Z juniper-srx2 mgd 3046 UI_COMMIT [junos@2636.1.1.1.2.18 username="admin"] User 'admin' requested 'commit' operation (comment: mtj_nh_ucast_process_static_mac)
 
 # UI_COMMIT should route to Oxidized (not dropped, but forwarded then stopped)
 <165>1 2024-11-28T12:02:00.000Z juniper-mx1 mgd 3046 UI_COMMIT [junos@2636.1.1.1.2.18 username="admin"] User 'admin' requested commit

@@ -219,6 +219,31 @@ CONFEOF
                 fi
             done
 
+            # Noise rules that match message text drop it only from lines with
+            # programname "-". An sshd or mgd event quoting the text is kept.
+            # TestOutput cuts the first character of msg, so each text below
+            # starts past the first character of its noise line.
+            kept_from() {
+                awk -v prog="| $1 | " -v text="$2" \
+                    'index($0, prog) && index($0, text) { found = 1 } END { exit !found }' "$OUTPUT_FILE"
+            }
+            for text in "ifd_set_eff_bandwidth" \
+                        "compute_install_sched_params" \
+                        "update_sched_policy_for_ifd" \
+                        "media speed change" \
+                        "nh_ucast_process_static_mac"; do
+                if kept_from - "$text"; then
+                    echo -e "\n  ${RED}LEAK${NC}: programname \"-\" line with \"$text\" was not filtered (should be dropped)"
+                    (( behavioral_errors += 1 ))
+                fi
+                for prog in sshd mgd; do
+                    if ! kept_from "$prog" "$text"; then
+                        echo -e "\n  ${RED}MISSING${NC}: $prog line quoting \"$text\" was filtered (should be kept)"
+                        (( behavioral_errors += 1 ))
+                    fi
+                done
+            done
+
             if [ $behavioral_errors -eq 0 ]; then
                 kept_count=$(wc -l < "$OUTPUT_FILE" | tr -d ' ')
                 echo -e "${GREEN}PASS${NC} ($kept_count messages survived filters)"
