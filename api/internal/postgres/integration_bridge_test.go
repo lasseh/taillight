@@ -309,7 +309,8 @@ func (boundedFetcher) GetNetlog(context.Context, int64) (model.NetlogEvent, erro
 // TestIntegration_BridgeDeliversLateRow inserts, now, a row whose received_at
 // falls in an already compressed chunk, as a disk-queue replay does, and
 // checks the trigger, Listener and Dispatch still deliver it to the feed's
-// broker through the received_at its NOTIFY payload carries.
+// broker and to the notification engine through the received_at its NOTIFY
+// payload carries.
 func TestIntegration_BridgeDeliversLateRow(t *testing.T) {
 	pool := testPool(t)
 	truncate(t, pool, "srvlog_events", "netlog_events")
@@ -334,10 +335,18 @@ func TestIntegration_BridgeDeliversLateRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
+	// Alerts: the ids Dispatch hands to the notification engine, per feed.
+	srvNotified := make(chan int64, 4)
+	netNotified := make(chan int64, 4)
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
-		sinks := ingestbridge.Sinks{BroadcastSrvlog: srvlogBroker.Broadcast, BroadcastNetlog: netlogBroker.Broadcast}
+		sinks := ingestbridge.Sinks{
+			BroadcastSrvlog: srvlogBroker.Broadcast,
+			BroadcastNetlog: netlogBroker.Broadcast,
+			NotifySrvlog:    func(e model.SrvlogEvent) { srvNotified <- e.ID },
+			NotifyNetlog:    func(e model.NetlogEvent) { netNotified <- e.ID },
+		}
 		for n := range notifications {
 			ingestbridge.Dispatch(ctx, ingestbridge.Notification{Channel: n.Channel, ID: n.ID, ReceivedAt: n.ReceivedAt},
 				boundedFetcher{NewStore(pool)}, nil, sinks, logger, 5*time.Second)
@@ -360,11 +369,12 @@ func TestIntegration_BridgeDeliversLateRow(t *testing.T) {
 
 	late := subSecond(time.Now().Add(-8 * 24 * time.Hour))
 	for _, feed := range []struct {
-		table string
-		sub   <-chan broker.Message
+		table    string
+		sub      <-chan broker.Message
+		notified <-chan int64
 	}{
-		{"srvlog_events", srvSub.Chan()},
-		{"netlog_events", netSub.Chan()},
+		{"srvlog_events", srvSub.Chan(), srvNotified},
+		{"netlog_events", netSub.Chan(), netNotified},
 	} {
 		t.Run(feed.table, func(t *testing.T) {
 			if !inCompressedChunk(t, pool, feed.table, late) {
@@ -389,6 +399,15 @@ func TestIntegration_BridgeDeliversLateRow(t *testing.T) {
 				}
 			case <-time.After(10 * time.Second):
 				t.Fatal("timed out waiting for the late row to reach the broker")
+			}
+
+			select {
+			case got := <-feed.notified:
+				if got != id {
+					t.Errorf("notification engine got event %d, want %d", got, id)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("timed out waiting for the late row to reach the notification engine")
 			}
 		})
 	}
