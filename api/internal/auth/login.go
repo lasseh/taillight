@@ -54,6 +54,9 @@ type LoginStore interface {
 	GetUserByUsername(ctx context.Context, username string) (model.User, error)
 	UpsertLDAPUser(ctx context.Context, username, email string, isAdmin bool) (model.User, error)
 	UpsertOIDCUser(ctx context.Context, issuer, subject, username, email string, isAdmin bool) (model.User, error)
+	// RevokeLDAPUser clears the admin flag and ends the sessions of the
+	// LDAP-sourced user with this username, if there is one.
+	RevokeLDAPUser(ctx context.Context, username string) error
 }
 
 // Login turns credentials into a user. It owns the account linking policy:
@@ -61,6 +64,9 @@ type LoginStore interface {
 //   - LDAP users are matched by username. A successful directory login takes
 //     over any existing row with that username, local or OIDC, and syncs its
 //     email and admin flag from the directory.
+//   - A directory that refuses a user after its password bind (no mapped
+//     group) clears the admin flag and ends the sessions of that user's LDAP
+//     row. No other denial changes state, because those need no password.
 //   - OIDC users are matched by (issuer, subject) only and are never linked
 //     to an existing account; a taken username gets a numeric suffix.
 //   - Local password login is refused for LDAP and OIDC rows.
@@ -116,6 +122,13 @@ func (l *Login) directory(ctx context.Context, logger *slog.Logger, username, pa
 	case errors.Is(err, ldap.ErrUserNotFound):
 		return model.User{}, false, nil
 	case errors.Is(err, ldap.ErrNotAuthorized):
+		// The directory returns this only after the user's password bind
+		// succeeded, so the caller knows the password and the directory has
+		// withdrawn the user. ErrUserNotFound and ErrInvalidPassword need no
+		// password, so they must never revoke anything.
+		if err := l.store.RevokeLDAPUser(ctx, username); err != nil {
+			return model.User{}, false, fmt.Errorf("revoke ldap user: %w", err)
+		}
 		return model.User{}, false, denied("LDAP user not in any authorized group")
 	case errors.Is(err, ldap.ErrInvalidPassword):
 		return model.User{}, false, denied("LDAP wrong password")

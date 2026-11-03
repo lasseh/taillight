@@ -114,16 +114,19 @@ func SessionOrAPIKey(sessions SessionLookup, apiKeys APIKeyLookup) func(http.Han
 const ScopeAdmin = "admin"
 
 // HasGrant reports whether a principal is authorized for the given scope.
+// user is the session user or the API key's owner, as loaded for this request.
 //
-// For API-key auth (non-nil scopes) the principal holds a scope if it is listed
-// or it holds "admin". For session auth (nil scopes) the principal holds every
-// non-admin scope, but the "admin" scope additionally requires the user's admin
-// flag — session auth is NOT a blanket grant for admin routes.
+// The "admin" scope always requires the user's current admin flag, for session
+// and API-key auth alike: a session is not a blanket admin grant, and an
+// admin-scope key stops granting admin as soon as its owner is no longer an
+// admin. Beyond that, API-key auth (non-nil scopes) holds a scope if it is
+// listed or the key holds "admin", and session auth (nil scopes) holds every
+// non-admin scope.
 func HasGrant(scopes []string, user *model.User, scope string) bool {
+	if scope == ScopeAdmin && (user == nil || !user.IsAdmin) {
+		return false
+	}
 	if scopes == nil {
-		if scope == ScopeAdmin {
-			return user != nil && user.IsAdmin
-		}
 		return user != nil
 	}
 	return hasScope(scopes, scope)
@@ -131,7 +134,8 @@ func HasGrant(scopes []string, user *model.User, scope string) bool {
 
 // RequireScope returns a middleware that checks whether the request is
 // authorized for the required scope. Session users are authorized for non-admin
-// scopes, but the "admin" scope requires the user's admin flag (see HasGrant).
+// scopes, and the "admin" scope requires the user's admin flag for sessions and
+// API keys alike (see HasGrant).
 // If no user is in the context (i.e. no auth middleware ran), the request is
 // rejected.
 func RequireScope(scope string) func(http.Handler) http.Handler {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -26,12 +27,20 @@ func (d fakeDirectory) Authenticate(context.Context, string, string) (*ldap.Resu
 	return &d.result, nil
 }
 
-// fakeLoginStore holds one local row keyed by username and records upserts.
+// fakeLoginStore holds one local row keyed by username and records upserts
+// and revocations.
 type fakeLoginStore struct {
 	users      map[string]model.User
 	getErr     error
 	ldapUpsert *model.User // set when UpsertLDAPUser runs
 	oidcUser   model.User
+	revoked    []string // usernames passed to RevokeLDAPUser
+	revokeErr  error
+}
+
+func (s *fakeLoginStore) RevokeLDAPUser(_ context.Context, username string) error {
+	s.revoked = append(s.revoked, username)
+	return s.revokeErr
 }
 
 func (s *fakeLoginStore) GetUserByUsername(_ context.Context, username string) (model.User, error) {
@@ -80,15 +89,17 @@ func TestLoginPassword(t *testing.T) {
 	dirOK := fakeDirectory{result: ldap.Result{Username: "alice", IsAdmin: true}}
 
 	tests := []struct {
-		name       string
-		dir        ldap.Authenticator
-		getErr     error
-		username   string
-		password   string
-		wantUser   string
-		wantSource string
-		wantDenied string // substring of the denial reason; "" = success
-		wantInfra  bool
+		name        string
+		dir         ldap.Authenticator
+		getErr      error
+		revokeErr   error
+		username    string
+		password    string
+		wantUser    string
+		wantSource  string
+		wantDenied  string // substring of the denial reason; "" = success
+		wantInfra   bool
+		wantRevoked bool // RevokeLDAPUser ran for username
 	}{
 		{name: "local password", username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal},
 		{name: "local wrong password", username: "alice", password: "nope", wantDenied: "wrong password"},
@@ -103,14 +114,26 @@ func TestLoginPassword(t *testing.T) {
 		{name: "ldap user not found falls through", dir: fakeDirectory{err: ldap.ErrUserNotFound}, username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal},
 		{name: "ldap outage falls through", dir: fakeDirectory{err: errors.New("connection refused")}, username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal},
 		{name: "ldap wrong password does not fall through", dir: fakeDirectory{err: ldap.ErrInvalidPassword}, username: "alice", password: "hunter2", wantDenied: "LDAP wrong password"},
-		{name: "ldap no group does not fall through", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, username: "alice", password: "hunter2", wantDenied: "LDAP user not in any authorized group"},
+		{name: "ldap no group does not fall through", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, username: "alice", password: "hunter2", wantDenied: "LDAP user not in any authorized group", wantRevoked: true},
+		{name: "ldap no group with revoke failure", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, revokeErr: errors.New("db down"), username: "bob", password: "dirpw", wantInfra: true, wantRevoked: true},
 		{name: "ldap success on inactive row", dir: fakeDirectory{result: ldap.Result{Username: "carol"}}, username: "carol", password: "dirpw", wantDenied: "inactive account"},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &fakeLoginStore{users: users(), getErr: tt.getErr}
+			store := &fakeLoginStore{users: users(), getErr: tt.getErr, revokeErr: tt.revokeErr}
 			user, err := NewLogin(store, tt.dir).Password(context.Background(), logger, tt.username, tt.password)
+
+			// Only a directory refusal after the password bind may revoke;
+			// every other outcome, including the denials that need no
+			// password, must leave the user's row and sessions alone.
+			var wantRevoked []string
+			if tt.wantRevoked {
+				wantRevoked = []string{tt.username}
+			}
+			if !slices.Equal(store.revoked, wantRevoked) {
+				t.Errorf("RevokeLDAPUser calls = %v, want %v", store.revoked, wantRevoked)
+			}
 
 			switch {
 			case tt.wantInfra:

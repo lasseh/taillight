@@ -41,6 +41,8 @@ type mockAuthStore struct {
 	emailErr    error
 	refetchUser model.User
 	refetchErr  error
+
+	sessionExpiresAt time.Time // expiry passed to the last CreateSession
 }
 
 func (m *mockAuthStore) CreateUser(_ context.Context, _, _ string, _ bool) (model.User, error) {
@@ -78,7 +80,8 @@ func (m *mockAuthStore) UpdatePassword(_ context.Context, _ [16]byte, _ string) 
 	return m.updatePwErr
 }
 
-func (m *mockAuthStore) CreateSession(_ context.Context, _ string, _ [16]byte, _ time.Time, _, _ string) error {
+func (m *mockAuthStore) CreateSession(_ context.Context, _ string, _ [16]byte, expiresAt time.Time, _, _ string) error {
+	m.sessionExpiresAt = expiresAt
 	return m.sessionErr
 }
 
@@ -132,6 +135,10 @@ func (m *mockAuthStore) UpsertLDAPUser(_ context.Context, _, _ string, _ bool) (
 
 func (m *mockAuthStore) UpsertOIDCUser(_ context.Context, _, _, _, _ string, _ bool) (model.User, error) {
 	return m.user, m.userErr
+}
+
+func (m *mockAuthStore) RevokeLDAPUser(_ context.Context, _ string) error {
+	return nil
 }
 
 func testUser(t *testing.T) model.User {
@@ -253,6 +260,49 @@ func TestLogin(t *testing.T) {
 				if resp.User.Username != "testuser" {
 					t.Errorf("got username %q, want %q", resp.User.Username, "testuser")
 				}
+			}
+		})
+	}
+}
+
+// TestEstablishSessionLifetime pins the session lifetime per account source:
+// LDAP and OIDC sessions and cookies last 12 hours, local ones 30 days.
+func TestEstablishSessionLifetime(t *testing.T) {
+	tests := []struct {
+		source string
+		want   time.Duration
+	}{
+		{auth.SourceLocal, 30 * 24 * time.Hour},
+		{auth.SourceLDAP, 12 * time.Hour},
+		{auth.SourceOIDC, 12 * time.Hour},
+	}
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			store := &mockAuthStore{}
+			h := NewAuthHandler(store, nil, nil, false)
+			user := model.User{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, Username: "dana", IsActive: true, AuthSource: tt.source}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/login", nil)
+			rec := httptest.NewRecorder()
+
+			before := time.Now()
+			if err := h.establishSession(rec, req, user); err != nil {
+				t.Fatalf("establishSession: %v", err)
+			}
+
+			if got := store.sessionExpiresAt.Sub(before); got < tt.want || got > tt.want+time.Minute {
+				t.Errorf("session expires in %v, want %v", got, tt.want)
+			}
+			var cookie *http.Cookie
+			for _, c := range rec.Result().Cookies() {
+				if c.Name == sessionCookieName {
+					cookie = c
+				}
+			}
+			if cookie == nil {
+				t.Fatal("no session cookie set")
+			}
+			if cookie.MaxAge != int(tt.want.Seconds()) {
+				t.Errorf("cookie MaxAge = %d, want %d", cookie.MaxAge, int(tt.want.Seconds()))
 			}
 		})
 	}
@@ -481,6 +531,7 @@ func TestCreateKey(t *testing.T) {
 	tests := []struct {
 		name       string
 		user       *model.User
+		scopes     []string // caller's API key scopes; nil = session
 		body       string
 		store      *mockAuthStore
 		wantStatus int
@@ -489,6 +540,22 @@ func TestCreateKey(t *testing.T) {
 			name:       "success",
 			user:       user,
 			body:       `{"name":"my-key","scopes":["read"]}`,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "admin key of a non-admin owner cannot grant admin scope",
+			user:       user,
+			scopes:     []string{"admin"},
+			body:       `{"name":"my-key","scopes":["admin"]}`,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "admin-owned admin key can grant admin scope",
+			user:       admin,
+			scopes:     []string{"admin"},
+			body:       `{"name":"my-key","scopes":["admin"]}`,
 			store:      &mockAuthStore{},
 			wantStatus: http.StatusCreated,
 		},
@@ -571,6 +638,9 @@ func TestCreateKey(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			if tt.user != nil {
 				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
+			}
+			if tt.scopes != nil {
+				req = req.WithContext(auth.WithScopes(req.Context(), tt.scopes))
 			}
 			rec := httptest.NewRecorder()
 

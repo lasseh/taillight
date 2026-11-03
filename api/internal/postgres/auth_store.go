@@ -200,7 +200,9 @@ func (s *AuthStore) UpdatePassword(ctx context.Context, id [16]byte, passwordHas
 }
 
 // UpsertLDAPUser creates or updates a user sourced from LDAP.
-// On conflict the email, is_admin, and auth_source fields are updated.
+// On conflict the email, is_admin, and auth_source fields are updated, and an
+// is_admin change from true to false revokes the user's admin-scope API keys
+// in the same transaction.
 // The is_active field is NOT touched — it remains under local admin control.
 func (s *AuthStore) UpsertLDAPUser(ctx context.Context, username, email string, isAdmin bool) (model.User, error) {
 	var u model.User
@@ -208,7 +210,23 @@ func (s *AuthStore) UpsertLDAPUser(ctx context.Context, username, email string, 
 	if email != "" {
 		emailArg = &email
 	}
-	err := s.pool.QueryRow(ctx,
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return model.User{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after commit is a no-op.
+
+	var wasAdmin bool
+	err = tx.QueryRow(ctx,
+		`SELECT is_admin FROM users WHERE LOWER(username) = LOWER($1) FOR UPDATE`,
+		username,
+	).Scan(&wasAdmin)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, fmt.Errorf("lock ldap user: %w", err)
+	}
+
+	err = tx.QueryRow(ctx,
 		`INSERT INTO users (username, email, password_hash, is_admin, auth_source)
 		 VALUES (LOWER($1), $2, '', $3, 'ldap')
 		 ON CONFLICT (LOWER(username))
@@ -223,7 +241,75 @@ func (s *AuthStore) UpsertLDAPUser(ctx context.Context, username, email string, 
 	if err != nil {
 		return model.User{}, fmt.Errorf("upsert ldap user: %w", err)
 	}
+	if err := revokeAdminKeysOnDemotion(ctx, tx, u.ID, wasAdmin, u.IsAdmin); err != nil {
+		return model.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.User{}, fmt.Errorf("commit tx: %w", err)
+	}
 	return u, nil
+}
+
+// RevokeLDAPUser withdraws what the LDAP-sourced user with this username
+// holds in taillight, for when the directory refuses that user after a
+// successful password bind: it clears is_admin, which revokes the user's
+// admin-scope API keys, and deletes the user's sessions, in one transaction.
+// It is a no-op when no LDAP-sourced row has the username. The is_active
+// field is NOT touched — it remains under local admin control.
+func (s *AuthStore) RevokeLDAPUser(ctx context.Context, username string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after commit is a no-op.
+
+	var id pgtype.UUID
+	var wasAdmin bool
+	err = tx.QueryRow(ctx,
+		`SELECT id, is_admin FROM users
+		 WHERE LOWER(username) = LOWER($1) AND auth_source = 'ldap'
+		 FOR UPDATE`,
+		username,
+	).Scan(&id, &wasAdmin)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lock ldap user: %w", err)
+	}
+
+	if wasAdmin {
+		if _, err := tx.Exec(ctx, `UPDATE users SET is_admin = false, updated_at = now() WHERE id = $1`, id); err != nil {
+			return fmt.Errorf("clear admin: %w", err)
+		}
+	}
+	if err := revokeAdminKeysOnDemotion(ctx, tx, id, wasAdmin, false); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id); err != nil {
+		return fmt.Errorf("delete sessions: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// revokeAdminKeysOnDemotion revokes the user's admin-scope API keys when its
+// admin flag changed from true to false inside tx. HasGrant already refuses
+// such a key admin while its owner is not an admin; revoking it keeps a later
+// re-promotion from bringing it back.
+func revokeAdminKeysOnDemotion(ctx context.Context, tx pgx.Tx, userID pgtype.UUID, wasAdmin, isAdmin bool) error {
+	if !wasAdmin || isAdmin {
+		return nil
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now()
+		 WHERE user_id = $1 AND revoked_at IS NULL AND 'admin' = ANY(scopes)`,
+		userID); err != nil {
+		return fmt.Errorf("revoke admin keys: %w", err)
+	}
+	return nil
 }
 
 // maxOIDCUsernameAttempts bounds the numeric-suffix search when provisioning
@@ -233,8 +319,10 @@ const maxOIDCUsernameAttempts = 5
 // UpsertOIDCUser creates or updates a user sourced from an OIDC provider,
 // keyed on the (issuer, subject) claim pair — deliberately not username,
 // which is mutable profile data at the IdP. On subsequent logins email and
-// is_admin are refreshed; the username stays as provisioned. The is_active
-// field is NOT touched — it remains under local admin control.
+// is_admin are refreshed; the username stays as provisioned, and an is_admin
+// change from true to false revokes the user's admin-scope API keys in the
+// same transaction. The is_active field is NOT touched — it remains under
+// local admin control.
 //
 // On first login the preferred username may collide with an existing
 // local/LDAP account; the identity is then provisioned under a
@@ -247,22 +335,12 @@ func (s *AuthStore) UpsertOIDCUser(ctx context.Context, issuer, subject, usernam
 	}
 
 	// Returning login: refresh profile data on the existing identity.
-	var u model.User
-	err := s.pool.QueryRow(ctx,
-		`UPDATE users SET
-		     email = $3,
-		     is_admin = $4,
-		     auth_source = 'oidc',
-		     updated_at = now()
-		 WHERE oidc_issuer = $1 AND oidc_subject = $2
-		 RETURNING id, username, email, password_hash, is_active, is_admin, auth_source, preferences, created_at, updated_at, last_login_at`,
-		issuer, subject, emailArg, isAdmin,
-	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.AuthSource, &u.Preferences, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
-	if err == nil {
-		return u, nil
+	u, found, err := s.refreshOIDCUser(ctx, issuer, subject, emailArg, isAdmin)
+	if err != nil {
+		return model.User{}, err
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return model.User{}, fmt.Errorf("update oidc user: %w", err)
+	if found {
+		return u, nil
 	}
 
 	// First login: provision. ON CONFLICT DO NOTHING on the username index
@@ -289,6 +367,50 @@ func (s *AuthStore) UpsertOIDCUser(ctx context.Context, issuer, subject, usernam
 		}
 	}
 	return model.User{}, fmt.Errorf("provision oidc user: no free username for %q after %d attempts", username, maxOIDCUsernameAttempts)
+}
+
+// refreshOIDCUser updates email and is_admin on an existing OIDC identity and
+// revokes its admin-scope API keys when is_admin changes from true to false.
+// found is false when no user has the (issuer, subject) pair.
+func (s *AuthStore) refreshOIDCUser(ctx context.Context, issuer, subject string, emailArg *string, isAdmin bool) (u model.User, found bool, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return model.User{}, false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after commit is a no-op.
+
+	var wasAdmin bool
+	err = tx.QueryRow(ctx,
+		`SELECT is_admin FROM users WHERE oidc_issuer = $1 AND oidc_subject = $2 FOR UPDATE`,
+		issuer, subject,
+	).Scan(&wasAdmin)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, false, nil
+	}
+	if err != nil {
+		return model.User{}, false, fmt.Errorf("lock oidc user: %w", err)
+	}
+
+	err = tx.QueryRow(ctx,
+		`UPDATE users SET
+		     email = $3,
+		     is_admin = $4,
+		     auth_source = 'oidc',
+		     updated_at = now()
+		 WHERE oidc_issuer = $1 AND oidc_subject = $2
+		 RETURNING id, username, email, password_hash, is_active, is_admin, auth_source, preferences, created_at, updated_at, last_login_at`,
+		issuer, subject, emailArg, isAdmin,
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.AuthSource, &u.Preferences, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)
+	if err != nil {
+		return model.User{}, false, fmt.Errorf("update oidc user: %w", err)
+	}
+	if err := revokeAdminKeysOnDemotion(ctx, tx, u.ID, wasAdmin, u.IsAdmin); err != nil {
+		return model.User{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.User{}, false, fmt.Errorf("commit tx: %w", err)
+	}
+	return u, true, nil
 }
 
 // --- Sessions ---

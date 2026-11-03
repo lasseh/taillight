@@ -20,7 +20,9 @@ import (
 // value still authorizes login but as a regular (non-admin) user.
 const roleAdmin = "admin"
 
-// Sentinel errors for authentication outcomes.
+// Sentinel errors for authentication outcomes. ErrNotAuthorized is returned
+// only after the user's password bind succeeded; the other two need no
+// password to produce.
 var (
 	ErrUserNotFound    = errors.New("ldap: user not found")
 	ErrNotAuthorized   = errors.New("ldap: user in no mapped group")
