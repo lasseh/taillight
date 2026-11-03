@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 )
 
 // maxFilterStringLen is the maximum length for string filter parameters.
@@ -170,44 +168,18 @@ func matchField(value, pattern string) bool {
 	return value == pattern
 }
 
-// containsFold reports whether strings.ToLower(string(s)) contains substrLower,
-// without allocating. substrLower must already be lowercase (as produced by
-// strings.ToLower). Filters precompute it at parse time so the SSE broadcast
-// hot path does not re-lowercase the event body once per subscriber.
+// containsFold reports whether strings.ToLower(string(s)) contains substrLower.
+// substrLower must already be lowercase (as produced by strings.ToLower);
+// filters precompute it at parse time. The match is linear in len(s) for any
+// needle, which it pays for by lowering s on every call: on the SSE broadcast
+// path that is once per subscriber. It copies s when lowering changes it
+// (uppercase letters, ASCII or not, or invalid UTF-8), and a []byte s may be
+// copied for the conversion.
 func containsFold[T ~string | ~[]byte](s T, substrLower string) bool {
 	if substrLower == "" {
 		return true
 	}
-	for i := range len(s) {
-		if s[i]&0xC0 == 0x80 {
-			continue // UTF-8 continuation byte: matches only start on rune boundaries
-		}
-		if hasPrefixFold(s[i:], substrLower) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasPrefixFold reports whether strings.ToLower(string(s)) starts with prefixLower.
-func hasPrefixFold[T ~string | ~[]byte](s T, prefixLower string) bool {
-	i := 0
-	for _, pr := range prefixLower {
-		if i >= len(s) {
-			return false
-		}
-		sr, size := rune(s[i]), 1
-		if sr >= utf8.RuneSelf {
-			var buf [utf8.UTFMax]byte
-			n := copy(buf[:], s[i:])
-			sr, size = utf8.DecodeRune(buf[:n])
-		}
-		if unicode.ToLower(sr) != pr {
-			return false
-		}
-		i += size
-	}
-	return true
+	return strings.Contains(strings.ToLower(string(s)), substrLower)
 }
 
 // searchNeedle returns the lowercased search term for Matches, preferring the

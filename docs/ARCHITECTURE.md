@@ -161,6 +161,7 @@ Key design decisions:
 - **Per-client filtering** -- Each subscription carries a filter struct. `Broadcast` calls `filter.Matches(event)` before sending, so clients only receive events they're interested in.
 - **Buffered channels** -- Each client gets a 512-slot buffered channel (`subscriptionBufferSize`). This absorbs bursts without blocking the broadcast loop.
 - **Drop-on-full** -- If a client's channel is full (slow consumer), the event is dropped rather than blocking. A Prometheus counter tracks dropped events.
+- **Byte budget** -- Each subscription counts its queued marshalled bytes (`subscriptionByteBudget`, 16 MiB). A client whose backlog would pass it is evicted: its queue is discarded and its channel closed, which ends the stream, and the client resumes with `Last-Event-ID`.
 - **Limits** -- Hard cap of 1000 concurrent SSE clients per broker (`maxSubscribers`) and 20 per client key (`maxSubscribersPerClient`; the key is the authenticated user ID, falling back to the client IP). `Subscribe` returns `ErrTooManySubscribers` / `ErrTooManyClientSubscribers`.
 - **Marshal once** -- The event is JSON-marshaled a single time and the same bytes are shared across all subscriber channels, so REST and SSE payloads can never drift (both marshal the same model structs).
 - **Thread safety** -- `sync.RWMutex` protects the subscriber map. `Broadcast` takes a read lock; `Subscribe`/`Unsubscribe` take a write lock.
@@ -640,6 +641,7 @@ The router's `beforeEach` hook redirects unauthenticated users to `/login` unles
 - **Backfill** -- Up to 100 recent events sent on connect, avoiding empty initial state. A resume that misses more than 100 events gets `event: resync` and the SPA reloads history.
 - **Lifetime** -- Every stream ends after 5 minutes and the client reconnects through auth again, so withdrawn credentials stop receiving events within that bound.
 - **Drop-on-full** -- Slow clients get events dropped rather than blocking the broadcast loop.
+- **Byte budget** -- A client more than 16 MiB of events behind is disconnected and resumes from its last event, so a slow reader holds a bounded share of API heap.
 
 ### rsyslog
 

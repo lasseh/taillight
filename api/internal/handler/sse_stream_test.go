@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -341,6 +342,94 @@ func TestSSEStreamer_LifetimeEndsStream(t *testing.T) {
 	b.Broadcast(model.SrvlogEvent{ID: 2})
 	if ids, _ := sink.snapshot(); !slices.Equal(ids, []int64{1}) {
 		t.Fatalf("ids = %v, want [1]: the ended stream kept receiving", ids)
+	}
+}
+
+// largeEventBody makes each event a quarter of the broker's 16 MiB
+// per-subscription byte budget, so a few events pass it.
+var largeEventBody = strings.Repeat("x", 4<<20)
+
+// gatedSink blocks in its first writeEvent until release is closed, standing
+// in for a client that reads slower than events arrive.
+type gatedSink struct {
+	recordSink
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *gatedSink) writeEvent(id int64, event string, data []byte) error {
+	s.once.Do(func() {
+		close(s.entered)
+		<-s.release
+	})
+	return s.recordSink.writeEvent(id, event, data)
+}
+
+// A stream whose backlog passes the broker's byte budget ends the way a broker
+// shutdown ends it: once the write in progress finishes, run returns without
+// writing the discarded backlog.
+func TestSSEStreamer_EvictedSlowReaderEndsStream(t *testing.T) {
+	b := broker.NewSrvlogBroker(testLogger())
+	s := newSrvlogStreamer(b,
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+	)
+	sink := &gatedSink{entered: make(chan struct{}), release: make(chan struct{})}
+
+	done := make(chan struct{})
+	go func() {
+		_ = s.run(context.Background(), sink, model.SrvlogFilter{}, 0, "test")
+		close(done)
+	}()
+	waitForSubscriber(t, b)
+	b.Broadcast(model.SrvlogEvent{ID: 1, Message: largeEventBody})
+	select {
+	case <-sink.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first event never reached the sink")
+	}
+
+	for id := int64(2); b.Len() > 0; id++ {
+		if id > 10 {
+			t.Fatal("subscriber still subscribed with 9 large events queued")
+		}
+		b.Broadcast(model.SrvlogEvent{ID: id, Message: largeEventBody})
+	}
+	close(sink.release)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not return after the broker evicted the subscriber")
+	}
+	if ids, _ := sink.snapshot(); !slices.Equal(ids, []int64{1}) {
+		t.Fatalf("ids = %v, want [1]: the evicted backlog was written", ids)
+	}
+}
+
+// A stream that keeps up is never evicted, however many bytes pass through
+// it: the streamer releases each event from the byte budget as it takes it.
+func TestSSEStreamer_ReaderKeepingUpStaysSubscribed(t *testing.T) {
+	b := broker.NewSrvlogBroker(testLogger())
+	s := newSrvlogStreamer(b,
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+	)
+	sink := &recordSink{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, 0, "test") }()
+	waitForSubscriber(t, b)
+
+	const events = 6 // 24 MiB in total, past the 16 MiB budget
+	for id := int64(1); id <= events; id++ {
+		b.Broadcast(model.SrvlogEvent{ID: id, Message: largeEventBody})
+		waitForIDs(t, sink, int(id))
+	}
+	if n := b.Len(); n != 1 {
+		t.Fatalf("broker has %d subscribers, want 1: a reader that kept up was evicted", n)
 	}
 }
 

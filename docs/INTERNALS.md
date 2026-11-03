@@ -128,7 +128,7 @@ Subscribers are tracked in a map keyed by pointer. This gives O(1) subscribe/uns
 
 1. **Subscribe**: Creates a `Subscription` with a buffered channel (capacity 512) and the client's filter. Under the write lock it enforces two limits — 1000 subscribers per broker (`ErrTooManySubscribers`) and 20 per client key (`ErrTooManyClientSubscribers`; the key is the authenticated user ID, falling back to the client IP, so one user or one host can't exhaust the pool).
 
-2. **Unsubscribe**: Acquires write lock, checks if the subscription exists (idempotent), removes it, closes the channel, and decrements the per-client count. The close signals the SSE handler's event loop to exit.
+2. **Unsubscribe**: Acquires write lock, checks if the subscription exists (idempotent), removes it, closes the channel, discards any events still queued on it, and decrements the per-client count. The close signals the SSE handler's event loop to exit on its next receive.
 
 ### Per-client filter matching
 
@@ -144,19 +144,31 @@ Wildcard matching (`matchWildcard` in `internal/model/srvlog.go`) supports `*` a
 func (b *Broker[E, F]) Broadcast(event E) {
     data, err := json.Marshal(event)    // marshal once for all clients
     msg := Message{ID: b.getID(event), Data: data}
+    size := int64(len(data))
     b.metrics.OnBroadcast()
 
+    var evict []*Subscription[F]
     b.mu.RLock()                        // read lock: concurrent reads OK
-    defer b.mu.RUnlock()
     for sub := range b.subscribers {
         if !sub.filter.Matches(event) {
             continue                    // skip non-matching clients
         }
+        if sub.queued.Add(size) > b.byteBudget {
+            sub.queued.Add(-size)       // backlog too large: evict below
+            b.metrics.OnDrop()
+            evict = append(evict, sub)
+            continue
+        }
         select {
         case sub.ch <- msg:             // non-blocking send
         default:
+            sub.queued.Add(-size)
             b.metrics.OnDrop()          // slow client: drop, don't block
         }
+    }
+    b.mu.RUnlock()
+    for _, sub := range evict {
+        b.Unsubscribe(sub)              // needs the write lock
     }
 }
 ```
@@ -165,12 +177,14 @@ Key details:
 - The event is JSON-marshaled once, then the same `[]byte` is shared across all subscriptions — SSE payloads therefore cannot drift from the REST payloads, which marshal the same model structs.
 - A read lock (`RLock`) is held during broadcast so subscribes/unsubscribes block but multiple broadcasts can proceed concurrently.
 - The send is non-blocking: if a client's 512-message buffer is full, the event is dropped and a metric is incremented. This prevents one slow client from blocking all others.
+- Each subscription counts the marshalled bytes queued on it: Broadcast adds them on send and the SSE handler releases them with `sub.Consumed(msg)` as it takes each event. A client whose backlog would pass 16 MiB is evicted instead of sent the event, so a client that reads slower than large events arrive cannot hold more than that in API heap. Eviction discards its queue and closes its channel, which ends the stream once the write in progress finishes; the client reconnects with `Last-Event-ID` and resumes from the backfill. Each subscription counts a shared event's full size, so the count is an upper bound on the heap its queue holds; the one event the handler is writing is not in it.
 
 ### Limits and metrics
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
 | `subscriptionBufferSize` | 512 | Per-client channel buffer |
+| `subscriptionByteBudget` | 16 MiB | Per-client queued bytes; passing it evicts the client |
 | `maxSubscribers` | 1000 | Maximum concurrent SSE clients per broker |
 | `maxSubscribersPerClient` | 20 | Maximum connections per user/IP key |
 
@@ -272,7 +286,8 @@ defer heartbeat.Stop()
 for {
     select {
     case msg, ok := <-sub.Chan():
-        if !ok { return }                           // channel closed (broker shutdown)
+        if !ok { return }                           // channel closed (broker shutdown or eviction)
+        sub.Consumed(msg)                           // release from the byte budget
         if msg.ID <= lastBackfilledID { continue }  // duplicate suppression
         sink.setWriteDeadline(time.Now().Add(30 * time.Second))
         sink.writeEvent(msg.ID, label, msg.Data)
