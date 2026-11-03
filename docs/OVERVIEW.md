@@ -338,8 +338,9 @@ Boolean settings, in `.env` or `config.yml`, accept `true`, `false`, `1`, `0`, `
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `db_max_conns` | `30` | Maximum connections in the pgx pool |
-| `db_min_conns` | `2` | Minimum idle connections in the pgx pool |
+| `db_max_conns` | `30` | Maximum connections in the main pgx pool (auth, ingest, writes, notifications, analysis, `/health`) |
+| `db_min_conns` | `2` | Minimum idle connections in each pgx pool |
+| `db_read_max_conns` | `20` | Maximum connections in the separate pool for log reads (lists, stats, exports, SSE backfill). The API opens up to `db_max_conns + db_read_max_conns + 1` connections; PostgreSQL's `max_connections` must allow that |
 
 #### LISTEN/NOTIFY
 

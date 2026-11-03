@@ -79,7 +79,20 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 	defer pool.Close()
 
+	// Log reads (lists, stats, exports, SSE backfill) get their own pool, so
+	// a read workload cannot take the connections that authentication, the
+	// ingest bridge and /health need from the main pool.
+	readPoolCfg := poolCfg.Copy()
+	readPoolCfg.MaxConns = cfg.DBReadMaxConns
+	readPoolCfg.MinConns = min(poolCfg.MinConns, cfg.DBReadMaxConns)
+	readPool, err := pgxpool.NewWithConfig(ctx, readPoolCfg)
+	if err != nil {
+		return fmt.Errorf("read pool (db_read_max_conns): %w", err)
+	}
+	defer readPool.Close()
+
 	store := postgres.NewStore(pool)
+	readStore := postgres.NewStore(readPool)
 	authStore := postgres.NewAuthStore(pool)
 
 	// Apply configurable retention policies.
@@ -183,7 +196,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Netbox enrichment client (optional).
 	nbClient := setupNetbox(cfg, logger)
 
-	r := setupRouter(cfg, logger, store, authStore, ldapAuth, oidcAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler, nbClient, mutes)
+	r := setupRouter(cfg, logger, store, readStore, authStore, ldapAuth, oidcAuth, srvlogBroker, netlogBroker, applogBroker, analysis, notifEngine, summaryScheduler, nbClient, mutes)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -513,11 +526,19 @@ func buildAnalysisCompletionCallback(engine *notification.Engine, store channelR
 	}
 }
 
-// setupRouter builds the chi router with all middleware and route registrations.
+// readTimeout is the request deadline on the log read REST routes (lists,
+// stats, metadata, device views). The SSE streams sit outside it and the
+// exports have their own. A variable so tests can shorten it.
+var readTimeout = 30 * time.Second
+
+// setupRouter builds the chi router with all middleware and route
+// registrations. readStore serves the log read routes; store serves
+// everything else, including auth (through authStore) and /health.
 func setupRouter(
 	cfg config.Config,
 	logger *slog.Logger,
 	store *postgres.Store,
+	readStore *postgres.Store,
 	authStore *postgres.AuthStore,
 	ldapAuth ldapauth.Authenticator,
 	oidcAuth *oidcauth.Provider,
@@ -588,20 +609,20 @@ func setupRouter(
 	}
 
 	// Srvlog handlers.
-	srvlogHandler := handler.NewSrvlogHandler(store, mutes)
-	srvlogMetaHandler := handler.NewSrvlogMetaHandler(store)
-	statsHandler := handler.NewStatsHandler(store)
-	juniperHandler := handler.NewJuniperHandler(store)
-	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(store)
-	taillightMetricsHandler := handler.NewTaillightMetricsHandler(store)
-	srvlogSSEHandler := handler.NewSrvlogSSEHandler(srvlogBroker, store, mutes, logger)
-	srvlogDeviceHandler := handler.NewSrvlogDeviceHandler(store, mutes)
+	srvlogHandler := handler.NewSrvlogHandler(readStore, mutes)
+	srvlogMetaHandler := handler.NewSrvlogMetaHandler(readStore)
+	statsHandler := handler.NewStatsHandler(readStore)
+	juniperHandler := handler.NewJuniperHandler(readStore)
+	rsyslogStatsHandler := handler.NewRsyslogStatsHandler(readStore)
+	taillightMetricsHandler := handler.NewTaillightMetricsHandler(readStore)
+	srvlogSSEHandler := handler.NewSrvlogSSEHandler(srvlogBroker, readStore, mutes, logger)
+	srvlogDeviceHandler := handler.NewSrvlogDeviceHandler(readStore, mutes)
 
 	// Netlog handlers.
-	netlogHandler := handler.NewNetlogHandler(store, mutes)
-	netlogSSEHandler := handler.NewNetlogSSEHandler(netlogBroker, store, mutes, logger)
-	netlogMetaHandler := handler.NewNetlogMetaHandler(store)
-	netlogDeviceHandler := handler.NewNetlogDeviceHandler(store, mutes)
+	netlogHandler := handler.NewNetlogHandler(readStore, mutes)
+	netlogSSEHandler := handler.NewNetlogSSEHandler(netlogBroker, readStore, mutes, logger)
+	netlogMetaHandler := handler.NewNetlogMetaHandler(readStore)
+	netlogDeviceHandler := handler.NewNetlogDeviceHandler(readStore, mutes)
 
 	// Netbox enrichment handler (only enabled when configured).
 	var netboxHandler *handler.NetboxHandler
@@ -611,15 +632,16 @@ func setupRouter(
 
 	// AppLog handlers.
 	applogIngestHandler := handler.NewAppLogIngestHandler(store, applogBroker, logger, notifEngine)
-	applogHandler := handler.NewAppLogHandler(store)
-	applogSSEHandler := handler.NewAppLogSSEHandler(applogBroker, store, logger)
-	applogMetaHandler := handler.NewAppLogMetaHandler(store)
-	applogDeviceHandler := handler.NewAppLogDeviceHandler(store)
+	applogHandler := handler.NewAppLogHandler(readStore)
+	applogSSEHandler := handler.NewAppLogSSEHandler(applogBroker, readStore, logger)
+	applogMetaHandler := handler.NewAppLogMetaHandler(readStore)
+	applogDeviceHandler := handler.NewAppLogDeviceHandler(readStore)
 	authHandler := handler.NewAuthHandler(authStore, ldapAuth, oidcAuth, cfg.CookieSecure)
 	notifHandler := handler.NewNotificationHandler(store, notifEngine)
 	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
 	muteRuleHandler := handler.NewMuteRuleHandler(store, mutes, time.Now)
-	exportHandler := handler.NewExportHandler(store, store, store)
+	exportHandler := handler.NewExportHandler(readStore, readStore, readStore)
+	readLimit := handler.NewReadLimiter()
 	juniperRefHandler := handler.NewJuniperRefHandler(store)
 	configHandler := handler.NewConfigHandler(cfg.Analysis.Enabled, cfg.OIDC.Enabled)
 
@@ -704,12 +726,14 @@ func setupRouter(
 				// Export — longer timeout for streaming CSV.
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.Timeout(5 * time.Minute))
+					r.Use(readLimit.Middleware)
 					r.Get("/export", exportHandler.ExportSrvlogs)
 				})
 
 				// REST endpoints — with request timeout.
 				r.Group(func(r chi.Router) {
-					r.Use(middleware.Timeout(30 * time.Second))
+					r.Use(middleware.Timeout(readTimeout))
+					r.Use(readLimit.Middleware)
 
 					r.Get("/", srvlogHandler.List)
 					r.Get("/{id}", srvlogHandler.Get)
@@ -736,12 +760,14 @@ func setupRouter(
 				// Export — longer timeout for streaming CSV.
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.Timeout(5 * time.Minute))
+					r.Use(readLimit.Middleware)
 					r.Get("/export", exportHandler.ExportNetlogs)
 				})
 
 				// REST endpoints — with request timeout.
 				r.Group(func(r chi.Router) {
-					r.Use(middleware.Timeout(30 * time.Second))
+					r.Use(middleware.Timeout(readTimeout))
+					r.Use(readLimit.Middleware)
 
 					r.Get("/", netlogHandler.List)
 					r.Get("/{id}", netlogHandler.Get)
@@ -765,7 +791,8 @@ func setupRouter(
 
 			// Shared endpoints — with request timeout.
 			r.Group(func(r chi.Router) {
-				r.Use(middleware.Timeout(30 * time.Second))
+				r.Use(middleware.Timeout(readTimeout))
+				r.Use(readLimit.Middleware)
 
 				r.Route("/juniper", func(r chi.Router) {
 					r.Get("/lookup", juniperHandler.Lookup)
@@ -804,12 +831,14 @@ func setupRouter(
 				// Export — longer timeout for streaming CSV.
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.Timeout(5 * time.Minute))
+					r.Use(readLimit.Middleware)
 					r.Get("/export", exportHandler.ExportAppLogs)
 				})
 
 				// REST endpoints — with request timeout.
 				r.Group(func(r chi.Router) {
-					r.Use(middleware.Timeout(30 * time.Second))
+					r.Use(middleware.Timeout(readTimeout))
+					r.Use(readLimit.Middleware)
 
 					r.Get("/", applogHandler.List)
 					r.Get("/{id}", applogHandler.Get)

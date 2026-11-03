@@ -60,6 +60,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DBMinConns != 2 {
 		t.Errorf("DBMinConns = %d, want %d", cfg.DBMinConns, 2)
 	}
+	if cfg.DBReadMaxConns != 20 {
+		t.Errorf("DBReadMaxConns = %d, want %d", cfg.DBReadMaxConns, 20)
+	}
 	if !cfg.AuthEnabled {
 		t.Error("AuthEnabled should be true by default")
 	}
