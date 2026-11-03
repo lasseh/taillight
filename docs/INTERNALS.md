@@ -206,10 +206,10 @@ The Listener uses a bare `pgx.Conn` -- not a connection from the pool. This is b
 PostgreSQL                        Go Listener                     ingestbridge workers
   INSERT → trigger →            ┌──────────────┐
   pg_notify('srvlog_ingest'     │  pgx.Conn    │
-   or 'netlog_ingest', id) ───► │  LISTEN ×2   │──► Notification{channel, id}
-                                └──────────────┘         │  (buffered chan, default 1024)
+   or 'netlog_ingest',          │  LISTEN ×2   │──► Notification{channel, id, receivedAt}
+   'id received_at') ─────────► └──────────────┘         │  (buffered chan, default 1024)
                                                          ▼
-                                            Dispatch: GetSrvlog/GetNetlog(id)
+                                            Dispatch: GetSrvlogAt/GetNetlogAt(id, receivedAt)
                                                          │
                                                          ▼
                                         broker.Broadcast(event) + engine.Handle*Event
@@ -217,13 +217,13 @@ PostgreSQL                        Go Listener                     ingestbridge w
 
 ### Notification flow
 
-1. **Receive**: `conn.WaitForNotification(ctx)` blocks until a notification arrives on either channel. The payload is the row ID as a string.
+1. **Receive**: `conn.WaitForNotification(ctx)` blocks until a notification arrives on either channel. The payload is `"<id> <received_at in unix microseconds>"`, or the ID alone for a row whose `received_at` is not finite (and from the trigger before migration 000027).
 
-2. **Parse**: The payload is parsed to `int64`. Invalid payloads increment `taillight_listener_payload_parse_errors_total` and are skipped.
+2. **Parse**: The ID is parsed to `int64` and the timestamp, when present, to `ReceivedAt`. Invalid payloads increment `taillight_listener_payload_parse_errors_total` and are skipped.
 
 3. **Track**: A per-channel `lastSeenID` (`srvlog_ingest` and `netlog_ingest` each have their own atomic) is updated for gap-fill on reconnection.
 
-4. **Dispatch**: A `Notification{Channel, ID}` is sent on the buffered channel. On the consumer side, `notification_workers` goroutines (default 4, started in `serve.go:startBackgroundWorkers`) call `ingestbridge.Dispatch` — the routing step extracted behind a small `EventFetcher` port so it is unit-testable without a database (`docs/adr/0001-listener-stays-postgres-bound.md`). Dispatch fetches the full row by ID (30s timeout), sets `muted_by` from the active mute rules, broadcasts it to the feed's broker, and hands it to the notification engine only when it is not muted.
+4. **Dispatch**: A `Notification{Channel, ID, ReceivedAt}` is sent on the buffered channel. On the consumer side, `notification_workers` goroutines (default 4, started in `serve.go:startBackgroundWorkers`) call `ingestbridge.Dispatch` — the routing step extracted behind a small `EventFetcher` port so it is unit-testable without a database (`docs/adr/0001-listener-stays-postgres-bound.md`). Dispatch fetches the full row by ID and `received_at` (30s timeout; by ID alone when the payload had no timestamp), sets `muted_by` from the active mute rules, broadcasts it to the feed's broker, and hands it to the notification engine only when it is not muted. Matching `received_at` confines the fetch to the row's own chunk, so its cost does not grow with retained compressed history; the detail endpoints keep the ID-only lookup for events of any age.
 
 ### Reconnection with gap fill
 
@@ -231,7 +231,7 @@ When the connection drops:
 
 1. The old connection is closed by the listen goroutine.
 2. `reconnect()` re-establishes the connection with exponential backoff (1s initial, 30s max) plus random jitter to avoid thundering herd. `taillight_listener_reconnects_total` is incremented per attempt.
-3. After reconnecting, `fillGap()` runs per channel: it queries the channel's table (`channelTable` maps `srvlog_ingest` → `srvlog_events`, `netlog_ingest` → `netlog_events`) for IDs greater than that channel's `lastSeenID` (up to 10,000) and pushes them into the notification channel.
+3. After reconnecting, `fillGap()` runs per channel: it queries the channel's table (`channelTable` maps `srvlog_ingest` → `srvlog_events`, `netlog_ingest` → `netlog_events`) for IDs greater than that channel's `lastSeenID` (up to 10,000) and pushes them, with each row's `received_at`, into the notification channel.
 4. A full page (exactly 10,000 rows) means the outage exceeded the cap — recovery was incomplete. This is surfaced distinctly via `taillight_listener_gap_fill_truncated_total` and a warning log rather than silently advancing.
 
 ### Channel monitoring

@@ -25,17 +25,23 @@ const (
 	ChannelNetlog = "netlog_ingest"
 )
 
-// Notification is a row id arriving on a NOTIFY channel.
+// Notification is a row id arriving on a NOTIFY channel. ReceivedAt is the
+// row's received_at, or zero when the payload carried only the id.
 type Notification struct {
-	Channel string
-	ID      int64
+	Channel    string
+	ID         int64
+	ReceivedAt time.Time
 }
 
-// EventFetcher loads a full event by id. *postgres.Store satisfies this in
-// production; tests use an in-memory fake.
+// EventFetcher loads a full event by id. The At variants also match the row's
+// received_at, so the lookup reads only the chunk that holds the row instead
+// of all retained history; the plain variants serve id-only notifications.
+// *postgres.Store satisfies this in production; tests use an in-memory fake.
 type EventFetcher interface {
 	GetSrvlog(ctx context.Context, id int64) (model.SrvlogEvent, error)
+	GetSrvlogAt(ctx context.Context, id int64, receivedAt time.Time) (model.SrvlogEvent, error)
 	GetNetlog(ctx context.Context, id int64) (model.NetlogEvent, error)
+	GetNetlogAt(ctx context.Context, id int64, receivedAt time.Time) (model.NetlogEvent, error)
 }
 
 // Muter returns the id of the mute rule matching an event, or nil when no
@@ -55,7 +61,8 @@ type Sinks struct {
 }
 
 // Dispatch fetches the notified row, marks it with the mute rule that matches
-// it, broadcasts it, and notifies only when it is not muted. A nil Muter
+// it, broadcasts it, and notifies only when it is not muted. The fetch is
+// bounded by the notification's ReceivedAt when it has one. A nil Muter
 // means nothing is muted. Fetch failures are logged and swallowed so one bad
 // row never breaks the worker loop. The caller owns worker concurrency and
 // metrics.
@@ -74,7 +81,13 @@ func Dispatch(
 			return
 		}
 		qctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-		event, err := f.GetSrvlog(qctx, n.ID)
+		var event model.SrvlogEvent
+		var err error
+		if n.ReceivedAt.IsZero() {
+			event, err = f.GetSrvlog(qctx, n.ID)
+		} else {
+			event, err = f.GetSrvlogAt(qctx, n.ID, n.ReceivedAt)
+		}
 		cancel()
 		if err != nil {
 			logger.Warn("fetch srvlog event for broadcast", "id", n.ID, "err", err)
@@ -92,7 +105,13 @@ func Dispatch(
 			return
 		}
 		qctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-		event, err := f.GetNetlog(qctx, n.ID)
+		var event model.NetlogEvent
+		var err error
+		if n.ReceivedAt.IsZero() {
+			event, err = f.GetNetlog(qctx, n.ID)
+		} else {
+			event, err = f.GetNetlogAt(qctx, n.ID, n.ReceivedAt)
+		}
 		cancel()
 		if err != nil {
 			logger.Warn("fetch netlog event for broadcast", "id", n.ID, "err", err)

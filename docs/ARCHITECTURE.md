@@ -27,14 +27,14 @@ All three feeds are always on (see `docs/adr/0002-feed-flags-removed.md`); the o
   |   netlog_events   |                       |   srvlog_events   |
   |   (TimescaleDB)   |                       |   (TimescaleDB)   |
   +--------+----------+                       +----------+--------+
-           | pg_notify('netlog_ingest', id)              | pg_notify('srvlog_ingest', id)
+           | pg_notify('netlog_ingest', id received_at)  | pg_notify('srvlog_ingest', id received_at)
            +--------------------+------------------------+
                                 |
                      +----------v----------+
                      |     Go Server       |
                      |  Listener (LISTEN)  |
                      +----------+----------+
-                                |  fetch row by id (ingestbridge workers)
+                                |  fetch row by id and received_at (ingestbridge workers)
               +-----------------+-----------------+
               |                                   |
      +--------v--------+                 +--------v--------+
@@ -83,11 +83,11 @@ The two syslog pipelines are structurally identical and move events from source 
 
 3. **ompgsql INSERT** -- Surviving messages are inserted via the `PgSQLNetlogInsert` / `PgSQLSrvlogInsert` templates. Each output uses a disk-assisted LinkedList queue (50,000 entries, 2 GB disk, 4 worker threads) with batched transactions (128 INSERTs per transaction) and infinite retry at 30s intervals.
 
-4. **Trigger fires pg_notify** -- The `trg_netlog_notify` / `trg_srvlog_notify` trigger executes on every INSERT, calling `pg_notify('<feed>_ingest', NEW.id::text)` to broadcast the new row's ID. A second BEFORE-INSERT trigger computes `msg_pattern` (numbers and IPs normalized) for top-message aggregation.
+4. **Trigger fires pg_notify** -- The `trg_netlog_notify` / `trg_srvlog_notify` trigger executes on every INSERT, calling `pg_notify('<feed>_ingest', ...)` with the new row's ID and its `received_at` in unix microseconds (`"<id> <us>"`; the ID alone when `received_at` is not finite). A second BEFORE-INSERT trigger computes `msg_pattern` (numbers and IPs normalized) for top-message aggregation.
 
-5. **Go Listener receives** -- `postgres.Listener` (`internal/postgres/listener.go`) holds a dedicated `pgx.Conn` (not from the pool) running `LISTEN srvlog_ingest` and `LISTEN netlog_ingest`. When a notification arrives, it parses the payload as an int64 row ID and sends a `Notification{Channel, ID}` struct into a buffered channel (`notification_buffer_size`, default 1024).
+5. **Go Listener receives** -- `postgres.Listener` (`internal/postgres/listener.go`) holds a dedicated `pgx.Conn` (not from the pool) running `LISTEN srvlog_ingest` and `LISTEN netlog_ingest`. When a notification arrives, it parses the payload (`"<id> <us>"`, or the ID alone) and sends a `Notification{Channel, ID, ReceivedAt}` struct into a buffered channel (`notification_buffer_size`, default 1024).
 
-6. **Fetch full event** -- A pool of bridge workers (`notification_workers`, default 4) started in `startBackgroundWorkers` (`cmd/taillight/serve.go`) reads from the notification channel and calls `ingestbridge.Dispatch`, which fetches the complete row by ID (`GetSrvlog`/`GetNetlog`, 30s timeout), broadcasts it to the matching SSE broker, and hands it to the notification engine.
+6. **Fetch full event** -- A pool of bridge workers (`notification_workers`, default 4) started in `startBackgroundWorkers` (`cmd/taillight/serve.go`) reads from the notification channel and calls `ingestbridge.Dispatch`, which fetches the complete row by ID and `received_at` (`GetSrvlogAt`/`GetNetlogAt`, 30s timeout; by ID alone with `GetSrvlog`/`GetNetlog` when the payload had no timestamp), broadcasts it to the matching SSE broker, and hands it to the notification engine. Matching `received_at` lets the planner skip every chunk but the row's own, so the fetch does not scan compressed history.
 
 7. **Broker fan-out** -- `broker.SrvlogBroker` and `broker.NetlogBroker` are thin wrappers over a generic `Broker[E, F]` (`internal/broker/broker.go`). On `Broadcast(event)`, the broker JSON-marshals the event once, then iterates all subscribers. Each subscriber has a per-client filter; only matching events are sent. Events are written to per-client buffered channels (512 slots). If a client's channel is full, the event is dropped and a metric is incremented.
 
@@ -180,7 +180,7 @@ Key design decisions:
 `postgres.Listener` (`internal/postgres/listener.go`) manages a dedicated PostgreSQL connection for `LISTEN/NOTIFY`:
 
 - **Dedicated connection** -- Uses a raw `pgx.Conn` (not from the pool) because `WaitForNotification` blocks and would starve the pool. The listen goroutine is the connection's single owner; shutdown never touches the conn directly.
-- **Channels** -- Listens on `srvlog_ingest` and `netlog_ingest`. Notifications carry the row ID as the payload; per-channel `lastSeenID` is tracked atomically.
+- **Channels** -- Listens on `srvlog_ingest` and `netlog_ingest`. Notifications carry the row ID and its `received_at` as the payload; per-channel `lastSeenID` is tracked atomically.
 - **Reconnection** -- On connection loss, the listener reconnects with exponential backoff (1s initial, 30s max) plus jitter to avoid thundering herd.
 - **Gap fill** -- After reconnecting, queries each feed table for `id > lastSeenID` (up to 10,000 rows per channel) to recover events missed during the disconnect. Hitting the cap logs a warning and increments a truncation metric — the gap was only partially recovered.
 - **Buffer monitoring** -- A goroutine checks channel utilization every 30s and warns at 80% capacity.
