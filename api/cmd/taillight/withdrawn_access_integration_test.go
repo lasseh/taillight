@@ -190,3 +190,43 @@ func TestIntegration_AdminScopeFollowsOwnerAdminFlag(t *testing.T) {
 		}
 	})
 }
+
+// TestIntegration_DirectoryRefusalEndsSession verifies on the production
+// router that an LDAP login gets a 12-hour cookie, that a login the directory
+// refuses after the password bind ends the user's live session and admin
+// key, and that the denials which need no password leave the session valid.
+func TestIntegration_DirectoryRefusalEndsSession(t *testing.T) {
+	dir := &fakeDirectory{isAdmin: true}
+	router, _, _ := authTestRouter(t, dir)
+	const username = "erin"
+
+	session := sessionFrom(t, passwordLogin(t, router, username))
+	if want := int((12 * time.Hour).Seconds()); session.MaxAge != want {
+		t.Errorf("LDAP session cookie MaxAge = %d, want %d", session.MaxAge, want)
+	}
+	key := mintKey(t, router, session, `["admin"]`)
+	me := func() int {
+		return call(t, router, http.MethodGet, "/api/v1/auth/me", "", "", session).Code
+	}
+
+	for _, err := range []error{ldapauth.ErrInvalidPassword, ldapauth.ErrUserNotFound} {
+		dir.err = err
+		if rec := passwordLogin(t, router, username); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("login with directory answer %q = %d, want 401", err, rec.Code)
+		}
+		if code := me(); code != http.StatusOK {
+			t.Fatalf("after directory answer %q: GET /auth/me with the old session = %d, want 200", err, code)
+		}
+	}
+
+	dir.err = ldapauth.ErrNotAuthorized
+	if rec := passwordLogin(t, router, username); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("login with directory answer %q = %d, want 401", dir.err, rec.Code)
+	}
+	if code := me(); code != http.StatusUnauthorized {
+		t.Errorf("after directory refusal: GET /auth/me with the old session = %d, want 401", code)
+	}
+	if rec := call(t, router, http.MethodPost, "/api/v1/mute-rules", muteRuleBody, key, nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("after directory refusal: admin key POST /mute-rules = %d, want 401 (revoked)", rec.Code)
+	}
+}

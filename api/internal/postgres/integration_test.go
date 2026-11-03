@@ -432,6 +432,151 @@ func TestIntegration_AdminDemotionRevokesAdminKeys(t *testing.T) {
 	}
 }
 
+// TestIntegration_RevokeLDAPUser verifies that revoking an LDAP user clears
+// its admin flag, revokes its admin-scope keys and deletes its sessions in one
+// call, matches the username case-insensitively, keeps is_active and the
+// user's other keys, and leaves rows of other sources alone.
+func TestIntegration_RevokeLDAPUser(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "sessions", "api_keys", "users")
+	authStore := NewAuthStore(pool)
+	defer authStore.Stop()
+	ctx := context.Background()
+	expires := time.Now().Add(time.Hour)
+
+	dana, err := authStore.UpsertLDAPUser(ctx, "dana", "", true)
+	if err != nil {
+		t.Fatalf("UpsertLDAPUser: %v", err)
+	}
+	local, err := authStore.CreateUser(ctx, "frank", "password-hash", true)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	for _, s := range []struct {
+		hash string
+		user model.User
+	}{{"dana-session", dana}, {"frank-session", local}} {
+		if err := authStore.CreateSession(ctx, s.hash, s.user.ID.Bytes, expires, "127.0.0.1", "test"); err != nil {
+			t.Fatalf("CreateSession %s: %v", s.hash, err)
+		}
+	}
+	if _, err := authStore.CreateAPIKey(ctx, dana.ID.Bytes, "admin", "dana-admin", "tl_x", []string{"admin"}, nil); err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+	if _, err := authStore.CreateAPIKey(ctx, dana.ID.Bytes, "read", "dana-read", "tl_x", []string{"read"}, nil); err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+
+	for _, name := range []string{"DANA", "frank", "nobody"} {
+		if err := authStore.RevokeLDAPUser(ctx, name); err != nil {
+			t.Fatalf("RevokeLDAPUser %s: %v", name, err)
+		}
+	}
+
+	got, err := authStore.GetUserByID(ctx, dana.ID.Bytes)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if got.IsAdmin || !got.IsActive {
+		t.Errorf("ldap user admin=%v active=%v, want false/true", got.IsAdmin, got.IsActive)
+	}
+	if _, err := authStore.GetSession(ctx, "dana-session"); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("ldap user session: err = %v, want it deleted", err)
+	}
+	for hash, want := range map[string]bool{"dana-admin": true, "dana-read": false} {
+		var revoked bool
+		if err := pool.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM api_keys WHERE key_hash = $1`, hash).Scan(&revoked); err != nil {
+			t.Fatalf("read key %s: %v", hash, err)
+		}
+		if revoked != want {
+			t.Errorf("key %s revoked = %v, want %v", hash, revoked, want)
+		}
+	}
+
+	// A local row with a matching name is not the directory's to revoke.
+	if _, err := authStore.GetSession(ctx, "frank-session"); err != nil {
+		t.Errorf("local user session: %v, want it kept", err)
+	}
+	if got, err := authStore.GetUserByID(ctx, local.ID.Bytes); err != nil || !got.IsAdmin {
+		t.Errorf("local user admin=%v err=%v, want it kept", got.IsAdmin, err)
+	}
+}
+
+// TestIntegration_ExternalSessionClampMigration runs migration 26 over
+// sessions issued with the old 30-day lifetime: LDAP and OIDC sessions are
+// cut to 12 hours from creation, which expires the older ones at once, while
+// local sessions and already shorter sessions are left as they are.
+func TestIntegration_ExternalSessionClampMigration(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "sessions", "api_keys", "users")
+	authStore := NewAuthStore(pool)
+	defer authStore.Stop()
+	ctx := context.Background()
+
+	ldapUser, err := authStore.UpsertLDAPUser(ctx, "dana", "", false)
+	if err != nil {
+		t.Fatalf("UpsertLDAPUser: %v", err)
+	}
+	oidcUser, err := authStore.UpsertOIDCUser(ctx, "https://login.example.com", "sub-1", "erin", "", false)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser: %v", err)
+	}
+	localUser, err := authStore.CreateUser(ctx, "frank", "password-hash", false)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	const day = 24 * time.Hour
+	sessions := []struct {
+		hash      string
+		user      model.User
+		age       time.Duration // created this long ago
+		lifetime  time.Duration // expires_at - created_at before the migration
+		wantLife  time.Duration // expires_at - created_at after it
+		wantValid bool
+	}{
+		{"ldap-old", ldapUser, 13 * time.Hour, 30 * day, 12 * time.Hour, false},
+		{"ldap-recent", ldapUser, time.Hour, 30 * day, 12 * time.Hour, true},
+		{"ldap-short", ldapUser, 0, time.Hour, time.Hour, true},
+		{"oidc-old", oidcUser, 13 * time.Hour, 30 * day, 12 * time.Hour, false},
+		{"oidc-recent", oidcUser, time.Hour, 30 * day, 12 * time.Hour, true},
+		{"local-old", localUser, 13 * time.Hour, 30 * day, 30 * day, true},
+	}
+	now := time.Now()
+	for _, s := range sessions {
+		created := now.Add(-s.age)
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)`,
+			s.hash, s.user.ID, created, created.Add(s.lifetime)); err != nil {
+			t.Fatalf("insert session %s: %v", s.hash, err)
+		}
+	}
+
+	up, err := os.ReadFile("../../migrations/000026_external_session_lifetime.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	if _, err := pool.Exec(ctx, string(up)); err != nil {
+		t.Fatalf("run migration: %v", err)
+	}
+
+	for _, s := range sessions {
+		var lifeSec int64
+		if err := pool.QueryRow(ctx,
+			`SELECT EXTRACT(EPOCH FROM expires_at - created_at)::bigint FROM sessions WHERE token_hash = $1`,
+			s.hash).Scan(&lifeSec); err != nil {
+			t.Fatalf("read session %s: %v", s.hash, err)
+		}
+		if got := time.Duration(lifeSec) * time.Second; got != s.wantLife {
+			t.Errorf("%s lifetime = %v, want %v", s.hash, got, s.wantLife)
+		}
+		_, err := authStore.GetSession(ctx, s.hash)
+		if valid := err == nil; valid != s.wantValid {
+			t.Errorf("%s valid = %v (err %v), want %v", s.hash, valid, err, s.wantValid)
+		}
+	}
+}
+
 // TestIntegration_AnalysisScheduleNotifyChannels verifies the notify_channel_ids
 // BIGINT[] column round-trips through pgx as []int64 on both the schedule and
 // the report — the encode/scan path that compiles but can only be proven

@@ -26,9 +26,14 @@ import (
 
 const (
 	sessionCookieName  = "tl_session"
-	sessionDuration    = 30 * 24 * time.Hour // 30 days.
+	sessionDuration    = 30 * 24 * time.Hour // 30 days, local accounts.
 	maxSessionsPerUser = 10
 	maxAuthBody        = 4096 // 4 KB — generous for auth JSON payloads.
+
+	// externalSessionDuration is the LDAP and OIDC session lifetime. Access
+	// the directory withdraws ends within it, because the next login has to
+	// pass the directory again.
+	externalSessionDuration = 12 * time.Hour
 
 	// loginRateLimit is the per-IP rate limit for login attempts (per second).
 	loginRateLimit = rate.Limit(5.0 / 60) // 5 per minute.
@@ -113,6 +118,7 @@ type AuthStore interface {
 	GetAPIKeyByID(ctx context.Context, id [16]byte) (model.APIKeyRow, error)
 	UpsertLDAPUser(ctx context.Context, username, email string, isAdmin bool) (model.User, error)
 	UpsertOIDCUser(ctx context.Context, issuer, subject, username, email string, isAdmin bool) (model.User, error)
+	RevokeLDAPUser(ctx context.Context, username string) error
 }
 
 // AuthHandler handles authentication endpoints.
@@ -263,10 +269,21 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// sessionLifetime returns how long a new session lasts for an account source:
+// 12 hours for LDAP and OIDC accounts, which must then pass the directory
+// again, and 30 days for local accounts.
+func sessionLifetime(source string) time.Duration {
+	if auth.IsExternalSource(source) {
+		return externalSessionDuration
+	}
+	return sessionDuration
+}
+
 // establishSession creates a DB session for an authenticated user and sets
 // the session cookie. Shared by password login and the OIDC callback so their
-// sessions are indistinguishable downstream. Session-cap pruning and
-// last-login bookkeeping failures are logged, not fatal.
+// sessions are indistinguishable downstream apart from their lifetime (see
+// sessionLifetime). Session-cap pruning and last-login bookkeeping failures
+// are logged, not fatal.
 func (h *AuthHandler) establishSession(w http.ResponseWriter, r *http.Request, user model.User) error {
 	logger := LoggerFromContext(r.Context())
 
@@ -275,7 +292,8 @@ func (h *AuthHandler) establishSession(w http.ResponseWriter, r *http.Request, u
 		return fmt.Errorf("generate session token: %w", err)
 	}
 
-	expiresAt := time.Now().Add(sessionDuration)
+	lifetime := sessionLifetime(user.AuthSource)
+	expiresAt := time.Now().Add(lifetime)
 	ip := middleware.GetClientIP(r.Context())
 
 	if err := h.store.CreateSession(r.Context(), tokenHash, user.ID.Bytes, expiresAt, ip, r.UserAgent()); err != nil {
@@ -306,7 +324,7 @@ func (h *AuthHandler) establishSession(w http.ResponseWriter, r *http.Request, u
 		HttpOnly: true,
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionDuration.Seconds()),
+		MaxAge:   int(lifetime.Seconds()),
 	})
 	return nil
 }

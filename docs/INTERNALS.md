@@ -393,7 +393,7 @@ To prevent timing-based username enumeration, a `DummyCheckPassword` function co
 2. Encode as base64url -- this is the raw token sent to the client as a cookie (`tl_session`).
 3. Compute SHA-256 hex digest of the raw token -- this hash is stored in the `sessions` table.
 
-Sessions live 30 days (`sessionDuration`). On login, the user's sessions are pruned to the 10 most recent (`maxSessionsPerUser`); a background job cleans expired sessions every 15 minutes.
+Sessions of local accounts live 30 days (`sessionDuration`). LDAP and OIDC sessions live 12 hours (`externalSessionDuration`), so the user passes the directory again at least twice a day and access the directory withdraws ends within that time; the cookie's `Max-Age` matches. Migration 26 clamped LDAP and OIDC sessions issued before this lifetime existed. On login, the user's sessions are pruned to the 10 most recent (`maxSessionsPerUser`); a background job cleans expired sessions every 15 minutes.
 
 On authentication, the middleware extracts the cookie, hashes it, and looks up the session by hash. `last_seen_at` is updated through the `AuthStore` touch worker — a buffered channel (256 ops) drained by a dedicated goroutine — so the request path never blocks on the bookkeeping UPDATE. The worker is drained on shutdown (`authStore.Stop()`), after the HTTP server has finished in-flight requests.
 
@@ -429,8 +429,8 @@ When `ldap.enabled` is set, `internal/ldap` verifies logins against a directory 
 1. Bind with the service account (`bind_dn`/`bind_password`; over LDAPS or StartTLS, optionally trusting an internal CA via `ca_bundle`).
 2. Search for the user under `user_search_base` with `user_filter` (the `%s` placeholder receives the escaped username).
 3. Bind as the found user with the supplied password.
-4. Map the user's groups through `group_role_map` (full DN or bare CN): `admin` grants is_admin, any other value authorizes a regular user, and a user in **no** mapped group is denied.
-5. Upsert the user locally (`UpsertLDAPUser`, `auth_source='ldap'`) so sessions and API keys work identically for LDAP and local users.
+4. Map the user's groups through `group_role_map` (full DN or bare CN): `admin` grants is_admin, any other value authorizes a regular user, and a user in **no** mapped group is denied (`ErrNotAuthorized`). Because that denial comes only after the password bind in step 3 succeeded, login then calls `RevokeLDAPUser`: in one transaction it clears is_admin on the user's LDAP row, revoking its admin-scope API keys, and deletes its sessions. A wrong password (`ErrInvalidPassword`) or unknown user (`ErrUserNotFound`) needs no password to produce and changes nothing.
+5. Upsert the user locally (`UpsertLDAPUser`, `auth_source='ldap'`) so sessions and API keys work as they do for local users, except that the session lasts 12 hours. A login that changes is_admin from true to false revokes the user's admin-scope API keys in the same transaction.
 
 ### OIDC single sign-on (optional)
 
@@ -441,8 +441,8 @@ When `oidc.enabled` is set, `internal/oidc` runs an Authorization Code + PKCE fl
 3. The callback verifies and clears the state cookie, checks the echoed `state`, and exchanges the code (with the PKCE verifier) at the token endpoint.
 4. The ID token is validated — JWKS signature, issuer, audience, expiry, nonce — and its claims mapped to a normalized identity (`username_claim`/`email_claim`/`groups_claim`).
 5. Gating runs in `internal/oidc`: verified email (unless `email_verified_required=false`), `allowed_domains`/`allowed_users` (OR'd), `allowed_groups` membership, and `admin_groups` → is_admin.
-6. Upsert keyed on the `(issuer, subject)` claims (`UpsertOIDCUser`, `auth_source='oidc'`, empty password): first login provisions (username collisions get a numeric suffix — an IdP-controlled claim never links to an existing account), later logins refresh email and is_admin. `is_active` stays under local admin control.
-7. The shared session tail (`establishSession`) issues an ordinary `tl_session` cookie; downstream middleware cannot tell OIDC sessions from password sessions. Failures redirect to `/login?error=<sso_failed|sso_denied|sso_forbidden|sso_expired>` with details only in the server log.
+6. Upsert keyed on the `(issuer, subject)` claims (`UpsertOIDCUser`, `auth_source='oidc'`, empty password): first login provisions (username collisions get a numeric suffix — an IdP-controlled claim never links to an existing account), later logins refresh email and is_admin, and a change of is_admin from true to false revokes the user's admin-scope API keys in the same transaction. `is_active` stays under local admin control.
+7. The shared session tail (`establishSession`) issues an ordinary `tl_session` cookie that lasts 12 hours, as for LDAP; downstream middleware cannot tell OIDC sessions from password sessions. A provider denial returns no identity, so it cannot end an existing session; the 12-hour lifetime is the bound. Failures redirect to `/login?error=<sso_failed|sso_denied|sso_forbidden|sso_expired>` with details only in the server log.
 
 Password login and password change are refused for externally managed (LDAP/OIDC) users.
 

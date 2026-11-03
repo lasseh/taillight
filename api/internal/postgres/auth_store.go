@@ -250,6 +250,51 @@ func (s *AuthStore) UpsertLDAPUser(ctx context.Context, username, email string, 
 	return u, nil
 }
 
+// RevokeLDAPUser withdraws what the LDAP-sourced user with this username
+// holds in taillight, for when the directory refuses that user after a
+// successful password bind: it clears is_admin, which revokes the user's
+// admin-scope API keys, and deletes the user's sessions, in one transaction.
+// It is a no-op when no LDAP-sourced row has the username. The is_active
+// field is NOT touched — it remains under local admin control.
+func (s *AuthStore) RevokeLDAPUser(ctx context.Context, username string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after commit is a no-op.
+
+	var id pgtype.UUID
+	var wasAdmin bool
+	err = tx.QueryRow(ctx,
+		`SELECT id, is_admin FROM users
+		 WHERE LOWER(username) = LOWER($1) AND auth_source = 'ldap'
+		 FOR UPDATE`,
+		username,
+	).Scan(&id, &wasAdmin)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lock ldap user: %w", err)
+	}
+
+	if wasAdmin {
+		if _, err := tx.Exec(ctx, `UPDATE users SET is_admin = false, updated_at = now() WHERE id = $1`, id); err != nil {
+			return fmt.Errorf("clear admin: %w", err)
+		}
+	}
+	if err := revokeAdminKeysOnDemotion(ctx, tx, id, wasAdmin, false); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id); err != nil {
+		return fmt.Errorf("delete sessions: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
 // revokeAdminKeysOnDemotion revokes the user's admin-scope API keys when its
 // admin flag changed from true to false inside tx. HasGrant already refuses
 // such a key admin while its owner is not an admin; revoking it keeps a later
