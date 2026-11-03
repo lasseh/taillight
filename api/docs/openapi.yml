@@ -22,6 +22,24 @@ info:
       or any session).
     - `admin` — write operations. Sessions require the user's admin flag;
       API keys need the `admin` scope and an owner with the admin flag.
+
+    ## Errors on authenticated routes
+
+    - `401 unauthorized` — no session or API key matches: it is unknown,
+      expired or revoked.
+    - `503 auth_unavailable` — the server could not finish checking the
+      session or API key (for example while the database is overloaded).
+      The credential may be valid: retry after `Retry-After` and do not
+      treat this as a logout.
+
+    ## Concurrent reads
+
+    The srvlog, netlog and applog read routes (lists, single events,
+    metadata, stats, device views, exports) and the Juniper, rsyslog and
+    metrics read routes run at most 4 requests at once per principal: the
+    user, or the client IP when the request is anonymous. A request over
+    that waits up to 8 s for a slot, then gets `429 too_many_requests`;
+    retry after `Retry-After`. SSE streams do not count.
   version: "1.0.0"
   license:
     name: MIT
@@ -211,6 +229,8 @@ paths:
                 $ref: "#/components/schemas/UserResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/AuthUnavailable"
 
   /auth/me/email:
     patch:
@@ -563,6 +583,8 @@ paths:
                     type: boolean
         "400":
           $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /srvlog/{id}:
     get:
@@ -668,6 +690,8 @@ paths:
                 type: string
         "400":
           $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   # ── Srvlog Metadata ─────────────────────────────────────────────────────
   /srvlog/meta/hosts:
@@ -925,6 +949,8 @@ paths:
                     type: boolean
         "400":
           $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /netlog/{id}:
     get:
@@ -1076,6 +1102,8 @@ paths:
                 type: string
         "400":
           $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   # ── Netlog Metadata ─────────────────────────────────────────────────────
   /netlog/meta/hosts:
@@ -1430,6 +1458,8 @@ paths:
                     type: boolean
         "400":
           $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /applog/{id}:
     get:
@@ -1528,6 +1558,8 @@ paths:
                 type: string
         "400":
           $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /applog/ingest:
     post:
@@ -2670,7 +2702,11 @@ components:
       schema:
         type: string
         maxLength: 500
-      description: Case-insensitive substring search on message text
+      description: |
+        Case-insensitive substring search on message text. On the list
+        routes a search needs `from` to bound its time window; without it
+        the request is a 400. On a stream with no `from`, the connect-time
+        backfill covers the last 24 hours (or the 24 hours before `to`).
 
     From:
       name: from
@@ -2831,6 +2867,30 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     Forbidden:
       description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    AuthUnavailable:
+      description: |
+        The credential check could not finish (code `auth_unavailable`).
+        The credential may be valid; retry after `Retry-After`. Not a logout.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyRequests:
+      description: |
+        The principal already runs its limit of concurrent read requests
+        (code `too_many_requests`); retry after `Retry-After`.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
       content:
         application/json:
           schema:

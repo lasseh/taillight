@@ -83,6 +83,7 @@ func (h *NetlogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			return events, err
 		},
 		recent: func(ctx context.Context, f model.NetlogFilter, limit int) ([]model.NetlogEvent, error) {
+			f.From = searchBackfillFrom(f.Search, f.From, f.To)
 			events, _, err := h.store.ListNetlogs(ctx, f, nil, limit)
 			markNetlogs(h.mutes.Active(), events)
 			return events, err

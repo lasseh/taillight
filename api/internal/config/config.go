@@ -27,6 +27,7 @@ type Config struct {
 	LogLevel               slog.Level
 	DBMaxConns             int32
 	DBMinConns             int32
+	DBReadMaxConns         int32          // Size of the separate pool that serves log reads (lists, stats, exports, SSE backfill).
 	CORSAllowedOrigins     []string       // Empty means allow all origins (dev mode).
 	AuthEnabled            bool           // When false, all endpoints are public (no login required).
 	AuthReadEndpoints      bool           // When true, read endpoints also require authentication.
@@ -176,6 +177,7 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("log_level", "info")
 	v.SetDefault("db_max_conns", 30)
 	v.SetDefault("db_min_conns", 2)
+	v.SetDefault("db_read_max_conns", 20)
 	v.SetDefault("cors_allowed_origins", []string{})
 	v.SetDefault("auth_enabled", true)
 	v.SetDefault("auth_read_endpoints", true)
@@ -315,6 +317,7 @@ func Load(configFile ...string) (Config, error) {
 		LogLevel:               parseLogLevel(v.GetString("log_level")),
 		DBMaxConns:             v.GetInt32("db_max_conns"),
 		DBMinConns:             v.GetInt32("db_min_conns"),
+		DBReadMaxConns:         v.GetInt32("db_read_max_conns"),
 		CORSAllowedOrigins:     v.GetStringSlice("cors_allowed_origins"),
 		AuthEnabled:            getBool("auth_enabled"),
 		AuthReadEndpoints:      getBool("auth_read_endpoints"),

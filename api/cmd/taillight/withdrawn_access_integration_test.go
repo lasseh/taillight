@@ -49,7 +49,7 @@ func authTestRouter(t *testing.T, dir ldapauth.Authenticator) (http.Handler, *pg
 	store := postgres.NewStore(pool)
 	authStore := postgres.NewAuthStore(pool)
 	t.Cleanup(authStore.Stop)
-	router := setupRouter(config.Config{AuthEnabled: true, AuthReadEndpoints: true}, logger, store, authStore, dir, nil,
+	router := setupRouter(config.Config{AuthEnabled: true, AuthReadEndpoints: true}, logger, store, store, authStore, dir, nil,
 		broker.NewSrvlogBroker(logger), broker.NewNetlogBroker(logger), broker.NewAppLogBroker(logger),
 		nil, nil, nil, nil, mute.NewSet(store, time.Now, logger))
 	return router, pool, authStore

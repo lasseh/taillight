@@ -45,6 +45,10 @@ const (
 	// credential: a revoked key, ended session or deactivated user stops
 	// receiving events within this bound.
 	sseMaxLifetime = 5 * time.Minute
+	// sseBackfillTimeout bounds the connect-time backfill query, including
+	// the wait for a database connection, so a busy read pool delays a new
+	// stream by at most this long before live delivery starts.
+	sseBackfillTimeout = 5 * time.Second
 )
 
 // sseSink is the write side of an SSE connection. The production adapter wraps
@@ -112,9 +116,10 @@ type sseStreamer[E any, F interface{ Matches(E) bool }] struct {
 	// recent returns the most recent matching events, newest-first (DESC).
 	recent func(ctx context.Context, f F, limit int) ([]E, error)
 
-	heartbeat    time.Duration // 0 → sseHeartbeatPeriod (overridable in tests)
-	writeTimeout time.Duration // 0 → sseWriteTimeout (overridable in tests)
-	lifetime     time.Duration // 0 → sseMaxLifetime (overridable in tests)
+	heartbeat       time.Duration // 0 → sseHeartbeatPeriod (overridable in tests)
+	writeTimeout    time.Duration // 0 → sseWriteTimeout (overridable in tests)
+	lifetime        time.Duration // 0 → sseMaxLifetime (overridable in tests)
+	backfillTimeout time.Duration // 0 → sseBackfillTimeout (overridable in tests)
 }
 
 func (s sseStreamer[E, F]) heartbeatPeriod() time.Duration {
@@ -129,6 +134,13 @@ func (s sseStreamer[E, F]) maxLifetime() time.Duration {
 		return s.lifetime
 	}
 	return sseMaxLifetime
+}
+
+func (s sseStreamer[E, F]) backfillDeadline() time.Duration {
+	if s.backfillTimeout > 0 {
+		return s.backfillTimeout
+	}
+	return sseBackfillTimeout
 }
 
 func (s sseStreamer[E, F]) writeDeadline() time.Duration {
@@ -217,12 +229,17 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 
 // backfill sends recent events (or events since lastEventID) to a newly
 // connected client and returns the highest event ID sent, so the live loop can
-// skip duplicates.
+// skip duplicates. The query runs under its own deadline; a cancel is told
+// apart from a failed query by the request context ctx, so a resume that runs
+// out of time still gets its resync.
 func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F, lastEventID int64) int64 {
+	queryCtx, cancel := context.WithTimeout(ctx, s.backfillDeadline())
+	defer cancel()
+
 	if lastEventID > 0 {
 		// Resume from where the client left off. The one extra row shows
 		// whether the backfill reaches the live stream.
-		events, err := s.since(ctx, filter, lastEventID, sseBackfillLimit+1)
+		events, err := s.since(queryCtx, filter, lastEventID, sseBackfillLimit+1)
 		if err != nil {
 			if ctx.Err() != nil {
 				s.logger.Debug(s.label+" backfill canceled", "last_event_id", lastEventID, "err", err)
@@ -265,7 +282,7 @@ func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F,
 	}
 
 	// Default: send recent matching events.
-	recent, err := s.recent(ctx, filter, sseBackfillLimit)
+	recent, err := s.recent(queryCtx, filter, sseBackfillLimit)
 	if err != nil {
 		if ctx.Err() != nil {
 			s.logger.Debug(s.label+" backfill canceled", "err", err)

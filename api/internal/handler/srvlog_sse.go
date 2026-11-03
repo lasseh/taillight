@@ -83,6 +83,7 @@ func (h *SrvlogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			return events, err
 		},
 		recent: func(ctx context.Context, f model.SrvlogFilter, limit int) ([]model.SrvlogEvent, error) {
+			f.From = searchBackfillFrom(f.Search, f.From, f.To)
 			events, _, err := h.store.ListSrvlogs(ctx, f, nil, limit)
 			markSrvlogs(h.mutes.Active(), events)
 			return events, err

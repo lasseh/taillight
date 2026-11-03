@@ -25,6 +25,11 @@ const MAX_EVENTS_DETACHED = 10_000
 // the live allowance.
 const DETACHED_SSE_APPEND_LIMIT = 500
 
+// The list API refuses a search without 'from', since an unbounded search can
+// scan every retained row. A search the user gave no 'from' covers this much
+// history before the 'to' bound (or now).
+export const SEARCH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
 interface EventStoreConfig<TEvent extends { id: number; muted_by?: number }> {
   /** Pinia store identifier. */
   id: string
@@ -82,6 +87,10 @@ export function createEventStore<TEvent extends { id: number; muted_by?: number 
     // Detached live-tail bookkeeping (plain lets — nothing renders them).
     let _detachedAppends = 0
     let _droppedWhileDetached = false
+
+    // 'from' sent with a search that has none (see SEARCH_WINDOW_MS). Fixed
+    // from one reset to the next, so every page of a search shares a window.
+    let _searchFrom: string | null = null
 
     const showMuted = config.showMuted?.() ?? ref(true)
     // Live SSE events dropped as muted since the last enter/clear/reset.
@@ -179,10 +188,18 @@ export function createEventStore<TEvent extends { id: number; muted_by?: number 
         cursor.value = null
         atCap.value = false
         _knownIds.clear()
+        _searchFrom = null
       }
 
       try {
         const params = new URLSearchParams(activeFilters.value)
+        if (params.has('search') && !params.has('from')) {
+          const to = params.get('to')
+          _searchFrom ??= new Date(
+            (to ? Date.parse(to) : Date.now()) - SEARCH_WINDOW_MS,
+          ).toISOString()
+          params.set('from', _searchFrom)
+        }
         params.set('limit', '100')
         if (cursor.value) {
           params.set('cursor', cursor.value)

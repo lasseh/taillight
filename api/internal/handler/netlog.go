@@ -37,6 +37,10 @@ func (h *NetlogHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_filter", err.Error())
 		return
 	}
+	if filter.Search != "" && filter.From == nil {
+		writeError(w, http.StatusBadRequest, "invalid_filter", searchNeedsFrom)
+		return
+	}
 	hideMuted, err := model.ParseHideMuted(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_filter", err.Error())

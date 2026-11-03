@@ -94,9 +94,14 @@ metrics_addr: ""
 # "evolved" → junos-evolved, otherwise → junos. Empty disables auto-import.
 juniper_ref_path: "reference/juniper"
 
-# Database connection pool settings.
+# Database connection pool settings. Log reads (lists, stats, exports, SSE
+# backfill) use a second pool of db_read_max_conns, so a read workload cannot
+# take the connections that authentication, ingest and /health need. The API
+# opens up to db_max_conns + db_read_max_conns + 1 (LISTEN) connections;
+# PostgreSQL's max_connections must allow that.
 db_max_conns: 10
 db_min_conns: 2
+db_read_max_conns: 10
 
 # Channel buffer for Postgres LISTEN/NOTIFY notifications.
 # Increase if you see "notification channel near capacity" warnings.

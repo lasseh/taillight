@@ -79,6 +79,7 @@ func (h *AppLogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			return previewAppLogAttrs(events), err
 		},
 		recent: func(ctx context.Context, f model.AppLogFilter, limit int) ([]model.AppLogEvent, error) {
+			f.From = searchBackfillFrom(f.Search, f.From, f.To)
 			events, _, err := h.store.ListAppLogs(ctx, f, nil, limit)
 			return previewAppLogAttrs(events), err
 		},

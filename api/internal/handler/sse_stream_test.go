@@ -504,6 +504,57 @@ func TestSSEStreamer_ResumeResync(t *testing.T) {
 	}
 }
 
+// A backfill query that cannot finish (for example while it waits for a
+// database connection) is cut off at the backfill deadline and live delivery
+// starts. A resume cut off that way is a failed query, not a cancel, so the
+// client still gets its resync.
+func TestSSEStreamer_BackfillDeadline(t *testing.T) {
+	tests := []struct {
+		name        string
+		lastEventID int64
+		wantResync  []int
+	}{
+		{"fresh connect", 0, nil},
+		{"resume", 5, []int{0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blocked := func(ctx context.Context) ([]model.SrvlogEvent, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			b := broker.NewSrvlogBroker(testLogger())
+			s := sseStreamer[model.SrvlogEvent, model.SrvlogFilter]{
+				broker:          b,
+				label:           "srvlog",
+				eventID:         func(e model.SrvlogEvent) int64 { return e.ID },
+				logger:          testLogger(),
+				backfillTimeout: 50 * time.Millisecond,
+				since: func(ctx context.Context, _ model.SrvlogFilter, _ int64, _ int) ([]model.SrvlogEvent, error) {
+					return blocked(ctx)
+				},
+				recent: func(ctx context.Context, _ model.SrvlogFilter, _ int) ([]model.SrvlogEvent, error) {
+					return blocked(ctx)
+				},
+			}
+			sink := &recordSink{}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, tt.lastEventID, "test") }()
+			waitForSubscriber(t, b)
+			b.Broadcast(model.SrvlogEvent{ID: 42}) // buffered until the backfill gives up
+
+			if ids := waitForIDs(t, sink, 1); ids[0] != 42 {
+				t.Fatalf("ids = %v, want the live event 42", ids)
+			}
+			if got := sink.resyncs(); !slices.Equal(got, tt.wantResync) {
+				t.Errorf("resync written at %v, want %v", got, tt.wantResync)
+			}
+		})
+	}
+}
+
 // revocableKey is an auth lookup that knows one read-scoped API key and no
 // sessions. Revoking the key makes every later lookup fail, as the store does.
 type revocableKey struct {

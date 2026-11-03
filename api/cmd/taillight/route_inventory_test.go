@@ -49,7 +49,7 @@ func buildRouter(cfg config.Config) chi.Router {
 		reports:   handler.NewAnalysisHandler(store, nil),
 		schedules: handler.NewAnalysisScheduleHandler(store, nil),
 	}
-	return setupRouter(cfg, logger, store, authStore, nil, oidcauth.New(oidcauth.Config{}, logger),
+	return setupRouter(cfg, logger, store, store, authStore, nil, oidcauth.New(oidcauth.Config{}, logger),
 		broker.NewSrvlogBroker(logger), broker.NewNetlogBroker(logger), broker.NewAppLogBroker(logger),
 		analysis, nil, nil, &netbox.Client{}, mute.NewSet(nil, time.Now, logger))
 }
