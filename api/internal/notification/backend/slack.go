@@ -11,10 +11,15 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lasseh/taillight/internal/model"
 	"github.com/lasseh/taillight/internal/notification"
 )
+
+// slackTextLimit is Slack's cap on a section block's text, in characters.
+// Text is budgeted in bytes, which never exceeds the character count.
+const slackTextLimit = 3000
 
 // slackConfig is the channel config schema for Slack.
 type slackConfig struct {
@@ -98,7 +103,7 @@ func (s *Slack) Send(ctx context.Context, ch notification.Channel, payload notif
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		result.Success = true
 	} else {
-		result.Error = fmt.Errorf("slack webhook returned status %d", resp.StatusCode)
+		result.Error = statusError("slack webhook", resp.StatusCode)
 	}
 
 	return result
@@ -165,7 +170,11 @@ func buildSlackInitial(p notification.Payload) string {
 		summary += fmt.Sprintf(" (%d events)", p.EventCount)
 	}
 
-	return summary + "\n```\n" + escapeSlackCodeBlock(truncate(message, 2900)) + "\n```"
+	// Escaping lengthens the message, so cut afterwards, leaving room for the
+	// summary, the fence and the "..." that truncate appends.
+	const open, closing = "\n```\n", "\n```"
+	budget := max(slackTextLimit-len(summary)-len(open)-len(closing)-len("..."), 0)
+	return summary + open + truncate(escapeSlackCodeBlock(message), budget) + closing
 }
 
 // buildSlackDigest formats a digest summary notification.
@@ -352,9 +361,26 @@ func escapeSlackCodeBlock(s string) string {
 	return strings.ReplaceAll(s, "```", "` ` `")
 }
 
+// truncate cuts s to at most maxLen bytes plus "...", backing off to the
+// start of a rune so the cut never leaves invalid UTF-8.
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	cut := maxLen
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
+}
+
+// statusError describes a non-2xx response from name. A 400, 413 or 422 means
+// the destination refused this payload rather than that the channel is down,
+// so it wraps notification.ErrPayloadRejected.
+func statusError(name string, code int) error {
+	switch code {
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return fmt.Errorf("%w: %s returned status %d", notification.ErrPayloadRejected, name, code)
+	}
+	return fmt.Errorf("%s returned status %d", name, code)
 }

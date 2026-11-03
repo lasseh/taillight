@@ -229,6 +229,7 @@ Channel reads and create/update responses show secret config values as `********
 - **Rate limit** — token bucket per channel (Slack 1/s burst 3, Webhook and Email 5/s burst 10, ntfy similar). Stops one noisy rule from saturating a channel. Rate-limited alerts are logged with `status=suppressed reason=rate_limit`.
 - **Circuit breaker** — after 5 consecutive failures the channel is short-circuited for 60s. Half-opens for a couple of probes, then either closes on success or stays open.
 - **Bounded delivery retry** — on failure the worker retries on a `5s → 30s → 2m → 10m` schedule before giving up. Covers brief Slack / webhook hiccups. Retries are in-memory and lost on restart.
+- **Refused content** — when Slack, a webhook or ntfy answers 400, 413 or 422, the destination refused that one notification. It is logged as `failed` once, is not retried, and does not count toward the circuit breaker. 401, 403, 404, 408, 429 and 5xx still count as channel failures.
 
 ### Testing a channel
 

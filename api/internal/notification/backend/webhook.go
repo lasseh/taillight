@@ -165,7 +165,7 @@ func (w *Webhook) Send(ctx context.Context, ch notification.Channel, payload not
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		result.Success = true
 	} else {
-		result.Error = fmt.Errorf("webhook returned status %d", resp.StatusCode)
+		result.Error = statusError("webhook", resp.StatusCode)
 	}
 
 	return result

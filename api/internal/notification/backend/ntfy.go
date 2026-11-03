@@ -129,7 +129,7 @@ func (n *Ntfy) Send(ctx context.Context, ch notification.Channel, payload notifi
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		result.Success = true
 	} else {
-		result.Error = fmt.Errorf("ntfy returned status %d", resp.StatusCode)
+		result.Error = statusError("ntfy", resp.StatusCode)
 	}
 
 	return result
