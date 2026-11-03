@@ -177,6 +177,10 @@ func TestIntegration_ListHostsPaginatesAndFilters(t *testing.T) {
 		{"feed both", func(q *model.HostQuery) { q.Feed = "both" }, 1, "cap-0000"},
 		{"feed netlog", func(q *model.HostQuery) { q.Feed = "netlog" }, 1, "net-only"},
 		{"sort by total", func(q *model.HostQuery) { q.Sort = "total" }, allHosts, "cap-0000"},
+		// Every host was last seen at the same instant and has no previous
+		// period, so these tie and fall back to hostname.
+		{"sort by last seen", func(q *model.HostQuery) { q.Sort = "last_seen" }, allHosts, "cap-0000"},
+		{"sort by trend", func(q *model.HostQuery) { q.Sort = "trend" }, allHosts, "cap-0000"},
 	}
 	for _, tt := range filters {
 		t.Run(tt.name, func(t *testing.T) {
