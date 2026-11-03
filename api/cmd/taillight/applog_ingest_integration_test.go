@@ -52,3 +52,52 @@ func TestIntegration_IngestStoresEntriesWithNULBytes(t *testing.T) {
 		t.Errorf("stored %d entries, want 2", total)
 	}
 }
+
+// TestIntegration_IngestAttrsStoredTextStaysWithinCap ingests the largest
+// attrs the size limit admits when it is made of numbers written with
+// exponents, and checks that Postgres prints the stored value within 64 KB.
+func TestIntegration_IngestAttrsStoredTextStaysWithinCap(t *testing.T) {
+	pool := applogTestPool(t)
+	ctx := context.Background()
+
+	logger := slog.New(slog.DiscardHandler)
+	ingest := handler.NewAppLogIngestHandler(postgres.NewStore(pool), broker.NewAppLogBroker(logger), logger, nil)
+
+	numbers := func(num string, n int) string {
+		return "[" + strings.TrimSuffix(strings.Repeat(num+",", n), ",") + "]"
+	}
+	tests := []struct {
+		name  string
+		attrs string
+	}{
+		{name: "positive exponents", attrs: numbers("1e400", 161)},
+		{name: "negative exponents", attrs: `{"n":` + numbers("1e-400", 161) + `}`},
+		{name: "long mantissas", attrs: numbers("9.87654321e-400", 157)},
+		{name: "smallest float64", attrs: numbers("5e-324", 197)},
+	}
+
+	ts := time.Now().UTC().Format(time.RFC3339)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := pool.Exec(ctx, "TRUNCATE applog_events"); err != nil {
+				t.Fatalf("truncate: %v", err)
+			}
+			body := `{"logs":[{"timestamp":"` + ts + `","level":"INFO","msg":"m","service":"api","host":"web01","attrs":` + tt.attrs + `}]}`
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/applog/ingest", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+			ingest.Ingest(rec, req)
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("got status %d, want %d; body: %.300s", rec.Code, http.StatusAccepted, rec.Body.String())
+			}
+
+			var printed int
+			if err := pool.QueryRow(ctx, `SELECT octet_length(attrs::text) FROM applog_events`).Scan(&printed); err != nil {
+				t.Fatalf("query stored attrs: %v", err)
+			}
+			if printed > 64*1024 {
+				t.Errorf("stored attrs prints %d bytes from %d raw, want at most %d", printed, len(tt.attrs), 64*1024)
+			}
+			t.Logf("raw %d bytes, stored text %d bytes", len(tt.attrs), printed)
+		})
+	}
+}

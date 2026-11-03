@@ -3055,6 +3055,10 @@ components:
         attrs:
           type: object
           additionalProperties: true
+          description: |
+            At most 64 KB. A number written with an exponent counts at the
+            length of its full positional form, and its exponent must be
+            within -400 to 400.
 
     # ── Stats ─────────────────────────────────────────────────────────────
     VolumeBucket:
