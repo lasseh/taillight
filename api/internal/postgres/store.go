@@ -89,17 +89,56 @@ func (s *Store) RefreshContinuousAggregates(ctx context.Context) error {
 	return nil
 }
 
-// listMetaStrings reads distinct cached string values for a whitelisted column
-// from a *_meta_cache table. The srvlog and netlog meta queries were identical
-// apart from the cache table and the column whitelist, so the query/scan body
-// lives here once; callers pass the table and their allow-list.
-func (s *Store) listMetaStrings(ctx context.Context, cacheTable, column string, allowed map[string]struct{}) ([]string, error) {
+// metaPruneSlack is how long past a feed's retention a meta cache value is
+// kept after its last_seen_at. The triggers refresh last_seen_at at most once
+// an hour (migration 000028), and retention drops events in whole one-day
+// chunks, so a value's last event can be up to this much newer than the
+// cutoff alone suggests.
+const metaPruneSlack = "1 day 1 hour"
+
+// PruneMetaCaches deletes the meta cache values whose last event is older
+// than their feed's retention, so the filter lists stop offering values that
+// can no longer have events. It returns the number of values deleted.
+func (s *Store) PruneMetaCaches(ctx context.Context, cfg RetentionConfig) (int64, error) {
+	caches := []struct {
+		table string
+		days  int
+	}{
+		{"srvlog_meta_cache", cfg.SrvlogDays},
+		{"netlog_meta_cache", cfg.NetlogDays},
+		{"applog_meta_cache", cfg.AppLogDays},
+	}
+
+	var total int64
+	for _, c := range caches {
+		//nolint:gosec // table names and metaPruneSlack are hardcoded constants, not user input.
+		query := "DELETE FROM " + c.table +
+			" WHERE last_seen_at < now() - make_interval(days => $1) - INTERVAL '" + metaPruneSlack + "'"
+		tag, err := s.pool.Exec(ctx, query, c.days)
+		if err != nil {
+			return total, fmt.Errorf("prune %s: %w", c.table, err)
+		}
+		total += tag.RowsAffected()
+	}
+	return total, nil
+}
+
+// listMetaStrings reads cached string values for a whitelisted column from a
+// *_meta_cache table, at most metaLimit of them in value order. A non-empty
+// search narrows the list as metaSearch describes. The srvlog, netlog and
+// applog meta queries were identical apart from the cache table and the
+// column whitelist, so the query/scan body lives here once; callers pass the
+// table and their allow-list.
+func (s *Store) listMetaStrings(ctx context.Context, cacheTable, column, search string, allowed map[string]struct{}) ([]string, error) {
 	if _, ok := allowed[column]; !ok {
 		return nil, fmt.Errorf("disallowed meta column: %s", column)
 	}
-	//nolint:gosec // cacheTable is a hardcoded literal from callers, not user input
-	query := "SELECT value FROM " + cacheTable + " WHERE column_name = $1 ORDER BY value LIMIT $2"
-	rows, err := s.pool.Query(ctx, query, column, metaLimit)
+	where, order, args := metaSearch("value", search, []any{column})
+	args = append(args, metaLimit)
+	//nolint:gosec // cacheTable is a hardcoded literal from callers; where and order hold only placeholders.
+	query := fmt.Sprintf("SELECT value FROM %s WHERE column_name = $1%s ORDER BY %s LIMIT $%d",
+		cacheTable, where, order, len(args))
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", column, err)
 	}
@@ -109,6 +148,22 @@ func (s *Store) listMetaStrings(ctx context.Context, cacheTable, column string, 
 		return nil, fmt.Errorf("scan %s: %w", column, err)
 	}
 	return values, nil
+}
+
+// metaSearch returns the WHERE and ORDER BY parts that narrow a meta cache
+// query on col to the values containing search, case-insensitively. A value
+// equal to search, ignoring case, sorts first, so values that merely contain
+// the name cannot push it past the list's cap. args are the query's
+// arguments so far; they come back with the search arguments appended. An
+// empty search narrows nothing and orders by col.
+func metaSearch(col, search string, args []any) (where, order string, _ []any) {
+	if search == "" {
+		return "", col, args
+	}
+	args = append(args, "%"+escapeLike(search)+"%", search)
+	where = fmt.Sprintf(" AND %s ILIKE $%d", col, len(args)-1)
+	order = fmt.Sprintf("lower(%s) = lower($%d) DESC, %s", col, len(args), col)
+	return where, order, args
 }
 
 // escapeLike escapes LIKE/ILIKE metacharacters so they are treated as literals.

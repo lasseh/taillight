@@ -1,0 +1,17 @@
+{
+  "param": "search",
+  "max_length": 500,
+  "endpoints": [
+    "/api/v1/srvlog/meta/hosts",
+    "/api/v1/srvlog/meta/programs",
+    "/api/v1/srvlog/meta/tags",
+    "/api/v1/netlog/meta/hosts",
+    "/api/v1/netlog/meta/programs",
+    "/api/v1/netlog/meta/tags",
+    "/api/v1/applog/meta/services",
+    "/api/v1/applog/meta/components",
+    "/api/v1/applog/meta/hosts",
+    "/api/v1/analysis/hosts",
+    "/api/v1/analysis/services"
+  ]
+}

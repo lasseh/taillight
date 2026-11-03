@@ -315,7 +315,7 @@ func TestIntegration_AppLogReportServicesScope(t *testing.T) {
 	}
 
 	seedAppLogFixture(t, pool)
-	entries, err := store.ListAnalysisServiceEntries(ctx)
+	entries, err := store.ListAnalysisServiceEntries(ctx, "")
 	if err != nil {
 		t.Fatalf("ListAnalysisServiceEntries: %v", err)
 	}

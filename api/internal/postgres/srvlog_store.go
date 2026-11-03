@@ -170,19 +170,22 @@ func (s *Store) ListSrvlogsSince(ctx context.Context, f model.SrvlogFilter, sinc
 	return collectSrvlogs(rows)
 }
 
-// ListSrvlogHosts returns distinct hostnames ordered alphabetically.
-func (s *Store) ListSrvlogHosts(ctx context.Context) ([]string, error) {
-	return s.listDistinctStrings(ctx, "hostname")
+// ListSrvlogHosts returns distinct hostnames ordered alphabetically, narrowed
+// to those containing search when it is not empty.
+func (s *Store) ListSrvlogHosts(ctx context.Context, search string) ([]string, error) {
+	return s.listDistinctStrings(ctx, "hostname", search)
 }
 
-// ListSrvlogPrograms returns distinct program names ordered alphabetically.
-func (s *Store) ListSrvlogPrograms(ctx context.Context) ([]string, error) {
-	return s.listDistinctStrings(ctx, "programname")
+// ListSrvlogPrograms returns distinct program names ordered alphabetically,
+// narrowed to those containing search when it is not empty.
+func (s *Store) ListSrvlogPrograms(ctx context.Context, search string) ([]string, error) {
+	return s.listDistinctStrings(ctx, "programname", search)
 }
 
-// ListSrvlogTags returns distinct syslog tags ordered alphabetically.
-func (s *Store) ListSrvlogTags(ctx context.Context) ([]string, error) {
-	return s.listDistinctStrings(ctx, "syslogtag")
+// ListSrvlogTags returns distinct syslog tags ordered alphabetically, narrowed
+// to those containing search when it is not empty.
+func (s *Store) ListSrvlogTags(ctx context.Context, search string) ([]string, error) {
+	return s.listDistinctStrings(ctx, "syslogtag", search)
 }
 
 // ListSrvlogFacilities returns distinct facility codes ordered numerically.
@@ -199,8 +202,8 @@ func (s *Store) ListSrvlogFacilities(ctx context.Context) ([]int, error) {
 	return facilities, nil
 }
 
-func (s *Store) listDistinctStrings(ctx context.Context, column string) ([]string, error) {
-	return s.listMetaStrings(ctx, "srvlog_meta_cache", column, allowedMetaColumns)
+func (s *Store) listDistinctStrings(ctx context.Context, column, search string) ([]string, error) {
+	return s.listMetaStrings(ctx, "srvlog_meta_cache", column, search, allowedMetaColumns)
 }
 
 // GetVolume returns time-bucketed event counts grouped by hostname.

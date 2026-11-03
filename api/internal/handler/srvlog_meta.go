@@ -2,6 +2,8 @@ package handler
 
 import (
 	"net/http"
+
+	"github.com/lasseh/taillight/internal/model"
 )
 
 // SrvlogMetaHandler handles REST metadata endpoints for filter UI dropdowns.
@@ -14,9 +16,24 @@ func NewSrvlogMetaHandler(store SrvlogStore) *SrvlogMetaHandler {
 	return &SrvlogMetaHandler{store: store}
 }
 
+// metaSearch reads the optional search parameter of a meta list endpoint. It
+// writes a 400 and returns false when the parameter is invalid.
+func metaSearch(w http.ResponseWriter, r *http.Request) (string, bool) {
+	search, err := model.ParseMetaSearch(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_params", err.Error())
+		return "", false
+	}
+	return search, true
+}
+
 // Hosts handles GET /api/v1/meta/hosts.
 func (h *SrvlogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
-	hosts, err := h.store.ListSrvlogHosts(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	hosts, err := h.store.ListSrvlogHosts(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -30,7 +47,11 @@ func (h *SrvlogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 
 // Programs handles GET /api/v1/meta/programs.
 func (h *SrvlogMetaHandler) Programs(w http.ResponseWriter, r *http.Request) {
-	programs, err := h.store.ListSrvlogPrograms(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	programs, err := h.store.ListSrvlogPrograms(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -58,7 +79,11 @@ func (h *SrvlogMetaHandler) Facilities(w http.ResponseWriter, r *http.Request) {
 
 // Tags handles GET /api/v1/meta/tags.
 func (h *SrvlogMetaHandler) Tags(w http.ResponseWriter, r *http.Request) {
-	tags, err := h.store.ListSrvlogTags(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	tags, err := h.store.ListSrvlogTags(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return

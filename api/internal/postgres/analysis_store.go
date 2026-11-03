@@ -833,40 +833,37 @@ func (s *Store) knownMetaValues(ctx context.Context, cacheTable, column string, 
 }
 
 // ListAnalysisHostEntries returns hostname + last_seen rows for the analysis
-// picker. Hosts are sourced from the meta cache (every hostname that has
-// ever logged on the feed); last_seen comes from a LEFT JOIN against the
-// hourly continuous aggregate so a host appears even when it has no recent
-// activity (LastSeen is nil in that case).
-func (s *Store) ListAnalysisHostEntries(ctx context.Context, feed string) ([]model.AnalysisHostEntry, error) {
-	var query string
+// picker: at most metaLimit hosts from the meta cache (every hostname that
+// has logged on the feed within its retention), narrowed by search as
+// metaSearch describes. last_seen comes from a LEFT JOIN against the hourly
+// continuous aggregate so a host appears even when it has no recent activity
+// (LastSeen is nil in that case).
+func (s *Store) ListAnalysisHostEntries(ctx context.Context, feed, search string) ([]model.AnalysisHostEntry, error) {
+	var cacheTable string
 	switch feed {
 	case feedSrvlog:
-		query = `
-			SELECT mc.value AS hostname, ls.last_seen
-			FROM srvlog_meta_cache mc
-			LEFT JOIN (
-				SELECT hostname, MAX(bucket) AS last_seen
-				FROM srvlog_summary_hourly
-				GROUP BY hostname
-			) ls ON ls.hostname = mc.value
-			WHERE mc.column_name = 'hostname'
-			ORDER BY mc.value`
+		cacheTable = "srvlog_meta_cache"
 	case feedNetlog:
-		query = `
-			SELECT mc.value AS hostname, ls.last_seen
-			FROM netlog_meta_cache mc
-			LEFT JOIN (
-				SELECT hostname, MAX(bucket) AS last_seen
-				FROM netlog_summary_hourly
-				GROUP BY hostname
-			) ls ON ls.hostname = mc.value
-			WHERE mc.column_name = 'hostname'
-			ORDER BY mc.value`
+		cacheTable = "netlog_meta_cache"
 	default:
 		return nil, nil
 	}
+	where, order, args := metaSearch("mc.value", search, nil)
+	args = append(args, metaLimit)
+	//nolint:gosec // table names are hardcoded literals; where and order hold only placeholders.
+	query := fmt.Sprintf(`
+		SELECT mc.value AS hostname, ls.last_seen
+		FROM %s mc
+		LEFT JOIN (
+			SELECT hostname, MAX(bucket) AS last_seen
+			FROM %s
+			GROUP BY hostname
+		) ls ON ls.hostname = mc.value
+		WHERE mc.column_name = 'hostname'%s
+		ORDER BY %s
+		LIMIT $%d`, cacheTable, analysisAggregateSource(feed), where, order, len(args))
 
-	rows, err := s.pool.Query(ctx, query)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list analysis host entries (%s): %w", feed, err)
 	}

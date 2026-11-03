@@ -16,7 +16,11 @@ func NewAppLogMetaHandler(store AppLogStore) *AppLogMetaHandler {
 
 // Services handles GET /api/v1/applog/meta/services.
 func (h *AppLogMetaHandler) Services(w http.ResponseWriter, r *http.Request) {
-	services, err := h.store.ListServices(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	services, err := h.store.ListServices(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -30,7 +34,11 @@ func (h *AppLogMetaHandler) Services(w http.ResponseWriter, r *http.Request) {
 
 // Hosts handles GET /api/v1/applog/meta/hosts.
 func (h *AppLogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
-	hosts, err := h.store.ListAppLogHosts(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	hosts, err := h.store.ListAppLogHosts(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -44,7 +52,11 @@ func (h *AppLogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 
 // Components handles GET /api/v1/applog/meta/components.
 func (h *AppLogMetaHandler) Components(w http.ResponseWriter, r *http.Request) {
-	components, err := h.store.ListComponents(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	components, err := h.store.ListComponents(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return
