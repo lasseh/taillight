@@ -231,6 +231,90 @@ CONFEOF
     fi
 fi
 
+# --- Test 6: Header drop rules in both feed rulesets ---
+echo -n "Test 6: Oversized hostname dropped on both rulesets... "
+if [ "$HAVE_RSYSLOGD" = false ]; then
+    echo -e "${YELLOW}SKIP${NC} (rsyslogd not found)"
+    (( skip += 1 ))
+elif ! command -v nc >/dev/null 2>&1; then
+    echo -e "${YELLOW}SKIP${NC} (nc not found)"
+    (( skip += 1 ))
+else
+    # Print a ruleset's Phase 0.5 block from 20-ruleset.conf, so the test
+    # runs the shipped drop rules rather than a copy of them.
+    phase05() {
+        awk -v rs="$1" '
+            index($0, "ruleset(name=\"" rs "\"") { inrs = 1 }
+            inrs && /# --- Phase 0.5/ { inblk = 1; next }
+            inblk && /# ---/ { exit }
+            inblk { print }
+        ' "$PROJECT_DIR/conf.d/20-ruleset.conf"
+    }
+
+    NET_PORT=15515
+    SRV_PORT=15516
+    cat > "$WORK_DIR/header.conf" <<CONFEOF
+global(maxMessageSize="64k")
+module(load="imudp")
+template(name="HeaderOutput" type="string" string="KEPT: %msg%\n")
+input(type="imudp" port="$NET_PORT" ruleset="test_network_devices")
+input(type="imudp" port="$SRV_PORT" ruleset="test_server_logs")
+
+ruleset(name="test_network_devices") {
+$(phase05 network_devices)
+    action(type="omfile" file="$WORK_DIR/header-network_devices.log"
+        template="HeaderOutput" flushOnTXEnd="on")
+}
+
+ruleset(name="test_server_logs") {
+$(phase05 server_logs)
+    action(type="omfile" file="$WORK_DIR/header-server_logs.log"
+        template="HeaderOutput" flushOnTXEnd="on")
+}
+CONFEOF
+
+    $RSYSLOGD -n -f "$WORK_DIR/header.conf" -i "$WORK_DIR/rsyslog-header.pid" >/dev/null 2>&1 &
+    HEADER_PID=$!
+    sleep 2
+
+    if ! kill -0 $HEADER_PID 2>/dev/null; then
+        echo -e "${YELLOW}SKIP${NC} (rsyslogd failed to start -- may need root for UDP listener)"
+        (( skip += 1 ))
+    else
+        # RFC 5424 caps HOSTNAME at 255 characters: 255 is kept, 256 dropped.
+        host255=$(printf 'h%.0s' $(seq 1 255))
+        for port in $NET_PORT $SRV_PORT; do
+            echo "<13>1 2024-11-28T12:03:00.000Z ${host255} app 1 HOSTLEN - hostname-255" | nc -u -w1 127.0.0.1 $port 2>/dev/null || true
+            echo "<13>1 2024-11-28T12:03:00.000Z ${host255}h app 1 HOSTLEN - hostname-256" | nc -u -w1 127.0.0.1 $port 2>/dev/null || true
+        done
+        sleep 2
+
+        kill $HEADER_PID 2>/dev/null || true
+        wait $HEADER_PID 2>/dev/null || true
+
+        header_errors=0
+        for rs in network_devices server_logs; do
+            out="$WORK_DIR/header-$rs.log"
+            if ! grep -q "hostname-255" "$out" 2>/dev/null; then
+                echo -e "\n  ${RED}MISSING${NC}: $rs dropped a 255-byte hostname (should be kept)"
+                (( header_errors += 1 ))
+            fi
+            if grep -q "hostname-256" "$out" 2>/dev/null; then
+                echo -e "\n  ${RED}LEAK${NC}: $rs kept a 256-byte hostname (should be dropped)"
+                (( header_errors += 1 ))
+            fi
+        done
+
+        if [ $header_errors -eq 0 ]; then
+            echo -e "${GREEN}PASS${NC}"
+            (( pass += 1 ))
+        else
+            echo -e "${RED}FAIL${NC} ($header_errors errors)"
+            (( fail += 1 ))
+        fi
+    fi
+fi
+
 # --- Summary ---
 echo ""
 echo "=== Results ==="

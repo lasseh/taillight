@@ -102,6 +102,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # The insert templates call SQL functions that migrations create. The
+      # api runs migrations before it serves /health, so waiting for it to be
+      # healthy keeps rsyslog from inserting into an unmigrated schema.
+      api:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "logger -t healthcheck test"]
