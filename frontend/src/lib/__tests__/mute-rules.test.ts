@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hasMatchField, muteSimilarQuery, parseMutePrefill } from '@/lib/mute-rules'
+import { canMuteSimilar, hasMatchField, muteSimilarQuery, parseMutePrefill } from '@/lib/mute-rules'
 
 const flap = {
   hostname: '00a-leaf-d6e11-02',
@@ -83,6 +83,19 @@ describe('muteSimilarQuery / parseMutePrefill', () => {
       'bundle ae30',
     )
   })
+})
+
+describe('canMuteSimilar', () => {
+  it.each(['*', '*.*', '*-*', 'router*', 'a*b'])('refuses hostname %j', (hostname) => {
+    expect(canMuteSimilar({ hostname })).toBe(false)
+  })
+
+  it.each(['00a-leaf-d6e11-02', 'core-rtr-01.example.net', '10.0.1.1', ''])(
+    'allows hostname %j',
+    (hostname) => {
+      expect(canMuteSimilar({ hostname })).toBe(true)
+    },
+  )
 })
 
 describe('hasMatchField', () => {

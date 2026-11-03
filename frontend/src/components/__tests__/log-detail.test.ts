@@ -74,4 +74,14 @@ describe('LogDetail', () => {
     ).toBe(true)
     expect(mountDetail(ev(), false).find('[data-truncated]').exists()).toBe(false)
   })
+
+  it('offers mute similar to an admin for a literal hostname', () => {
+    expect(mountDetail(ev(), true).find('[aria-label="mute similar"]').exists()).toBe(true)
+  })
+
+  it('offers no mute similar for a hostname containing *, so pads like a non-admin', () => {
+    const wrapper = mountDetail(ev({ hostname: '*.*', muted_by: 5 }), true)
+    expect(wrapper.find('[aria-label="mute similar"]').exists()).toBe(false)
+    expect(paddedRows(wrapper)).toEqual([])
+  })
 })

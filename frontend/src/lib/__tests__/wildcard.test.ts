@@ -47,4 +47,24 @@ describe('wildcardMatch', () => {
     expect(wildcardMatch('', '')).toBe(true)
     expect(wildcardMatch('x', '')).toBe(false)
   })
+
+  it('does not let the first and last segments overlap', () => {
+    expect(wildcardMatch('aba', 'ab*ba')).toBe(false)
+    expect(wildcardMatch('a', 'a*a')).toBe(false)
+    expect(wildcardMatch('aa', 'a*a')).toBe(true)
+    expect(wildcardMatch('aab', 'a*ab')).toBe(true)
+    expect(wildcardMatch('a', 'a*')).toBe(true)
+    expect(wildcardMatch('', '**')).toBe(true)
+  })
+
+  // Filters arrive from the URL. A backtracking regex takes seconds on each of
+  // these; the segment scan takes microseconds, so the bound is generous.
+  it.each([
+    ['a run of stars', 'router01', '*'.repeat(40) + '!'],
+    ['stars between literals', 'a'.repeat(28), '*a'.repeat(14) + '*!'],
+  ])('rejects a pattern with %s quickly', (_name, value, pattern) => {
+    const start = performance.now()
+    expect(wildcardMatch(value, pattern)).toBe(false)
+    expect(performance.now() - start).toBeLessThan(100)
+  })
 })

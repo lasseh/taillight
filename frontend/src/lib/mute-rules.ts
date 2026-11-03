@@ -33,6 +33,15 @@ export const EXPIRY_PRESETS = [
 
 export const DEFAULT_DURATION_MS = 24 * HOUR_MS
 
+/**
+ * A mute rule reads any * in its hostname as a wildcard, and the match syntax
+ * has no escape. A * in an event's hostname is text from the sender, so a rule
+ * prefilled from it would cover other hosts.
+ */
+export function canMuteSimilar(event: { hostname: string }): boolean {
+  return !event.hostname.includes('*')
+}
+
 /** Query for /notifications that opens the Mutes tab with a create form prefilled from the event. */
 export function muteSimilarQuery(
   feed: MuteFeed,
