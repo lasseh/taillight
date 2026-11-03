@@ -2,12 +2,22 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/lasseh/taillight/internal/auth"
 	"github.com/lasseh/taillight/internal/broker"
 	"github.com/lasseh/taillight/internal/model"
 )
@@ -18,6 +28,7 @@ type recordSink struct {
 	mu         sync.Mutex
 	ids        []int64
 	heartbeats int
+	resyncAt   []int // len(ids) when each resync was written
 }
 
 func (s *recordSink) writeEvent(id int64, _ string, _ []byte) error {
@@ -34,6 +45,13 @@ func (s *recordSink) writeHeartbeat() error {
 	return nil
 }
 
+func (s *recordSink) writeResync() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resyncAt = append(s.resyncAt, len(s.ids))
+	return nil
+}
+
 func (s *recordSink) flush() {}
 
 func (s *recordSink) setWriteDeadline(time.Time) error { return nil }
@@ -44,6 +62,12 @@ func (s *recordSink) snapshot() ([]int64, int) {
 	return append([]int64(nil), s.ids...), s.heartbeats
 }
 
+func (s *recordSink) resyncs() []int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]int(nil), s.resyncAt...)
+}
+
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
@@ -52,6 +76,15 @@ func srvlogEvents(ids ...int64) []model.SrvlogEvent {
 	out := make([]model.SrvlogEvent, len(ids))
 	for i, id := range ids {
 		out[i] = model.SrvlogEvent{ID: id}
+	}
+	return out
+}
+
+// srvlogRange returns n events with ascending IDs starting at first.
+func srvlogRange(first int64, n int) []model.SrvlogEvent {
+	out := make([]model.SrvlogEvent, n)
+	for i := range out {
+		out[i] = model.SrvlogEvent{ID: first + int64(i)}
 	}
 	return out
 }
@@ -273,5 +306,209 @@ func TestSSEStreamer_ContextCancel(t *testing.T) {
 	}
 	if ids, hb := sink.snapshot(); len(ids) != 0 || hb != 0 {
 		t.Fatalf("expected no output, got ids=%v heartbeats=%d", ids, hb)
+	}
+}
+
+// The stream ends on its own once its lifetime runs out, although the client
+// is still connected, and its subscription goes with it, so later events
+// reach nobody.
+func TestSSEStreamer_LifetimeEndsStream(t *testing.T) {
+	b := broker.NewSrvlogBroker(testLogger())
+	s := newSrvlogStreamer(b,
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+	)
+	s.lifetime = 200 * time.Millisecond
+	sink := &recordSink{}
+
+	done := make(chan struct{})
+	go func() {
+		_ = s.run(context.Background(), sink, model.SrvlogFilter{}, 0, "test")
+		close(done)
+	}()
+	waitForSubscriber(t, b)
+	b.Broadcast(model.SrvlogEvent{ID: 1})
+	waitForIDs(t, sink, 1)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not return when its lifetime ran out")
+	}
+	if n := b.Len(); n != 0 {
+		t.Fatalf("broker has %d subscribers after the stream ended, want 0", n)
+	}
+	b.Broadcast(model.SrvlogEvent{ID: 2})
+	if ids, _ := sink.snapshot(); !slices.Equal(ids, []int64{1}) {
+		t.Fatalf("ids = %v, want [1]: the ended stream kept receiving", ids)
+	}
+}
+
+// A resuming client further behind than one backfill gets the first
+// sseBackfillLimit events, then a resync before any live event, so it reloads
+// history instead of keeping a silent gap. A backfill that reaches the live
+// stream sends no resync.
+func TestSSEStreamer_ResumeResync(t *testing.T) {
+	tests := []struct {
+		name        string
+		lastEventID int64
+		stored      int // events after lastEventID (or in total, for a fresh connect)
+		sinceErr    error
+		wantIDs     int   // backfilled events before the live one
+		wantResync  []int // len(ids) at each resync
+	}{
+		{"gap above the limit", 5, sseBackfillLimit + 50, nil, sseBackfillLimit, []int{sseBackfillLimit}},
+		{"gap one above the limit", 5, sseBackfillLimit + 1, nil, sseBackfillLimit, []int{sseBackfillLimit}},
+		{"gap exactly at the limit", 5, sseBackfillLimit, nil, sseBackfillLimit, nil},
+		{"gap below the limit", 5, 3, nil, 3, nil},
+		{"resume query fails", 5, 0, errors.New("query failed"), 0, []int{0}},
+		{"fresh connect with a full page", 0, sseBackfillLimit + 50, nil, sseBackfillLimit, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stored := srvlogRange(6, tt.stored)
+			b := broker.NewSrvlogBroker(testLogger())
+			s := sseStreamer[model.SrvlogEvent, model.SrvlogFilter]{
+				broker:  b,
+				label:   "srvlog",
+				eventID: func(e model.SrvlogEvent) int64 { return e.ID },
+				logger:  testLogger(),
+				since: func(_ context.Context, _ model.SrvlogFilter, _ int64, limit int) ([]model.SrvlogEvent, error) {
+					if tt.sinceErr != nil {
+						return nil, tt.sinceErr
+					}
+					return stored[:min(limit, len(stored))], nil // ASC
+				},
+				recent: func(_ context.Context, _ model.SrvlogFilter, limit int) ([]model.SrvlogEvent, error) {
+					out := slices.Clone(stored[max(0, len(stored)-limit):])
+					slices.Reverse(out) // DESC
+					return out, nil
+				},
+			}
+			sink := &recordSink{}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, tt.lastEventID, "test") }()
+			waitForSubscriber(t, b)
+			const live = 100_000
+			b.Broadcast(model.SrvlogEvent{ID: live}) // buffered until backfill is done
+
+			ids := waitForIDs(t, sink, tt.wantIDs+1)
+			cancel()
+			if len(ids) != tt.wantIDs+1 || ids[tt.wantIDs] != live {
+				t.Fatalf("got %d ids ending %v, want %d backfilled then live %d", len(ids), ids[max(0, len(ids)-2):], tt.wantIDs, live)
+			}
+			first := int64(6)
+			if tt.lastEventID == 0 {
+				first = stored[len(stored)-tt.wantIDs].ID // the most recent page
+			}
+			for i, id := range ids[:tt.wantIDs] {
+				if want := first + int64(i); id != want {
+					t.Fatalf("backfilled ids[%d] = %d, want %d", i, id, want)
+				}
+			}
+			if got := sink.resyncs(); !slices.Equal(got, tt.wantResync) {
+				t.Errorf("resync written at %v, want %v", got, tt.wantResync)
+			}
+		})
+	}
+}
+
+// revocableKey is an auth lookup that knows one read-scoped API key and no
+// sessions. Revoking the key makes every later lookup fail, as the store does.
+type revocableKey struct {
+	hash    string
+	revoked atomic.Bool
+}
+
+func (k *revocableKey) GetSessionUser(context.Context, string) (*model.User, error) {
+	return nil, pgx.ErrNoRows
+}
+
+func (k *revocableKey) GetAPIKeyUser(_ context.Context, keyHash string) (*model.User, []string, pgtype.UUID, error) {
+	if keyHash != k.hash || k.revoked.Load() {
+		return nil, nil, pgtype.UUID{}, pgx.ErrNoRows
+	}
+	user := &model.User{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, Username: "reader", IsActive: true}
+	return user, []string{"read"}, pgtype.UUID{Bytes: [16]byte{2}, Valid: true}, nil
+}
+
+// Every feed's stream ends after its lifetime behind the real auth
+// middleware, and the reconnect is authorized again: once the key is revoked
+// the client gets 401 instead of a new stream.
+func TestSSEStreamLifetimeForcesReauthorization(t *testing.T) {
+	const (
+		key      = "tl_sse-lifetime-test-key"
+		lifetime = 200 * time.Millisecond
+	)
+	logger := slog.New(slog.DiscardHandler)
+	srvlogBroker := broker.NewSrvlogBroker(logger)
+	netlogBroker := broker.NewNetlogBroker(logger)
+	applogBroker := broker.NewAppLogBroker(logger)
+	srvlogH := NewSrvlogSSEHandler(srvlogBroker, &recordingSrvlogStore{}, markRules(), logger)
+	srvlogH.lifetime = lifetime
+	netlogH := NewNetlogSSEHandler(netlogBroker, &recordingNetlogStore{}, markRules(), logger)
+	netlogH.lifetime = lifetime
+	applogH := NewAppLogSSEHandler(applogBroker, &mockAppLogStore{}, logger)
+	applogH.lifetime = lifetime
+
+	feeds := []struct {
+		name        string
+		stream      http.HandlerFunc
+		subscribers func() int
+	}{
+		{"srvlog", srvlogH.Stream, srvlogBroker.Len},
+		{"netlog", netlogH.Stream, netlogBroker.Len},
+		{"applog", applogH.Stream, applogBroker.Len},
+	}
+	for _, f := range feeds {
+		t.Run(f.name, func(t *testing.T) {
+			keys := &revocableKey{hash: auth.HashToken(key)}
+			srv := httptest.NewServer(auth.SessionOrAPIKey(keys, keys)(auth.RequireScope("read")(f.stream)))
+			defer srv.Close()
+
+			// The client never hangs up; only the server can end the read
+			// before this deadline.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			connect := func() *http.Response {
+				t.Helper()
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+				if err != nil {
+					t.Fatalf("new request: %v", err)
+				}
+				req.Header.Set("Authorization", "Bearer "+key)
+				resp, err := srv.Client().Do(req)
+				if err != nil {
+					t.Fatalf("connect: %v", err)
+				}
+				return resp
+			}
+
+			resp := connect()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("first connect status = %d, want 200", resp.StatusCode)
+			}
+			start := time.Now()
+			_, err := io.Copy(io.Discard, resp.Body)
+			resp.Body.Close() //nolint:errcheck,gosec // test read side
+			if err != nil {
+				t.Fatalf("stream did not end on its own: %v", err)
+			}
+			if elapsed := time.Since(start); elapsed < lifetime/2 {
+				t.Fatalf("stream ended after %v, before its %v lifetime", elapsed, lifetime)
+			}
+			if n := f.subscribers(); n != 0 {
+				t.Fatalf("broker has %d subscribers after the stream ended, want 0", n)
+			}
+
+			keys.revoked.Store(true)
+			resp = connect()
+			resp.Body.Close() //nolint:errcheck,gosec // status is all that matters
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("reconnect with a revoked key: status = %d, want 401", resp.StatusCode)
+			}
+		})
 	}
 }
