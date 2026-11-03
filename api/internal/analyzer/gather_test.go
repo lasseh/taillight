@@ -40,7 +40,7 @@ func (s stubStore) GetNewMsgIDs(context.Context, model.AnalysisScope, time.Time,
 	return nil, nil
 }
 
-func (s stubStore) GetEventClusters(context.Context, model.AnalysisScope, time.Time, int) ([]model.EventCluster, error) {
+func (s stubStore) GetEventClusters(context.Context, model.AnalysisScope, time.Time, int, int) ([]model.EventCluster, error) {
 	return nil, nil
 }
 
@@ -224,7 +224,7 @@ func (s failingStore) GetNewMsgIDs(context.Context, model.AnalysisScope, time.Ti
 	return nil, s.err
 }
 
-func (s failingStore) GetEventClusters(context.Context, model.AnalysisScope, time.Time, int) ([]model.EventCluster, error) {
+func (s failingStore) GetEventClusters(context.Context, model.AnalysisScope, time.Time, int, int) ([]model.EventCluster, error) {
 	return nil, s.err
 }
 

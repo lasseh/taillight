@@ -3,9 +3,11 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -154,6 +156,55 @@ func TestNetboxHandler_HappyPath(t *testing.T) {
 		if lk.Entity.Type == netbox.EntityIP && lk.Found {
 			t.Fatalf("expected ip lookup to be not-found, got %+v", lk)
 		}
+	}
+}
+
+// TestNetboxHandler_BoundsLookupFanout views an event whose message names
+// 1000 distinct IPs: the handler looks up at most maxEntityLookups entities,
+// the hostname's device first, with at most maxLookupConcurrency in flight.
+func TestNetboxHandler_BoundsLookupFanout(t *testing.T) {
+	var calls, inFlight, peak atomic.Int64
+	client, cleanup := newTestNetboxClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		n := inFlight.Add(1)
+		for {
+			p := peak.Load()
+			if n <= p || peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond) // hold the call so concurrent ones overlap
+		inFlight.Add(-1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"count":0,"results":[]}`)) //nolint:errcheck // test server.
+	})
+	defer cleanup()
+
+	ips := make([]string, 1000)
+	for i := range ips {
+		ips[i] = fmt.Sprintf("10.%d.%d.1", i/250, i%250)
+	}
+	store := fakeNetboxStore{event: model.NetlogEvent{ID: 7, Hostname: "router1", Message: "peers " + strings.Join(ips, " ")}}
+	rr := doEnrich(t, NewNetboxHandler(client, store, nil), "7")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%.200s", rr.Code, rr.Body.String())
+	}
+	var env netboxResponseEnvelope
+	if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if got := calls.Load(); got > maxEntityLookups {
+		t.Errorf("netbox calls = %d, want at most %d", got, maxEntityLookups)
+	}
+	if got := peak.Load(); got > maxLookupConcurrency || got < 2 {
+		t.Errorf("peak concurrent calls = %d, want 2..%d", got, maxLookupConcurrency)
+	}
+	if len(env.Data.Lookups) != maxEntityLookups {
+		t.Fatalf("lookups = %d, want %d", len(env.Data.Lookups), maxEntityLookups)
+	}
+	if first := env.Data.Lookups[0].Entity; first.Type != netbox.EntityDevice || first.Value != "router1" {
+		t.Errorf("first lookup = %+v, want the hostname's device", first)
 	}
 }
 

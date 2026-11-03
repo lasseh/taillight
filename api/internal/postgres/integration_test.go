@@ -1204,6 +1204,104 @@ func TestIntegration_GetNewMsgIDs(t *testing.T) {
 	}
 }
 
+// TestIntegration_GetEventClustersRanksByCount checks a bucket holding 5000
+// one-event hosts and signatures whose names sort first: the busy real hosts
+// still lead each list, the lists stop at the name limit, the counts cover
+// every distinct name, and rows before the window are left out.
+func TestIntegration_GetEventClustersRanksByCount(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool)
+	ctx := context.Background()
+
+	for _, feed := range syslogFeeds {
+		t.Run(feed, func(t *testing.T) {
+			truncate(t, pool, "netlog_events", "srvlog_events")
+			bucket := time.Now().UTC().Truncate(5 * time.Minute).Add(-time.Hour)
+			since := bucket.Add(2 * time.Minute)
+			inWindow := bucket.Add(3 * time.Minute)
+
+			// host and msgid are SQL expressions over g, the series counter.
+			seed := func(at time.Time, host, msgid string, n int) {
+				t.Helper()
+				//nolint:gosec // test-only literals, not user input
+				query := fmt.Sprintf(`INSERT INTO %s_events (received_at, reported_at, hostname, fromhost_ip, msgid, severity, facility, message)
+					SELECT $1, $1, %s, '10.0.0.1'::inet, %s, 6, 1, 'x' FROM generate_series(1, $2::int) g`, feed, host, msgid)
+				if _, err := pool.Exec(ctx, query, at, n); err != nil {
+					t.Fatalf("seed %s: %v", host, err)
+				}
+			}
+			seed(inWindow, "'a-spoof-' || lpad(g::text, 4, '0')", "'A_SPOOF_' || lpad(g::text, 4, '0')", 5000)
+			seed(inWindow, "'zz-core-1'", "'ZZ_LINK_DOWN'", 30)
+			seed(inWindow, "'zz-core-3'", "'ZZ_OSPF_DOWN'", 20)
+			seed(inWindow, "'zz-core-2'", "'ZZ_BGP_DOWN'", 20)
+			// Same bucket, before the window: must not count or rank.
+			seed(bucket.Add(time.Minute), "'zz-early'", "'ZZ_EARLY'", 100)
+
+			got, err := store.GetEventClusters(ctx, model.AnalysisScope{Feed: feed}, since, 5, 5)
+			if err != nil {
+				t.Fatalf("GetEventClusters: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("got %d clusters (%+v), want 1", len(got), got)
+			}
+			c := got[0]
+			if !c.Bucket.Equal(bucket) || c.Total != 5070 || c.HostCount != 5003 || c.MsgIDCount != 5003 {
+				t.Errorf("cluster bucket=%v total=%d hosts=%d msgids=%d, want %v 5070 5003 5003", c.Bucket, c.Total, c.HostCount, c.MsgIDCount, bucket)
+			}
+			wantHosts := []string{"zz-core-1", "zz-core-2", "zz-core-3", "a-spoof-0001", "a-spoof-0002"}
+			if !slices.Equal(c.Hosts, wantHosts) {
+				t.Errorf("hosts = %v, want %v", c.Hosts, wantHosts)
+			}
+			wantMsgIDs := []string{"ZZ_LINK_DOWN", "ZZ_BGP_DOWN", "ZZ_OSPF_DOWN", "A_SPOOF_0001", "A_SPOOF_0002"}
+			if !slices.Equal(c.MsgIDs, wantMsgIDs) {
+				t.Errorf("msgids = %v, want %v", c.MsgIDs, wantMsgIDs)
+			}
+		})
+	}
+}
+
+// TestIntegration_KnownScopeNamesPastMetaLimit checks the scope lookups see
+// every cached name: with more than metaLimit names sorting ahead of it, a
+// logged host or service is still known and a never-logged one is not.
+func TestIntegration_KnownScopeNamesPastMetaLimit(t *testing.T) {
+	pool := testPool(t)
+	caches := []string{"netlog_meta_cache", "srvlog_meta_cache", "applog_meta_cache"}
+	truncate(t, pool, caches...)
+	t.Cleanup(func() { truncate(t, pool, caches...) })
+	store := NewStore(pool)
+	ctx := context.Background()
+
+	for _, c := range []struct{ table, column string }{
+		{"netlog_meta_cache", "hostname"}, {"srvlog_meta_cache", "hostname"}, {"applog_meta_cache", "service"},
+	} {
+		//nolint:gosec // test-only table names, not user input
+		query := "INSERT INTO " + c.table + ` (column_name, value)
+			SELECT $1, 'a-' || lpad(g::text, 6, '0') FROM generate_series(1, $2::int) g
+			UNION ALL SELECT $1, 'zz-core-1'`
+		if _, err := pool.Exec(ctx, query, c.column, metaLimit+1); err != nil {
+			t.Fatalf("seed %s: %v", c.table, err)
+		}
+	}
+
+	want := []string{"zz-core-1"}
+	for _, feed := range syslogFeeds {
+		got, err := store.KnownAnalysisHosts(ctx, feed, []string{"zz-core-1", "never-logged"})
+		if err != nil {
+			t.Fatalf("KnownAnalysisHosts(%s): %v", feed, err)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("KnownAnalysisHosts(%s) = %v, want %v", feed, got, want)
+		}
+	}
+	got, err := store.KnownServices(ctx, []string{"zz-core-1", "never-logged"})
+	if err != nil {
+		t.Fatalf("KnownServices: %v", err)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("KnownServices = %v, want %v", got, want)
+	}
+}
+
 // TestIntegration_AnalysisQueriesHaveNoCTEScan is the regression guard for the
 // production outage: a CTE read more than once is materialized, which fences
 // the time predicate off from the scan and makes the query read every chunk in
@@ -1242,6 +1340,7 @@ func TestIntegration_AnalysisQueriesHaveNoCTEScan(t *testing.T) {
 		}{
 			{"topErrorHostsQuery", topErrorHostsQuery(tc.scope), appendHostsArg([]any{since, 15}, tc.scope)},
 			{"newMsgIDsQuery", newMsgIDsQuery(tc.scope), appendHostsArg([]any{since, baselineSince}, tc.scope)},
+			{"eventClustersQuery", eventClustersQuery(tc.scope), appendHostsArg([]any{since, "5 minutes", 10}, tc.scope)},
 		} {
 			t.Run(tc.name+"/"+q.name, func(t *testing.T) {
 				rows, err := pool.Query(ctx, "EXPLAIN "+q.sql, q.args...)

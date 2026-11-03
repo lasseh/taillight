@@ -466,6 +466,53 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, scope model.AnalysisScope, sin
 	return msgids, nil
 }
 
+// eventClustersQuery builds the GetEventClusters SQL. The outer subquery
+// picks the busiest buckets and counts their distinct hosts and signatures;
+// each list is then read from that bucket alone, ranked by event count with
+// the name as tiebreak, so the hosts that logged most stay in view; a
+// name-sorted list would show whichever names sort first. Each scan repeats
+// the source with its own time predicate, per the note above.
+func eventClustersQuery(scope model.AnalysisScope) string {
+	// Hosts param is $4 (existing args: since, interval, nameLimit).
+	source := scopedSource(scope, "received_at, hostname, msgid, msg_pattern", 4)
+	keyExpr := eventKeyExpr(scope.Feed)
+	// The first bucket can start before $1, so the per-bucket scans keep the
+	// window bound as well.
+	inBucket := "received_at >= $1 AND received_at >= top.bucket AND received_at < top.bucket + $2::interval"
+
+	return fmt.Sprintf(`
+		SELECT top.bucket, top.host_count, top.msgid_count, top.total,
+		       ARRAY(
+		           SELECT hostname
+		           FROM %[2]s
+		           WHERE %[4]s
+		           GROUP BY hostname
+		           ORDER BY count(*) DESC, hostname
+		           LIMIT $3
+		       ) AS hosts,
+		       ARRAY(
+		           SELECT %[1]s AS event_key
+		           FROM %[2]s
+		           WHERE %[4]s AND %[1]s <> ''
+		           GROUP BY event_key
+		           ORDER BY count(*) DESC, event_key
+		           LIMIT $3
+		       ) AS msgids
+		FROM (
+			SELECT time_bucket($2::interval, received_at) AS bucket,
+			       count(DISTINCT hostname) AS host_count,
+			       count(DISTINCT %[1]s) FILTER (WHERE %[1]s <> '') AS msgid_count,
+			       count(*) AS total
+			FROM %[2]s
+			WHERE received_at >= $1
+			GROUP BY bucket
+			HAVING count(DISTINCT hostname) > 1
+			ORDER BY total DESC
+			LIMIT %[3]d
+		) top
+		ORDER BY top.total DESC`, keyExpr, source, eventClusterLimit, inBucket)
+}
+
 // GetEventClusters returns time windows where events from multiple hosts overlap.
 // The scope parameter selects which feed and (optionally) which hosts to
 // query. Note: the analyzer skips this query when the scope already restricts
@@ -474,32 +521,19 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, scope model.AnalysisScope, sin
 // Cluster signatures use the same msgid-or-msg_pattern fallback as the rest
 // of the analyzer (see eventKeyExpr), so srvlog clusters surface even when
 // the underlying rows have no RFC 5424 MSGID.
-func (s *Store) GetEventClusters(ctx context.Context, scope model.AnalysisScope, since time.Time, windowMinutes int) ([]model.EventCluster, error) {
-	// Hosts param is $3 (existing args: since, interval).
-	source := scopedSource(scope, "received_at, hostname, msgid, msg_pattern", 3)
-	keyExpr := eventKeyExpr(scope.Feed)
-
-	query := fmt.Sprintf(`
-		SELECT time_bucket($2::interval, received_at) AS bucket,
-		       array_agg(DISTINCT hostname) AS hosts,
-		       array_agg(DISTINCT %s) FILTER (WHERE %s <> '') AS msgids,
-		       count(*) AS total
-		FROM %s
-		WHERE received_at >= $1
-		GROUP BY bucket
-		HAVING count(DISTINCT hostname) > 1
-		ORDER BY total DESC
-		LIMIT %d`, keyExpr, keyExpr, source, eventClusterLimit)
-
+//
+// Each cluster lists at most nameLimit hosts and nameLimit signatures, the
+// busiest first; HostCount and MsgIDCount carry the full distinct counts.
+func (s *Store) GetEventClusters(ctx context.Context, scope model.AnalysisScope, since time.Time, windowMinutes, nameLimit int) ([]model.EventCluster, error) {
 	interval := fmt.Sprintf("%d minutes", windowMinutes)
-	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{since, interval}, scope)...)
+	rows, err := s.pool.Query(ctx, eventClustersQuery(scope), appendHostsArg([]any{since, interval, nameLimit}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("event clusters query: %w", err)
 	}
 
 	clusters, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.EventCluster, error) {
 		var c model.EventCluster
-		err := row.Scan(&c.Bucket, &c.Hosts, &c.MsgIDs, &c.Total)
+		err := row.Scan(&c.Bucket, &c.HostCount, &c.MsgIDCount, &c.Total, &c.Hosts, &c.MsgIDs)
 		return c, err
 	})
 	if err != nil {
@@ -757,27 +791,45 @@ func analysisAggregateSource(feed string) string {
 	}
 }
 
-// ListAnalysisHosts returns distinct hostnames from the meta caches for the
-// given feed, sorted alphabetically. Used by the analysis handler to validate
-// caller-supplied host scopes before enqueueing a report.
+// KnownAnalysisHosts returns the hosts in hosts that have logged on the given
+// feed, for the analysis handler to validate a caller-supplied host scope
+// before enqueueing a report. It tests each name against the whole meta
+// cache, not against the capped list the meta endpoints display.
 //
-// "srvlog" and "netlog" return their respective meta caches; anything else
+// "srvlog" and "netlog" read their respective meta caches; anything else
 // returns an empty slice without error so callers don't need to special-case
 // feed validation that already happened upstream.
-//
-// Delegates to the existing ListSrvlogHosts / ListNetlogHosts helpers, which
-// know the meta-cache schema is (column_name, value) rather than a bare
-// hostname column — writing the query inline here was the source of an
-// earlier "failed to validate host scope" 500.
-func (s *Store) ListAnalysisHosts(ctx context.Context, feed string) ([]string, error) {
+func (s *Store) KnownAnalysisHosts(ctx context.Context, feed string, hosts []string) ([]string, error) {
 	switch feed {
 	case feedSrvlog:
-		return s.ListSrvlogHosts(ctx)
+		return s.knownMetaValues(ctx, "srvlog_meta_cache", "hostname", hosts)
 	case feedNetlog:
-		return s.ListNetlogHosts(ctx)
+		return s.knownMetaValues(ctx, "netlog_meta_cache", "hostname", hosts)
 	default:
 		return nil, nil
 	}
+}
+
+// KnownServices returns the services in services that have logged on the
+// applog feed; the service-scope counterpart of KnownAnalysisHosts.
+func (s *Store) KnownServices(ctx context.Context, services []string) ([]string, error) {
+	return s.knownMetaValues(ctx, "applog_meta_cache", "service", services)
+}
+
+// knownMetaValues returns the values present in a *_meta_cache table for one
+// column. The lookup is served by the cache's (column_name, value) primary key.
+func (s *Store) knownMetaValues(ctx context.Context, cacheTable, column string, values []string) ([]string, error) {
+	//nolint:gosec // cacheTable is a hardcoded literal from callers, not user input
+	query := "SELECT value FROM " + cacheTable + " WHERE column_name = $1 AND value = ANY($2)"
+	rows, err := s.pool.Query(ctx, query, column, values)
+	if err != nil {
+		return nil, fmt.Errorf("known %s values: %w", column, err)
+	}
+	known, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("scan known %s: %w", column, err)
+	}
+	return known, nil
 }
 
 // ListAnalysisHostEntries returns hostname + last_seen rows for the analysis

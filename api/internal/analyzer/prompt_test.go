@@ -64,10 +64,12 @@ func fixtureData(t *testing.T) analysisData {
 		VolumePeaks:       []string{"05-21 11:00 (240 err / 1200 total)"},
 		EventClusters: []model.EventCluster{
 			{
-				Bucket: now.Add(-2 * time.Hour),
-				Total:  18,
-				Hosts:  []string{"edge1-syd", "edge2-syd"},
-				MsgIDs: []string{"RPD_BGP_NEIGHBOR_STATE_CHANGED"},
+				Bucket:     now.Add(-2 * time.Hour),
+				Total:      18,
+				Hosts:      []string{"edge1-syd", "edge2-syd"},
+				HostCount:  2,
+				MsgIDs:     []string{"RPD_BGP_NEIGHBOR_STATE_CHANGED"},
+				MsgIDCount: 1,
 			},
 		},
 		JuniperRefs: map[string]model.JuniperNetlogRef{
@@ -224,6 +226,37 @@ func TestTruncatePromptStrings(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("element %d = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+// TestCapNames covers the cluster list renderer: names past clusterNameLimit
+// and names the store never returned both count toward "+N more".
+func TestCapNames(t *testing.T) {
+	t.Parallel()
+	many := make([]string, clusterNameLimit+5)
+	for i := range many {
+		many[i] = "h" + strings.Repeat("x", i)
+	}
+	tests := []struct {
+		name  string
+		names []string
+		total int
+		want  string
+	}{
+		{"short list renders whole", []string{"edge1", "edge2"}, 2, "edge1, edge2"},
+		{"store-trimmed list counts the rest", []string{"edge1", "edge2"}, 40, "edge1, edge2, +38 more"},
+		{"long list is cut to the limit", many, len(many), strings.Join(many[:clusterNameLimit], ", ") + ", +5 more"},
+		{"names are sanitized and cut", []string{"evil\nhost`" + strings.Repeat("y", 10)}, 1, "evil host'y…"},
+		{"empty list with a total", nil, 3, "+3 more"},
+		{"empty list", nil, 0, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := capNames(tc.names, tc.total, 11); got != tc.want {
+				t.Errorf("capNames = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

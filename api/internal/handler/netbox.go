@@ -42,6 +42,16 @@ type netboxEnrichment struct {
 // but we add this as a defensive cap on contexts derived from the request.
 const perLookupTimeout = 5 * time.Second
 
+// maxEntityLookups caps the Netbox calls one event view makes, and
+// maxLookupConcurrency how many of them run at once. A log line names a
+// handful of entities, but the message text comes from the syslog sender,
+// so without a cap the count is bounded only by the message size. Extract
+// puts the hostname's device first, so it is always looked up.
+const (
+	maxEntityLookups     = 32
+	maxLookupConcurrency = 8
+)
+
 // EnrichNetlog handles GET /api/v1/netlog/{id}/netbox.
 //
 // It fetches the netlog event, extracts entities from its message + hostname
@@ -79,15 +89,19 @@ func (h *NetboxHandler) EnrichNetlog(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
-// runLookups dispatches one Netbox call per entity in parallel and returns
-// results in entity order.
+// runLookups looks up the first maxEntityLookups entities in Netbox, at most
+// maxLookupConcurrency at a time, and returns results in entity order.
 func (h *NetboxHandler) runLookups(ctx context.Context, entities []netbox.Entity) []netbox.Lookup {
+	entities = entities[:min(len(entities), maxEntityLookups)]
 	results := make([]netbox.Lookup, len(entities))
+	sem := make(chan struct{}, maxLookupConcurrency)
 	var wg sync.WaitGroup
 	for i, ent := range entities {
+		sem <- struct{}{}
 		wg.Add(1)
 		go func(i int, ent netbox.Entity) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			results[i] = h.lookupOne(ctx, ent)
 		}(i, ent)
 	}

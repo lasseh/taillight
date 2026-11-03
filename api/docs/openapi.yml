@@ -962,7 +962,9 @@ paths:
       summary: Netbox enrichment for a netlog event
       description: |
         Extracts entities (devices, IPs, prefixes, ASNs, interfaces) from the
-        event's message and hostname and looks each up in Netbox. Per-entity
+        event's message and hostname and looks up the first 32 in Netbox,
+        starting with the hostname's device. `entities` lists everything
+        extracted; `lookups` covers only the entities looked up. Per-entity
         failures are reported via `lookups[].error`; they don't fail the
         request. Registered only when the Netbox integration is configured.
       parameters:
