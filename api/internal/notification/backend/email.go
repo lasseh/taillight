@@ -210,11 +210,16 @@ func buildMIMEMessage(from string, to []string, subject, htmlBody string) []byte
 	return []byte(b.String())
 }
 
-// sanitizeHeaderValue strips CR and LF characters to prevent header injection.
+// sanitizeHeaderValue removes every control byte net/http refuses in a header
+// value, CR and LF included, which also prevents header injection. Tab stays
+// because header values allow it.
 func sanitizeHeaderValue(s string) string {
-	s = strings.ReplaceAll(s, "\r", "")
-	s = strings.ReplaceAll(s, "\n", "")
-	return s
+	return strings.Map(func(r rune) rune {
+		if r == '\t' || (r >= 0x20 && r != 0x7f) {
+			return r
+		}
+		return -1
+	}, s)
 }
 
 // buildEmailSubject creates the email subject line.

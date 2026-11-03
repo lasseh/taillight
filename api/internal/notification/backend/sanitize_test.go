@@ -19,6 +19,7 @@ func TestSanitizeHeaderValue(t *testing.T) {
 		{"strips LF", "a\nb", "ab"},
 		{"strips CRLF", "a\r\nb", "ab"},
 		{"header injection", "Subject\r\nBcc: evil@example.com", "SubjectBcc: evil@example.com"},
+		{"strips other control bytes, keeps tab", "a\x00b\x01c\x1fd\x7fe\tf", "abcde\tf"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

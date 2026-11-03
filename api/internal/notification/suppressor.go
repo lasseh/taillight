@@ -19,10 +19,10 @@ const maxFingerprintsPerRule = 10000
 // suppressor memory would otherwise be unbounded as rules are added.
 const maxFingerprintsGlobal = 5 * maxFingerprintsPerRule
 
-// maxRetainedMsgBytes caps the applog Msg copy retained per fingerprint
-// between flushes. Ingest allows 64KB messages, but digest formatters render
-// at most a few hundred characters, so retaining the full message for every
-// live fingerprint would dominate suppressor memory.
+// maxRetainedMsgBytes caps the message copy retained per fingerprint between
+// flushes. Applog ingest and syslog both allow 64KB messages, but digest
+// formatters render at most a few hundred characters, so retaining the full
+// message for every live fingerprint would dominate suppressor memory.
 const maxRetainedMsgBytes = 4096
 
 // Suppressor manages the first-match-immediate + silence-window-digest lifecycle
@@ -276,20 +276,42 @@ func fingerprintKey(ruleID int64, groupKey string) string {
 }
 
 // trimForDigest returns a copy of payload reduced to what the digest path
-// renders. Applog events can carry up to 64KB each of Msg and Attrs; no
-// notification backend renders Attrs, and formatters display only a slice of
-// Msg, so the retained copy strips Attrs and caps Msg at maxRetainedMsgBytes.
-// The event is copied — the caller's payload is never mutated.
+// renders. Every event kind can carry a 64KB message, applog events also up
+// to 64KB of Attrs, and syslog events a raw copy of the message plus
+// structured data. No notification backend renders those side fields, and
+// formatters display only a slice of the message, so the retained copy drops
+// them and caps the message at maxRetainedMsgBytes. The event is copied — the
+// caller's payload is never mutated.
 func trimForDigest(payload Payload) Payload {
+	if ev := payload.SrvlogEvent; ev != nil {
+		trimmed := *ev
+		trimmed.Message = trimRetained(ev.Message)
+		trimmed.RawMessage = nil
+		trimmed.StructuredData = nil
+		payload.SrvlogEvent = &trimmed
+	}
+	if ev := payload.NetlogEvent; ev != nil {
+		trimmed := *ev
+		trimmed.Message = trimRetained(ev.Message)
+		trimmed.RawMessage = nil
+		trimmed.StructuredData = nil
+		payload.NetlogEvent = &trimmed
+	}
 	ev := payload.AppLogEvent
 	if ev == nil || (len(ev.Attrs) == 0 && len(ev.Msg) <= maxRetainedMsgBytes) {
 		return payload
 	}
 	trimmed := ev.WithAttrsPreview(0)
-	if len(trimmed.Msg) > maxRetainedMsgBytes {
-		// strings.Clone drops the reference to the original backing array.
-		trimmed.Msg = strings.Clone(trimmed.Msg[:maxRetainedMsgBytes])
-	}
+	trimmed.Msg = trimRetained(trimmed.Msg)
 	payload.AppLogEvent = &trimmed
 	return payload
+}
+
+// trimRetained caps s at maxRetainedMsgBytes.
+func trimRetained(s string) string {
+	if len(s) <= maxRetainedMsgBytes {
+		return s
+	}
+	// strings.Clone drops the reference to the original backing array.
+	return strings.Clone(s[:maxRetainedMsgBytes])
 }

@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -477,6 +478,18 @@ func (e *Engine) sendWithRetry(ctx context.Context, rule Rule, ch Channel, paylo
 			r := reasonStr
 			e.recordLog(ctx, rule, ch, payload, "failed", &r, result, attempt)
 
+			// The destination refused this payload; resending it would get
+			// the same answer.
+			if errors.Is(result.Error, ErrPayloadRejected) {
+				metrics.NotifSendAttemptsTotal.WithLabelValues("retry_exhausted").Inc()
+				e.logger.Warn("notification payload rejected by channel",
+					"channel_id", ch.ID,
+					"rule_id", rule.ID,
+					"err", result.Error,
+				)
+				return
+			}
+
 			if attempt >= maxAttempts {
 				metrics.NotifSendAttemptsTotal.WithLabelValues("retry_exhausted").Inc()
 				e.logger.Warn("notification send exhausted retries",
@@ -661,6 +674,11 @@ func (e *Engine) getOrCreateBreaker(channelID int64, channelName string) *gobrea
 		Timeout:     60 * time.Second,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			return counts.ConsecutiveFailures >= 5
+		},
+		// A refused payload says nothing about the channel's health, so it
+		// must not open the breaker for every other alert on the channel.
+		IsExcluded: func(err error) bool {
+			return errors.Is(err, ErrPayloadRejected)
 		},
 		OnStateChange: func(_ string, _, to gobreaker.State) {
 			metrics.NotifBreakerState.WithLabelValues(idLabel, channelName).Set(breakerStateValue(to))

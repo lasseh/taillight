@@ -183,6 +183,11 @@ type Payload struct {
 	AnalysisReport *model.AnalysisReport `json:"analysis_report,omitempty"`
 }
 
+// ErrPayloadRejected marks a send the destination refused because of this
+// payload, not because the channel is down. The engine does not retry it and
+// does not count it toward the channel's circuit breaker.
+var ErrPayloadRejected = errors.New("payload rejected")
+
 // SendResult captures the outcome of a backend Send call.
 type SendResult struct {
 	Success    bool
