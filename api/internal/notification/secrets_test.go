@@ -235,6 +235,44 @@ func TestChannelWithSecretsFrom(t *testing.T) {
 	}
 }
 
+// TestChannelWithSecretsFromNewDestination checks that a masked secret is kept
+// only while the merged config delivers where the stored one does. Otherwise
+// the placeholder stays, so HasRedactedSecret refuses the edit.
+func TestChannelWithSecretsFromNewDestination(t *testing.T) {
+	const ntfyStored = `{"server_url":"https://ntfy.sh","token":"tk_secret","topic":"alerts"}`
+	const hookStored = `{"headers":{"X-Key":"hk_secret"},"template":"{\"k\":\"tpl_secret\"}","url":"https://x/hook"}`
+	tests := []struct {
+		name       string
+		typ        ChannelType
+		stored     string
+		sent       string
+		wantMasked bool
+	}{
+		{"ntfy new server", ChannelTypeNtfy, ntfyStored, `{"server_url":"https://other.example","token":"********","topic":"********"}`, true},
+		{"ntfy new server under a folded key", ChannelTypeNtfy, ntfyStored, "{\"ſerver_url\":\"https://other.example\",\"server_url\":\"https://ntfy.sh\",\"token\":\"********\",\"topic\":\"********\"}", true},
+		{"ntfy server removed", ChannelTypeNtfy, ntfyStored, `{"token":"********","topic":"********"}`, true},
+		{"webhook new url with masked header", ChannelTypeWebhook, hookStored, `{"url":"https://y/hook","headers":{"X-Key":"********"}}`, true},
+		{"webhook new url with masked template", ChannelTypeWebhook, hookStored, `{"url":"https://y/hook","template":"********"}`, true},
+		{"webhook second url key", ChannelTypeWebhook, hookStored, `{"url":"********","URL":"https://y/hook","headers":{"X-Key":"********"}}`, true},
+		{"ntfy new server with secrets re-typed", ChannelTypeNtfy, ntfyStored, `{"server_url":"https://other.example","token":"new","topic":"other"}`, false},
+		{"ntfy same server", ChannelTypeNtfy, ntfyStored, `{"server_url":"https://ntfy.sh","token":"********","topic":"********"}`, false},
+		{"ntfy same server escaped differently", ChannelTypeNtfy, ntfyStored, `{"server_url":"https:\/\/ntfy.sh","token":"********","topic":"********"}`, false},
+		{"webhook masked url", ChannelTypeWebhook, hookStored, `{"url":"********","headers":{"X-Key":"********"},"template":"********"}`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stored := Channel{Type: tt.typ, Config: json.RawMessage(tt.stored)}
+			got := Channel{Type: tt.typ, Config: json.RawMessage(tt.sent)}.WithSecretsFrom(stored)
+			if masked := got.HasRedactedSecret(); masked != tt.wantMasked {
+				t.Errorf("HasRedactedSecret = %v, want %v; config=%s", masked, tt.wantMasked, got.Config)
+			}
+			if tt.wantMasked && bytes.Contains(got.Config, []byte("_secret")) {
+				t.Errorf("stored secret restored toward a new destination: %s", got.Config)
+			}
+		})
+	}
+}
+
 func TestChannelHasRedactedSecret(t *testing.T) {
 	tests := []struct {
 		name   string

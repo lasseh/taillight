@@ -3,6 +3,7 @@ package notification
 import (
 	"encoding/json"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -76,7 +77,9 @@ func (ch Channel) Redacted() Channel {
 // a secret the client re-typed replaces it. Header objects are merged per
 // member. A placeholder is restored only from the stored member of the same
 // name; one with no stored counterpart is left as-is so HasRedactedSecret
-// rejects it.
+// rejects it. A stored secret is kept only for the destination it was saved
+// for: if the merged config delivers anywhere else, ch is returned unrestored
+// and its placeholders are rejected the same way.
 func (ch Channel) WithSecretsFrom(stored Channel) Channel {
 	if len(secretKeys[ch.Type]) == 0 || ch.Type != stored.Type || len(ch.Config) == 0 {
 		return ch
@@ -89,6 +92,9 @@ func (ch Channel) WithSecretsFrom(stored Channel) Channel {
 		if isRestorableKey(ch.Type, k) {
 			cfg[k] = restoreJSONValue(raw, old[k])
 		}
+	}
+	if !sameDestination(ch.Type, cfg, old) {
+		return ch
 	}
 	merged, err := json.Marshal(cfg)
 	if err != nil {
@@ -141,6 +147,32 @@ func isDestinationKey(t ChannelType, k string) bool {
 // stands for a stored value: a secret, or a destination masked for userinfo.
 func isRestorableKey(t ChannelType, k string) bool {
 	return isSecretKey(t, k) || isDestinationKey(t, k)
+}
+
+// sameDestination reports whether configs a and b of a t channel deliver to
+// the same place. Every member whose key matches the destination key counts,
+// by exact name and decoded value, so the answer does not depend on which of
+// several case variants the backend's decoder ends up using.
+func sameDestination(t ChannelType, a, b map[string]json.RawMessage) bool {
+	da, okA := destinationMembers(t, a)
+	db, okB := destinationMembers(t, b)
+	return okA && okB && reflect.DeepEqual(da, db)
+}
+
+// destinationMembers returns the decoded destination members of cfg.
+func destinationMembers(t ChannelType, cfg map[string]json.RawMessage) (map[string]any, bool) {
+	out := make(map[string]any)
+	for k, raw := range cfg {
+		if !isDestinationKey(t, k) {
+			continue
+		}
+		var v any
+		if json.Unmarshal(raw, &v) != nil {
+			return nil, false
+		}
+		out[k] = v
+	}
+	return out, true
 }
 
 // mayHaveUserinfo reports whether a destination value may carry URL
