@@ -2,7 +2,9 @@ package notification
 
 import (
 	"encoding/json"
+	"net/url"
 	"slices"
+	"strings"
 )
 
 // RedactedSecret is the placeholder substituted for a configured secret value
@@ -11,11 +13,25 @@ const RedactedSecret = "********"
 
 // secretKeys lists the config JSON keys, per channel type, that carry delivery
 // credentials. The table lives here rather than on the backends so redaction
-// still works when the engine (and its backends) is disabled.
+// still works when the engine (and its backends) is disabled. Config keys
+// match it case-insensitively, the way encoding/json matches them to the
+// backends' config fields. The webhook template is secret because it is the
+// request body and can carry a credential. The ntfy topic is secret because
+// anyone who knows a topic on a shared server can read it.
 var secretKeys = map[ChannelType][]string{
 	ChannelTypeSlack:   {"webhook_url"},
-	ChannelTypeWebhook: {"url", "headers"},
-	ChannelTypeNtfy:    {"token"},
+	ChannelTypeWebhook: {"url", "headers", "template"},
+	ChannelTypeNtfy:    {"token", "topic"},
+}
+
+// destinationKeys names the config JSON key, per channel type, that sets
+// where a notification is delivered. A destination that is not in secretKeys
+// is masked when it may carry URL userinfo, and a masked one is restored on
+// edit like a secret.
+var destinationKeys = map[ChannelType]string{
+	ChannelTypeSlack:   "webhook_url",
+	ChannelTypeWebhook: "url",
+	ChannelTypeNtfy:    "server_url",
 }
 
 // SecretKeys returns the config JSON keys that hold credentials for t.
@@ -26,10 +42,10 @@ func SecretKeys(t ChannelType) []string {
 // Redacted returns a copy of ch with every configured secret replaced by
 // RedactedSecret. A JSON object secret (webhook headers) keeps its key names
 // and masks each value, so the response shape stays stable for the frontend.
-// Malformed config fails closed to `{}`.
+// Keys keep their spelling, so a secret under a case variant is masked in
+// place. Malformed config fails closed to `{}`.
 func (ch Channel) Redacted() Channel {
-	keys := secretKeys[ch.Type]
-	if len(keys) == 0 || len(ch.Config) == 0 {
+	if len(secretKeys[ch.Type]) == 0 || len(ch.Config) == 0 {
 		return ch
 	}
 	var cfg map[string]json.RawMessage
@@ -37,12 +53,13 @@ func (ch Channel) Redacted() Channel {
 		ch.Config = json.RawMessage(`{}`)
 		return ch
 	}
-	for _, k := range keys {
-		raw, present := cfg[k]
-		if !present || isEmptyJSON(raw) {
+	for k, raw := range cfg {
+		if isEmptyJSON(raw) {
 			continue
 		}
-		cfg[k] = maskJSONValue(raw)
+		if isSecretKey(ch.Type, k) || (isDestinationKey(ch.Type, k) && mayHaveUserinfo(raw)) {
+			cfg[k] = maskJSONValue(raw)
+		}
 	}
 	redacted, err := json.Marshal(cfg)
 	if err != nil {
@@ -57,23 +74,21 @@ func (ch Channel) Redacted() Channel {
 // the matching value in stored. It reverses Redacted for an edit that sends a
 // read response back unchanged: a masked secret keeps its stored value, while
 // a secret the client re-typed replaces it. Header objects are merged per
-// member. A placeholder with no stored counterpart is left as-is so backend
-// validation can reject it.
+// member. A placeholder is restored only from the stored member of the same
+// name; one with no stored counterpart is left as-is so HasRedactedSecret
+// rejects it.
 func (ch Channel) WithSecretsFrom(stored Channel) Channel {
-	keys := secretKeys[ch.Type]
-	if len(keys) == 0 || ch.Type != stored.Type || len(ch.Config) == 0 {
+	if len(secretKeys[ch.Type]) == 0 || ch.Type != stored.Type || len(ch.Config) == 0 {
 		return ch
 	}
 	var cfg, old map[string]json.RawMessage
 	if json.Unmarshal(ch.Config, &cfg) != nil || json.Unmarshal(stored.Config, &old) != nil {
 		return ch
 	}
-	for _, k := range keys {
-		raw, present := cfg[k]
-		if !present {
-			continue
+	for k, raw := range cfg {
+		if isRestorableKey(ch.Type, k) {
+			cfg[k] = restoreJSONValue(raw, old[k])
 		}
-		cfg[k] = restoreJSONValue(raw, old[k])
 	}
 	merged, err := json.Marshal(cfg)
 	if err != nil {
@@ -91,8 +106,10 @@ func (ch Channel) HasRedactedSecret() bool {
 	if json.Unmarshal(ch.Config, &cfg) != nil {
 		return false
 	}
-	for _, k := range secretKeys[ch.Type] {
-		raw := cfg[k]
+	for k, raw := range cfg {
+		if !isRestorableKey(ch.Type, k) {
+			continue
+		}
 		if isMasked(raw) {
 			return true
 		}
@@ -106,6 +123,36 @@ func (ch Channel) HasRedactedSecret() bool {
 		}
 	}
 	return false
+}
+
+// isSecretKey reports whether config key k of a t channel holds a secret.
+func isSecretKey(t ChannelType, k string) bool {
+	return slices.ContainsFunc(secretKeys[t], func(s string) bool { return strings.EqualFold(s, k) })
+}
+
+// isDestinationKey reports whether config key k of a t channel sets where it
+// delivers.
+func isDestinationKey(t ChannelType, k string) bool {
+	d, ok := destinationKeys[t]
+	return ok && strings.EqualFold(d, k)
+}
+
+// isRestorableKey reports whether a placeholder in config key k of a t channel
+// stands for a stored value: a secret, or a destination masked for userinfo.
+func isRestorableKey(t ChannelType, k string) bool {
+	return isSecretKey(t, k) || isDestinationKey(t, k)
+}
+
+// mayHaveUserinfo reports whether a destination value may carry URL
+// credentials. A value that is not a string URL it can parse counts as
+// carrying them, so redaction fails closed.
+func mayHaveUserinfo(raw json.RawMessage) bool {
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return true
+	}
+	u, err := url.Parse(s)
+	return err != nil || u.User != nil
 }
 
 // maskJSONValue replaces a secret JSON value with the placeholder. For a JSON

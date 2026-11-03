@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -171,6 +172,48 @@ func TestGetChannel(t *testing.T) {
 			if rec.Code != tt.wantStatus {
 				t.Errorf("got status %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
 			}
+		})
+	}
+}
+
+// TestChannelReadsHideCredentials stores channels whose credentials sit in
+// userinfo, the webhook template, the ntfy topic, or keys spelled in another
+// case, and checks neither read route returns them.
+func TestChannelReadsHideCredentials(t *testing.T) {
+	channels := []notification.Channel{
+		{ID: 1, Type: notification.ChannelTypeNtfy, Config: json.RawMessage(`{"server_url":"http://ntfyuser:dummy-ntfy-password@198.51.100.20","topic":"dummy-secret-topic"}`)},
+		{ID: 2, Type: notification.ChannelTypeWebhook, Config: json.RawMessage(`{"url":"http://198.51.100.20/v2/enqueue","template":"{\"routing_key\":\"dummy-routing-key\",\"event_action\":\"trigger\"}"}`)},
+		{ID: 3, Type: notification.ChannelTypeWebhook, Config: json.RawMessage(`{"URL":"http://198.51.100.20/hook/PATHSECRET","Headers":{"X-Api-Key":"dummy-header-secret"}}`)},
+		{ID: 4, Type: notification.ChannelTypeNtfy, Config: json.RawMessage(`{"server_url":"http://198.51.100.20","topic":"t","Token":"dummy-ntfy-token"}`)},
+	}
+	secrets := []string{"dummy-ntfy-password", "dummy-secret-topic", "dummy-routing-key", "PATHSECRET", "dummy-header-secret", "dummy-ntfy-token"}
+
+	check := func(t *testing.T, rec *httptest.ResponseRecorder) {
+		t.Helper()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		for _, s := range secrets {
+			if bytes.Contains(rec.Body.Bytes(), []byte(s)) {
+				t.Errorf("response leaked %q: %s", s, rec.Body.String())
+			}
+		}
+	}
+
+	t.Run("list", func(t *testing.T) {
+		h := NewNotificationHandler(&mockNotificationStore{channels: channels}, nil)
+		rec := httptest.NewRecorder()
+		h.ListChannels(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/notifications/channels", nil))
+		check(t, rec)
+	})
+	for _, ch := range channels {
+		t.Run("get "+strconv.FormatInt(ch.ID, 10), func(t *testing.T) {
+			h := NewNotificationHandler(&mockNotificationStore{channel: ch}, nil)
+			r := chi.NewRouter()
+			r.Get("/channels/{id}", h.GetChannel)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/channels/1", nil))
+			check(t, rec)
 		})
 	}
 }
