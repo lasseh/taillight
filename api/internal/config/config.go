@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
@@ -296,17 +297,29 @@ func Load(configFile ...string) (Config, error) {
 		return Config{}, err
 	}
 
-	return Config{
+	// Booleans parse with strconv.ParseBool, and a value it rejects stops
+	// startup. viper's GetBool would read such a value as false, with no error.
+	var boolErrs []error
+	getBool := func(key string) bool {
+		s := v.GetString(key)
+		b, err := strconv.ParseBool(s)
+		if err != nil {
+			boolErrs = append(boolErrs, fmt.Errorf("config %s: %q is not a boolean, use true or false", key, s))
+		}
+		return b
+	}
+
+	cfg := Config{
 		DatabaseURL:            v.GetString("database_url"),
 		ListenAddr:             v.GetString("listen_addr"),
 		LogLevel:               parseLogLevel(v.GetString("log_level")),
 		DBMaxConns:             v.GetInt32("db_max_conns"),
 		DBMinConns:             v.GetInt32("db_min_conns"),
 		CORSAllowedOrigins:     v.GetStringSlice("cors_allowed_origins"),
-		AuthEnabled:            v.GetBool("auth_enabled"),
-		AuthReadEndpoints:      v.GetBool("auth_read_endpoints"),
-		DemoMode:               v.GetBool("demo_mode"),
-		CookieSecure:           v.GetBool("cookie_secure"),
+		AuthEnabled:            getBool("auth_enabled"),
+		AuthReadEndpoints:      getBool("auth_read_endpoints"),
+		DemoMode:               getBool("demo_mode"),
+		CookieSecure:           getBool("cookie_secure"),
 		RealIPHeader:           v.GetString("real_ip_header"),
 		TrustedProxies:         trustedProxies,
 		NotificationBufferSize: v.GetInt("notification_buffer_size"),
@@ -314,7 +327,7 @@ func Load(configFile ...string) (Config, error) {
 		MetricsAddr:            v.GetString("metrics_addr"),
 		JuniperRefPath:         v.GetString("juniper_ref_path"),
 		LogShipper: LogShipperConfig{
-			Enabled:     v.GetBool("logshipper.enabled"),
+			Enabled:     getBool("logshipper.enabled"),
 			APIKey:      v.GetString("logshipper.api_key"),
 			Service:     v.GetString("logshipper.service"),
 			Component:   v.GetString("logshipper.component"),
@@ -325,7 +338,7 @@ func Load(configFile ...string) (Config, error) {
 			BufferSize:  v.GetInt("logshipper.buffer_size"),
 		},
 		Analysis: AnalysisConfig{
-			Enabled:       v.GetBool("analysis.enabled"),
+			Enabled:       getBool("analysis.enabled"),
 			OllamaURL:     v.GetString("analysis.ollama_url"),
 			Model:         v.GetString("analysis.model"),
 			Temperature:   v.GetFloat64("analysis.temperature"),
@@ -347,7 +360,7 @@ func Load(configFile ...string) (Config, error) {
 			},
 		},
 		Notification: notification.Config{
-			Enabled:             v.GetBool("notification.enabled"),
+			Enabled:             getBool("notification.enabled"),
 			RuleRefreshInterval: v.GetDuration("notification.rule_refresh_interval"),
 			DispatchWorkers:     v.GetInt("notification.dispatch_workers"),
 			DispatchBuffer:      v.GetInt("notification.dispatch_buffer"),
@@ -357,11 +370,11 @@ func Load(configFile ...string) (Config, error) {
 			DefaultCoalesce:     v.GetDuration("notification.default_coalesce"),
 		},
 		LDAP: LDAPConfig{
-			Enabled: v.GetBool("ldap.enabled"),
+			Enabled: getBool("ldap.enabled"),
 			Config: ldap.Config{
 				URL:            v.GetString("ldap.url"),
-				StartTLS:       v.GetBool("ldap.starttls"),
-				TLSSkipVerify:  v.GetBool("ldap.tls_skip_verify"),
+				StartTLS:       getBool("ldap.starttls"),
+				TLSSkipVerify:  getBool("ldap.tls_skip_verify"),
 				CABundle:       v.GetString("ldap.ca_bundle"),
 				BindDN:         v.GetString("ldap.bind_dn"),
 				BindPassword:   v.GetString("ldap.bind_password"),
@@ -371,7 +384,7 @@ func Load(configFile ...string) (Config, error) {
 			},
 		},
 		OIDC: OIDCConfig{
-			Enabled: v.GetBool("oidc.enabled"),
+			Enabled: getBool("oidc.enabled"),
 			Config: oidcauth.Config{
 				IssuerURL:             v.GetString("oidc.issuer_url"),
 				ClientID:              v.GetString("oidc.client_id"),
@@ -385,7 +398,7 @@ func Load(configFile ...string) (Config, error) {
 				AllowedUsers:          v.GetStringSlice("oidc.allowed_users"),
 				AllowedGroups:         v.GetStringSlice("oidc.allowed_groups"),
 				AdminGroups:           v.GetStringSlice("oidc.admin_groups"),
-				EmailVerifiedRequired: v.GetBool("oidc.email_verified_required"),
+				EmailVerifiedRequired: getBool("oidc.email_verified_required"),
 			},
 		},
 		SMTP: backend.EmailGlobalConfig{
@@ -394,18 +407,18 @@ func Load(configFile ...string) (Config, error) {
 			Username: v.GetString("smtp.username"),
 			Password: v.GetString("smtp.password"),
 			From:     v.GetString("smtp.from"),
-			TLS:      v.GetBool("smtp.tls"),
+			TLS:      getBool("smtp.tls"),
 			AuthType: v.GetString("smtp.auth_type"),
 		},
 		Netbox: NetboxConfig{
-			Enabled: v.GetBool("netbox.enabled"),
+			Enabled: getBool("netbox.enabled"),
 			Config: netbox.Config{
 				URL:           v.GetString("netbox.url"),
 				Token:         v.GetString("netbox.token"),
 				AuthScheme:    v.GetString("netbox.auth_scheme"),
 				Timeout:       v.GetDuration("netbox.timeout"),
 				CacheTTL:      v.GetDuration("netbox.cache_ttl"),
-				TLSSkipVerify: v.GetBool("netbox.tls_skip_verify"),
+				TLSSkipVerify: getBool("netbox.tls_skip_verify"),
 			},
 		},
 		Retention: RetentionConfig{
@@ -416,7 +429,11 @@ func Load(configFile ...string) (Config, error) {
 			RsyslogStatsDays:    max(v.GetInt("retention.rsyslog_stats_days"), 1),
 			MetricsDays:         max(v.GetInt("retention.metrics_days"), 1),
 		},
-	}, nil
+	}
+	if err := errors.Join(boolErrs...); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 
 // parseTrustedProxies converts trusted_proxies entries (CIDRs or bare IPs)

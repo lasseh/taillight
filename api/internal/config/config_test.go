@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -174,6 +176,133 @@ func TestLoadEnvOverride(t *testing.T) {
 	}
 	if cfg.AuthEnabled {
 		t.Error("AuthEnabled should be false after env override")
+	}
+}
+
+// boolKeys is every boolean key Load reads.
+var boolKeys = []string{
+	"auth_enabled", "auth_read_endpoints", "demo_mode", "cookie_secure",
+	"logshipper.enabled", "analysis.enabled", "notification.enabled",
+	"ldap.enabled", "ldap.starttls", "ldap.tls_skip_verify",
+	"oidc.enabled", "oidc.email_verified_required",
+	"smtp.tls", "netbox.enabled", "netbox.tls_skip_verify",
+}
+
+// envName is the environment variable Load reads for a dotted config key.
+func envName(key string) string {
+	return strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+}
+
+// TestLoadBoolFromEnv verifies AUTH_ENABLED takes the strconv.ParseBool
+// spellings and that any other value stops Load instead of reading as false.
+func TestLoadBoolFromEnv(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    bool
+		wantErr bool
+	}{
+		{value: "true", want: true},
+		{value: "True", want: true},
+		{value: "TRUE", want: true},
+		{value: "t", want: true},
+		{value: "1", want: true},
+		{value: "false", want: false},
+		{value: "False", want: false},
+		{value: "f", want: false},
+		{value: "0", want: false},
+		{value: "", want: true}, // An empty variable is ignored, so the default applies.
+		{value: "yes", wantErr: true},
+		{value: "on", wantErr: true},
+		{value: "Y", wantErr: true},
+		{value: "enabled", wantErr: true},
+		{value: "ture", wantErr: true},
+		{value: "true ", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(strconv.Quote(tt.value), func(t *testing.T) {
+			t.Setenv("AUTH_ENABLED", tt.value)
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Load() with AUTH_ENABLED=%q: want error, got AuthEnabled=%v", tt.value, cfg.AuthEnabled)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() with AUTH_ENABLED=%q: %v", tt.value, err)
+			}
+			if cfg.AuthEnabled != tt.want {
+				t.Errorf("AuthEnabled = %v, want %v", cfg.AuthEnabled, tt.want)
+			}
+		})
+	}
+}
+
+// TestLoadBoolFromFile verifies a boolean in the config file parses the same
+// way: true, false and an absent key load, and a value such as on stops Load.
+func TestLoadBoolFromFile(t *testing.T) {
+	t.Setenv("AUTH_READ_ENDPOINTS", "") // Ignored when empty, so the file value applies.
+	tests := []struct {
+		name    string
+		yml     string
+		want    bool
+		wantErr bool
+	}{
+		{name: "true", yml: "auth_read_endpoints: true\n", want: true},
+		{name: "false", yml: "auth_read_endpoints: false\n", want: false},
+		{name: "absent", yml: "log_level: info\n", want: true},
+		{name: "on", yml: "auth_read_endpoints: on\n", wantErr: true},
+		{name: "yes", yml: "auth_read_endpoints: yes\n", wantErr: true},
+		{name: "quoted true", yml: "auth_read_endpoints: \"true\"\n", want: true},
+		{name: "empty string", yml: "auth_read_endpoints: \"\"\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yml")
+			if err := os.WriteFile(path, []byte(tt.yml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Load() with %q: want error, got AuthReadEndpoints=%v", tt.yml, cfg.AuthReadEndpoints)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() with %q: %v", tt.yml, err)
+			}
+			if cfg.AuthReadEndpoints != tt.want {
+				t.Errorf("AuthReadEndpoints = %v, want %v", cfg.AuthReadEndpoints, tt.want)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsUnparsableBoolForEveryKey verifies every boolean key refuses
+// a value strconv.ParseBool rejects, from the environment and from the file,
+// and that the error names the key.
+func TestLoadRejectsUnparsableBoolForEveryKey(t *testing.T) {
+	for _, key := range boolKeys {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv(envName(key), "yes")
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), key) {
+				t.Errorf("Load() with %s=yes: error = %v, want one naming %s", envName(key), err, key)
+			}
+
+			t.Setenv(envName(key), "")
+			yml := key + ": on\n"
+			if section, name, nested := strings.Cut(key, "."); nested {
+				yml = section + ":\n  " + name + ": on\n"
+			}
+			path := filepath.Join(t.TempDir(), "config.yml")
+			if err := os.WriteFile(path, []byte(yml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), key) {
+				t.Errorf("Load() with %q in the file: error = %v, want one naming %s", yml, err, key)
+			}
+		})
 	}
 }
 
