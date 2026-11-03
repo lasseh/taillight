@@ -218,6 +218,12 @@ Push notifications via ntfy.sh or a self-hosted server.
 }
 ```
 
+- `server_url` must not contain credentials (`user:pass@`). Put an access token in `token`.
+
+### Secrets in API responses
+
+Channel reads and create/update responses show secret config values as `********`: Slack `webhook_url`; webhook `url`, header values and `template`; ntfy `token` and `topic`, and `server_url` if it holds credentials. Keys match in any letter case. On update, a value sent back as `********` keeps the stored value only while the destination (`webhook_url`, `url` or `server_url`) is unchanged. After changing the destination, re-enter every secret.
+
 ### Per-channel protections (automatic)
 
 - **Rate limit** — token bucket per channel (Slack 1/s burst 3, Webhook and Email 5/s burst 10, ntfy similar). Stops one noisy rule from saturating a channel. Rate-limited alerts are logged with `status=suppressed reason=rate_limit`.
