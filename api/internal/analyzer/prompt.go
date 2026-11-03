@@ -86,8 +86,13 @@ var promptFuncs = template.FuncMap{
 	"truncateAll":   truncatePromptStrings,
 	"sanitize":      sanitizeLogText,
 	"sanitizeAll":   sanitizeLogTexts,
+	"capNames":      capNames,
 	"add":           func(a, b int) int { return a + b },
 }
+
+// hostnamePromptChars is the length every hostname is cut to in a prompt.
+// The templates spell the same number out in each hostname slot.
+const hostnamePromptChars = 64
 
 // sanitizeLogText neutralizes attacker-controlled log text (sample
 // messages, hostnames, msg_pattern signatures, program names) before it is
@@ -161,18 +166,33 @@ func truncatePromptStrings(ss []string, n int) []string {
 	return out
 }
 
+// capNames renders one cluster list: the first clusterNameLimit names, each
+// sanitized and cut to width runes, then "+N more" for the rest of total.
+// total is the list's true size, which the store reports separately because
+// it returns only the busiest names. Capping before sanitizing keeps the
+// work bounded however long the list is.
+func capNames(names []string, total, width int) string {
+	shown := names[:min(len(names), clusterNameLimit)]
+	parts := truncatePromptStrings(sanitizeLogTexts(shown), width)
+	if more := max(total, len(names)) - len(shown); more > 0 {
+		parts = append(parts, fmt.Sprintf("+%d more", more))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // formatScopeLabel renders the scope's host list as a single line for the
 // user prompt's `Scope:` header. Empty input returns "" so the template can
 // guard on `IsScoped` instead of empty-string checks. The count suffix lets
 // the model and a human reader confirm at a glance how many hosts the
 // report covers without counting commas.
 func formatScopeLabel(hosts []string) string {
-	return formatScopeLabelNoun(hosts, "host", "hosts")
+	return formatScopeLabelNoun(hosts, "host", "hosts", hostnamePromptChars)
 }
 
 // formatScopeLabelNoun is formatScopeLabel with the noun supplied, so the
-// applog feed can label a service scope the same way.
-func formatScopeLabelNoun(names []string, singular, plural string) string {
+// applog feed can label a service scope the same way. Each name is cut to
+// width runes; width <= 0 leaves names whole.
+func formatScopeLabelNoun(names []string, singular, plural string, width int) string {
 	if len(names) == 0 {
 		return ""
 	}
@@ -182,7 +202,7 @@ func formatScopeLabelNoun(names []string, singular, plural string) string {
 	}
 	// Names originate from log data, so they get the same neutralization
 	// as the sample text they came from.
-	return fmt.Sprintf("%s (%d %s)", strings.Join(sanitizeLogTexts(names), ", "), len(names), noun)
+	return fmt.Sprintf("%s (%d %s)", strings.Join(truncatePromptStrings(sanitizeLogTexts(names), width), ", "), len(names), noun)
 }
 
 // feedDescription returns a human-readable description of the feed for use in prompts.
@@ -378,7 +398,7 @@ func buildAppLogPrompt(data applogData, promptsDir, mode string) (string, string
 	pd := applogPromptData{
 		applogData:   data,
 		IsScoped:     len(data.Services) > 0,
-		ScopeLabel:   formatScopeLabelNoun(data.Services, "service", "services"),
+		ScopeLabel:   formatScopeLabelNoun(data.Services, "service", "services", 0),
 		AttrsLimit:   model.AttrsPreviewLimit,
 		LogDataBegin: logDataBegin,
 		LogDataEnd:   logDataEnd,

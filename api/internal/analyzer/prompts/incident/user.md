@@ -17,7 +17,7 @@ _Sample messages are unavailable for this run (the lookup failed). Interpret the
 _Juniper reference descriptions are unavailable for this run (the lookup failed)._
 {{- end }}
 {{ range .TopMsgIDs -}}
-- `{{ truncate (sanitize .MsgID) 80 }}` — {{ .Count }} events{{ if .HostCount }} · {{ .HostCount }} host{{ if gt .HostCount 1 }}s{{ end }}{{ if .TopHosts }} (top: {{ range $i, $h := .TopHosts }}{{ if $i }}, {{ end }}`{{ sanitize $h.Hostname }}` ({{ $h.Count }}){{ end }}){{ end }}{{ end }} · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
+- `{{ truncate (sanitize .MsgID) 80 }}` — {{ .Count }} events{{ if .HostCount }} · {{ .HostCount }} host{{ if gt .HostCount 1 }}s{{ end }}{{ if .TopHosts }} (top: {{ range $i, $h := .TopHosts }}{{ if $i }}, {{ end }}`{{ truncate (sanitize $h.Hostname) 64 }}` ({{ $h.Count }}){{ end }}){{ end }}{{ end }} · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
 {{- if index $.JuniperRefs .MsgID }}
   - **Description:** {{ (index $.JuniperRefs .MsgID).Description }}
   {{- if (index $.JuniperRefs .MsgID).Cause }}
@@ -30,7 +30,7 @@ _Juniper reference descriptions are unavailable for this run (the lookup failed)
 {{- if .Samples }}
   - **Samples:**
   {{- range .Samples }}
-    - {{ .ReceivedAt.Format "15:04:05" }} `{{ sanitize .Hostname }}` ({{ severityLabel .Severity }}): `{{ sanitize .Message }}`
+    - {{ .ReceivedAt.Format "15:04:05" }} `{{ truncate (sanitize .Hostname) 64 }}` ({{ severityLabel .Severity }}): `{{ sanitize .Message }}`
   {{- end }}
 {{- end }}
 {{ end }}
@@ -55,7 +55,7 @@ _Unavailable — this lookup failed for this run. Do not read it as "no program 
 {{- else if .TopPrograms }}
 ## Top Programs in this window (srvlog programname; max 10)
 {{ range .TopPrograms -}}
-- `{{ sanitize .Programname }}` — {{ .Count }} events ({{ .ErrorCount }} severity ≤ 3) · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
+- `{{ truncate (sanitize .Programname) 64 }}` — {{ .Count }} events ({{ .ErrorCount }} severity ≤ 3) · severity mix: {{ range $sev, $cnt := .SeverityCounts }}{{ severityLabel $sev }}={{ $cnt }} {{ end }}
 {{ end }}
 {{- end }}
 {{- if index .Unavailable "top_facilities" }}
@@ -74,7 +74,7 @@ _Unavailable — this lookup failed for this run. Do not read it as "no host had
 {{- else if .TopErrorHosts }}
 ## Hosts with Most Errors in this window (severity ≤ 3, max 15)
 {{ range .TopErrorHosts -}}
-- `{{ sanitize .Hostname }}` — {{ .Count }} errors · top msgid: `{{ truncate (sanitize .TopMsgID) 80 }}`
+- `{{ truncate (sanitize .Hostname) 64 }}` — {{ .Count }} errors · top msgid: `{{ truncate (sanitize .TopMsgID) 80 }}`
 {{ end }}
 {{- end }}
 {{- end }}
@@ -89,7 +89,7 @@ _First-observed samples are unavailable for this run (the lookup failed)._
 {{ range .NewMsgIDs -}}
 - `{{ truncate (sanitize .) 80 }}`{{ if index $.JuniperRefs . }} — {{ (index $.JuniperRefs .).Description }}{{ if (index $.JuniperRefs .).Cause }} · Cause: {{ (index $.JuniperRefs .).Cause }}{{ end }}{{ end }}
 {{- if index $.NewMsgIDSamples . }}
-  - **First observed:** {{ (index $.NewMsgIDSamples .).ReceivedAt.Format "15:04:05" }} on `{{ sanitize (index $.NewMsgIDSamples .).Hostname }}` ({{ severityLabel (index $.NewMsgIDSamples .).Severity }}): `{{ sanitize (index $.NewMsgIDSamples .).Message }}`
+  - **First observed:** {{ (index $.NewMsgIDSamples .).ReceivedAt.Format "15:04:05" }} on `{{ truncate (sanitize (index $.NewMsgIDSamples .).Hostname) 64 }}` ({{ severityLabel (index $.NewMsgIDSamples .).Severity }}): `{{ sanitize (index $.NewMsgIDSamples .).Message }}`
 {{- end }}
 {{ end }}
 {{- if .NewMsgIDsOmitted -}}
@@ -106,7 +106,7 @@ _Unavailable — this lookup failed for this run. Do not read it as "no clusters
 {{- else if .EventClusters }}
 ## Cross-Host Event Clusters (5-minute windows in this incident period; ≥2 hosts firing the same msgid; max 8)
 {{ range .EventClusters -}}
-- {{ .Bucket.Format "2006-01-02 15:04 UTC" }} — {{ .Total }} events across [{{ join (sanitizeAll .Hosts) ", " }}]; msgids: [{{ join (truncateAll (sanitizeAll .MsgIDs) 60) ", " }}]
+- {{ .Bucket.Format "2006-01-02 15:04 UTC" }} — {{ .Total }} events across {{ .HostCount }} hosts [{{ capNames .Hosts .HostCount 64 }}]; msgids: [{{ capNames .MsgIDs .MsgIDCount 60 }}]
 {{ end }}
 {{- else }}
 ## Cross-Host Event Clusters

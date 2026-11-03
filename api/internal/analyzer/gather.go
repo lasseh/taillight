@@ -73,6 +73,12 @@ const (
 	// then dropped the start of the prompt, system message included.
 	newMsgIDLimit = 20
 
+	// clusterNameLimit caps the hosts and the signatures one cluster line
+	// names. Syslog senders set their own hostname and MSGID, so one window
+	// can hold thousands of distinct names; the line names the busiest and
+	// counts the rest.
+	clusterNameLimit = 10
+
 	// topMsgIDSampleCount is the number of representative messages attached
 	// per top event signature. Two samples give the model both freshness
 	// and a hedge against an outlier first example without exploding the
@@ -336,7 +342,7 @@ func (a *Analyzer) gather(ctx context.Context, scope model.AnalysisScope, period
 		a.logger.Info("gathering event clusters", "feed", feed)
 		data.EventClusters, err = bestEffort(ctx, a.logger, data.Unavailable, unavailableEventClusters,
 			func() ([]model.EventCluster, error) {
-				return a.store.GetEventClusters(ctx, scope, periodStart, clusterWindowMin)
+				return a.store.GetEventClusters(ctx, scope, periodStart, clusterWindowMin, clusterNameLimit)
 			})
 		if err != nil {
 			return data, err

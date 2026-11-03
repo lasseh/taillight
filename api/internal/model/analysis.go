@@ -382,11 +382,15 @@ type SeverityComparison struct {
 }
 
 // EventCluster represents a time window with correlated events across hosts.
+// Hosts and MsgIDs hold the busiest names only; HostCount and MsgIDCount are
+// the true number of distinct names in the window.
 type EventCluster struct {
-	Bucket time.Time `json:"bucket"`
-	Hosts  []string  `json:"hosts"`
-	MsgIDs []string  `json:"msgids"`
-	Total  int64     `json:"total"`
+	Bucket     time.Time `json:"bucket"`
+	Hosts      []string  `json:"hosts"`
+	HostCount  int       `json:"host_count"`
+	MsgIDs     []string  `json:"msgids"`
+	MsgIDCount int       `json:"msgid_count"`
+	Total      int64     `json:"total"`
 }
 
 // ProgramCount holds a srvlog programname (sshd, systemd, kernel, cron…)

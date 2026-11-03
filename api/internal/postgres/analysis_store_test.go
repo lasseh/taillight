@@ -65,6 +65,7 @@ func TestAnalysisQueriesHaveNoMaterializedCTE(t *testing.T) {
 	builders := map[string]func(model.AnalysisScope) string{
 		"topErrorHostsQuery": topErrorHostsQuery,
 		"newMsgIDsQuery":     newMsgIDsQuery,
+		"eventClustersQuery": eventClustersQuery,
 	}
 
 	for name, build := range builders {
@@ -95,6 +96,26 @@ func TestTopErrorHostsQueryFiltersEveryScan(t *testing.T) {
 			}
 			if got := strings.Count(sql, "severity <= 3"); got != 2 {
 				t.Errorf("got %d occurrences of `severity <= 3`, want 2\n%s", got, sql)
+			}
+		})
+	}
+}
+
+func TestEventClustersQueryFiltersEveryScan(t *testing.T) {
+	for _, tc := range analysisScopes() {
+		t.Run(tc.name, func(t *testing.T) {
+			sql := eventClustersQuery(tc.scope)
+
+			// The bucket scan and both per-bucket list scans each carry the
+			// window bound, and the lists rank by count, not by name.
+			if got := strings.Count(sql, "received_at >= $1"); got != 3 {
+				t.Errorf("got %d occurrences of `received_at >= $1`, want 3 (buckets + two lists)\n%s", got, sql)
+			}
+			if got := strings.Count(sql, "ORDER BY count(*) DESC"); got != 2 {
+				t.Errorf("got %d count-ranked lists, want 2\n%s", got, sql)
+			}
+			if strings.Contains(sql, "array_agg(DISTINCT") {
+				t.Errorf("name-sorted array_agg(DISTINCT) list reintroduced\n%s", sql)
 			}
 		})
 	}

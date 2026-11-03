@@ -31,13 +31,13 @@ _None — no service logged at WARN or above this period._
 {{- range $s.ErrorTemplates }}
 - {{ .Level }} {{ if .Component }}`{{ sanitize .Component }}`{{ else }}(no component){{ end }} `{{ truncate (sanitize .Pattern) 120 }}` — {{ .Count }} events · {{ .HostCount }} host(s) · {{ .FirstSeen.Format "15:04" }}–{{ .LastSeen.Format "15:04" }}
 {{- if .Sample }}
-  - sample {{ .Sample.ReceivedAt.Format "15:04" }} `{{ sanitize .Sample.Host }}`: `{{ sanitize .Sample.Msg }}`{{ if .Sample.Attrs }} · attrs: `{{ sanitize .Sample.Attrs }}`{{ end }}
+  - sample {{ .Sample.ReceivedAt.Format "15:04" }} `{{ truncate (sanitize .Sample.Host) 64 }}`: `{{ sanitize .Sample.Msg }}`{{ if .Sample.Attrs }} · attrs: `{{ sanitize .Sample.Attrs }}`{{ end }}
 {{- end }}
 {{- end }}
 {{- range $s.WarnTemplates }}
 - {{ .Level }} {{ if .Component }}`{{ sanitize .Component }}`{{ else }}(no component){{ end }} `{{ truncate (sanitize .Pattern) 120 }}` — {{ .Count }} events · {{ .HostCount }} host(s) · {{ .FirstSeen.Format "15:04" }}–{{ .LastSeen.Format "15:04" }}
 {{- if .Sample }}
-  - sample {{ .Sample.ReceivedAt.Format "15:04" }} `{{ sanitize .Sample.Host }}`: `{{ sanitize .Sample.Msg }}`{{ if .Sample.Attrs }} · attrs: `{{ sanitize .Sample.Attrs }}`{{ end }}
+  - sample {{ .Sample.ReceivedAt.Format "15:04" }} `{{ truncate (sanitize .Sample.Host) 64 }}`: `{{ sanitize .Sample.Msg }}`{{ if .Sample.Attrs }} · attrs: `{{ sanitize .Sample.Attrs }}`{{ end }}
 {{- end }}
 {{- end }}
 {{ end }}
@@ -58,7 +58,7 @@ _Unavailable — this lookup failed for this run. Do not read it as "no new sign
 {{ range .NewTemplates -}}
 - {{ .Level }} `{{ sanitize .Service }}` / {{ if .Component }}`{{ sanitize .Component }}`{{ else }}(no component){{ end }} `{{ truncate (sanitize .Pattern) 120 }}` — {{ .Count }} events · {{ .HostCount }} host(s) · first seen {{ .FirstSeen.Format "2006-01-02 15:04 UTC" }}
 {{- if .Sample }}
-  - sample {{ .Sample.ReceivedAt.Format "15:04" }} `{{ sanitize .Sample.Host }}`: `{{ sanitize .Sample.Msg }}`{{ if .Sample.Attrs }} · attrs: `{{ sanitize .Sample.Attrs }}`{{ end }}
+  - sample {{ .Sample.ReceivedAt.Format "15:04" }} `{{ truncate (sanitize .Sample.Host) 64 }}`: `{{ sanitize .Sample.Msg }}`{{ if .Sample.Attrs }} · attrs: `{{ sanitize .Sample.Attrs }}`{{ end }}
 {{- end }}
 {{ end }}
 {{- else }}

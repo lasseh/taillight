@@ -128,3 +128,37 @@ func TestAppLogPromptBudget(t *testing.T) {
 		}
 	}
 }
+
+// TestAppLogPromptBudgetLongHostnames puts an oversized host on every sample
+// in every applog mode: the host slot is cut to 64 characters, so the prompt
+// stays inside the same budget.
+func TestAppLogPromptBudgetLongHostnames(t *testing.T) {
+	spec, _ := model.AnalysisFeedSpecFor(model.AnalysisFeedApplog)
+	for _, mode := range spec.Modes {
+		t.Run(mode, func(t *testing.T) {
+			data := applogBudgetFixture()
+			tmpls := data.NewTemplates
+			for _, rep := range data.Ranked {
+				tmpls = append(append(tmpls, rep.ErrorTemplates...), rep.WarnTemplates...)
+			}
+			for _, tm := range tmpls {
+				if tm.Sample != nil { // Sample is a pointer, so this edits the fixture.
+					tm.Sample.Host = hugeHostname
+				}
+			}
+			_, usr, err := buildAppLogPrompt(data, "", mode)
+			if err != nil {
+				t.Fatalf("buildAppLogPrompt: %v", err)
+			}
+			if len(usr) > applogPromptBudgetBytes {
+				t.Errorf("user prompt is %d bytes, over the %d-byte budget", len(usr), applogPromptBudgetBytes)
+			}
+			if strings.Contains(usr, strings.Repeat("h", 65)) {
+				t.Errorf("a sample host renders more than 64 characters")
+			}
+			if !strings.Contains(usr, "`"+strings.Repeat("h", 64)+"…`") {
+				t.Errorf("rendered prompt missing the cut sample host")
+			}
+		})
+	}
+}

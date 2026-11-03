@@ -466,6 +466,53 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, scope model.AnalysisScope, sin
 	return msgids, nil
 }
 
+// eventClustersQuery builds the GetEventClusters SQL. The outer subquery
+// picks the busiest buckets and counts their distinct hosts and signatures;
+// each list is then read from that bucket alone, ranked by event count with
+// the name as tiebreak, so the hosts that logged most stay in view; a
+// name-sorted list would show whichever names sort first. Each scan repeats
+// the source with its own time predicate, per the note above.
+func eventClustersQuery(scope model.AnalysisScope) string {
+	// Hosts param is $4 (existing args: since, interval, nameLimit).
+	source := scopedSource(scope, "received_at, hostname, msgid, msg_pattern", 4)
+	keyExpr := eventKeyExpr(scope.Feed)
+	// The first bucket can start before $1, so the per-bucket scans keep the
+	// window bound as well.
+	inBucket := "received_at >= $1 AND received_at >= top.bucket AND received_at < top.bucket + $2::interval"
+
+	return fmt.Sprintf(`
+		SELECT top.bucket, top.host_count, top.msgid_count, top.total,
+		       ARRAY(
+		           SELECT hostname
+		           FROM %[2]s
+		           WHERE %[4]s
+		           GROUP BY hostname
+		           ORDER BY count(*) DESC, hostname
+		           LIMIT $3
+		       ) AS hosts,
+		       ARRAY(
+		           SELECT %[1]s AS event_key
+		           FROM %[2]s
+		           WHERE %[4]s AND %[1]s <> ''
+		           GROUP BY event_key
+		           ORDER BY count(*) DESC, event_key
+		           LIMIT $3
+		       ) AS msgids
+		FROM (
+			SELECT time_bucket($2::interval, received_at) AS bucket,
+			       count(DISTINCT hostname) AS host_count,
+			       count(DISTINCT %[1]s) FILTER (WHERE %[1]s <> '') AS msgid_count,
+			       count(*) AS total
+			FROM %[2]s
+			WHERE received_at >= $1
+			GROUP BY bucket
+			HAVING count(DISTINCT hostname) > 1
+			ORDER BY total DESC
+			LIMIT %[3]d
+		) top
+		ORDER BY top.total DESC`, keyExpr, source, eventClusterLimit, inBucket)
+}
+
 // GetEventClusters returns time windows where events from multiple hosts overlap.
 // The scope parameter selects which feed and (optionally) which hosts to
 // query. Note: the analyzer skips this query when the scope already restricts
@@ -474,32 +521,19 @@ func (s *Store) GetNewMsgIDs(ctx context.Context, scope model.AnalysisScope, sin
 // Cluster signatures use the same msgid-or-msg_pattern fallback as the rest
 // of the analyzer (see eventKeyExpr), so srvlog clusters surface even when
 // the underlying rows have no RFC 5424 MSGID.
-func (s *Store) GetEventClusters(ctx context.Context, scope model.AnalysisScope, since time.Time, windowMinutes int) ([]model.EventCluster, error) {
-	// Hosts param is $3 (existing args: since, interval).
-	source := scopedSource(scope, "received_at, hostname, msgid, msg_pattern", 3)
-	keyExpr := eventKeyExpr(scope.Feed)
-
-	query := fmt.Sprintf(`
-		SELECT time_bucket($2::interval, received_at) AS bucket,
-		       array_agg(DISTINCT hostname) AS hosts,
-		       array_agg(DISTINCT %s) FILTER (WHERE %s <> '') AS msgids,
-		       count(*) AS total
-		FROM %s
-		WHERE received_at >= $1
-		GROUP BY bucket
-		HAVING count(DISTINCT hostname) > 1
-		ORDER BY total DESC
-		LIMIT %d`, keyExpr, keyExpr, source, eventClusterLimit)
-
+//
+// Each cluster lists at most nameLimit hosts and nameLimit signatures, the
+// busiest first; HostCount and MsgIDCount carry the full distinct counts.
+func (s *Store) GetEventClusters(ctx context.Context, scope model.AnalysisScope, since time.Time, windowMinutes, nameLimit int) ([]model.EventCluster, error) {
 	interval := fmt.Sprintf("%d minutes", windowMinutes)
-	rows, err := s.pool.Query(ctx, query, appendHostsArg([]any{since, interval}, scope)...)
+	rows, err := s.pool.Query(ctx, eventClustersQuery(scope), appendHostsArg([]any{since, interval, nameLimit}, scope)...)
 	if err != nil {
 		return nil, fmt.Errorf("event clusters query: %w", err)
 	}
 
 	clusters, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.EventCluster, error) {
 		var c model.EventCluster
-		err := row.Scan(&c.Bucket, &c.Hosts, &c.MsgIDs, &c.Total)
+		err := row.Scan(&c.Bucket, &c.HostCount, &c.MsgIDCount, &c.Total, &c.Hosts, &c.MsgIDs)
 		return c, err
 	})
 	if err != nil {
