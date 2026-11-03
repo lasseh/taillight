@@ -193,6 +193,50 @@ func TestSSEStreamer_DedupBackfilledLive(t *testing.T) {
 	}
 }
 
+// Events reach the broker out of ID order, so the live loop skips only the IDs
+// the backfill sent: a live event below the highest backfilled ID, or below
+// the resume cursor, was committed after the backfill query and is new to the
+// client.
+func TestSSEStreamer_LiveDedupSkipsOnlyBackfilledIDs(t *testing.T) {
+	tests := []struct {
+		name        string
+		lastEventID int64
+		recent      []model.SrvlogEvent // DESC
+		since       []model.SrvlogEvent // ASC
+		want        []int64
+	}{
+		{"fresh connect", 0, srvlogEvents(7, 6, 5), nil, []int64{5, 6, 7, 4, 8}},
+		{"resume", 2, nil, srvlogEvents(5, 6, 7), []int64{5, 6, 7, 4, 8}},
+		{"resume with nothing to backfill", 7, nil, nil, []int64{6, 4, 8}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := broker.NewSrvlogBroker(testLogger())
+			s := newSrvlogStreamer(b,
+				func() ([]model.SrvlogEvent, error) { return tt.recent, nil },
+				func() ([]model.SrvlogEvent, error) { return tt.since, nil },
+			)
+			sink := &recordSink{}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			go func() { _ = s.run(ctx, sink, model.SrvlogFilter{}, tt.lastEventID, "test") }()
+			waitForSubscriber(t, b)
+			// Buffered until the backfill is done. 8 comes last, so once it
+			// is written the earlier two have been delivered or skipped.
+			for _, id := range []int64{6, 4, 8} {
+				b.Broadcast(model.SrvlogEvent{ID: id})
+			}
+
+			ids := waitForIDs(t, sink, len(tt.want))
+			cancel()
+			if !slices.Equal(ids, tt.want) {
+				t.Fatalf("ids = %v, want %v", ids, tt.want)
+			}
+		})
+	}
+}
+
 // An event broadcast while the backfill query is running must not be lost,
 // because Subscribe happens before backfill.
 func TestSSEStreamer_NoLossDuringBackfill(t *testing.T) {
@@ -240,7 +284,7 @@ func TestSSEStreamer_SinceMode(t *testing.T) {
 	waitForSubscriber(t, b)
 	waitForIDs(t, sink, 2)
 
-	b.Broadcast(model.SrvlogEvent{ID: 7}) // <= last backfilled (7) → skipped
+	b.Broadcast(model.SrvlogEvent{ID: 7}) // already backfilled → skipped
 	b.Broadcast(model.SrvlogEvent{ID: 8}) // new → delivered
 
 	ids := waitForIDs(t, sink, 3)
@@ -345,6 +389,29 @@ func TestSSEStreamer_LifetimeEndsStream(t *testing.T) {
 	}
 }
 
+// Each stream draws its default lifetime within sseLifetimeJitter of
+// sseMaxLifetime, so streams opened together do not end together. A lifetime
+// set by a test is used exactly.
+func TestSSEStreamer_LifetimeJitter(t *testing.T) {
+	var s sseStreamer[model.SrvlogEvent, model.SrvlogFilter]
+	drawn := make(map[time.Duration]bool)
+	for range 20 {
+		d := s.maxLifetime()
+		if d < sseMaxLifetime-sseLifetimeJitter || d > sseMaxLifetime+sseLifetimeJitter {
+			t.Fatalf("lifetime %v outside %v ± %v", d, sseMaxLifetime, sseLifetimeJitter)
+		}
+		drawn[d] = true
+	}
+	if len(drawn) < 2 {
+		t.Fatalf("20 streams all drew the same lifetime %v", drawn)
+	}
+
+	s.lifetime = 200 * time.Millisecond
+	if d := s.maxLifetime(); d != s.lifetime {
+		t.Fatalf("set lifetime came back as %v, want exactly %v", d, s.lifetime)
+	}
+}
+
 // largeEventBody makes each event a quarter of the broker's 16 MiB
 // per-subscription byte budget, so a few events pass it.
 var largeEventBody = strings.Repeat("x", 4<<20)
@@ -405,6 +472,50 @@ func TestSSEStreamer_EvictedSlowReaderEndsStream(t *testing.T) {
 	}
 	if ids, _ := sink.snapshot(); !slices.Equal(ids, []int64{1}) {
 		t.Fatalf("ids = %v, want [1]: the evicted backlog was written", ids)
+	}
+}
+
+// When the lifetime runs out, the events already queued on the subscription
+// are written before the stream ends, so events broadcast just before the end
+// are not discarded.
+func TestSSEStreamer_LifetimeEndWritesQueuedEvents(t *testing.T) {
+	b := broker.NewSrvlogBroker(testLogger())
+	s := newSrvlogStreamer(b,
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+		func() ([]model.SrvlogEvent, error) { return nil, nil },
+	)
+	s.lifetime = 200 * time.Millisecond
+	sink := &gatedSink{entered: make(chan struct{}), release: make(chan struct{})}
+
+	done := make(chan struct{})
+	go func() {
+		_ = s.run(context.Background(), sink, model.SrvlogFilter{}, 0, "test")
+		close(done)
+	}()
+	waitForSubscriber(t, b)
+	b.Broadcast(model.SrvlogEvent{ID: 1})
+	select {
+	case <-sink.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first event never reached the sink")
+	}
+
+	// Queued behind the write in progress, which outlasts the lifetime.
+	want := []int64{1}
+	for id := int64(2); id <= 11; id++ {
+		b.Broadcast(model.SrvlogEvent{ID: id})
+		want = append(want, id)
+	}
+	time.Sleep(2 * s.lifetime)
+	close(sink.release)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not return after its lifetime ran out")
+	}
+	if ids, _ := sink.snapshot(); !slices.Equal(ids, want) {
+		t.Fatalf("ids = %v, want %v: queued events were discarded", ids, want)
 	}
 }
 

@@ -619,8 +619,9 @@ paths:
 
         - Event name: `srvlog`
         - Heartbeat every 15 s: `event: heartbeat`
-        - The server ends the stream after 5 minutes. Reconnect with
-          `Last-Event-ID` to resume; the reconnect is authorized again.
+        - The server ends the stream after 5 minutes, give or take 45 s.
+          Reconnect with `Last-Event-ID` to resume; the reconnect is
+          authorized again.
         - The server also ends the stream early when the client falls more
           than 16 MiB of events behind. Reconnect the same way.
         - `event: resync` (empty data, no id) follows a resume backfill
@@ -1043,8 +1044,9 @@ paths:
 
         - Event name: `netlog`
         - Heartbeat every 15 s: `event: heartbeat`
-        - The server ends the stream after 5 minutes. Reconnect with
-          `Last-Event-ID` to resume; the reconnect is authorized again.
+        - The server ends the stream after 5 minutes, give or take 45 s.
+          Reconnect with `Last-Event-ID` to resume; the reconnect is
+          authorized again.
         - The server also ends the stream early when the client falls more
           than 16 MiB of events behind. Reconnect the same way.
         - `event: resync` (empty data, no id) follows a resume backfill
@@ -1518,8 +1520,9 @@ paths:
 
         - Event name: `applog`
         - Heartbeat every 15 s: `event: heartbeat`
-        - The server ends the stream after 5 minutes. Reconnect with
-          `Last-Event-ID` to resume; the reconnect is authorized again.
+        - The server ends the stream after 5 minutes, give or take 45 s.
+          Reconnect with `Last-Event-ID` to resume; the reconnect is
+          authorized again.
         - The server also ends the stream early when the client falls more
           than 16 MiB of events behind. Reconnect the same way.
         - `event: resync` (empty data, no id) follows a resume backfill

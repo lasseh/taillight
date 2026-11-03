@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"time"
@@ -40,11 +41,16 @@ const (
 	sseBackfillLimit   = 100
 	sseHeartbeatPeriod = 15 * time.Second
 	sseWriteTimeout    = 30 * time.Second
-	// sseMaxLifetime ends every stream after this long. Auth runs only when a
-	// stream connects, so the client's reconnect is what re-checks its
-	// credential: a revoked key, ended session or deactivated user stops
-	// receiving events within this bound.
+	// sseMaxLifetime ends every stream after this long, give or take
+	// sseLifetimeJitter. Auth runs only when a stream connects, so the
+	// client's reconnect is what re-checks its credential: a revoked key,
+	// ended session or deactivated user stops receiving events within
+	// sseMaxLifetime + sseLifetimeJitter.
 	sseMaxLifetime = 5 * time.Minute
+	// sseLifetimeJitter spreads the forced reconnects, so the streams one
+	// client opens together, and every client's streams after an API restart,
+	// do not end and resume in step.
+	sseLifetimeJitter = sseMaxLifetime * 15 / 100
 	// sseBackfillTimeout bounds the connect-time backfill query, including
 	// the wait for a database connection, so a busy read pool delays a new
 	// stream by at most this long before live delivery starts.
@@ -118,7 +124,7 @@ type sseStreamer[E any, F interface{ Matches(E) bool }] struct {
 
 	heartbeat       time.Duration // 0 → sseHeartbeatPeriod (overridable in tests)
 	writeTimeout    time.Duration // 0 → sseWriteTimeout (overridable in tests)
-	lifetime        time.Duration // 0 → sseMaxLifetime (overridable in tests)
+	lifetime        time.Duration // 0 → sseMaxLifetime ± sseLifetimeJitter (overridable in tests)
 	backfillTimeout time.Duration // 0 → sseBackfillTimeout (overridable in tests)
 }
 
@@ -133,7 +139,7 @@ func (s sseStreamer[E, F]) maxLifetime() time.Duration {
 	if s.lifetime > 0 {
 		return s.lifetime
 	}
-	return sseMaxLifetime
+	return sseMaxLifetime - sseLifetimeJitter + rand.N(2*sseLifetimeJitter+1)
 }
 
 func (s sseStreamer[E, F]) backfillDeadline() time.Duration {
@@ -186,7 +192,7 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 	// before-bytes error contract above (audit N4).
 	sink.flush()
 
-	lastBackfilledID := s.backfill(ctx, sink, filter, lastEventID)
+	backfilled := s.backfill(ctx, sink, filter, lastEventID)
 
 	heartbeat := time.NewTicker(s.heartbeatPeriod())
 	defer heartbeat.Stop()
@@ -199,7 +205,7 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 			}
 			sub.Consumed(msg)
 			// Skip events already sent during backfill.
-			if msg.ID <= lastBackfilledID {
+			if _, sent := backfilled[msg.ID]; sent {
 				continue
 			}
 			if err := sink.setWriteDeadline(time.Now().Add(s.writeDeadline())); err != nil {
@@ -220,6 +226,7 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 			}
 			sink.flush()
 		case <-lifetime.C:
+			s.drain(sink, sub, backfilled)
 			return nil
 		case <-ctx.Done():
 			return nil
@@ -227,12 +234,45 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 	}
 }
 
+// drain writes the events queued on sub when the lifetime runs out, so those
+// broadcast just before the end are not discarded. It takes only what is
+// queued when it starts, under one write deadline, so neither a busy feed nor
+// a slow client keeps the stream open past one write timeout.
+func (s sseStreamer[E, F]) drain(sink sseSink, sub *broker.Subscription[F], backfilled map[int64]struct{}) {
+	queued := len(sub.Chan())
+	if queued == 0 {
+		return
+	}
+	if err := sink.setWriteDeadline(time.Now().Add(s.writeDeadline())); err != nil {
+		s.logger.Warn(s.label+" sse: failed to set write deadline", "err", err)
+		return
+	}
+	for range queued {
+		// Only this goroutine receives, so the counted messages are there
+		// unless an eviction closed the channel.
+		msg, ok := <-sub.Chan()
+		if !ok {
+			break
+		}
+		sub.Consumed(msg)
+		if _, sent := backfilled[msg.ID]; sent {
+			continue
+		}
+		if err := sink.writeEvent(msg.ID, s.label, msg.Data); err != nil {
+			return
+		}
+	}
+	sink.flush()
+}
+
 // backfill sends recent events (or events since lastEventID) to a newly
-// connected client and returns the highest event ID sent, so the live loop can
-// skip duplicates. The query runs under its own deadline; a cancel is told
-// apart from a failed query by the request context ctx, so a resume that runs
-// out of time still gets its resync.
-func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F, lastEventID int64) int64 {
+// connected client and returns the IDs it sent, so the live loop skips those
+// and only those. Events reach the broker out of ID order, so a live event
+// below the highest backfilled ID, or below lastEventID, can still be new to
+// the client. The query runs under its own deadline; a cancel is told apart
+// from a failed query by the request context ctx, so a resume that runs out of
+// time still gets its resync.
+func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F, lastEventID int64) map[int64]struct{} {
 	queryCtx, cancel := context.WithTimeout(ctx, s.backfillDeadline())
 	defer cancel()
 
@@ -251,34 +291,36 @@ func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F,
 					sink.flush()
 				}
 			}
-			return lastEventID
+			return nil
 		}
 		truncated := len(events) > sseBackfillLimit
 		if truncated {
 			events = events[:sseBackfillLimit]
 		}
+		sent := make(map[int64]struct{}, len(events))
 		// since() is already in chronological order (ASC).
 		for i := range events {
 			data, ok := mustJSON(events[i])
 			if !ok {
 				continue
 			}
-			if err := sink.writeEvent(s.eventID(events[i]), s.label, data); err != nil {
-				return lastEventID
+			id := s.eventID(events[i])
+			if err := sink.writeEvent(id, s.label, data); err != nil {
+				return sent
 			}
+			sent[id] = struct{}{}
 		}
 		if truncated {
 			// Live delivery starts at the subscription, so the events past
 			// the limit would be skipped silently.
 			if err := sink.writeResync(); err != nil {
-				return lastEventID
+				return sent
 			}
 		}
 		if len(events) > 0 {
 			sink.flush()
-			return s.eventID(events[len(events)-1])
 		}
-		return lastEventID
+		return sent
 	}
 
 	// Default: send recent matching events.
@@ -289,22 +331,23 @@ func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F,
 		} else {
 			s.logger.Warn(s.label+" backfill failed", "err", err)
 		}
-		return 0
+		return nil
 	}
+	sent := make(map[int64]struct{}, len(recent))
 	// recent() is newest-first (DESC); emit oldest-first.
 	for i := len(recent) - 1; i >= 0; i-- {
 		data, ok := mustJSON(recent[i])
 		if !ok {
 			continue
 		}
-		if err := sink.writeEvent(s.eventID(recent[i]), s.label, data); err != nil {
-			return 0
+		id := s.eventID(recent[i])
+		if err := sink.writeEvent(id, s.label, data); err != nil {
+			return sent
 		}
+		sent[id] = struct{}{}
 	}
 	if len(recent) > 0 {
 		sink.flush()
-		// recent is ordered DESC, so [0] has the highest ID.
-		return s.eventID(recent[0])
 	}
-	return 0
+	return sent
 }

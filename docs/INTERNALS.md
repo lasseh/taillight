@@ -275,7 +275,7 @@ The backfill logic handles two cases:
 
 **Without `Last-Event-ID`** (fresh connection): Queries the most recent 100 matching events, then sends them oldest-first by iterating in reverse.
 
-The backfill returns the highest event ID sent, which is used for duplicate suppression.
+The backfill returns the set of event IDs it sent, and the live loop skips only those. Events reach the broker out of ID order (rsyslog batches commit from several workers, the ingest bridge runs several workers), so a live event below the highest backfilled ID, or below the resume cursor, can still be new to the client.
 
 ### 4. Event loop
 
@@ -288,7 +288,7 @@ for {
     case msg, ok := <-sub.Chan():
         if !ok { return }                           // channel closed (broker shutdown or eviction)
         sub.Consumed(msg)                           // release from the byte budget
-        if msg.ID <= lastBackfilledID { continue }  // duplicate suppression
+        if _, sent := backfilled[msg.ID]; sent { continue }  // duplicate suppression
         sink.setWriteDeadline(time.Now().Add(30 * time.Second))
         sink.writeEvent(msg.ID, label, msg.Data)
         sink.flush()
@@ -297,16 +297,17 @@ for {
         sink.writeHeartbeat()
         sink.flush()
     case <-lifetime.C:
-        return                                      // 5-minute lifetime reached
+        drain(sink, sub)                            // write what is already queued
+        return                                      // lifetime (5 min ± 45 s) reached
     case <-ctx.Done():
         return                                      // client disconnected
     }
 }
 ```
 
-Every write (event or heartbeat) sets a 30-second per-write deadline via `http.ResponseController`, so a dead TCP peer cannot wedge the handler goroutine.
+Every write (event or heartbeat) sets a 30-second per-write deadline via `http.ResponseController`, so a dead TCP peer cannot wedge the handler goroutine. When the lifetime runs out, the events already queued on the subscription are written under one such deadline before the stream ends, so events broadcast just before the end are not discarded. A broker shutdown, an eviction or a client disconnect ends the stream without that drain.
 
-Auth runs only when a stream connects, so every stream ends after `sseMaxLifetime` (5 minutes, timed from the subscribe). The client reconnects with `Last-Event-ID` through the auth middleware again, so a revoked key, ended session or deactivated user stops receiving events within that bound.
+Auth runs only when a stream connects, so every stream ends after `sseMaxLifetime` (5 minutes) give or take `sseLifetimeJitter` (45 s, drawn per stream), timed from the subscribe. The jitter keeps the streams a client opens together, and every client after an API restart, from reconnecting in step. The client reconnects with `Last-Event-ID` through the auth middleware again, so a revoked key, ended session or deactivated user stops receiving events within 5 minutes 45 seconds.
 
 ### 5. SSE frame format
 

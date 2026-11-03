@@ -18,7 +18,7 @@ type NetlogSSEHandler struct {
 	store    NetlogStore
 	mutes    MuteRuleSet
 	logger   *slog.Logger
-	lifetime time.Duration // 0 → sseMaxLifetime (overridable in tests)
+	lifetime time.Duration // 0 → sseMaxLifetime ± sseLifetimeJitter (overridable in tests)
 }
 
 // NewNetlogSSEHandler creates a new NetlogSSEHandler.
