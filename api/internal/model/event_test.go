@@ -561,7 +561,7 @@ func TestNetlogFilter_Matches_Search(t *testing.T) {
 // BenchmarkSrvlogFilter_Matches_Search tracks the SSE broadcast hot path, where
 // Matches runs once per subscriber. Matching is linear in the message length
 // for any search term, and lowers the message on each call: a message that
-// lowering changes (uppercase or non-ASCII letters) costs one allocation of
+// lowering changes (uppercase letters, ASCII or not) costs one allocation of
 // its size per match.
 func BenchmarkSrvlogFilter_Matches_Search(b *testing.B) {
 	longNeedle := strings.Repeat("a", maxFilterStringLen-1) + "b"

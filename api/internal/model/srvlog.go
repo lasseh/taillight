@@ -172,8 +172,9 @@ func matchField(value, pattern string) bool {
 // substrLower must already be lowercase (as produced by strings.ToLower);
 // filters precompute it at parse time. The match is linear in len(s) for any
 // needle, which it pays for by lowering s on every call: on the SSE broadcast
-// path that is once per subscriber, and it allocates a copy of s when s is a
-// []byte or contains uppercase or non-ASCII letters.
+// path that is once per subscriber. It copies s when lowering changes it
+// (uppercase letters, ASCII or not, or invalid UTF-8), and a []byte s may be
+// copied for the conversion.
 func containsFold[T ~string | ~[]byte](s T, substrLower string) bool {
 	if substrLower == "" {
 		return true

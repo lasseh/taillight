@@ -60,7 +60,7 @@ type Subscription[F any] struct {
 	clientKey string
 	// queued counts the Data bytes sent on ch and not yet released by
 	// Consumed. Every subscription counts a shared event's full size, so it is
-	// an upper bound on the heap the subscription holds.
+	// an upper bound on the heap its queue holds.
 	queued atomic.Int64
 }
 
