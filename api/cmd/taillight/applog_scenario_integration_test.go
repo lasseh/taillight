@@ -101,6 +101,13 @@ func TestIntegration_ApplogScenarioAnalysis(t *testing.T) {
 // applog_events table, skipping when no test database is configured.
 func applogTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	return migratedTestPool(t, "applog_events")
+}
+
+// migratedTestPool connects to a migrated test database and empties tables,
+// skipping when no test database is configured.
+func migratedTestPool(t *testing.T, tables ...string) *pgxpool.Pool {
+	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set; run `make test-integration` to exercise DB integration tests")
@@ -124,8 +131,10 @@ func applogTestPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, "TRUNCATE applog_events"); err != nil {
-		t.Fatalf("truncate: %v", err)
+	for _, table := range tables {
+		if _, err := pool.Exec(ctx, "TRUNCATE "+table); err != nil {
+			t.Fatalf("truncate %s: %v", table, err)
+		}
 	}
 	return pool
 }

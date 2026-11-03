@@ -325,7 +325,8 @@ export const useHomeStore = defineStore('home', () => {
   }
 
   async function fetchHeatmaps() {
-    const params = new URLSearchParams({ interval: '30m', range: '7d' })
+    // The heatmap reads only each bucket's total, so skip the per-host breakdown.
+    const params = new URLSearchParams({ interval: '30m', range: '7d', totals_only: 'true' })
 
     try {
       const res = await api.getSrvlogVolume(params)

@@ -524,6 +524,11 @@ paths:
       x-required-scope: read
       tags: [Srvlog]
       summary: List srvlog events
+      description: |
+        Rows carry a preview of their text: longer `message`,
+        `raw_message` and `structured_data` values are cut and the row
+        has `truncated: true`. The detail route and CSV export return the
+        full text.
       parameters:
         - $ref: "#/components/parameters/SrvlogHostname"
         - $ref: "#/components/parameters/SrvlogProgramname"
@@ -724,6 +729,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Interval"
         - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/TotalsOnly"
       responses:
         "200":
           description: Volume buckets
@@ -787,11 +793,51 @@ paths:
       description: |
         Per-host activity across the srvlog and netlog feeds — status, counts,
         trend, severity breakdown, hourly buckets, and top error sources.
+        One page of hosts per request: the search, filters and sort are
+        applied before `limit` and `offset`.
       parameters:
         - $ref: "#/components/parameters/Range"
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 500
+          description: Case-insensitive substring of the hostname
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [healthy, warning, critical]
+        - name: feed
+          in: query
+          schema:
+            type: string
+            enum: [srvlog, netlog, both]
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [errors, total, hostname, last_seen, trend]
+            default: errors
+          description: |
+            `hostname` sorts ascending, the others descending. Ties sort by
+            hostname.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         "200":
-          description: Host entries
+          description: One page of host entries
           content:
             application/json:
               schema:
@@ -801,6 +847,11 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/HostEntry"
+                  total:
+                    type: integer
+                    description: Hosts matching the search and filters, across all pages
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /srvlog/device/{hostname}:
     get:
@@ -835,6 +886,11 @@ paths:
       x-required-scope: read
       tags: [Netlog]
       summary: List netlog events
+      description: |
+        Rows carry a preview of their text: longer `message`,
+        `raw_message` and `structured_data` values are cut and the row
+        has `truncated: true`. The detail route and CSV export return the
+        full text.
       parameters:
         - $ref: "#/components/parameters/SrvlogHostname"
         - $ref: "#/components/parameters/SrvlogProgramname"
@@ -1079,6 +1135,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Interval"
         - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/TotalsOnly"
       responses:
         "200":
           description: Volume buckets
@@ -2080,6 +2137,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Interval"
         - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/TotalsOnly"
       responses:
         "200":
           description: Volume buckets
@@ -2644,6 +2702,17 @@ components:
         enum: [1h, 6h, 12h, 24h, 7d, 30d]
         default: "24h"
 
+    TotalsOnly:
+      name: totals_only
+      in: query
+      schema:
+        type: boolean
+        default: false
+      description: |
+        When true, each bucket carries only its total: `by_host` is `{}`
+        and `other` is 0. Values follow Go's strconv.ParseBool; anything
+        else is a 400.
+
     # Srvlog-specific
     SrvlogHostname:
       name: hostname
@@ -2952,6 +3021,13 @@ components:
         raw_message:
           type: string
           description: Omitted entirely (not null) when the event has none
+        truncated:
+          type: boolean
+          description: |
+            Set only on list rows (GET /srvlog and /netlog). True when
+            `message` was cut to 4096 bytes, or `raw_message` or
+            `structured_data` to 1024 bytes, on a UTF-8 character boundary.
+            Fetch the event by id for the full text. Omitted when false.
         muted_by:
           type: integer
           format: int64
@@ -3000,6 +3076,13 @@ components:
         raw_message:
           type: string
           description: Omitted entirely (not null) when the event has none
+        truncated:
+          type: boolean
+          description: |
+            Set only on list rows (GET /srvlog and /netlog). True when
+            `message` was cut to 4096 bytes, or `raw_message` or
+            `structured_data` to 1024 bytes, on a UTF-8 character boundary.
+            Fetch the event by id for the full text. Omitted when false.
         muted_by:
           type: integer
           format: int64
@@ -3108,10 +3191,17 @@ components:
           format: date-time
         total:
           type: integer
+          description: Every event in the bucket; the sum of `by_host` plus `other`
         by_host:
           type: object
           additionalProperties:
             type: integer
+          description: |
+            Counts for at most the 50 groups (hostnames, or services on
+            applog) with the most events over the whole range.
+        other:
+          type: integer
+          description: Events of the groups not in `by_host`
 
     SeverityVolumeBucket:
       type: object
@@ -3508,6 +3598,10 @@ components:
           type: object
           nullable: true
           additionalProperties: true
+          description: Omitted when the payload is over 8192 bytes of JSON text; see `payload_truncated`
+        payload_truncated:
+          type: boolean
+          description: True when the stored payload was left out for its size. Omitted when false.
 
     TestChannelResult:
       type: object

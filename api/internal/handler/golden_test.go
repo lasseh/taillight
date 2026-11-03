@@ -148,6 +148,16 @@ func TestGoldenEventShapes(t *testing.T) {
 	netlogNil.MutedBy = nil
 	checkGolden(t, "netlog_event_nil_fields.json", netlogNil)
 
+	// List preview: a row whose text was cut to the preview limits carries
+	// truncated; every other row omits it.
+	srvlogCut := goldenSrvlogEvent()
+	srvlogCut.Truncated = true
+	checkGolden(t, "srvlog_event_truncated.json", srvlogCut)
+
+	netlogCut := goldenNetlogEvent()
+	netlogCut.Truncated = true
+	checkGolden(t, "netlog_event_truncated.json", netlogCut)
+
 	checkGolden(t, "applog_event.json", goldenAppLogEvent())
 
 	// List/SSE preview: oversized attrs are stripped and flagged.

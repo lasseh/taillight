@@ -1,7 +1,11 @@
 export interface VolumeBucket {
   time: string
+  /** Every event in the bucket: the sum of by_host plus other. */
   total: number
+  /** Top groups (hosts or services) over the range; the server caps how many. */
   by_host: Record<string, number>
+  /** Events of the groups past the cap; 0 when none. */
+  other: number
 }
 
 export interface VolumeResponse {

@@ -63,6 +63,10 @@ func (s *recordingNetlogStore) ListNetlogs(_ context.Context, f model.NetlogFilt
 	return slices.Clone(s.events), nil, nil
 }
 
+func (s *recordingNetlogStore) ListNetlogPreviews(ctx context.Context, f model.NetlogFilter, c *model.Cursor, limit int) ([]model.NetlogEvent, *model.Cursor, error) {
+	return s.ListNetlogs(ctx, f, c, limit)
+}
+
 func (s *recordingNetlogStore) ListNetlogsSince(_ context.Context, _ model.NetlogFilter, _ int64, _ int) ([]model.NetlogEvent, error) {
 	out := slices.Clone(s.events)
 	slices.Reverse(out) // since is ASC
@@ -91,6 +95,10 @@ type recordingSrvlogStore struct {
 func (s *recordingSrvlogStore) ListSrvlogs(_ context.Context, f model.SrvlogFilter, _ *model.Cursor, _ int) ([]model.SrvlogEvent, *model.Cursor, error) {
 	s.gotFilter = &f
 	return slices.Clone(s.events), nil, nil
+}
+
+func (s *recordingSrvlogStore) ListSrvlogPreviews(ctx context.Context, f model.SrvlogFilter, c *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error) {
+	return s.ListSrvlogs(ctx, f, c, limit)
 }
 
 func (s *recordingSrvlogStore) ListSrvlogsSince(_ context.Context, _ model.SrvlogFilter, _ int64, _ int) ([]model.SrvlogEvent, error) {
@@ -210,6 +218,45 @@ func TestSrvlogListHideMuted(t *testing.T) {
 				t.Errorf("muted_by by id = %v, want only 2:8", got)
 			}
 		})
+	}
+}
+
+// TestListMarksBeforeCutting checks that a rule whose search term sits past
+// the message preview limit still marks the row, and that the row comes back
+// cut and flagged.
+func TestListMarksBeforeCutting(t *testing.T) {
+	long := strings.Repeat("x", model.MessagePreviewLimit) + " bundle ae30 down"
+	rules := mute.NewSet(nil, func() time.Time { return markNow }, slog.New(slog.DiscardHandler))
+	rules.Replace([]mute.Rule{
+		{ID: 7, Feed: mute.FeedNetlog, Search: "ae30", ExpiresAt: markNow.Add(time.Hour)},
+		{ID: 8, Feed: mute.FeedSrvlog, Search: "ae30", ExpiresAt: markNow.Add(time.Hour)},
+	})
+	netH := NewNetlogHandler(&recordingNetlogStore{events: []model.NetlogEvent{{ID: 1, Message: long}}}, rules)
+	srvH := NewSrvlogHandler(&recordingSrvlogStore{events: []model.SrvlogEvent{{ID: 1, Message: long}}}, rules)
+
+	type row struct {
+		Message   string `json:"message"`
+		Truncated bool   `json:"truncated"`
+		MutedBy   *int64 `json:"muted_by"`
+	}
+	for feed, tc := range map[string]struct {
+		rec  *httptest.ResponseRecorder
+		rule int64
+	}{
+		"netlog": {serve(t, "/netlog", "/netlog", netH.List), 7},
+		"srvlog": {serve(t, "/srvlog", "/srvlog", srvH.List), 8},
+	} {
+		rows := decodeData[[]row](t, tc.rec)
+		if len(rows) != 1 {
+			t.Fatalf("%s: got %d rows, want 1", feed, len(rows))
+		}
+		r := rows[0]
+		if r.MutedBy == nil || *r.MutedBy != tc.rule {
+			t.Errorf("%s: muted_by = %v, want %d", feed, r.MutedBy, tc.rule)
+		}
+		if len(r.Message) != model.MessagePreviewLimit || !r.Truncated {
+			t.Errorf("%s: message is %d bytes, truncated %v; want %d, true", feed, len(r.Message), r.Truncated, model.MessagePreviewLimit)
+		}
 	}
 }
 

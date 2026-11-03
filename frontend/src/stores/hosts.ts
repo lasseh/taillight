@@ -1,96 +1,91 @@
-import { ref, computed } from 'vue'
+import { ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
-import type { HostEntry } from '@/types/host'
+import { useDebounceFn } from '@/composables/useDebounceFn'
+import type { HostEntry, HostSort } from '@/types/host'
 
 const REFRESH_INTERVAL = 30_000 // 30 seconds
+const PAGE_SIZE = 100
+const SEARCH_DEBOUNCE_MS = 300
 
 export const useHostsStore = defineStore('hosts', () => {
+  // One page of hosts. The server applies the search, filters, sort and
+  // paging; total counts every host that matches.
   const hosts = ref<HostEntry[]>([])
+  const total = ref(0)
+  const offset = ref(0)
+  const pageSize = PAGE_SIZE
   const range_ = ref(localStorage.getItem('hosts-range') ?? '24h')
   const loading = ref(false)
   const error = ref<string | null>(null)
   const expanded = ref<Set<string>>(new Set())
 
-  // Filters + sort (client-side).
+  // Filters + sort (sent to the server).
   const search = ref('')
   const statusFilter = ref<'all' | 'healthy' | 'warning' | 'critical'>('all')
   const feedFilter = ref<'all' | 'srvlog' | 'netlog' | 'both'>('all')
-  const sortBy = ref<'errors' | 'total' | 'hostname' | 'last_seen' | 'trend'>('errors')
+  const sortBy = ref<HostSort>('errors')
   const groupBy = ref<'none' | 'feed' | 'status'>('none')
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
-
-  const filteredHosts = computed(() => {
-    let result = hosts.value
-
-    // Search filter.
-    if (search.value) {
-      const q = search.value.toLowerCase()
-      result = result.filter((h) => h.hostname.toLowerCase().includes(q))
-    }
-
-    // Status filter.
-    if (statusFilter.value !== 'all') {
-      result = result.filter((h) => h.status === statusFilter.value)
-    }
-
-    // Feed filter.
-    if (feedFilter.value !== 'all') {
-      result = result.filter((h) => h.feed === feedFilter.value)
-    }
-
-    // Sort.
-    const sorted = [...result]
-    sorted.sort((a, b) => {
-      switch (sortBy.value) {
-        case 'errors':
-          return b.error_count - a.error_count
-        case 'total':
-          return b.total_count - a.total_count
-        case 'hostname':
-          return a.hostname.localeCompare(b.hostname)
-        case 'last_seen': {
-          const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0
-          const tb = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0
-          return tb - ta
-        }
-        case 'trend':
-          return b.trend - a.trend
-        default:
-          return 0
-      }
-    })
-
-    return sorted
-  })
-
-  const statusCounts = computed(() => {
-    const counts = { total: 0, healthy: 0, warning: 0, critical: 0 }
-    for (const h of hosts.value) {
-      counts.total++
-      counts[h.status]++
-    }
-    return counts
-  })
+  let fetchVersion = 0
 
   async function fetchHosts() {
+    const version = ++fetchVersion
     loading.value = true
+    const params = new URLSearchParams({
+      range: range_.value,
+      sort: sortBy.value,
+      limit: String(PAGE_SIZE),
+      offset: String(offset.value),
+    })
+    if (search.value) params.set('search', search.value)
+    if (statusFilter.value !== 'all') params.set('status', statusFilter.value)
+    if (feedFilter.value !== 'all') params.set('feed', feedFilter.value)
     try {
-      const res = await api.getHostsSummary(range_.value)
+      const res = await api.getHostsSummary(params)
+      if (version !== fetchVersion) return
+      // Hosts aged out between polls can leave the offset past the end.
+      if (!res.data?.length && offset.value > 0) {
+        offset.value = 0
+        fetchHosts()
+        return
+      }
       hosts.value = res.data ?? []
+      total.value = res.total ?? 0
       error.value = null
     } catch (e) {
+      if (version !== fetchVersion) return
       error.value = e instanceof Error ? e.message : 'unknown error'
     } finally {
-      loading.value = false
+      if (version === fetchVersion) loading.value = false
     }
+  }
+
+  // A new search, filter, sort or range starts again at the first page.
+  function fetchFirstPage() {
+    offset.value = 0
+    fetchHosts()
+  }
+  watch(search, useDebounceFn(fetchFirstPage, SEARCH_DEBOUNCE_MS))
+  watch([statusFilter, feedFilter, sortBy], fetchFirstPage)
+
+  function nextPage() {
+    if (offset.value + PAGE_SIZE >= total.value) return
+    offset.value += PAGE_SIZE
+    fetchHosts()
+  }
+
+  function prevPage() {
+    if (offset.value === 0) return
+    offset.value = Math.max(0, offset.value - PAGE_SIZE)
+    fetchHosts()
   }
 
   function setRange(r: string) {
     range_.value = r
     localStorage.setItem('hosts-range', r)
-    fetchHosts()
+    fetchFirstPage()
   }
 
   function setStatusFilter(s: 'all' | 'healthy' | 'warning' | 'critical') {
@@ -123,6 +118,9 @@ export const useHostsStore = defineStore('hosts', () => {
 
   return {
     hosts,
+    total,
+    offset,
+    pageSize,
     range_,
     loading,
     error,
@@ -132,9 +130,9 @@ export const useHostsStore = defineStore('hosts', () => {
     feedFilter,
     sortBy,
     groupBy,
-    filteredHosts,
-    statusCounts,
     fetchHosts,
+    nextPage,
+    prevPage,
     setRange,
     setStatusFilter,
     toggle,

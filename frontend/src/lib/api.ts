@@ -362,9 +362,8 @@ export const api = {
     return fetchAPI(`/api/v1/srvlog/stats/summary${q}`)
   },
 
-  getHostsSummary(range?: string): Promise<HostsResponse> {
-    const q = range ? `?range=${encodeURIComponent(range)}` : ''
-    return fetchAPI(`/api/v1/srvlog/stats/hosts${q}`)
+  getHostsSummary(params: URLSearchParams): Promise<HostsResponse> {
+    return fetchAPI(`/api/v1/srvlog/stats/hosts?${params}`)
   },
 
   getAppLogSummary(range?: string): Promise<AppLogSummaryResponse> {

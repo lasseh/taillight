@@ -14,6 +14,9 @@ export interface SrvlogEvent {
   structured_data?: string
   message: string
   raw_message?: string
+  /** True on a list row whose message, raw_message or structured_data was cut
+   * to the preview size; fetch the event by id for the full text. */
+  truncated?: boolean
   /** Id of the mute rule that matched; absent (never null) when unmuted. */
   muted_by?: number
 }

@@ -30,7 +30,7 @@ func NewNetlogHandler(store NetlogStore, mutes MuteRuleSet) *NetlogHandler {
 
 // List handles GET /api/v1/netlog with filter and cursor pagination. With
 // hide_muted it excludes rows matching an active mute rule; either way it
-// marks the rows it returns.
+// marks the rows it returns. Row text is cut to the preview limits.
 func (h *NetlogHandler) List(w http.ResponseWriter, r *http.Request) {
 	filter, err := model.ParseNetlogFilter(r)
 	if err != nil {
@@ -50,7 +50,7 @@ func (h *NetlogHandler) List(w http.ResponseWriter, r *http.Request) {
 		filter.Exclude = snap.NetlogExclusions()
 	}
 
-	events, nextCursor, err := h.store.ListNetlogs(r.Context(), filter, cursor, limit)
+	events, nextCursor, err := h.store.ListNetlogPreviews(r.Context(), filter, cursor, limit)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -66,7 +66,12 @@ func (h *NetlogHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to query events")
 		return
 	}
+	// Mark before cutting, so a rule that matches past the preview limit
+	// still marks the row.
 	markNetlogs(snap, events)
+	for i := range events {
+		events[i] = events[i].WithPreview()
+	}
 
 	resp := listResponse{
 		Data:    emptySlice(events),

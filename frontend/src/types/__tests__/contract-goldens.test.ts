@@ -29,8 +29,10 @@ import listEnvelopeGolden from '../../../../api/internal/handler/testdata/golden
 import listEnvelopeLastPageGolden from '../../../../api/internal/handler/testdata/golden/list_envelope_last_page.json'
 import netlogEventGolden from '../../../../api/internal/handler/testdata/golden/netlog_event.json'
 import netlogEventNilGolden from '../../../../api/internal/handler/testdata/golden/netlog_event_nil_fields.json'
+import netlogEventTruncatedGolden from '../../../../api/internal/handler/testdata/golden/netlog_event_truncated.json'
 import srvlogEventGolden from '../../../../api/internal/handler/testdata/golden/srvlog_event.json'
 import srvlogEventNilGolden from '../../../../api/internal/handler/testdata/golden/srvlog_event_nil_fields.json'
+import srvlogEventTruncatedGolden from '../../../../api/internal/handler/testdata/golden/srvlog_event_truncated.json'
 
 function expectOnlyKnownKeys(golden: object, known: readonly string[]) {
   const unknown = Object.keys(golden).filter((key) => !known.includes(key))
@@ -54,6 +56,7 @@ const syslogEventKeys = [
   'structured_data',
   'message',
   'raw_message',
+  'truncated',
   'muted_by',
 ] as const satisfies readonly (keyof SrvlogEvent)[] satisfies readonly (keyof NetlogEvent)[]
 
@@ -87,7 +90,13 @@ describe('event shape goldens', () => {
     expect(minimal.structured_data).toBeUndefined()
     expect(minimal.raw_message).toBeUndefined()
     expect(minimal.muted_by).toBeUndefined()
+    expect(minimal.truncated).toBeUndefined()
     expectOnlyKnownKeys(srvlogEventNilGolden, syslogEventKeys)
+
+    // List preview: a row with text cut to the preview size is flagged.
+    const cut: SrvlogEvent = srvlogEventTruncatedGolden
+    expect(cut.truncated).toBe(true)
+    expectOnlyKnownKeys(srvlogEventTruncatedGolden, syslogEventKeys)
   })
 
   it('NetlogEvent matches the golden wire shape', () => {
@@ -100,7 +109,12 @@ describe('event shape goldens', () => {
     expect(minimal.structured_data).toBeUndefined()
     expect(minimal.raw_message).toBeUndefined()
     expect(minimal.muted_by).toBeUndefined()
+    expect(minimal.truncated).toBeUndefined()
     expectOnlyKnownKeys(netlogEventNilGolden, syslogEventKeys)
+
+    const cut: NetlogEvent = netlogEventTruncatedGolden
+    expect(cut.truncated).toBe(true)
+    expectOnlyKnownKeys(netlogEventTruncatedGolden, syslogEventKeys)
   })
 
   it('AppLogEvent matches the golden wire shape', () => {

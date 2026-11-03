@@ -106,7 +106,30 @@ onUnmounted(() => store.stopRefresh())
 
       <div class="flex-1"></div>
 
-      <span class="text-t-fg-dark text-xs">{{ store.filteredHosts.length }} hosts</span>
+      <span class="text-t-fg-dark text-xs">{{ store.total }} hosts</span>
+      <span v-if="store.total > store.pageSize" class="flex items-center gap-1 text-xs">
+        <button
+          class="text-t-fg-dark rounded px-1 transition-colors hover:text-t-fg disabled:opacity-40"
+          :disabled="store.offset === 0"
+          aria-label="Previous page"
+          @click="store.prevPage()"
+        >
+          &lsaquo;
+        </button>
+        <span class="text-t-fg-dark"
+          >{{ store.offset + 1 }}&ndash;{{
+            Math.min(store.offset + store.pageSize, store.total)
+          }}</span
+        >
+        <button
+          class="text-t-fg-dark rounded px-1 transition-colors hover:text-t-fg disabled:opacity-40"
+          :disabled="store.offset + store.pageSize >= store.total"
+          aria-label="Next page"
+          @click="store.nextPage()"
+        >
+          &rsaquo;
+        </button>
+      </span>
       <span v-if="store.loading" class="text-t-fg-dark animate-pulse text-xs">refreshing...</span>
 
       <div class="flex gap-1">
@@ -139,7 +162,7 @@ onUnmounted(() => store.stopRefresh())
 
     <!-- Empty -->
     <div
-      v-else-if="!store.filteredHosts.length && store.hosts.length"
+      v-else-if="!store.hosts.length && store.search"
       class="bg-t-bg-dark border-t-border rounded border px-6 py-10 text-center text-sm"
     >
       <span class="text-t-fg-dark">No hosts match your filter.</span>
@@ -173,7 +196,7 @@ onUnmounted(() => store.stopRefresh())
         </thead>
         <tbody>
           <tr
-            v-for="host in store.filteredHosts"
+            v-for="host in store.hosts"
             :key="host.hostname"
             class="border-t-border hover:bg-t-bg-dark cursor-pointer border-b transition-colors"
             @click="goToDevice(host)"

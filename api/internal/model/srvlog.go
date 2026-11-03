@@ -30,10 +30,60 @@ type SrvlogEvent struct {
 	StructuredData *string   `json:"structured_data,omitempty"`
 	Message        string    `json:"message"`
 	RawMessage     *string   `json:"raw_message,omitempty"`
+	// Truncated is true when a list response cut message, raw_message or
+	// structured_data to the preview limits. Fetch the event by id for the
+	// full text. Other endpoints never set it.
+	Truncated bool `json:"truncated,omitempty"`
 	// MutedBy is the id of the mute rule that matched this event. It is
 	// computed when the event is delivered, never stored, and omitted when no
 	// active rule matches.
 	MutedBy *int64 `json:"muted_by,omitempty"`
+}
+
+// Preview limits, in bytes, for the text of netlog and srvlog list rows.
+// GET /{id}, CSV export and the SSE streams keep the full text.
+const (
+	MessagePreviewLimit = 4096
+	// RawPreviewLimit caps raw_message and structured_data.
+	RawPreviewLimit = 1024
+)
+
+// WithPreview returns a copy of e with message, raw_message and
+// structured_data cut to the preview limits, and Truncated set when any was
+// cut. Mark mute rules before calling it, so matching sees the full message.
+func (e SrvlogEvent) WithPreview() SrvlogEvent {
+	var cutMsg, cutRaw, cutSD bool
+	e.Message, cutMsg = cutText(e.Message, MessagePreviewLimit)
+	e.RawMessage, cutRaw = cutRawPreview(e.RawMessage)
+	e.StructuredData, cutSD = cutRawPreview(e.StructuredData)
+	e.Truncated = cutMsg || cutRaw || cutSD
+	return e
+}
+
+// cutText returns s cut to at most n bytes, ending on a UTF-8 rune boundary,
+// and whether it was cut.
+func cutText(s string, n int) (string, bool) {
+	if len(s) <= n {
+		return s, false
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n], true
+}
+
+// cutRawPreview cuts an optional raw_message or structured_data to
+// RawPreviewLimit. It returns a new pointer when it cuts, so the caller's
+// string is left as it was.
+func cutRawPreview(s *string) (*string, bool) {
+	if s == nil {
+		return nil, false
+	}
+	cut, ok := cutText(*s, RawPreviewLimit)
+	if !ok {
+		return s, false
+	}
+	return &cut, true
 }
 
 // Severity codes per RFC 5424.

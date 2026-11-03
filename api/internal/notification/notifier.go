@@ -219,7 +219,14 @@ type LogEntry struct {
 	StatusCode *int            `json:"status_code,omitempty"`
 	DurationMS int             `json:"duration_ms"`
 	Payload    json.RawMessage `json:"payload,omitempty"`
+	// PayloadTruncated is true when the log listing left out a payload
+	// larger than LogPayloadPreviewLimit. The stored row keeps it.
+	PayloadTruncated bool `json:"payload_truncated,omitempty"`
 }
+
+// LogPayloadPreviewLimit caps, in bytes of JSON text, the payload the
+// notification log listing returns with each entry.
+const LogPayloadPreviewLimit = 8192
 
 // LogFilter holds query parameters for listing notification log entries.
 type LogFilter struct {

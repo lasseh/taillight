@@ -202,8 +202,8 @@ func (s *Store) listAppLogDistinctStrings(ctx context.Context, column string) ([
 }
 
 // GetAppLogVolume returns time-bucketed event counts grouped by service.
-func (s *Store) GetAppLogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	return s.getVolume(ctx, "applog_events", "service", interval, rangeDur)
+func (s *Store) GetAppLogVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error) {
+	return s.getVolume(ctx, "applog_events", "service", p)
 }
 
 // GetAppLogSeverityVolume returns time-bucketed event counts grouped by applog level.

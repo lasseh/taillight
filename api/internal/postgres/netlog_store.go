@@ -19,6 +19,19 @@ var netlogColumns = []string{
 	"structured_data", "message", "raw_message",
 }
 
+// netlogPreviewColumns is netlogColumns for list responses, in the same order
+// so scanNetlog reads both. structured_data and raw_message are cut in SQL to
+// one character past the preview limit: a few KB per row at most, and still
+// enough for model.NetlogEvent.WithPreview to see that a row was cut. message
+// stays whole so mute marking sees all of it.
+var netlogPreviewColumns = []string{
+	"id", "received_at", "reported_at", "hostname", "fromhost_ip",
+	"programname", "msgid", "severity", "facility", "syslogtag",
+	fmt.Sprintf("left(structured_data, %d) AS structured_data", model.RawPreviewLimit+1),
+	"message",
+	fmt.Sprintf("left(raw_message, %d) AS raw_message", model.RawPreviewLimit+1),
+}
+
 // allowedNetlogMetaColumns is a whitelist of columns that can be used in netlog meta queries.
 var allowedNetlogMetaColumns = map[string]struct{}{
 	"hostname":    {},
@@ -49,9 +62,21 @@ func (s *Store) GetNetlog(ctx context.Context, id int64) (model.NetlogEvent, err
 }
 
 // ListNetlogs returns netlog events matching the filter with cursor-based pagination.
-// It returns one extra row to determine if more pages exist.
+// It returns one extra row to determine if more pages exist. Rows carry the
+// full text; CSV export and the SSE recent backfill rely on this.
 func (s *Store) ListNetlogs(ctx context.Context, f model.NetlogFilter, cursor *model.Cursor, limit int) ([]model.NetlogEvent, *model.Cursor, error) {
-	qb := psq.Select(netlogColumns...).From("netlog_events")
+	return s.listNetlogs(ctx, netlogColumns, f, cursor, limit)
+}
+
+// ListNetlogPreviews is ListNetlogs for list responses: structured_data and
+// raw_message may come back cut (see netlogPreviewColumns), so callers apply
+// model.NetlogEvent.WithPreview to every row.
+func (s *Store) ListNetlogPreviews(ctx context.Context, f model.NetlogFilter, cursor *model.Cursor, limit int) ([]model.NetlogEvent, *model.Cursor, error) {
+	return s.listNetlogs(ctx, netlogPreviewColumns, f, cursor, limit)
+}
+
+func (s *Store) listNetlogs(ctx context.Context, columns []string, f model.NetlogFilter, cursor *model.Cursor, limit int) ([]model.NetlogEvent, *model.Cursor, error) {
+	qb := psq.Select(columns...).From("netlog_events")
 	qb = applyNetlogFilter(qb, f)
 
 	// Keyset (cursor) pagination using tuple comparison — Postgres evaluates
@@ -149,8 +174,8 @@ func (s *Store) listNetlogDistinctStrings(ctx context.Context, column string) ([
 }
 
 // GetNetlogVolume returns time-bucketed netlog event counts grouped by hostname.
-func (s *Store) GetNetlogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	return s.getVolume(ctx, "netlog_events", "hostname", interval, rangeDur)
+func (s *Store) GetNetlogVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error) {
+	return s.getVolume(ctx, "netlog_events", "hostname", p)
 }
 
 // GetNetlogSeverityVolume returns time-bucketed netlog event counts grouped by severity.

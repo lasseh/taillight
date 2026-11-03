@@ -65,4 +65,13 @@ describe('LogDetail', () => {
   it('pads nothing for a non-admin, who sees only the one permalink icon', () => {
     expect(paddedRows(mountDetail(ev({ muted_by: 5 }), false))).toEqual([])
   })
+
+  it('points to the full event only when the row text was cut', () => {
+    expect(
+      mountDetail(ev({ truncated: true }), false)
+        .find('[data-truncated]')
+        .exists(),
+    ).toBe(true)
+    expect(mountDetail(ev(), false).find('[data-truncated]').exists()).toBe(false)
+  })
 })
