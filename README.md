@@ -265,7 +265,7 @@ clients of this API — see that repo for installation, configuration, and usage
 | `RSYSLOG_SRVLOG_PORT` | `1515` | Host port for srvlog syslog input (`515` in production) |
 | `FRONTEND_HOST_PORT` | `3000` | Host port for the web UI |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
-| `AUTH_ENABLED` | `false` | Enable authentication |
+| `AUTH_ENABLED` | `true` | Enable authentication |
 | `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = trust only the TCP peer. Set it behind nginx or clients are attributed to the proxy IP. |
 | `API_URL` | *(empty)* | Frontend API URL (empty = same-origin) |
 
@@ -274,6 +274,8 @@ clients of this API — see that repo for installation, configuration, and usage
 CORS origins, connection pool sizes, retention policies, notification engine, SMTP, AI analysis, and Netbox enrichment. See [`config.yml.example`](api/config.yml.example) for all options.
 
 Environment variables always override config file values (Viper priority: defaults → config.yml → env vars).
+
+Boolean settings, in `.env` or `config.yml`, accept `true`, `false`, `1`, `0`, `t`, `f`, `TRUE`, `FALSE`, `True` and `False`. Any other value, such as `yes` or `on`, stops the API at startup.
 
 ## Local Development
 

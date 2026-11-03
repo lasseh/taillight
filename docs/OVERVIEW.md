@@ -304,6 +304,8 @@ Passwords, ports, and feature toggles that change between environments. Docker C
 
 Settings that rarely change between environments. Viper priority: defaults -> `config.yml` -> environment variables. Environment variables always override file values. Defaults below are the built-in defaults that apply when a key is absent; see [`config.yml.example`](../api/config.yml.example) for an annotated reference.
 
+Boolean settings, in `.env` or `config.yml`, accept `true`, `false`, `1`, `0`, `t`, `f`, `TRUE`, `FALSE`, `True` and `False`. Any other value, such as `yes` or `on`, stops the API at startup.
+
 #### Authentication
 
 | Key | Default | Description |
