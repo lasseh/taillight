@@ -462,17 +462,17 @@ The `SessionOrAPIKey` middleware tries authentication in order:
 
 ```go
 func HasGrant(scopes []string, user *model.User, scope string) bool {
+    if scope == ScopeAdmin && (user == nil || !user.IsAdmin) {
+        return false                // admin needs the user's current admin flag
+    }
     if scopes == nil {              // session auth
-        if scope == ScopeAdmin {
-            return user != nil && user.IsAdmin
-        }
         return user != nil          // sessions hold every non-admin scope
     }
     return hasScope(scopes, scope)  // API keys: listed scope, or "admin" implies all
 }
 ```
 
-Session auth is deliberately *not* a blanket grant: admin routes require the user's `is_admin` flag even with a valid session. Routes are grouped by scope in `serve.go`: `read` for GET endpoints, `ingest` for the POST ingest endpoint, and `admin` for write operations.
+Neither credential is a blanket admin grant: admin routes require the `is_admin` flag of the session user or of the API key's owner, read from the users row on every request. An admin-scope key whose owner is not an admin keeps the `read` and `ingest` grants that `admin` implies. When a login clears `is_admin` (`UpsertLDAPUser`, `UpsertOIDCUser`), the user's admin-scope keys are revoked in the same transaction, so a later re-promotion does not bring them back. Routes are grouped by scope in `serve.go`: `read` for GET endpoints, `ingest` for the POST ingest endpoint, and `admin` for write operations.
 
 ---
 

@@ -18,7 +18,7 @@ info:
     - `ingest` — the applog ingest endpoint (API key with `ingest` scope,
       or any session).
     - `admin` — write operations. Sessions require the user's admin flag;
-      API keys need the `admin` scope.
+      API keys need the `admin` scope and an owner with the admin flag.
   version: "1.0.0"
   license:
     name: MIT

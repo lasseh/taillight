@@ -442,6 +442,42 @@ func TestDenyWritesRawPeerCheck(t *testing.T) {
 	}
 }
 
+// TestHasGrant pins that the admin scope follows the user's current admin
+// flag for API keys as well as sessions, so an admin-scope key stops granting
+// admin once its owner is not an admin, while its other grants are unchanged.
+func TestHasGrant(t *testing.T) {
+	admin := &model.User{Username: "admin", IsActive: true, IsAdmin: true}
+	regular := &model.User{Username: "regular", IsActive: true}
+
+	tests := []struct {
+		name   string
+		scopes []string // nil = session auth
+		user   *model.User
+		scope  string
+		want   bool
+	}{
+		{"admin session holds admin", nil, admin, ScopeAdmin, true},
+		{"regular session lacks admin", nil, regular, ScopeAdmin, false},
+		{"regular session holds read", nil, regular, "read", true},
+		{"admin-owned admin key holds admin", []string{"admin"}, admin, ScopeAdmin, true},
+		{"admin key of a non-admin owner lacks admin", []string{"admin"}, regular, ScopeAdmin, false},
+		{"admin key of a non-admin owner still holds read", []string{"admin"}, regular, "read", true},
+		{"admin key of a non-admin owner still holds ingest", []string{"admin"}, regular, "ingest", true},
+		{"admin owner's read key lacks admin", []string{"read"}, admin, ScopeAdmin, false},
+		{"admin owner's read key holds read", []string{"read"}, admin, "read", true},
+		{"no user", nil, nil, "read", false},
+		{"no user with admin key", []string{"admin"}, nil, ScopeAdmin, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasGrant(tt.scopes, tt.user, tt.scope); got != tt.want {
+				t.Errorf("HasGrant(%v, %v, %q) = %v, want %v", tt.scopes, tt.user, tt.scope, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHasScope(t *testing.T) {
 	tests := []struct {
 		name   string

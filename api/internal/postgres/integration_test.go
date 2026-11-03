@@ -348,6 +348,90 @@ func TestIntegration_UpsertOIDCUser(t *testing.T) {
 	}
 }
 
+// TestIntegration_AdminDemotionRevokesAdminKeys verifies that a login which
+// changes is_admin from true to false revokes the user's admin-scope API keys
+// and leaves its other keys alone, for LDAP and OIDC users. Only that change
+// revokes: a login that keeps the user an admin, or keeps it a non-admin,
+// does not, and a later re-promotion does not bring revoked keys back.
+func TestIntegration_AdminDemotionRevokesAdminKeys(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "sessions", "api_keys", "users")
+	authStore := NewAuthStore(pool)
+	defer authStore.Stop()
+	ctx := context.Background()
+
+	tests := []struct {
+		name   string
+		upsert func(isAdmin bool) (model.User, error)
+	}{
+		{"ldap", func(isAdmin bool) (model.User, error) {
+			return authStore.UpsertLDAPUser(ctx, "dana", "", isAdmin)
+		}},
+		{"oidc", func(isAdmin bool) (model.User, error) {
+			return authStore.UpsertOIDCUser(ctx, "https://login.example.com", "sub-erin", "erin", "", isAdmin)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			login := func(isAdmin bool) model.User {
+				t.Helper()
+				u, err := tt.upsert(isAdmin)
+				if err != nil {
+					t.Fatalf("upsert (admin=%v): %v", isAdmin, err)
+				}
+				if u.IsAdmin != isAdmin {
+					t.Fatalf("is_admin = %v after upsert, want %v", u.IsAdmin, isAdmin)
+				}
+				return u
+			}
+			addKey := func(u model.User, name string, scopes ...string) string {
+				t.Helper()
+				hash := tt.name + "-" + name
+				if _, err := authStore.CreateAPIKey(ctx, u.ID.Bytes, name, hash, "tl_x", scopes, nil); err != nil {
+					t.Fatalf("CreateAPIKey %s: %v", name, err)
+				}
+				return hash
+			}
+			revoked := func(hash string) bool {
+				t.Helper()
+				var r bool
+				if err := pool.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM api_keys WHERE key_hash = $1`, hash).Scan(&r); err != nil {
+					t.Fatalf("read key %s: %v", hash, err)
+				}
+				return r
+			}
+			wantRevoked := func(step string, want map[string]bool) {
+				t.Helper()
+				for hash, w := range want {
+					if got := revoked(hash); got != w {
+						t.Errorf("%s: key %s revoked = %v, want %v", step, hash, got, w)
+					}
+				}
+			}
+
+			u := login(true)
+			admin := addKey(u, "admin", "admin")
+			mixed := addKey(u, "mixed", "read", "admin")
+			read := addKey(u, "read", "read")
+
+			login(true)
+			wantRevoked("admin login again", map[string]bool{admin: false, mixed: false, read: false})
+
+			u = login(false)
+			wantRevoked("demoted", map[string]bool{admin: true, mixed: true, read: false})
+
+			// A key added while the user is not an admin is not revoked by a
+			// login that leaves it a non-admin; HasGrant refuses it admin.
+			dormant := addKey(u, "dormant", "admin")
+			login(false)
+			wantRevoked("non-admin login again", map[string]bool{dormant: false, read: false})
+
+			login(true)
+			wantRevoked("re-promoted", map[string]bool{admin: true, mixed: true, dormant: false, read: false})
+		})
+	}
+}
+
 // TestIntegration_AnalysisScheduleNotifyChannels verifies the notify_channel_ids
 // BIGINT[] column round-trips through pgx as []int64 on both the schedule and
 // the report — the encode/scan path that compiles but can only be proven

@@ -261,7 +261,7 @@ Authentication is handled by `internal/auth/middleware.go`:
 **Middleware chain:**
 
 - `SessionOrAPIKey` -- Tries session cookie first, then Bearer token. Stores authenticated user (and scopes, for API keys) in context.
-- `RequireScope(scope)` -- Checks the grant. API keys hold a scope if it is listed or they hold `admin`. Session auth holds every non-admin scope, but the `admin` scope additionally requires the user's admin flag — a session is *not* a blanket admin grant.
+- `RequireScope(scope)` -- Checks the grant. API keys hold a scope if it is listed or they hold `admin`. Session auth holds every non-admin scope. The `admin` scope additionally requires the user's current admin flag for sessions and API keys alike: a session is *not* a blanket admin grant, and an admin-scope key grants admin only while its owner is an admin. When a login clears a user's admin flag, the user's admin-scope keys are revoked in the same transaction.
 - `AllowAnonymous` -- Used when auth is disabled; stores a synthetic anonymous user.
 
 **LDAP (optional):** when `ldap.enabled` is set, login attempts first bind a service account, search for the user, bind as the user, and map the user's groups to a role via `ldap.group_role_map` (`admin` grants is_admin; a user in no mapped group is denied). LDAP users are synced into `users` with `auth_source='ldap'`; local bcrypt users keep working. An internal CA can be trusted via `ldap.ca_bundle` without disabling verification.
@@ -664,7 +664,7 @@ Taillight supports three authentication configurations:
 | `ingest` | `POST /api/v1/applog/ingest` |
 | `admin` | All write operations (notification CRUD, analysis writes, reference upload, user management) |
 
-API keys carry explicit scopes (`admin` implies the others). Session-based auth grants the non-admin scopes; admin routes additionally require the user's `is_admin` flag.
+API keys carry explicit scopes (`admin` implies the others). Session-based auth grants the non-admin scopes. Admin routes additionally require the user's `is_admin` flag, for sessions and for the owner of an admin-scope key.
 
 ### Client IP & Trusted Proxies
 

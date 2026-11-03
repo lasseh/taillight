@@ -481,6 +481,7 @@ func TestCreateKey(t *testing.T) {
 	tests := []struct {
 		name       string
 		user       *model.User
+		scopes     []string // caller's API key scopes; nil = session
 		body       string
 		store      *mockAuthStore
 		wantStatus int
@@ -489,6 +490,22 @@ func TestCreateKey(t *testing.T) {
 			name:       "success",
 			user:       user,
 			body:       `{"name":"my-key","scopes":["read"]}`,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "admin key of a non-admin owner cannot grant admin scope",
+			user:       user,
+			scopes:     []string{"admin"},
+			body:       `{"name":"my-key","scopes":["admin"]}`,
+			store:      &mockAuthStore{},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "admin-owned admin key can grant admin scope",
+			user:       admin,
+			scopes:     []string{"admin"},
+			body:       `{"name":"my-key","scopes":["admin"]}`,
 			store:      &mockAuthStore{},
 			wantStatus: http.StatusCreated,
 		},
@@ -571,6 +588,9 @@ func TestCreateKey(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			if tt.user != nil {
 				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
+			}
+			if tt.scopes != nil {
+				req = req.WithContext(auth.WithScopes(req.Context(), tt.scopes))
 			}
 			rec := httptest.NewRecorder()
 
