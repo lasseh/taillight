@@ -149,8 +149,8 @@ func (s *Store) listNetlogDistinctStrings(ctx context.Context, column string) ([
 }
 
 // GetNetlogVolume returns time-bucketed netlog event counts grouped by hostname.
-func (s *Store) GetNetlogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	return s.getVolume(ctx, "netlog_events", "hostname", interval, rangeDur)
+func (s *Store) GetNetlogVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error) {
+	return s.getVolume(ctx, "netlog_events", "hostname", p)
 }
 
 // GetNetlogSeverityVolume returns time-bucketed netlog event counts grouped by severity.

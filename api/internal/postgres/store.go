@@ -119,21 +119,48 @@ func escapeLike(s string) string {
 	return s
 }
 
-func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	if !interval.IsValid() {
-		return nil, fmt.Errorf("invalid volume interval: %s", interval)
+// getVolume returns time-bucketed event counts of table grouped by groupCol.
+// Only the model.VolumeGroupLimit groups with the most events over the range
+// are broken out; the rest are summed into each bucket's Other, so the
+// response size does not grow with the number of distinct groups. With
+// p.TotalsOnly it skips the breakdown and returns only per-bucket totals.
+func (s *Store) getVolume(ctx context.Context, table, groupCol string, p model.VolumeParams) ([]model.VolumeBucket, error) {
+	if !p.Interval.IsValid() {
+		return nil, fmt.Errorf("invalid volume interval: %s", p.Interval)
 	}
-	since := time.Now().UTC().Add(-rangeDur)
+	since := time.Now().UTC().Add(-p.RangeDur)
 
 	query := fmt.Sprintf(
-		`SELECT time_bucket($1::interval, received_at) AS bucket,
-		        %s, count(*) AS cnt
-		 FROM %s
-		 WHERE received_at >= $2
-		 GROUP BY bucket, %s
-		 ORDER BY bucket ASC`, groupCol, table, groupCol)
+		`WITH counts AS (
+		     SELECT time_bucket($1::interval, received_at) AS bucket,
+		            %s AS grp, count(*) AS cnt
+		     FROM %s
+		     WHERE received_at >= $2
+		     GROUP BY bucket, grp
+		 ), top_groups AS (
+		     SELECT grp FROM counts
+		     GROUP BY grp
+		     ORDER BY sum(cnt) DESC, grp
+		     LIMIT $3
+		 )
+		 SELECT c.bucket, t.grp, sum(c.cnt)::bigint AS cnt
+		 FROM counts c
+		 LEFT JOIN top_groups t ON t.grp = c.grp
+		 GROUP BY c.bucket, t.grp
+		 ORDER BY c.bucket ASC`, groupCol, table)
+	args := []any{p.Interval.String(), since, model.VolumeGroupLimit}
+	if p.TotalsOnly {
+		query = fmt.Sprintf(
+			`SELECT time_bucket($1::interval, received_at) AS bucket,
+			        NULL::text AS grp, count(*) AS cnt
+			 FROM %s
+			 WHERE received_at >= $2
+			 GROUP BY bucket
+			 ORDER BY bucket ASC`, table)
+		args = args[:2]
+	}
 
-	rows, err := s.pool.Query(ctx, query, interval.String(), since)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s volume query: %w", table, err)
 	}
@@ -146,7 +173,7 @@ func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval 
 	for rows.Next() {
 		var (
 			bucket time.Time
-			group  string
+			group  *string
 			cnt    int64
 		)
 		if err := rows.Scan(&bucket, &group, &cnt); err != nil {
@@ -163,7 +190,14 @@ func (s *Store) getVolume(ctx context.Context, table, groupCol string, interval 
 			})
 		}
 		buckets[i].Total += cnt
-		buckets[i].ByHost[group] = cnt
+		if p.TotalsOnly {
+			continue
+		}
+		if group == nil {
+			buckets[i].Other += cnt
+		} else {
+			buckets[i].ByHost[*group] = cnt
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("%s volume rows: %w", table, err)

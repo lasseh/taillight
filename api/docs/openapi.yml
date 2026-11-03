@@ -700,6 +700,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Interval"
         - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/TotalsOnly"
       responses:
         "200":
           description: Volume buckets
@@ -763,11 +764,51 @@ paths:
       description: |
         Per-host activity across the srvlog and netlog feeds — status, counts,
         trend, severity breakdown, hourly buckets, and top error sources.
+        One page of hosts per request: the search, filters and sort are
+        applied before `limit` and `offset`.
       parameters:
         - $ref: "#/components/parameters/Range"
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 500
+          description: Case-insensitive substring of the hostname
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [healthy, warning, critical]
+        - name: feed
+          in: query
+          schema:
+            type: string
+            enum: [srvlog, netlog, both]
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [errors, total, hostname, last_seen, trend]
+            default: errors
+          description: |
+            `hostname` sorts ascending, the others descending. Ties sort by
+            hostname.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         "200":
-          description: Host entries
+          description: One page of host entries
           content:
             application/json:
               schema:
@@ -777,6 +818,11 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/HostEntry"
+                  total:
+                    type: integer
+                    description: Hosts matching the search and filters, across all pages
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /srvlog/device/{hostname}:
     get:
@@ -1048,6 +1094,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Interval"
         - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/TotalsOnly"
       responses:
         "200":
           description: Volume buckets
@@ -2042,6 +2089,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Interval"
         - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/TotalsOnly"
       responses:
         "200":
           description: Volume buckets
@@ -2606,6 +2654,17 @@ components:
         enum: [1h, 6h, 12h, 24h, 7d, 30d]
         default: "24h"
 
+    TotalsOnly:
+      name: totals_only
+      in: query
+      schema:
+        type: boolean
+        default: false
+      description: |
+        When true, each bucket carries only its total: `by_host` is `{}`
+        and `other` is 0. Values follow Go's strconv.ParseBool; anything
+        else is a 400.
+
     # Srvlog-specific
     SrvlogHostname:
       name: hostname
@@ -3070,10 +3129,17 @@ components:
           format: date-time
         total:
           type: integer
+          description: Every event in the bucket; the sum of `by_host` plus `other`
         by_host:
           type: object
           additionalProperties:
             type: integer
+          description: |
+            Counts for at most the 50 groups (hostnames, or services on
+            applog) with the most events over the whole range.
+        other:
+          type: integer
+          description: Events of the groups not in `by_host`
 
     SeverityVolumeBucket:
       type: object

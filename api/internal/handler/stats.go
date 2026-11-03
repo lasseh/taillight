@@ -10,16 +10,16 @@ import (
 
 // StatsStore defines the stats data access interface.
 type StatsStore interface {
-	GetVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
-	GetAppLogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
-	GetNetlogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
+	GetVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error)
+	GetAppLogVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error)
+	GetNetlogVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error)
 	GetSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
 	GetAppLogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
 	GetNetlogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
 	GetSrvlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
 	GetAppLogSummary(ctx context.Context, rangeDur time.Duration) (model.AppLogSummary, error)
 	GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
-	ListHosts(ctx context.Context, rangeDur time.Duration) ([]model.HostEntry, error)
+	ListHosts(ctx context.Context, q model.HostQuery) (model.HostPage, error)
 }
 
 // StatsHandler handles REST endpoints for dashboard statistics.
@@ -40,7 +40,7 @@ func (h *StatsHandler) Volume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buckets, err := h.store.GetVolume(r.Context(), params.Interval, params.RangeDur)
+	buckets, err := h.store.GetVolume(r.Context(), params)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -61,7 +61,7 @@ func (h *StatsHandler) AppLogVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buckets, err := h.store.GetAppLogVolume(r.Context(), params.Interval, params.RangeDur)
+	buckets, err := h.store.GetAppLogVolume(r.Context(), params)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -166,7 +166,7 @@ func (h *StatsHandler) NetlogVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buckets, err := h.store.GetNetlogVolume(r.Context(), params.Interval, params.RangeDur)
+	buckets, err := h.store.GetNetlogVolume(r.Context(), params)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -221,23 +221,31 @@ func (h *StatsHandler) NetlogSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, itemResponse{Data: summary})
 }
 
-// Hosts handles GET /api/v1/stats/hosts.
+// hostsResponse is one page of the hosts overview. Total counts every host
+// matching the query, not only those in Data.
+type hostsResponse struct {
+	Data  []model.HostEntry `json:"data"`
+	Total int               `json:"total"`
+}
+
+// Hosts handles GET /api/v1/stats/hosts. Search, filters, sort and paging
+// run in the store, so a response holds at most one page of hosts.
 func (h *StatsHandler) Hosts(w http.ResponseWriter, r *http.Request) {
-	rangeDur, err := model.ParseRange(r)
+	q, err := model.ParseHostQuery(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_params", err.Error())
 		return
 	}
 
-	hosts, err := h.store.ListHosts(r.Context(), rangeDur)
+	page, err := h.store.ListHosts(r.Context(), q)
 	if err != nil {
 		if isClientGone(r) {
 			return
 		}
-		LoggerFromContext(r.Context()).Error("list hosts failed", "err", err, "range", rangeDur)
+		LoggerFromContext(r.Context()).Error("list hosts failed", "err", err, "range", q.RangeDur)
 		writeError(w, http.StatusInternalServerError, "query_failed", "failed to list hosts")
 		return
 	}
 
-	writeJSON(w, itemResponse{Data: emptySlice(hosts)})
+	writeJSON(w, hostsResponse{Data: emptySlice(page.Hosts), Total: page.Total})
 }

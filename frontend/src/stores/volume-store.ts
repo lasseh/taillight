@@ -2,6 +2,9 @@ import { ref, computed, type ComputedRef, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { VolumeBucket, VolumeDataRecord, VolumeResponse } from '@/types/stats'
 
+/** Series key for the events of groups past the server's by_host cap. */
+export const OTHER_GROUP = '(other)'
+
 /** Base return type for volume stores */
 export interface VolumeStoreState {
   interval: Ref<string>
@@ -27,15 +30,19 @@ export function createVolumeStore<K extends string>(
     const loading = ref(false)
     const error = ref<string | null>(null)
 
-    /** Unique group names across all buckets, sorted alphabetically. */
+    /** Unique group names across all buckets, sorted alphabetically, then
+     * OTHER_GROUP when the server folded any groups past its cap. */
     const groups = computed<string[]>(() => {
       const set = new Set<string>()
+      let hasOther = false
       for (const b of buckets.value) {
         for (const k of Object.keys(b.by_host)) {
           set.add(k)
         }
+        if (b.other > 0) hasOther = true
       }
-      return [...set].sort()
+      const sorted = [...set].sort()
+      return hasOther ? [...sorted, OTHER_GROUP] : sorted
     })
 
     /** Flat records for Unovis charts. */
@@ -46,7 +53,7 @@ export function createVolumeStore<K extends string>(
           total: b.total,
         }
         for (const g of groups.value) {
-          rec[g] = b.by_host[g] ?? 0
+          rec[g] = g === OTHER_GROUP ? b.other : (b.by_host[g] ?? 0)
         }
         return rec
       }),

@@ -37,7 +37,7 @@ type NetlogStore interface {
 	ListNetlogPrograms(ctx context.Context) ([]string, error)
 	ListNetlogTags(ctx context.Context) ([]string, error)
 	ListNetlogFacilities(ctx context.Context) ([]int, error)
-	GetNetlogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
+	GetNetlogVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error)
 	GetNetlogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
 	GetNetlogSummary(ctx context.Context, rangeDur time.Duration) (model.SyslogSummary, error)
 	GetNetlogDeviceSummary(ctx context.Context, hostname string) (model.NetlogDeviceSummary, error)
@@ -62,6 +62,6 @@ type AppLogStore interface {
 	ListServices(ctx context.Context) ([]string, error)
 	ListComponents(ctx context.Context) ([]string, error)
 	ListAppLogHosts(ctx context.Context) ([]string, error)
-	GetAppLogVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error)
+	GetAppLogVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error)
 	InsertLogBatch(ctx context.Context, events []model.AppLogEvent) ([]model.AppLogEvent, error)
 }

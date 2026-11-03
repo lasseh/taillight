@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -60,13 +61,24 @@ var allowedRanges = map[string]time.Duration{
 type VolumeParams struct {
 	Interval VolumeInterval // Validated PostgreSQL interval.
 	RangeDur time.Duration  // Go duration for the lookback window.
+	// TotalsOnly skips the per-group breakdown: each bucket carries only
+	// its total, and by_host is empty.
+	TotalsOnly bool
 }
 
-// VolumeBucket is a single time bucket in the volume response.
+// VolumeGroupLimit caps the groups (hosts or services) a volume response
+// breaks out. The groups with the most events over the whole range are kept;
+// every other group's count goes to VolumeBucket.Other.
+const VolumeGroupLimit = 50
+
+// VolumeBucket is a single time bucket in the volume response. Total counts
+// every event in the bucket: the sum of ByHost plus Other.
 type VolumeBucket struct {
 	Time   time.Time        `json:"time"`
 	Total  int64            `json:"total"`
 	ByHost map[string]int64 `json:"by_host"`
+	// Other counts the events of groups outside the top VolumeGroupLimit.
+	Other int64 `json:"other"`
 }
 
 // SeverityVolumeBucket is a single time bucket with counts grouped by severity.
@@ -170,8 +182,18 @@ func ParseVolumeParams(r *http.Request) (VolumeParams, error) {
 		return VolumeParams{}, fmt.Errorf("invalid range %q, allowed: %s", rangeName, strings.Join(keys, ", "))
 	}
 
+	var totalsOnly bool
+	if v := q.Get("totals_only"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return VolumeParams{}, fmt.Errorf("invalid totals_only %q, must be true or false", v)
+		}
+		totalsOnly = b
+	}
+
 	return VolumeParams{
-		Interval: pgInterval,
-		RangeDur: rangeDur,
+		Interval:   pgInterval,
+		RangeDur:   rangeDur,
+		TotalsOnly: totalsOnly,
 	}, nil
 }

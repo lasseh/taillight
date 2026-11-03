@@ -49,7 +49,7 @@ func (m *mockAppLogStore) ListAppLogHosts(_ context.Context) ([]string, error) {
 	return nil, nil
 }
 
-func (m *mockAppLogStore) GetAppLogVolume(_ context.Context, _ model.VolumeInterval, _ time.Duration) ([]model.VolumeBucket, error) {
+func (m *mockAppLogStore) GetAppLogVolume(_ context.Context, _ model.VolumeParams) ([]model.VolumeBucket, error) {
 	return nil, nil
 }
 

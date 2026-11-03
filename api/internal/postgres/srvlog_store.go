@@ -149,8 +149,8 @@ func (s *Store) listDistinctStrings(ctx context.Context, column string) ([]strin
 }
 
 // GetVolume returns time-bucketed event counts grouped by hostname.
-func (s *Store) GetVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.VolumeBucket, error) {
-	return s.getVolume(ctx, "srvlog_events", "hostname", interval, rangeDur)
+func (s *Store) GetVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error) {
+	return s.getVolume(ctx, "srvlog_events", "hostname", p)
 }
 
 // GetSeverityVolume returns time-bucketed event counts grouped by srvlog severity.

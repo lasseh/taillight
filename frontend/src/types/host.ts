@@ -19,6 +19,10 @@ export interface HostEntry {
   top_errors: TopSource[]
 }
 
+export type HostSort = 'errors' | 'total' | 'hostname' | 'last_seen' | 'trend'
+
+/** One page of hosts; total counts every host matching the query. */
 export interface HostsResponse {
   data: HostEntry[]
+  total: number
 }
