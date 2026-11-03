@@ -236,14 +236,19 @@ func redirectLoginError(w http.ResponseWriter, r *http.Request, code string) {
 }
 
 // safeRedirectPath returns p when it is a same-origin absolute path, else "/".
-// Rejects scheme-relative ("//evil.example") and backslash variants so the
-// post-login redirect can never leave the origin.
+// Rejects scheme-relative ("//evil.example") values and any backslash or
+// control byte anywhere in p, so the post-login redirect can never leave the
+// origin: browsers drop tab, CR and LF from a Location and read "\" as "/",
+// and http.Redirect removes dot segments first, so such a byte further in
+// could still make the target scheme-relative.
 func safeRedirectPath(p string) string {
-	if p == "" || p[0] != '/' {
+	if p == "" || p[0] != '/' || strings.HasPrefix(p, "//") {
 		return "/"
 	}
-	if len(p) > 1 && (p[1] == '/' || p[1] == '\\') {
-		return "/"
+	for i := range len(p) {
+		if c := p[i]; c == '\\' || c < 0x20 || c == 0x7f {
+			return "/"
+		}
 	}
 	return p
 }
