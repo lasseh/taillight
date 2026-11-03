@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -31,6 +32,14 @@ const (
 	applogMaxSourceLen    = 256
 	applogMaxMsgLen       = 64 * 1024 // 64 KB.
 	applogMaxAttrsLen     = 64 * 1024 // 64 KB.
+	// applogMaxAttrsExponent bounds the exponent of each number in attrs.
+	// Every float64 value can be written within it.
+	applogMaxAttrsExponent = 400
+)
+
+var (
+	errAttrsTooLarge = errors.New("attrs exceeds 64KB limit")
+	errAttrsExponent = errors.New("attrs holds a number with an exponent outside -400 to 400")
 )
 
 // invalidLevelMessage lists the canonical levels and every accepted alias,
@@ -105,6 +114,11 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		idx := "logs[" + strconv.Itoa(i) + "]: "
 		if entry.Timestamp.IsZero() {
 			errs = append(errs, idx+"timestamp is required")
+		} else if y := entry.Timestamp.UTC().Year(); y < 1 || y > 9998 {
+			// Reads return the timestamp in the server's zone, and JSON
+			// encoding fails outside years 0 to 9999. The margin keeps every
+			// zone in range.
+			errs = append(errs, idx+"timestamp must be within UTC years 1 to 9998")
 		}
 		if entry.Level == "" {
 			errs = append(errs, idx+"level is required")
@@ -134,8 +148,8 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		if len(entry.Source) > applogMaxSourceLen {
 			errs = append(errs, idx+"source exceeds 256 char limit")
 		}
-		if len(entry.Attrs) > applogMaxAttrsLen {
-			errs = append(errs, idx+"attrs exceeds 64KB limit")
+		if err := checkAttrs(entry.Attrs); err != nil {
+			errs = append(errs, idx+err.Error())
 		}
 	}
 	if len(errs) > 0 {
@@ -195,6 +209,45 @@ func (h *AppLogIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONStatus(w, http.StatusAccepted, map[string]int{"accepted": len(inserted)})
+}
+
+// checkAttrs applies the attrs size limit to raw, which must be valid JSON.
+// Postgres stores attrs as jsonb and prints each number in full positional
+// notation, so a number written with an exponent prints longer than it was
+// sent. The size counts each such number at its printed length, which is at
+// most its raw length plus the magnitude of its exponent.
+func checkAttrs(raw json.RawMessage) error {
+	size := len(raw)
+	if size > applogMaxAttrsLen {
+		return errAttrsTooLarge
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("attrs is not valid JSON: %w", err)
+		}
+		n, ok := tok.(json.Number)
+		if !ok {
+			continue
+		}
+		i := strings.IndexAny(string(n), "eE")
+		if i < 0 {
+			continue
+		}
+		exp, err := strconv.ParseInt(string(n[i+1:]), 10, 64)
+		if err != nil || exp > applogMaxAttrsExponent || exp < -applogMaxAttrsExponent {
+			return errAttrsExponent
+		}
+		size += int(max(exp, -exp))
+		if size > applogMaxAttrsLen {
+			return errAttrsTooLarge
+		}
+	}
 }
 
 // replaceNUL swaps NUL bytes for U+FFFD. Postgres text cannot store a NUL, and

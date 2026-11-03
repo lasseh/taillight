@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lasseh/taillight/internal/broker"
+	"github.com/lasseh/taillight/internal/httputil"
 	"github.com/lasseh/taillight/internal/model"
 )
 
@@ -130,6 +131,95 @@ func TestIngest(t *testing.T) {
 				}
 				if resp["accepted"] < 1 {
 					t.Errorf("expected accepted >= 1, got %d", resp["accepted"])
+				}
+			}
+		})
+	}
+}
+
+func TestIngestTimestampRange(t *testing.T) {
+	tests := []struct {
+		timestamp  string
+		wantStatus int
+	}{
+		{"9998-12-31T23:59:59Z", http.StatusAccepted},
+		{"0001-01-01T00:00:01Z", http.StatusAccepted},
+		{"9998-12-31T23:59:59+14:00", http.StatusAccepted},
+		{"0001-01-01T00:00:01-12:00", http.StatusAccepted},
+		{"9999-06-01T00:00:00Z", http.StatusBadRequest},
+		{"9999-12-31T23:59:59-23:59", http.StatusBadRequest},
+		{"0000-06-01T00:00:00Z", http.StatusBadRequest},
+		{"0000-01-01T00:00:00+23:59", http.StatusBadRequest},
+		{"0001-01-01T00:00:00Z", http.StatusBadRequest}, // the zero time
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.timestamp, func(t *testing.T) {
+			body := `{"logs":[{"timestamp":"` + tt.timestamp + `","level":"INFO","msg":"m","service":"api","host":"web01"}]}`
+			h := NewAppLogIngestHandler(&mockAppLogStore{}, broker.NewAppLogBroker(slog.Default()), slog.Default(), nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/applog/ingest", bytes.NewBufferString(body))
+			rec := httptest.NewRecorder()
+			h.Ingest(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("got status %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+// numberArray returns a JSON array holding n copies of num.
+func numberArray(num string, n int) string {
+	return "[" + strings.TrimSuffix(strings.Repeat(num+",", n), ",") + "]"
+}
+
+func TestIngestAttrsLimits(t *testing.T) {
+	ts := time.Now().UTC().Format(time.RFC3339)
+
+	tests := []struct {
+		name       string
+		attrs      string
+		wantStatus int
+	}{
+		{name: "ordinary attrs", attrs: `{"user":"alice","count":42,"ratio":0.25,"ok":true,"tags":["a","b"],"nested":{"n":-7}}`, wantStatus: http.StatusAccepted},
+		{name: "smallest float64", attrs: `{"n":5e-324}`, wantStatus: http.StatusAccepted},
+		{name: "largest float64", attrs: `{"n":1.797e308}`, wantStatus: http.StatusAccepted},
+		{name: "go float encoding", attrs: `{"a":1e+21,"b":1.5e-07}`, wantStatus: http.StatusAccepted},
+		{name: "numeric-looking key and string", attrs: `{"1e131071":"1e131071"}`, wantStatus: http.StatusAccepted},
+		{name: "huge positive exponent", attrs: `{"n":1e131071}`, wantStatus: http.StatusBadRequest},
+		{name: "huge positive exponent upper case and nested", attrs: `{"a":{"b":[1E+131071]}}`, wantStatus: http.StatusBadRequest},
+		{name: "huge negative exponent", attrs: `{"n":1e-16383}`, wantStatus: http.StatusBadRequest},
+		{name: "exponent past int64", attrs: `{"n":1e99999999999999999999}`, wantStatus: http.StatusBadRequest},
+		{name: "exponent at the bound", attrs: `{"n":1e-400}`, wantStatus: http.StatusAccepted},
+		{name: "exponent past the bound", attrs: `{"n":1e-401}`, wantStatus: http.StatusBadRequest},
+		// Each 1e-400 is charged its raw bytes plus 400. 161 of them fit in
+		// 64 KB, 162 do not.
+		{name: "printed length just under the cap", attrs: `{"n":` + numberArray("1e-400", 161) + `}`, wantStatus: http.StatusAccepted},
+		{name: "printed length just over the cap", attrs: `{"n":` + numberArray("1e-400", 162) + `}`, wantStatus: http.StatusBadRequest},
+		{name: "raw size under the cap but printed far over", attrs: numberArray("1e400", 10922), wantStatus: http.StatusBadRequest},
+		{name: "raw size over the cap", attrs: numberArray("1", 32769), wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := `{"logs":[{"timestamp":"` + ts + `","level":"INFO","msg":"m","service":"api","host":"web01","attrs":` + tt.attrs + `}]}`
+			h := NewAppLogIngestHandler(&mockAppLogStore{}, broker.NewAppLogBroker(slog.Default()), slog.Default(), nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/applog/ingest", bytes.NewBufferString(body))
+			rec := httptest.NewRecorder()
+			h.Ingest(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("got status %d, want %d; body: %.300s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if tt.wantStatus == http.StatusBadRequest {
+				var got httputil.ErrorBody
+				if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+					t.Fatalf("decode error body: %v", err)
+				}
+				if got.Error.Code != "validation_failed" {
+					t.Errorf("error code = %q, want validation_failed", got.Error.Code)
 				}
 			}
 		})

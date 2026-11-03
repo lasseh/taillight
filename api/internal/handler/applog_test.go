@@ -93,6 +93,14 @@ func TestAppLogList(t *testing.T) {
 			store:      &mockAppLogStore{listErr: errors.New("db down")},
 			wantStatus: http.StatusInternalServerError,
 		},
+		{
+			name: "row that cannot be encoded returns 500",
+			store: &mockAppLogStore{events: []model.AppLogEvent{
+				{ID: 1, Service: "api"},
+				{ID: 2, Service: "api", Timestamp: time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)},
+			}},
+			wantStatus: http.StatusInternalServerError,
+		},
 	}
 
 	for _, tt := range tests {
@@ -156,6 +164,14 @@ func TestAppLogGet(t *testing.T) {
 			name:       "store error",
 			id:         "42",
 			store:      &mockAppLogStore{getErr: errors.New("db error")},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "row that cannot be encoded",
+			id:   "42",
+			store: &mockAppLogStore{event: model.AppLogEvent{
+				ID: 42, Service: "api", Timestamp: time.Date(-1, 12, 31, 0, 0, 0, 0, time.UTC),
+			}},
 			wantStatus: http.StatusInternalServerError,
 		},
 	}

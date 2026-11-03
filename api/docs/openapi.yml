@@ -3034,6 +3034,7 @@ components:
         timestamp:
           type: string
           format: date-time
+          description: Must fall within UTC years 1 to 9998.
         level:
           type: string
           description: "DEBUG, INFO, WARN, ERROR, or FATAL. Case-insensitive; also accepts the aliases TRACE, D (DEBUG), NOTICE, I (INFO), WARNING, W (WARN), ERR, E (ERROR), CRITICAL, CRIT, EMERG, ALERT, SEVERE, PANIC (FATAL)"
@@ -3055,6 +3056,10 @@ components:
         attrs:
           type: object
           additionalProperties: true
+          description: |
+            At most 64 KB. A number written with an exponent counts at the
+            length of its full positional form, and its exponent must be
+            within -400 to 400.
 
     # ── Stats ─────────────────────────────────────────────────────────────
     VolumeBucket:
