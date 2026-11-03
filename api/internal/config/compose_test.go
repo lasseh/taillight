@@ -79,7 +79,7 @@ func documentedEnvVars(t *testing.T) map[string]string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		inEnvTable := false
+		inEnvTable, rows := false, 0
 		for line := range strings.Lines(string(data)) {
 			if strings.HasPrefix(line, "#") {
 				inEnvTable = strings.Contains(line, "`.env`")
@@ -87,7 +87,11 @@ func documentedEnvVars(t *testing.T) map[string]string {
 			}
 			if m := tableRow.FindStringSubmatch(line); inEnvTable && m != nil {
 				vars[m[1]] = path
+				rows++
 			}
+		}
+		if rows == 0 {
+			t.Fatalf("%s: no .env table found under a heading naming `.env`", path)
 		}
 	}
 	return vars
@@ -105,6 +109,9 @@ func readEnvExample(t *testing.T) map[string]string {
 		if m := envLine.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
 			vars[m[1]] = m[2]
 		}
+	}
+	if len(vars) == 0 {
+		t.Fatalf("%s: no variables found", envExampleFile)
 	}
 	return vars
 }
@@ -137,13 +144,7 @@ func interpolate(t *testing.T, s string, dotenv map[string]string) string {
 // the compose file, so a variable missing here never reaches the API.
 func TestComposeAPIEnvironmentCoversDocumentedEnvVars(t *testing.T) {
 	apiEnv := apiEnvironment(t)
-	documented := documentedEnvVars(t)
-	for _, name := range []string{"AUTH_ENABLED", "REAL_IP_HEADER", "TRUSTED_PROXIES"} {
-		if documented[name] == "" {
-			t.Errorf("%s is not documented for .env; the doc parser may have missed a table", name)
-		}
-	}
-	for name, doc := range documented {
+	for name, doc := range documentedEnvVars(t) {
 		if composeOnlyVars[name] {
 			continue
 		}
