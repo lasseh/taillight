@@ -304,45 +304,117 @@ func TestSuppressor_GlobalFingerprintCeiling(t *testing.T) {
 }
 
 // TestSuppressor_DigestPayloadTrimmed verifies the retained representative
-// event is trimmed (no Attrs, capped Msg) while the initial alert and the
-// caller's payload keep the full event.
+// event is trimmed (message capped, large side fields dropped) while the
+// initial alert and the caller's event keep the full payload.
 func TestSuppressor_DigestPayloadTrimmed(t *testing.T) {
-	s, mu, records := collectFlushes(t)
-	defer s.Stop()
-
-	silence := 80 * time.Millisecond
 	bigMsg := strings.Repeat("x", maxRetainedMsgBytes+100)
-	payload := Payload{AppLogEvent: &model.AppLogEvent{
-		Host:  "host1",
-		Msg:   bigMsg,
-		Attrs: []byte(`{"k":"v"}`),
-	}}
+	raw := "<11>1 2026-01-01T00:00:00Z host1 app - - - " + bigMsg
+	sd := `[origin ip="192.0.2.1"]`
 
-	// First event fires immediately with the full payload; the second
-	// accumulates and becomes the digest's representative event.
-	s.Record(1, "host1", silence, time.Second, 0, payload)
-	s.Record(1, "host1", silence, time.Second, 0, payload)
+	tests := []struct {
+		name    string
+		payload Payload
+		// event returns the payload's event pointer, for identity checks.
+		event func(Payload) any
+		// msg returns the event's message.
+		msg func(Payload) string
+		// full reports whether the event still carries the fields the
+		// digest copy drops.
+		full func(Payload) bool
+		// dropped reports whether the event lacks those fields.
+		dropped func(Payload) bool
+	}{
+		{
+			name: "applog",
+			payload: Payload{AppLogEvent: &model.AppLogEvent{
+				Host:  "host1",
+				Msg:   bigMsg,
+				Attrs: []byte(`{"k":"v"}`),
+			}},
+			event: func(p Payload) any { return p.AppLogEvent },
+			msg:   func(p Payload) string { return p.AppLogEvent.Msg },
+			full: func(p Payload) bool {
+				return len(p.AppLogEvent.Attrs) > 0 && !p.AppLogEvent.AttrsTruncated
+			},
+			dropped: func(p Payload) bool {
+				return len(p.AppLogEvent.Attrs) == 0 && p.AppLogEvent.AttrsTruncated
+			},
+		},
+		{
+			name: "srvlog",
+			payload: Payload{SrvlogEvent: &model.SrvlogEvent{
+				Hostname:       "host1",
+				Message:        bigMsg,
+				RawMessage:     &raw,
+				StructuredData: &sd,
+			}},
+			event: func(p Payload) any { return p.SrvlogEvent },
+			msg:   func(p Payload) string { return p.SrvlogEvent.Message },
+			full: func(p Payload) bool {
+				e := p.SrvlogEvent
+				return e.RawMessage != nil && *e.RawMessage == raw && e.StructuredData != nil && *e.StructuredData == sd
+			},
+			dropped: func(p Payload) bool {
+				return p.SrvlogEvent.RawMessage == nil && p.SrvlogEvent.StructuredData == nil
+			},
+		},
+		{
+			name: "netlog",
+			payload: Payload{NetlogEvent: &model.NetlogEvent{
+				Hostname:       "host1",
+				Message:        bigMsg,
+				RawMessage:     &raw,
+				StructuredData: &sd,
+			}},
+			event: func(p Payload) any { return p.NetlogEvent },
+			msg:   func(p Payload) string { return p.NetlogEvent.Message },
+			full: func(p Payload) bool {
+				e := p.NetlogEvent
+				return e.RawMessage != nil && *e.RawMessage == raw && e.StructuredData != nil && *e.StructuredData == sd
+			},
+			dropped: func(p Payload) bool {
+				return p.NetlogEvent.RawMessage == nil && p.NetlogEvent.StructuredData == nil
+			},
+		},
+	}
 
-	time.Sleep(silence + 50*time.Millisecond)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, mu, records := collectFlushes(t)
+			defer s.Stop()
 
-	mu.Lock()
-	defer mu.Unlock()
-	if len(*records) != 2 {
-		t.Fatalf("expected 2 flushes (alert + digest), got %d", len(*records))
-	}
-	alert := (*records)[0].payload
-	if alert.AppLogEvent.Msg != bigMsg || len(alert.AppLogEvent.Attrs) == 0 {
-		t.Error("initial alert should carry the full untrimmed event")
-	}
-	digest := (*records)[1].payload
-	if len(digest.AppLogEvent.Attrs) != 0 || !digest.AppLogEvent.AttrsTruncated {
-		t.Error("digest event should have attrs stripped and marked truncated")
-	}
-	if len(digest.AppLogEvent.Msg) != maxRetainedMsgBytes {
-		t.Errorf("digest msg length = %d, want %d", len(digest.AppLogEvent.Msg), maxRetainedMsgBytes)
-	}
-	if payload.AppLogEvent.Msg != bigMsg || len(payload.AppLogEvent.Attrs) == 0 {
-		t.Error("trim must copy the event, not mutate the caller's payload")
+			silence := 80 * time.Millisecond
+
+			// First event fires immediately with the full payload; the second
+			// accumulates and becomes the digest's representative event.
+			s.Record(1, "host1", silence, time.Second, 0, tt.payload)
+			s.Record(1, "host1", silence, time.Second, 0, tt.payload)
+
+			time.Sleep(silence + 50*time.Millisecond)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(*records) != 2 {
+				t.Fatalf("expected 2 flushes (alert + digest), got %d", len(*records))
+			}
+			alert := (*records)[0].payload
+			if tt.msg(alert) != bigMsg || !tt.full(alert) {
+				t.Error("initial alert should carry the full untrimmed event")
+			}
+			digest := (*records)[1].payload
+			if got := len(tt.msg(digest)); got != maxRetainedMsgBytes {
+				t.Errorf("digest message length = %d, want %d", got, maxRetainedMsgBytes)
+			}
+			if !tt.dropped(digest) {
+				t.Error("digest event should drop the fields no digest renders")
+			}
+			if tt.event(digest) == tt.event(tt.payload) {
+				t.Error("digest should hold a copy, not the caller's event")
+			}
+			if tt.msg(tt.payload) != bigMsg || !tt.full(tt.payload) {
+				t.Error("trim must copy the event, not mutate the caller's payload")
+			}
+		})
 	}
 }
 
