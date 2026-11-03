@@ -107,6 +107,12 @@ func (l *Login) Password(ctx context.Context, logger *slog.Logger, username, pas
 		}
 	}
 	if !user.IsActive {
+		if ok {
+			// A directory login ran no bcrypt. Run the comparison the
+			// directory denials run, so a correct password for a disabled
+			// account takes as long as a wrong one.
+			DummyCheckPassword(password)
+		}
 		return model.User{}, denied("inactive account")
 	}
 	return user, nil

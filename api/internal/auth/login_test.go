@@ -141,7 +141,7 @@ func TestLoginPassword(t *testing.T) {
 		{name: "ldap wrong password does not fall through", dir: fakeDirectory{err: ldap.ErrInvalidPassword}, username: "alice", password: "hunter2", wantDenied: "LDAP wrong password", wantCompares: 1},
 		{name: "ldap no group does not fall through", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, username: "alice", password: "hunter2", wantDenied: "LDAP user not in any authorized group", wantRevoked: true, wantCompares: 1},
 		{name: "ldap no group with revoke failure", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, revokeErr: errors.New("db down"), username: "bob", password: "dirpw", wantInfra: true, wantRevoked: true, wantCompares: 1},
-		{name: "ldap success on inactive row", dir: fakeDirectory{result: ldap.Result{Username: "carol"}}, username: "carol", password: "dirpw", wantDenied: "inactive account"},
+		{name: "ldap success on inactive row", dir: fakeDirectory{result: ldap.Result{Username: "carol"}}, username: "carol", password: "dirpw", wantDenied: "inactive account", wantCompares: 1},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, tt := range tests {
