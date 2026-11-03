@@ -40,6 +40,11 @@ const (
 	sseBackfillLimit   = 100
 	sseHeartbeatPeriod = 15 * time.Second
 	sseWriteTimeout    = 30 * time.Second
+	// sseMaxLifetime ends every stream after this long. Auth runs only when a
+	// stream connects, so the client's reconnect is what re-checks its
+	// credential: a revoked key, ended session or deactivated user stops
+	// receiving events within this bound.
+	sseMaxLifetime = 5 * time.Minute
 )
 
 // sseSink is the write side of an SSE connection. The production adapter wraps
@@ -49,6 +54,9 @@ const (
 type sseSink interface {
 	writeEvent(id int64, event string, data []byte) error
 	writeHeartbeat() error
+	// writeResync tells a resuming client that the backfill did not reach
+	// the live stream, so it must reload history to close the gap.
+	writeResync() error
 	flush()
 	setWriteDeadline(t time.Time) error
 }
@@ -70,6 +78,14 @@ func (s *httpSSESink) writeEvent(id int64, event string, data []byte) error {
 
 func (s *httpSSESink) writeHeartbeat() error {
 	_, err := fmt.Fprint(s.w, "event: heartbeat\ndata: \n\n")
+	return err
+}
+
+// writeResync is framed like the heartbeat: no id, so it does not move the
+// client's resume position, and empty data, so clients that decode every
+// non-heartbeat payload as a log event never see it.
+func (s *httpSSESink) writeResync() error {
+	_, err := fmt.Fprint(s.w, "event: resync\ndata: \n\n")
 	return err
 }
 
@@ -98,6 +114,7 @@ type sseStreamer[E any, F interface{ Matches(E) bool }] struct {
 
 	heartbeat    time.Duration // 0 → sseHeartbeatPeriod (overridable in tests)
 	writeTimeout time.Duration // 0 → sseWriteTimeout (overridable in tests)
+	lifetime     time.Duration // 0 → sseMaxLifetime (overridable in tests)
 }
 
 func (s sseStreamer[E, F]) heartbeatPeriod() time.Duration {
@@ -105,6 +122,13 @@ func (s sseStreamer[E, F]) heartbeatPeriod() time.Duration {
 		return s.heartbeat
 	}
 	return sseHeartbeatPeriod
+}
+
+func (s sseStreamer[E, F]) maxLifetime() time.Duration {
+	if s.lifetime > 0 {
+		return s.lifetime
+	}
+	return sseMaxLifetime
 }
 
 func (s sseStreamer[E, F]) writeDeadline() time.Duration {
@@ -124,9 +148,10 @@ func sseClientKey(r *http.Request) string {
 	return "ip:" + middleware.GetClientIP(r.Context())
 }
 
-// run subscribes, backfills, then streams live events until ctx is done or the
-// sink errors. Subscribe happens BEFORE backfill so events arriving during the
-// backfill query are buffered on the subscription rather than lost.
+// run subscribes, backfills, then streams live events until ctx is done, the
+// sink errors, or the stream reaches its maximum lifetime. Subscribe happens
+// BEFORE backfill so events arriving during the backfill query are buffered on
+// the subscription rather than lost.
 //
 // A non-nil error is returned only when the subscription is refused before any
 // bytes are written, so the caller can still emit an HTTP error response.
@@ -136,6 +161,11 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 		return err
 	}
 	defer s.broker.Unsubscribe(sub)
+
+	// Started before backfill so a slow backfill cannot extend the stream.
+	// Ending the response makes the client reconnect through auth again.
+	lifetime := time.NewTimer(s.maxLifetime())
+	defer lifetime.Stop()
 
 	// Flush the response headers on connect so the client's EventSource fires
 	// onopen immediately, rather than waiting up to one heartbeat interval when
@@ -176,6 +206,8 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 				return nil
 			}
 			sink.flush()
+		case <-lifetime.C:
+			return nil
 		case <-ctx.Done():
 			return nil
 		}
@@ -187,15 +219,25 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 // skip duplicates.
 func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F, lastEventID int64) int64 {
 	if lastEventID > 0 {
-		// Resume from where the client left off.
-		events, err := s.since(ctx, filter, lastEventID, sseBackfillLimit)
+		// Resume from where the client left off. The one extra row shows
+		// whether the backfill reaches the live stream.
+		events, err := s.since(ctx, filter, lastEventID, sseBackfillLimit+1)
 		if err != nil {
 			if ctx.Err() != nil {
 				s.logger.Debug(s.label+" backfill canceled", "last_event_id", lastEventID, "err", err)
 			} else {
 				s.logger.Warn(s.label+" backfill since id failed", "last_event_id", lastEventID, "err", err)
+				// The client is behind by an unknown amount: have it reload
+				// history instead of leaving a silent gap.
+				if err := sink.writeResync(); err == nil {
+					sink.flush()
+				}
 			}
 			return lastEventID
+		}
+		truncated := len(events) > sseBackfillLimit
+		if truncated {
+			events = events[:sseBackfillLimit]
 		}
 		// since() is already in chronological order (ASC).
 		for i := range events {
@@ -204,6 +246,13 @@ func (s sseStreamer[E, F]) backfill(ctx context.Context, sink sseSink, filter F,
 				continue
 			}
 			if err := sink.writeEvent(s.eventID(events[i]), s.label, data); err != nil {
+				return lastEventID
+			}
+		}
+		if truncated {
+			// Live delivery starts at the subscription, so the events past
+			// the limit would be skipped silently.
+			if err := sink.writeResync(); err != nil {
 				return lastEventID
 			}
 		}

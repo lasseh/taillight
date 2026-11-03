@@ -14,10 +14,11 @@ import (
 
 // SrvlogSSEHandler handles the SSE streaming endpoint.
 type SrvlogSSEHandler struct {
-	broker *broker.SrvlogBroker
-	store  SrvlogStore
-	mutes  MuteRuleSet
-	logger *slog.Logger
+	broker   *broker.SrvlogBroker
+	store    SrvlogStore
+	mutes    MuteRuleSet
+	logger   *slog.Logger
+	lifetime time.Duration // 0 → sseMaxLifetime (overridable in tests)
 }
 
 // NewSrvlogSSEHandler creates a new SrvlogSSEHandler.
@@ -68,10 +69,11 @@ func (h *SrvlogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	streamer := sseStreamer[model.SrvlogEvent, model.SrvlogFilter]{
-		broker:  h.broker,
-		label:   "srvlog",
-		eventID: func(e model.SrvlogEvent) int64 { return e.ID },
-		logger:  logger,
+		broker:   h.broker,
+		label:    "srvlog",
+		eventID:  func(e model.SrvlogEvent) int64 { return e.ID },
+		logger:   logger,
+		lifetime: h.lifetime,
 		// Backfill is marked at connect, never excluded: live events were
 		// marked at dispatch, so a reconnecting client hides backfill the
 		// same way.

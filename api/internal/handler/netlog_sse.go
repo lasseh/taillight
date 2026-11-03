@@ -14,10 +14,11 @@ import (
 
 // NetlogSSEHandler handles the SSE streaming endpoint for netlog events.
 type NetlogSSEHandler struct {
-	broker *broker.NetlogBroker
-	store  NetlogStore
-	mutes  MuteRuleSet
-	logger *slog.Logger
+	broker   *broker.NetlogBroker
+	store    NetlogStore
+	mutes    MuteRuleSet
+	logger   *slog.Logger
+	lifetime time.Duration // 0 → sseMaxLifetime (overridable in tests)
 }
 
 // NewNetlogSSEHandler creates a new NetlogSSEHandler.
@@ -68,10 +69,11 @@ func (h *NetlogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	streamer := sseStreamer[model.NetlogEvent, model.NetlogFilter]{
-		broker:  h.broker,
-		label:   "netlog",
-		eventID: func(e model.NetlogEvent) int64 { return e.ID },
-		logger:  logger,
+		broker:   h.broker,
+		label:    "netlog",
+		eventID:  func(e model.NetlogEvent) int64 { return e.ID },
+		logger:   logger,
+		lifetime: h.lifetime,
 		// Backfill is marked at connect, never excluded: live events were
 		// marked at dispatch, so a reconnecting client hides backfill the
 		// same way.

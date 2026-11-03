@@ -242,7 +242,7 @@ w.Header().Set("Connection", "keep-alive")
 w.Header().Set("X-Accel-Buffering", "no")  // disable nginx buffering
 ```
 
-The `http.ResponseWriter` is wrapped in an `sseSink` adapter (write event / write heartbeat / flush / set write deadline). Tests substitute an in-memory sink, which is how the subscribe-before-backfill ordering and dedup logic are unit-tested without an HTTP server.
+The `http.ResponseWriter` is wrapped in an `sseSink` adapter (write event / write heartbeat / write resync / flush / set write deadline). Tests substitute an in-memory sink, which is how the subscribe-before-backfill ordering and dedup logic are unit-tested without an HTTP server.
 
 ### 2. Subscribe before backfill
 
@@ -257,7 +257,7 @@ The subscription is created **before** the backfill query. This is critical: if 
 
 The backfill logic handles two cases:
 
-**With `Last-Event-ID`** (client reconnecting): Queries `List*Since(sinceID, limit=100)` to fetch events after the last one the client received. Results are already in chronological order (ASC).
+**With `Last-Event-ID`** (client reconnecting): Queries `List*Since(sinceID, limit=101)` to fetch events after the last one the client received, and sends at most 100. Results are already in chronological order (ASC). Live delivery starts at the new subscription, so when the 101st row exists (or the query fails) the events in between would be skipped silently: the streamer sends an `event: resync` frame (no id, empty data) after the backfill, and the SPA reloads history from REST.
 
 **Without `Last-Event-ID`** (fresh connection): Queries the most recent 100 matching events, then sends them oldest-first by iterating in reverse.
 
@@ -281,6 +281,8 @@ for {
         sink.setWriteDeadline(time.Now().Add(30 * time.Second))
         sink.writeHeartbeat()
         sink.flush()
+    case <-lifetime.C:
+        return                                      // 5-minute lifetime reached
     case <-ctx.Done():
         return                                      // client disconnected
     }
@@ -288,6 +290,8 @@ for {
 ```
 
 Every write (event or heartbeat) sets a 30-second per-write deadline via `http.ResponseController`, so a dead TCP peer cannot wedge the handler goroutine.
+
+Auth runs only when a stream connects, so every stream ends after `sseMaxLifetime` (5 minutes, timed from the subscribe). The client reconnects with `Last-Event-ID` through the auth middleware again, so a revoked key, ended session or deactivated user stops receiving events within that bound.
 
 ### 5. SSE frame format
 

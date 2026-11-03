@@ -360,17 +360,23 @@ export function createEventStore<TEvent extends { id: number; muted_by?: number 
       { deep: true },
     )
 
-    // After a long SSE outage the server's 100-event backfill leaves an
-    // invisible gap between backfill and live events. Refresh the view from
-    // REST so the user sees the actual recent history. Only refresh when this
-    // store's view is active; other routes will refresh via their own enter()
-    // on activation.
+    // After a long SSE outage, or a server resync, the server's 100-event
+    // backfill leaves an invisible gap between backfill and live events.
+    // While pinned to live, refresh the view from REST so the user sees the
+    // actual recent history. While scrolled back, keep the user's buffer and
+    // mark the gap so reattach() refetches when they return to live. Only act
+    // when this store's view is active; other routes will refresh via their
+    // own enter() on activation.
     const _stopReconnectWatch = watch(
       () => stream.reconnectAfterGap.value,
       (count, prev) => {
         if (count === prev) return
         if (!_initialLoadComplete.value) return
         if (route.name !== config.routeName) return
+        if (!scrollStore.isPinned(config.routeName)) {
+          _droppedWhileDetached = true
+          return
+        }
         enter()
       },
     )

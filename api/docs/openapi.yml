@@ -575,6 +575,11 @@ paths:
 
         - Event name: `srvlog`
         - Heartbeat every 15 s: `event: heartbeat`
+        - The server ends the stream after 5 minutes. Reconnect with
+          `Last-Event-ID` to resume; the reconnect is authorized again.
+        - `event: resync` (empty data, no id) follows a resume backfill
+          that hit its 100-event limit before reaching the live stream, or
+          failed: reload history from the list endpoint to close the gap.
       parameters:
         - $ref: "#/components/parameters/SrvlogHostname"
         - $ref: "#/components/parameters/SrvlogProgramname"
@@ -923,6 +928,11 @@ paths:
 
         - Event name: `netlog`
         - Heartbeat every 15 s: `event: heartbeat`
+        - The server ends the stream after 5 minutes. Reconnect with
+          `Last-Event-ID` to resume; the reconnect is authorized again.
+        - `event: resync` (empty data, no id) follows a resume backfill
+          that hit its 100-event limit before reaching the live stream, or
+          failed: reload history from the list endpoint to close the gap.
       parameters:
         - $ref: "#/components/parameters/SrvlogHostname"
         - $ref: "#/components/parameters/SrvlogProgramname"
@@ -1374,6 +1384,11 @@ paths:
 
         - Event name: `applog`
         - Heartbeat every 15 s: `event: heartbeat`
+        - The server ends the stream after 5 minutes. Reconnect with
+          `Last-Event-ID` to resume; the reconnect is authorized again.
+        - `event: resync` (empty data, no id) follows a resume backfill
+          that hit its 100-event limit before reaching the live stream, or
+          failed: reload history from the list endpoint to close the gap.
       parameters:
         - $ref: "#/components/parameters/AppLogService"
         - $ref: "#/components/parameters/AppLogComponent"
