@@ -122,6 +122,10 @@ func (l *Login) directory(ctx context.Context, logger *slog.Logger, username, pa
 	case errors.Is(err, ldap.ErrUserNotFound):
 		return model.User{}, false, nil
 	case errors.Is(err, ldap.ErrNotAuthorized):
+		// Both directory denials run the bcrypt work the local check runs,
+		// so response time matches an unknown username, and a correct
+		// password here takes as long as a wrong one.
+		DummyCheckPassword(password)
 		// The directory returns this only after the user's password bind
 		// succeeded, so the caller knows the password and the directory has
 		// withdrawn the user. ErrUserNotFound and ErrInvalidPassword need no
@@ -131,6 +135,7 @@ func (l *Login) directory(ctx context.Context, logger *slog.Logger, username, pa
 		}
 		return model.User{}, false, denied("LDAP user not in any authorized group")
 	case errors.Is(err, ldap.ErrInvalidPassword):
+		DummyCheckPassword(password)
 		return model.User{}, false, denied("LDAP wrong password")
 	default:
 		logger.Error("login: LDAP error, falling back to local auth", "err", err, "username", username)

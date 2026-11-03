@@ -67,6 +67,19 @@ func (s *fakeLoginStore) UpsertOIDCUser(context.Context, string, string, string,
 	return s.oidcUser, nil
 }
 
+// countComparisons counts bcrypt comparisons until the test ends.
+func countComparisons(t *testing.T) *int {
+	t.Helper()
+	n := 0
+	orig := compareHashAndPassword
+	compareHashAndPassword = func(hash, password []byte) error {
+		n++
+		return orig(hash, password)
+	}
+	t.Cleanup(func() { compareHashAndPassword = orig })
+	return &n
+}
+
 func mustHash(t *testing.T, pw string) string {
 	t.Helper()
 	h, err := HashPassword(pw)
@@ -100,29 +113,38 @@ func TestLoginPassword(t *testing.T) {
 		wantDenied  string // substring of the denial reason; "" = success
 		wantInfra   bool
 		wantRevoked bool // RevokeLDAPUser ran for username
+		// wantCompares is the number of bcrypt comparisons. Every password
+		// denial runs exactly one, so response time does not tell the
+		// denials apart.
+		wantCompares int
 	}{
-		{name: "local password", username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal},
-		{name: "local wrong password", username: "alice", password: "nope", wantDenied: "wrong password"},
-		{name: "unknown user", username: "mallory", password: "x", wantDenied: "unknown user"},
-		{name: "ldap row refused locally", username: "bob", password: "x", wantDenied: "external-auth user attempted local auth", wantSource: SourceLDAP},
-		{name: "oidc row refused locally", username: "sso", password: "x", wantDenied: "external-auth user attempted local auth", wantSource: SourceOIDC},
-		{name: "inactive local account", username: "carol", password: "hunter2", wantDenied: "inactive account"},
+		{name: "local password", username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal, wantCompares: 1},
+		{name: "local wrong password", username: "alice", password: "nope", wantDenied: "wrong password", wantCompares: 1},
+		{name: "unknown user", username: "mallory", password: "x", wantDenied: "unknown user", wantCompares: 1},
+		{name: "ldap row refused locally", username: "bob", password: "x", wantDenied: "external-auth user attempted local auth", wantSource: SourceLDAP, wantCompares: 1},
+		{name: "oidc row refused locally", username: "sso", password: "x", wantDenied: "external-auth user attempted local auth", wantSource: SourceOIDC, wantCompares: 1},
+		{name: "inactive local account", username: "carol", password: "hunter2", wantDenied: "inactive account", wantCompares: 1},
 		{name: "store failure", getErr: errors.New("db down"), username: "alice", password: "hunter2", wantInfra: true},
 
 		// LDAP success takes over the local row of the same name.
 		{name: "ldap success", dir: dirOK, username: "alice", password: "dirpw", wantUser: "alice", wantSource: SourceLDAP},
-		{name: "ldap user not found falls through", dir: fakeDirectory{err: ldap.ErrUserNotFound}, username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal},
-		{name: "ldap outage falls through", dir: fakeDirectory{err: errors.New("connection refused")}, username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal},
-		{name: "ldap wrong password does not fall through", dir: fakeDirectory{err: ldap.ErrInvalidPassword}, username: "alice", password: "hunter2", wantDenied: "LDAP wrong password"},
-		{name: "ldap no group does not fall through", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, username: "alice", password: "hunter2", wantDenied: "LDAP user not in any authorized group", wantRevoked: true},
-		{name: "ldap no group with revoke failure", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, revokeErr: errors.New("db down"), username: "bob", password: "dirpw", wantInfra: true, wantRevoked: true},
+		{name: "ldap user not found falls through", dir: fakeDirectory{err: ldap.ErrUserNotFound}, username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal, wantCompares: 1},
+		{name: "ldap outage falls through", dir: fakeDirectory{err: errors.New("connection refused")}, username: "alice", password: "hunter2", wantUser: "alice", wantSource: SourceLocal, wantCompares: 1},
+		{name: "ldap wrong password does not fall through", dir: fakeDirectory{err: ldap.ErrInvalidPassword}, username: "alice", password: "hunter2", wantDenied: "LDAP wrong password", wantCompares: 1},
+		{name: "ldap no group does not fall through", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, username: "alice", password: "hunter2", wantDenied: "LDAP user not in any authorized group", wantRevoked: true, wantCompares: 1},
+		{name: "ldap no group with revoke failure", dir: fakeDirectory{err: ldap.ErrNotAuthorized}, revokeErr: errors.New("db down"), username: "bob", password: "dirpw", wantInfra: true, wantRevoked: true, wantCompares: 1},
 		{name: "ldap success on inactive row", dir: fakeDirectory{result: ldap.Result{Username: "carol"}}, username: "carol", password: "dirpw", wantDenied: "inactive account"},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			compares := countComparisons(t)
 			store := &fakeLoginStore{users: users(), getErr: tt.getErr, revokeErr: tt.revokeErr}
 			user, err := NewLogin(store, tt.dir).Password(context.Background(), logger, tt.username, tt.password)
+
+			if *compares != tt.wantCompares {
+				t.Errorf("bcrypt comparisons = %d, want %d", *compares, tt.wantCompares)
+			}
 
 			// Only a directory refusal after the password bind may revoke;
 			// every other outcome, including the denials that need no
