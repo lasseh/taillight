@@ -31,6 +31,23 @@ func TestWriteJSON(t *testing.T) {
 	}
 }
 
+func TestWriteJSON_EncodeFailure(t *testing.T) {
+	w := httptest.NewRecorder()
+
+	writeJSON(w, map[string]any{"ch": make(chan int)})
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+	var got httputil.ErrorBody
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response %q: %v", w.Body.String(), err)
+	}
+	if got.Error.Code != "encode_failed" {
+		t.Errorf("error code = %q, want %q", got.Error.Code, "encode_failed")
+	}
+}
+
 func TestWriteError(t *testing.T) {
 	w := httptest.NewRecorder()
 

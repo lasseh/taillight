@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -21,10 +22,18 @@ type itemResponse struct {
 	Data any `json:"data"`
 }
 
+// writeJSON sends v as a 200 JSON response. It encodes into a buffer first, so
+// a value that fails to encode gets a 500 error instead of an empty 200.
 func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(v); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(v); err != nil {
 		slog.Default().Error("writeJSON encode failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "encode_failed", "failed to encode response")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		slog.Default().Error("writeJSON write failed", "err", err)
 	}
 }
 
