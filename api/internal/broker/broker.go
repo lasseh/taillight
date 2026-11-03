@@ -6,12 +6,19 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 )
 
 const (
 	// subscriptionBufferSize is the channel buffer size for each SSE client subscription.
 	// A larger buffer allows clients to briefly fall behind without dropping events.
 	subscriptionBufferSize = 512
+
+	// subscriptionByteBudget caps the marshalled bytes queued for one
+	// subscription. A subscriber whose backlog would pass it is evicted, so a
+	// client that reads slower than its events arrive holds a bounded share of
+	// heap however large the events are.
+	subscriptionByteBudget = 16 << 20
 
 	// maxSubscribers is the maximum number of concurrent SSE clients per broker.
 	// Prevents memory exhaustion from too many open connections.
@@ -51,11 +58,24 @@ type Subscription[F any] struct {
 	ch        chan Message
 	filter    F
 	clientKey string
+	// queued counts the Data bytes sent on ch and not yet released by
+	// Consumed. Every subscription counts a shared event's full size, so it is
+	// an upper bound on the heap the subscription holds.
+	queued atomic.Int64
 }
 
-// Chan returns the event channel for reading.
+// Chan returns the event channel for reading. The reader passes each message
+// it receives to Consumed. The channel is closed when the subscription ends:
+// on Unsubscribe, on Shutdown, or when the broker evicts a reader that fell
+// too far behind.
 func (s *Subscription[F]) Chan() <-chan Message {
 	return s.ch
+}
+
+// Consumed releases msg from the subscription's byte budget. Call it once for
+// each message received from Chan.
+func (s *Subscription[F]) Consumed(msg Message) {
+	s.queued.Add(-int64(len(msg.Data)))
 }
 
 // Broker fans out events to connected SSE clients, applying per-client filters.
@@ -70,6 +90,7 @@ type Broker[E any, F interface{ Matches(E) bool }] struct {
 	getID       func(E) int64
 	label       string
 	metrics     BrokerMetrics
+	byteBudget  int64 // subscriptionByteBudget (lowered in tests)
 }
 
 // New creates a new Broker.
@@ -89,6 +110,7 @@ func New[E any, F interface{ Matches(E) bool }](
 		getID:       getID,
 		label:       label,
 		metrics:     m,
+		byteBudget:  subscriptionByteBudget,
 	}
 }
 
@@ -122,8 +144,9 @@ func (b *Broker[E, F]) Subscribe(filter F, clientKey string) (*Subscription[F], 
 	return sub, nil
 }
 
-// Unsubscribe removes a client and closes its channel.
-// Safe to call after Shutdown — if the subscription was already removed, this is a no-op.
+// Unsubscribe removes a client, discards its queued events and closes its
+// channel. Safe to call after Shutdown — if the subscription was already
+// removed, this is a no-op.
 func (b *Broker[E, F]) Unsubscribe(sub *Subscription[F]) {
 	b.mu.Lock()
 	if _, ok := b.subscribers[sub]; !ok {
@@ -132,6 +155,11 @@ func (b *Broker[E, F]) Unsubscribe(sub *Subscription[F]) {
 	}
 	delete(b.subscribers, sub)
 	close(sub.ch)
+	// An evicted reader's backlog is released now, and its handler sees the
+	// close on its next receive instead of writing the backlog first.
+	for len(sub.ch) > 0 {
+		<-sub.ch
+	}
 	b.decClientLocked(sub.clientKey)
 	b.mu.Unlock()
 	b.metrics.OnUnsubscribe()
@@ -170,7 +198,9 @@ func (b *Broker[E, F]) Shutdown() {
 	b.logger.Info(b.label + " broker shut down")
 }
 
-// Broadcast sends an event to all subscribers whose filter matches.
+// Broadcast sends an event to all subscribers whose filter matches. A
+// subscriber whose queue is full loses the event. One whose queued bytes would
+// pass the byte budget is evicted, which ends its stream.
 func (b *Broker[E, F]) Broadcast(event E) {
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -179,20 +209,37 @@ func (b *Broker[E, F]) Broadcast(event E) {
 	}
 
 	msg := Message{ID: b.getID(event), Data: data}
+	size := int64(len(data))
 	b.metrics.OnBroadcast()
 
+	var evict []*Subscription[F]
 	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	for sub := range b.subscribers {
 		if !sub.filter.Matches(event) {
+			continue
+		}
+		// Reserve the bytes before sending, so concurrent broadcasts cannot
+		// pass the budget together.
+		if sub.queued.Add(size) > b.byteBudget {
+			sub.queued.Add(-size)
+			b.metrics.OnDrop()
+			evict = append(evict, sub)
 			continue
 		}
 		select {
 		case sub.ch <- msg:
 		default:
+			sub.queued.Add(-size)
 			b.metrics.OnDrop()
 			b.logger.Warn("dropped "+b.label+" event for slow client", "event_id", msg.ID)
 		}
+	}
+	b.mu.RUnlock()
+
+	// Unsubscribe takes the write lock, so evict after releasing the read lock.
+	for _, sub := range evict {
+		b.logger.Warn("evicted "+b.label+" client over its queued byte budget",
+			"event_id", msg.ID, "client", sub.clientKey, "queued_bytes", sub.queued.Load())
+		b.Unsubscribe(sub)
 	}
 }

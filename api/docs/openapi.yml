@@ -577,6 +577,8 @@ paths:
         - Heartbeat every 15 s: `event: heartbeat`
         - The server ends the stream after 5 minutes. Reconnect with
           `Last-Event-ID` to resume; the reconnect is authorized again.
+        - The server also ends the stream early when the client falls more
+          than 16 MiB of events behind. Reconnect the same way.
         - `event: resync` (empty data, no id) follows a resume backfill
           that hit its 100-event limit before reaching the live stream, or
           failed: reload history from the list endpoint to close the gap.
@@ -930,6 +932,8 @@ paths:
         - Heartbeat every 15 s: `event: heartbeat`
         - The server ends the stream after 5 minutes. Reconnect with
           `Last-Event-ID` to resume; the reconnect is authorized again.
+        - The server also ends the stream early when the client falls more
+          than 16 MiB of events behind. Reconnect the same way.
         - `event: resync` (empty data, no id) follows a resume backfill
           that hit its 100-event limit before reaching the live stream, or
           failed: reload history from the list endpoint to close the gap.
@@ -1386,6 +1390,8 @@ paths:
         - Heartbeat every 15 s: `event: heartbeat`
         - The server ends the stream after 5 minutes. Reconnect with
           `Last-Event-ID` to resume; the reconnect is authorized again.
+        - The server also ends the stream early when the client falls more
+          than 16 MiB of events behind. Reconnect the same way.
         - `event: resync` (empty data, no id) follows a resume backfill
           that hit its 100-event limit before reaching the live stream, or
           failed: reload history from the list endpoint to close the gap.

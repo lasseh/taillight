@@ -183,8 +183,9 @@ func (s sseStreamer[E, F]) run(ctx context.Context, sink sseSink, filter F, last
 		select {
 		case msg, ok := <-sub.Chan():
 			if !ok {
-				return nil
+				return nil // the broker shut down or evicted this slow reader
 			}
+			sub.Consumed(msg)
 			// Skip events already sent during backfill.
 			if msg.ID <= lastBackfilledID {
 				continue
