@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -171,6 +172,48 @@ func TestGetChannel(t *testing.T) {
 			if rec.Code != tt.wantStatus {
 				t.Errorf("got status %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
 			}
+		})
+	}
+}
+
+// TestChannelReadsHideCredentials stores channels whose credentials sit in
+// userinfo, the webhook template, the ntfy topic, or keys spelled in another
+// case, and checks neither read route returns them.
+func TestChannelReadsHideCredentials(t *testing.T) {
+	channels := []notification.Channel{
+		{ID: 1, Type: notification.ChannelTypeNtfy, Config: json.RawMessage(`{"server_url":"http://ntfyuser:dummy-ntfy-password@198.51.100.20","topic":"dummy-secret-topic"}`)},
+		{ID: 2, Type: notification.ChannelTypeWebhook, Config: json.RawMessage(`{"url":"http://198.51.100.20/v2/enqueue","template":"{\"routing_key\":\"dummy-routing-key\",\"event_action\":\"trigger\"}"}`)},
+		{ID: 3, Type: notification.ChannelTypeWebhook, Config: json.RawMessage(`{"URL":"http://198.51.100.20/hook/PATHSECRET","Headers":{"X-Api-Key":"dummy-header-secret"}}`)},
+		{ID: 4, Type: notification.ChannelTypeNtfy, Config: json.RawMessage(`{"server_url":"http://198.51.100.20","topic":"t","Token":"dummy-ntfy-token"}`)},
+	}
+	secrets := []string{"dummy-ntfy-password", "dummy-secret-topic", "dummy-routing-key", "PATHSECRET", "dummy-header-secret", "dummy-ntfy-token"}
+
+	check := func(t *testing.T, rec *httptest.ResponseRecorder) {
+		t.Helper()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		for _, s := range secrets {
+			if bytes.Contains(rec.Body.Bytes(), []byte(s)) {
+				t.Errorf("response leaked %q: %s", s, rec.Body.String())
+			}
+		}
+	}
+
+	t.Run("list", func(t *testing.T) {
+		h := NewNotificationHandler(&mockNotificationStore{channels: channels}, nil)
+		rec := httptest.NewRecorder()
+		h.ListChannels(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/notifications/channels", nil))
+		check(t, rec)
+	})
+	for _, ch := range channels {
+		t.Run("get "+strconv.FormatInt(ch.ID, 10), func(t *testing.T) {
+			h := NewNotificationHandler(&mockNotificationStore{channel: ch}, nil)
+			r := chi.NewRouter()
+			r.Get("/channels/{id}", h.GetChannel)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/channels/1", nil))
+			check(t, rec)
 		})
 	}
 }
@@ -349,6 +392,86 @@ func TestUpdateChannelRejectsUnrestorableMask(t *testing.T) {
 	}
 	if store.updatedCh.Config != nil {
 		t.Errorf("store was written: %s", store.updatedCh.Config)
+	}
+}
+
+// TestUpdateChannelMaskedSecretNeedsSameDestination checks that an edit keeps
+// a masked secret only while the channel still delivers to the stored
+// destination. Validation is off (nil engine), so the check stands alone.
+func TestUpdateChannelMaskedSecretNeedsSameDestination(t *testing.T) {
+	ntfy := notification.Channel{
+		ID: 1, Type: notification.ChannelTypeNtfy,
+		Config: json.RawMessage(`{"server_url":"https://ntfy.sh","token":"tk_secret","topic":"alerts"}`),
+	}
+	hook := notification.Channel{
+		ID: 1, Type: notification.ChannelTypeWebhook,
+		Config: json.RawMessage(`{"headers":{"X-Key":"hk_secret"},"url":"https://x/hook"}`),
+	}
+	tests := []struct {
+		name       string
+		stored     notification.Channel
+		body       string
+		wantStatus int
+		wantStored []string // substrings the stored config must hold on success
+	}{
+		{
+			name:       "ntfy new server with masked token",
+			stored:     ntfy,
+			body:       `{"name":"n","type":"ntfy","enabled":true,"config":{"server_url":"https://other.example","topic":"alerts","token":"********"}}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "ntfy new server under a folded key",
+			stored:     ntfy,
+			body:       "{\"name\":\"n\",\"type\":\"ntfy\",\"enabled\":true,\"config\":{\"ſerver_url\":\"https://other.example\",\"server_url\":\"https://ntfy.sh\",\"topic\":\"********\",\"token\":\"********\"}}",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "webhook new url with masked header",
+			stored:     hook,
+			body:       `{"name":"w","type":"webhook","enabled":true,"config":{"url":"https://y/hook","headers":{"X-Key":"********"}}}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "webhook masked url and header",
+			stored:     hook,
+			body:       `{"name":"w","type":"webhook","enabled":true,"config":{"url":"********","headers":{"X-Key":"********"}}}`,
+			wantStatus: http.StatusOK,
+			wantStored: []string{`"url":"https://x/hook"`, `"X-Key":"hk_secret"`},
+		},
+		{
+			name:       "ntfy same server with masked token and topic",
+			stored:     ntfy,
+			body:       `{"name":"n","type":"ntfy","enabled":true,"config":{"server_url":"https://ntfy.sh","topic":"********","token":"********"}}`,
+			wantStatus: http.StatusOK,
+			wantStored: []string{`"token":"tk_secret"`, `"topic":"alerts"`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &mockNotificationStore{channel: tt.stored}
+			h := NewNotificationHandler(store, nil)
+			r := chi.NewRouter()
+			r.Put("/channels/{id}", h.UpdateChannel)
+
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/channels/1", bytes.NewBufferString(tt.body)))
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status %d, want %d: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if tt.wantStatus != http.StatusOK {
+				if store.updatedCh.Config != nil {
+					t.Errorf("store was written: %s", store.updatedCh.Config)
+				}
+				return
+			}
+			for _, s := range tt.wantStored {
+				if !bytes.Contains(store.updatedCh.Config, []byte(s)) {
+					t.Errorf("stored config lacks %s: %s", s, store.updatedCh.Config)
+				}
+			}
+		})
 	}
 }
 

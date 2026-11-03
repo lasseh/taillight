@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,10 @@ func (n *Ntfy) Validate(ch notification.Channel) error {
 	}
 	if !strings.HasPrefix(cfg.ServerURL, "http://") && !strings.HasPrefix(cfg.ServerURL, "https://") {
 		return fmt.Errorf("server_url must use HTTP or HTTPS")
+	}
+	// Credentials belong in token, which reads mask; the server URL is shown.
+	if u, err := url.Parse(cfg.ServerURL); err == nil && u.User != nil {
+		return fmt.Errorf("server_url must not contain credentials; use token")
 	}
 	if cfg.Topic == "" {
 		return fmt.Errorf("topic is required")

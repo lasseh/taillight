@@ -150,7 +150,8 @@ func (h *NotificationHandler) UpdateChannel(w http.ResponseWriter, r *http.Reque
 	}
 
 	// The edit form is filled from a redacted read, so masked secrets come
-	// back as the placeholder; keep the stored value for those.
+	// back as the placeholder; keep the stored value for those while the
+	// destination is unchanged.
 	stored, err := h.store.GetNotificationChannel(r.Context(), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "channel not found")
@@ -163,7 +164,7 @@ func (h *NotificationHandler) UpdateChannel(w http.ResponseWriter, r *http.Reque
 	}
 	ch = ch.WithSecretsFrom(stored)
 	if ch.HasRedactedSecret() {
-		writeError(w, http.StatusBadRequest, "validation_failed", "a masked secret has no stored value to keep; re-enter it")
+		writeError(w, http.StatusBadRequest, "validation_failed", "a masked secret cannot be kept: it has no stored value or the destination changed; re-enter it")
 		return
 	}
 

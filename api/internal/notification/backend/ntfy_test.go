@@ -29,6 +29,11 @@ func TestNtfyValidate(t *testing.T) {
 			wantErr: "server_url must use HTTP or HTTPS",
 		},
 		{
+			name:    "credentials in server_url",
+			config:  ntfyConfig{ServerURL: "https://user:pass@198.51.100.20", Topic: "alerts"},
+			wantErr: "server_url must not contain credentials",
+		},
+		{
 			name:    "missing topic",
 			config:  ntfyConfig{ServerURL: "https://ntfy.example.com"},
 			wantErr: "topic is required",
