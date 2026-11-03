@@ -24,6 +24,12 @@ type Config struct {
 	Logger        *slog.Logger
 }
 
+// maxConnsPerHost bounds the connections the client holds open to Netbox
+// across every request being served at once. It is twice the enrichment
+// handler's per-view lookup concurrency, so two event views can run side
+// by side; further calls wait for a free connection.
+const maxConnsPerHost = 16
+
 // Client talks to a Netbox instance with an in-memory TTL cache.
 // Construct via NewClient. Methods return (nil, nil) when Netbox has no
 // matching object so the caller can record found=false without an error.
@@ -76,6 +82,7 @@ func NewClient(cfg Config) (*Client, error) {
 		return nil, errors.New("netbox: http.DefaultTransport is not *http.Transport")
 	}
 	tr := transport.Clone()
+	tr.MaxConnsPerHost = maxConnsPerHost
 	if cfg.TLSSkipVerify {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // explicit opt-in via config for self-signed test instances
 	}

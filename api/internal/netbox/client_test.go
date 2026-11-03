@@ -49,6 +49,26 @@ func TestNewClientRequiresURL(t *testing.T) {
 	}
 }
 
+// TestNewClientLimitsConnsPerHost checks the transport caps connections to
+// Netbox, so concurrent event views share a fixed pool instead of each
+// opening its own.
+func TestNewClientLimitsConnsPerHost(t *testing.T) {
+	for _, skip := range []bool{false, true} {
+		c, err := NewClient(Config{URL: "http://example.com", Token: "x", TLSSkipVerify: skip})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr, ok := c.httpClient.Transport.(*http.Transport)
+		if !ok {
+			t.Fatalf("transport is %T, want *http.Transport", c.httpClient.Transport)
+		}
+		if tr.MaxConnsPerHost != maxConnsPerHost || maxConnsPerHost <= 0 {
+			t.Errorf("TLSSkipVerify=%t: MaxConnsPerHost = %d, want %d", skip, tr.MaxConnsPerHost, maxConnsPerHost)
+		}
+		c.Close()
+	}
+}
+
 func TestClientLookupDevice_AuthSchemes(t *testing.T) {
 	cases := []struct {
 		scheme     string
