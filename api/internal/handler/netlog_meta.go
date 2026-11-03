@@ -16,7 +16,11 @@ func NewNetlogMetaHandler(store NetlogStore) *NetlogMetaHandler {
 
 // Hosts handles GET /api/v1/netlog/meta/hosts.
 func (h *NetlogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
-	hosts, err := h.store.ListNetlogHosts(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	hosts, err := h.store.ListNetlogHosts(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -30,7 +34,11 @@ func (h *NetlogMetaHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 
 // Programs handles GET /api/v1/netlog/meta/programs.
 func (h *NetlogMetaHandler) Programs(w http.ResponseWriter, r *http.Request) {
-	programs, err := h.store.ListNetlogPrograms(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	programs, err := h.store.ListNetlogPrograms(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -58,7 +66,11 @@ func (h *NetlogMetaHandler) Facilities(w http.ResponseWriter, r *http.Request) {
 
 // Tags handles GET /api/v1/netlog/meta/tags.
 func (h *NetlogMetaHandler) Tags(w http.ResponseWriter, r *http.Request) {
-	tags, err := h.store.ListNetlogTags(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	tags, err := h.store.ListNetlogTags(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return

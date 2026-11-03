@@ -20,9 +20,9 @@ type SrvlogStore interface {
 	// WithPreview to each row after marking.
 	ListSrvlogPreviews(ctx context.Context, f model.SrvlogFilter, cursor *model.Cursor, limit int) ([]model.SrvlogEvent, *model.Cursor, error)
 	ListSrvlogsSince(ctx context.Context, f model.SrvlogFilter, sinceID int64, limit int) ([]model.SrvlogEvent, error)
-	ListSrvlogHosts(ctx context.Context) ([]string, error)
-	ListSrvlogPrograms(ctx context.Context) ([]string, error)
-	ListSrvlogTags(ctx context.Context) ([]string, error)
+	ListSrvlogHosts(ctx context.Context, search string) ([]string, error)
+	ListSrvlogPrograms(ctx context.Context, search string) ([]string, error)
+	ListSrvlogTags(ctx context.Context, search string) ([]string, error)
 	ListSrvlogFacilities(ctx context.Context) ([]int, error)
 	GetSrvlogDeviceSummary(ctx context.Context, hostname string) (model.SrvlogDeviceSummary, error)
 }
@@ -39,9 +39,9 @@ type NetlogStore interface {
 	// WithPreview to each row after marking.
 	ListNetlogPreviews(ctx context.Context, f model.NetlogFilter, cursor *model.Cursor, limit int) ([]model.NetlogEvent, *model.Cursor, error)
 	ListNetlogsSince(ctx context.Context, f model.NetlogFilter, sinceID int64, limit int) ([]model.NetlogEvent, error)
-	ListNetlogHosts(ctx context.Context) ([]string, error)
-	ListNetlogPrograms(ctx context.Context) ([]string, error)
-	ListNetlogTags(ctx context.Context) ([]string, error)
+	ListNetlogHosts(ctx context.Context, search string) ([]string, error)
+	ListNetlogPrograms(ctx context.Context, search string) ([]string, error)
+	ListNetlogTags(ctx context.Context, search string) ([]string, error)
 	ListNetlogFacilities(ctx context.Context) ([]int, error)
 	GetNetlogVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error)
 	GetNetlogSeverityVolume(ctx context.Context, interval model.VolumeInterval, rangeDur time.Duration) ([]model.SeverityVolumeBucket, error)
@@ -65,9 +65,9 @@ type AppLogStore interface {
 	GetAppLog(ctx context.Context, id int64) (model.AppLogEvent, error)
 	ListAppLogs(ctx context.Context, f model.AppLogFilter, cursor *model.Cursor, limit int) ([]model.AppLogEvent, *model.Cursor, error)
 	ListAppLogsSince(ctx context.Context, f model.AppLogFilter, sinceID int64, limit int) ([]model.AppLogEvent, error)
-	ListServices(ctx context.Context) ([]string, error)
-	ListComponents(ctx context.Context) ([]string, error)
-	ListAppLogHosts(ctx context.Context) ([]string, error)
+	ListServices(ctx context.Context, search string) ([]string, error)
+	ListComponents(ctx context.Context, search string) ([]string, error)
+	ListAppLogHosts(ctx context.Context, search string) ([]string, error)
 	GetAppLogVolume(ctx context.Context, p model.VolumeParams) ([]model.VolumeBucket, error)
 	InsertLogBatch(ctx context.Context, events []model.AppLogEvent) ([]model.AppLogEvent, error)
 }

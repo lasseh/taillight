@@ -21,7 +21,13 @@ interface SyslogFilterStore {
 
 const props = defineProps<{
   filterStore: SyslogFilterStore
-  meta: { hosts: string[]; programs: string[]; facilities: number[] }
+  meta: {
+    hosts: string[]
+    programs: string[]
+    facilities: number[]
+    searchHosts: (q: string) => Promise<string[]>
+    searchPrograms: (q: string) => Promise<string[]>
+  }
   deviceRoute: string
   exportPath: string
   searchLabel: string
@@ -33,13 +39,14 @@ const meta = props.meta
 const mobileOpen = ref(false)
 const activeFilterCount = computed(() => Object.keys(filterStore.activeFilters).length)
 
-const hostOptions = computed(() =>
-  meta.hosts.map((h) => ({ value: h, label: h, colorClass: 'text-t-teal' })),
-)
+const hostOption = (h: string) => ({ value: h, label: h, colorClass: 'text-t-teal' })
+const programOption = (p: string) => ({ value: p, label: p, colorClass: 'text-t-purple' })
 
-const programOptions = computed(() =>
-  meta.programs.map((p) => ({ value: p, label: p, colorClass: 'text-t-purple' })),
-)
+const hostOptions = computed(() => meta.hosts.map(hostOption))
+const programOptions = computed(() => meta.programs.map(programOption))
+
+const fetchHostOptions = async (q: string) => (await meta.searchHosts(q)).map(hostOption)
+const fetchProgramOptions = async (q: string) => (await meta.searchPrograms(q)).map(programOption)
 
 const facilityOptions = computed(() =>
   meta.facilities.map((f) => ({
@@ -133,12 +140,15 @@ function exportCSV() {
         v-model="filterStore.filters.hostname"
         label="host"
         :options="hostOptions"
+        :fetch-options="fetchHostOptions"
         searchable
       />
       <FilterSelect
         v-model="filterStore.filters.programname"
         label="program"
         :options="programOptions"
+        :fetch-options="fetchProgramOptions"
+        searchable
       />
       <FilterSelect
         v-model="filterStore.filters.facility"
@@ -183,12 +193,15 @@ function exportCSV() {
       v-model="filterStore.filters.hostname"
       label="host"
       :options="hostOptions"
+      :fetch-options="fetchHostOptions"
       searchable
     />
     <FilterSelect
       v-model="filterStore.filters.programname"
       label="program"
       :options="programOptions"
+      :fetch-options="fetchProgramOptions"
+      searchable
     />
     <FilterSelect
       v-model="filterStore.filters.facility"

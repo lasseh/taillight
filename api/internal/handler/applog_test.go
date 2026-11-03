@@ -37,15 +37,15 @@ func (m *mockAppLogStore) ListAppLogsSince(_ context.Context, _ model.AppLogFilt
 	return m.events, m.listErr
 }
 
-func (m *mockAppLogStore) ListServices(_ context.Context) ([]string, error) {
+func (m *mockAppLogStore) ListServices(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 
-func (m *mockAppLogStore) ListComponents(_ context.Context) ([]string, error) {
+func (m *mockAppLogStore) ListComponents(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 
-func (m *mockAppLogStore) ListAppLogHosts(_ context.Context) ([]string, error) {
+func (m *mockAppLogStore) ListAppLogHosts(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 

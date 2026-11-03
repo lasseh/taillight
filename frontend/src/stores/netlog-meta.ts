@@ -28,5 +28,23 @@ export const useNetlogMetaStore = defineStore('netlog-meta', () => {
     }
   }
 
-  return { hosts, programs, facilities, loading, error, fetchAll }
+  // The loaded lists are capped; these look typed text up on the server.
+  async function searchHosts(q: string) {
+    return (await api.getNetlogHosts(q)).data
+  }
+
+  async function searchPrograms(q: string) {
+    return (await api.getNetlogPrograms(q)).data
+  }
+
+  return {
+    hosts,
+    programs,
+    facilities,
+    loading,
+    error,
+    fetchAll,
+    searchHosts,
+    searchPrograms,
+  }
 })

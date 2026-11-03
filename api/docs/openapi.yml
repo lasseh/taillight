@@ -700,9 +700,13 @@ paths:
       x-required-scope: read
       tags: [Srvlog Metadata]
       summary: Distinct hostnames
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /srvlog/meta/programs:
     get:
@@ -710,9 +714,13 @@ paths:
       x-required-scope: read
       tags: [Srvlog Metadata]
       summary: Distinct program names
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /srvlog/meta/facilities:
     get:
@@ -739,9 +747,13 @@ paths:
       x-required-scope: read
       tags: [Srvlog Metadata]
       summary: Distinct srvlog tags
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   # ── Srvlog Stats ──────────────────────────────────────────────────────
   /srvlog/stats/volume:
@@ -1112,9 +1124,13 @@ paths:
       x-required-scope: read
       tags: [Netlog Metadata]
       summary: Distinct hostnames
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /netlog/meta/programs:
     get:
@@ -1122,9 +1138,13 @@ paths:
       x-required-scope: read
       tags: [Netlog Metadata]
       summary: Distinct program names
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /netlog/meta/facilities:
     get:
@@ -1151,9 +1171,13 @@ paths:
       x-required-scope: read
       tags: [Netlog Metadata]
       summary: Distinct netlog tags
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   # ── Netlog Stats ──────────────────────────────────────────────────────
   /netlog/stats/volume:
@@ -1605,9 +1629,13 @@ paths:
       x-required-scope: read
       tags: [AppLog Metadata]
       summary: Distinct service names
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /applog/meta/components:
     get:
@@ -1615,9 +1643,13 @@ paths:
       x-required-scope: read
       tags: [AppLog Metadata]
       summary: Distinct component names
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /applog/meta/hosts:
     get:
@@ -1625,9 +1657,13 @@ paths:
       x-required-scope: read
       tags: [AppLog Metadata]
       summary: Distinct hosts
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           $ref: "#/components/responses/StringList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   # ── Notifications ───────────────────────────────────────────────────────
   /notifications/channels:
@@ -2428,6 +2464,7 @@ paths:
           schema:
             type: string
             enum: [netlog, srvlog, applog]
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           description: Host entries
@@ -2453,6 +2490,8 @@ paths:
         Known applog services, used by the create-report service picker.
         Applog is the only feed with a service scope, so there is no feed
         parameter. Intentionally minimal — no per-service stats.
+      parameters:
+        - $ref: "#/components/parameters/MetaSearch"
       responses:
         "200":
           description: Service entries
@@ -2465,6 +2504,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/AnalysisServiceEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /analysis/schedules:
     get:
@@ -2707,6 +2748,19 @@ components:
         routes a search needs `from` to bound its time window; without it
         the request is a 400. On a stream with no `from`, the connect-time
         backfill covers the last 24 hours (or the 24 hours before `to`).
+
+    MetaSearch:
+      name: search
+      in: query
+      schema:
+        type: string
+        maxLength: 500
+      description: |
+        Case-insensitive substring of the listed values. The list holds at
+        most 10000 values in value order, with or without it; with it, only
+        the values containing the text, and an exact match first. A value
+        the default list leaves out is reachable this way. Values with no
+        event inside the feed's retention drop out of the list.
 
     From:
       name: from

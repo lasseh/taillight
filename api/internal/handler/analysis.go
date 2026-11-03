@@ -31,9 +31,9 @@ type AnalysisReportStore interface {
 	GetReportBySlug(ctx context.Context, slug string) (model.AnalysisReport, error)
 	DeleteReport(ctx context.Context, id int64) error
 	KnownAnalysisHosts(ctx context.Context, feed string, hosts []string) ([]string, error)
-	ListAnalysisHostEntries(ctx context.Context, feed string) ([]model.AnalysisHostEntry, error)
+	ListAnalysisHostEntries(ctx context.Context, feed, search string) ([]model.AnalysisHostEntry, error)
 	KnownServices(ctx context.Context, services []string) ([]string, error)
-	ListAnalysisServiceEntries(ctx context.Context) ([]model.AnalysisServiceEntry, error)
+	ListAnalysisServiceEntries(ctx context.Context, search string) ([]model.AnalysisServiceEntry, error)
 }
 
 // AnalysisEnqueuer accepts new report runs.
@@ -346,7 +346,8 @@ func unknownNames(known, candidates []string) []string {
 
 // Hosts handles GET /api/v1/analysis/hosts?feed={srvlog|netlog}. The
 // frontend picker loads this once per feed-selection to populate its
-// autocomplete suggestions; the response is intentionally minimal (no per-host
+// autocomplete suggestions, and again with search as the user types, since
+// the list is capped; the response is intentionally minimal (no per-host
 // stats — those live on /api/v1/hosts) so the call is cheap to fire on every
 // open of the create-report panel. The applog feed has no host scope and
 // returns an empty list; its picker uses Services.
@@ -356,8 +357,12 @@ func (h *AnalysisHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_feed", invalidFeedMessage)
 		return
 	}
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
 
-	entries, err := h.store.ListAnalysisHostEntries(r.Context(), feed)
+	entries, err := h.store.ListAnalysisHostEntries(r.Context(), feed, search)
 	if err != nil {
 		if isClientGone(r) {
 			return
@@ -370,11 +375,16 @@ func (h *AnalysisHandler) Hosts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, itemResponse{Data: emptySlice(entries)})
 }
 
-// Services handles GET /api/v1/analysis/services: every service known to
-// the applog feed, for the create-report service picker. Applog is the only
-// feed with a service scope, so there is no feed parameter.
+// Services handles GET /api/v1/analysis/services: the services known to the
+// applog feed, for the create-report service picker, narrowed by search like
+// Hosts. Applog is the only feed with a service scope, so there is no feed
+// parameter.
 func (h *AnalysisHandler) Services(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.store.ListAnalysisServiceEntries(r.Context())
+	search, ok := metaSearch(w, r)
+	if !ok {
+		return
+	}
+	entries, err := h.store.ListAnalysisServiceEntries(r.Context(), search)
 	if err != nil {
 		if isClientGone(r) {
 			return

@@ -37,7 +37,7 @@ func (s *stubAnalysisStore) KnownServices(_ context.Context, services []string) 
 	return knownSubset(s.knownServices, services), nil
 }
 
-func (s *stubAnalysisStore) ListAnalysisServiceEntries(context.Context) ([]model.AnalysisServiceEntry, error) {
+func (s *stubAnalysisStore) ListAnalysisServiceEntries(context.Context, string) ([]model.AnalysisServiceEntry, error) {
 	out := make([]model.AnalysisServiceEntry, len(s.knownServices))
 	for i, svc := range s.knownServices {
 		out[i] = model.AnalysisServiceEntry{Service: svc}
@@ -59,7 +59,7 @@ func (s *stubAnalysisStore) KnownAnalysisHosts(_ context.Context, feed string, h
 	return knownSubset(s.knownHosts[feed], hosts), nil
 }
 
-func (s *stubAnalysisStore) ListAnalysisHostEntries(_ context.Context, feed string) ([]model.AnalysisHostEntry, error) {
+func (s *stubAnalysisStore) ListAnalysisHostEntries(_ context.Context, feed, _ string) ([]model.AnalysisHostEntry, error) {
 	hosts := s.knownHosts[feed]
 	out := make([]model.AnalysisHostEntry, len(hosts))
 	for i, h := range hosts {

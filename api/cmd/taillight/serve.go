@@ -96,14 +96,15 @@ func runServe(_ *cobra.Command, _ []string) error {
 	authStore := postgres.NewAuthStore(pool)
 
 	// Apply configurable retention policies.
-	if err := store.ApplyRetentionPolicies(ctx, postgres.RetentionConfig{
+	retention := postgres.RetentionConfig{
 		SrvlogDays:          cfg.Retention.SrvlogDays,
 		NetlogDays:          cfg.Retention.NetlogDays,
 		AppLogDays:          cfg.Retention.AppLogDays,
 		NotificationLogDays: cfg.Retention.NotificationLogDays,
 		RsyslogStatsDays:    cfg.Retention.RsyslogStatsDays,
 		MetricsDays:         cfg.Retention.MetricsDays,
-	}); err != nil {
+	}
+	if err := store.ApplyRetentionPolicies(ctx, retention); err != nil {
 		logger.Warn("failed to apply retention policies", "err", err)
 	}
 
@@ -156,7 +157,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	loadCancel()
 	go mutes.Run(ctx)
 
-	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, srvlogBroker, netlogBroker, notifEngine, mutes, cfg.NotificationWorkers)
+	startBackgroundWorkers(ctx, logger, store, authStore, pool, notifications, srvlogBroker, netlogBroker, notifEngine, mutes, cfg.NotificationWorkers, retention)
 
 	// Analysis (optional).
 	var analysis *analysisWiring
@@ -332,7 +333,7 @@ func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler) {
 }
 
 // startBackgroundWorkers launches goroutines for notification bridging,
-// DB pool metric collection, and expired session cleanup.
+// DB pool metric collection, expired session cleanup, and meta cache pruning.
 func startBackgroundWorkers(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -345,6 +346,7 @@ func startBackgroundWorkers(
 	notifEngine *notification.Engine,
 	mutes ingestbridge.Muter,
 	notifWorkers int,
+	retention postgres.RetentionConfig,
 ) {
 	if notifWorkers <= 0 {
 		notifWorkers = 4
@@ -435,6 +437,31 @@ func startBackgroundWorkers(
 					logger.Warn("clean expired sessions", "err", err)
 				} else if n > 0 {
 					logger.Info("cleaned expired sessions", "count", n)
+				}
+			}
+		}
+	}()
+
+	// Periodically drop filter-list values with no event inside their
+	// feed's retention.
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				queryCtx, queryCancel := context.WithTimeout(ctx, time.Minute)
+				n, err := store.PruneMetaCaches(queryCtx, retention)
+				queryCancel()
+				if err != nil {
+					if ctx.Err() != nil {
+						return // shutting down
+					}
+					logger.Warn("prune meta caches", "err", err)
+				} else if n > 0 {
+					logger.Info("pruned meta cache values", "count", n)
 				}
 			}
 		}

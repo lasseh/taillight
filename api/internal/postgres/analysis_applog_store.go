@@ -362,10 +362,15 @@ func (s *Store) GetAppLogHygiene(ctx context.Context, scope model.AnalysisScope,
 // ListAnalysisServiceEntries returns service + last_seen rows for the
 // create-report service picker, the applog counterpart of
 // ListAnalysisHostEntries. Services come from the meta cache (every service
-// that ever logged); last_seen is the newest hourly bucket in the aggregate
-// and is nil for a service with no aggregated activity.
-func (s *Store) ListAnalysisServiceEntries(ctx context.Context) ([]model.AnalysisServiceEntry, error) {
-	query := `
+// that has logged within the feed's retention), at most metaLimit of them,
+// narrowed by search as metaSearch describes; last_seen is the newest hourly
+// bucket in the aggregate and is nil for a service with no aggregated
+// activity.
+func (s *Store) ListAnalysisServiceEntries(ctx context.Context, search string) ([]model.AnalysisServiceEntry, error) {
+	where, order, args := metaSearch("mc.value", search, nil)
+	args = append(args, metaLimit)
+	//nolint:gosec // where and order hold only placeholders.
+	query := fmt.Sprintf(`
 		SELECT mc.value AS service, ls.last_seen
 		FROM applog_meta_cache mc
 		LEFT JOIN (
@@ -373,10 +378,11 @@ func (s *Store) ListAnalysisServiceEntries(ctx context.Context) ([]model.Analysi
 			FROM applog_summary_hourly
 			GROUP BY service
 		) ls ON ls.service = mc.value
-		WHERE mc.column_name = 'service'
-		ORDER BY mc.value`
+		WHERE mc.column_name = 'service'%s
+		ORDER BY %s
+		LIMIT $%d`, where, order, len(args))
 
-	rows, err := s.pool.Query(ctx, query)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list analysis service entries: %w", err)
 	}

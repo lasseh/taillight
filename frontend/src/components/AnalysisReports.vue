@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { usePolling } from '@/composables/usePolling'
+import { useDebounceFn } from '@/composables/useDebounceFn'
 import {
   feedBadgeClass,
   formatDate,
@@ -67,25 +68,30 @@ const incidentPeriodOptions: { minutes: number; label: string }[] = [
 // service names. hostQuery is what the user is typing into the autocomplete
 // input. availableHosts is the list loaded from /api/v1/analysis/hosts (or
 // /analysis/services for applog) for the currently-selected feed; it
-// re-fetches whenever selectedFeed changes.
+// re-fetches whenever selectedFeed changes. That list is capped, so typed
+// text is also looked up on the server: remoteHosts holds the matches for
+// remoteHosts.q, or null while the query is matched locally only.
 const selectedHosts = ref<string[]>([])
 const hostQuery = ref('')
 const hostsLoading = ref(false)
 const hostsError = ref('')
 const availableHosts = ref<ScopeEntry[]>([])
+const remoteHosts = ref<{ q: string; entries: ScopeEntry[] } | null>(null)
+let hostSearchSeq = 0
 const highlightedIndex = ref(0)
 // Names the server rejected on the last create attempt — used to badge bad
 // chips so the user can see exactly which entries failed validation.
 const unknownHostNames = ref<Set<string>>(new Set())
 
-// Suggestions = available hosts not already selected, filtered by the
-// current query (case-insensitive substring). Stable order = the server's
-// alphabetical order, so the highlighted index lines up predictably with
-// what the user sees.
+// Suggestions = the server's matches for the query once they arrive (the
+// loaded list before that), not already selected, filtered by the current
+// query (case-insensitive substring). Stable order = the server's order, so
+// the highlighted index lines up predictably with what the user sees.
 const hostSuggestions = computed<ScopeEntry[]>(() => {
   const q = hostQuery.value.trim().toLowerCase()
   const taken = new Set(selectedHosts.value)
-  return availableHosts.value.filter((h) => {
+  const pool = remoteHosts.value?.entries ?? availableHosts.value
+  return pool.filter((h) => {
     if (taken.has(h.name)) return false
     if (q === '') return true
     return h.name.toLowerCase().includes(q)
@@ -98,23 +104,73 @@ watch(hostSuggestions, () => {
   highlightedIndex.value = 0
 })
 
+// fetchScope loads the pickable names for feed, only those containing search
+// when it is given.
+async function fetchScope(feed: AnalysisFeed, search?: string): Promise<ScopeEntry[]> {
+  if (feedScopeKind(feed) === 'services') {
+    const res = await api.listAnalysisServices(search)
+    return res.data.map((s) => ({ name: s.service }))
+  }
+  const res = await api.listAnalysisHosts(feed, search)
+  return res.data.map((h) => ({ name: h.hostname }))
+}
+
 async function loadHostsForFeed(feed: AnalysisFeed) {
   hostsLoading.value = true
   hostsError.value = ''
   try {
-    if (feedScopeKind(feed) === 'services') {
-      const res = await api.listAnalysisServices()
-      availableHosts.value = res.data.map((s) => ({ name: s.service }))
-    } else {
-      const res = await api.listAnalysisHosts(feed)
-      availableHosts.value = res.data.map((h) => ({ name: h.hostname }))
-    }
+    availableHosts.value = await fetchScope(feed)
   } catch (e) {
     availableHosts.value = []
     hostsError.value = e instanceof Error ? e.message : `failed to load ${scopeNoun.value}s`
   } finally {
     hostsLoading.value = false
   }
+}
+
+// searchHosts looks q up on the selected feed and returns the matches, or
+// null when the lookup failed or the query or feed has moved on.
+async function searchHosts(q: string): Promise<ScopeEntry[] | null> {
+  const seq = ++hostSearchSeq
+  const feed = selectedFeed.value
+  try {
+    const entries = await fetchScope(feed, q)
+    if (seq !== hostSearchSeq || hostQuery.value.trim() !== q || selectedFeed.value !== feed) {
+      return null
+    }
+    remoteHosts.value = { q, entries }
+    return entries
+  } catch {
+    return null
+  }
+}
+
+const searchHostsDebounced = useDebounceFn((q: string) => void searchHosts(q), 300)
+
+watch(hostQuery, (text) => {
+  const q = text.trim()
+  if (q) {
+    searchHostsDebounced(q)
+  } else {
+    hostSearchSeq++
+    remoteHosts.value = null
+  }
+})
+
+// missingNames returns the names that feed does not know. The loaded list is
+// capped, so a name it lacks is looked up before it counts as missing.
+async function missingNames(feed: AnalysisFeed, names: string[]): Promise<string[]> {
+  const listed = new Set(availableHosts.value.map((h) => h.name))
+  const unlisted = names.filter((n) => !listed.has(n))
+  const found = await Promise.all(
+    unlisted.map((n) =>
+      fetchScope(feed, n).then(
+        (entries) => entries.some((h) => h.name === n),
+        () => false,
+      ),
+    ),
+  )
+  return unlisted.filter((_, i) => !found[i])
 }
 
 // Refetch the host list every time the feed changes. If the user has
@@ -124,17 +180,19 @@ async function loadHostsForFeed(feed: AnalysisFeed) {
 watch(selectedFeed, async (next, prev) => {
   if (next === prev) return
   if (!feedAllowsMode(next, selectedMode.value)) selectedMode.value = 'daily'
+  hostSearchSeq++
+  remoteHosts.value = null
   await loadHostsForFeed(next)
+  if (hostQuery.value.trim()) void searchHosts(hostQuery.value.trim())
   if (selectedHosts.value.length === 0) return
-  const valid = new Set(availableHosts.value.map((h) => h.name))
-  const stale = selectedHosts.value.filter((h) => !valid.has(h))
+  const stale = await missingNames(next, selectedHosts.value)
   if (stale.length === 0) return
   const ok = window.confirm(
     `${stale.length} selected name${stale.length === 1 ? '' : 's'} ` +
       `don't exist on the ${next} feed and will be removed: ${stale.join(', ')}. Continue?`,
   )
   if (ok) {
-    selectedHosts.value = selectedHosts.value.filter((h) => valid.has(h))
+    selectedHosts.value = selectedHosts.value.filter((h) => !stale.includes(h))
   } else {
     // User cancelled — revert to the previous feed so chips stay valid.
     selectedFeed.value = prev
@@ -169,10 +227,17 @@ function addAllMatching() {
   hostQuery.value = ''
 }
 
-function onHostKeydown(e: KeyboardEvent) {
+async function onHostKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter') {
     e.preventDefault()
-    const pick = hostSuggestions.value[highlightedIndex.value]
+    let pick = hostSuggestions.value[highlightedIndex.value]
+    const q = hostQuery.value.trim()
+    if (highlightedIndex.value === 0 && q && remoteHosts.value?.q !== q) {
+      // Pick from the server's matches for this text, not from a loaded
+      // list that may not hold the name.
+      const matches = await searchHosts(q)
+      pick = matches?.find((h) => !selectedHosts.value.includes(h.name)) ?? pick
+    }
     if (pick) addHost(pick.name)
     return
   }

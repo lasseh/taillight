@@ -170,19 +170,23 @@ func (s *Store) ListNetlogsSince(ctx context.Context, f model.NetlogFilter, sinc
 	return collectNetlogs(rows)
 }
 
-// ListNetlogHosts returns distinct hostnames from netlog_meta_cache ordered alphabetically.
-func (s *Store) ListNetlogHosts(ctx context.Context) ([]string, error) {
-	return s.listNetlogDistinctStrings(ctx, "hostname")
+// ListNetlogHosts returns distinct hostnames from netlog_meta_cache ordered
+// alphabetically, narrowed to those containing search when it is not empty.
+func (s *Store) ListNetlogHosts(ctx context.Context, search string) ([]string, error) {
+	return s.listNetlogDistinctStrings(ctx, "hostname", search)
 }
 
-// ListNetlogPrograms returns distinct program names from netlog_meta_cache ordered alphabetically.
-func (s *Store) ListNetlogPrograms(ctx context.Context) ([]string, error) {
-	return s.listNetlogDistinctStrings(ctx, "programname")
+// ListNetlogPrograms returns distinct program names from netlog_meta_cache
+// ordered alphabetically, narrowed to those containing search when it is not
+// empty.
+func (s *Store) ListNetlogPrograms(ctx context.Context, search string) ([]string, error) {
+	return s.listNetlogDistinctStrings(ctx, "programname", search)
 }
 
-// ListNetlogTags returns distinct syslog tags from netlog_meta_cache ordered alphabetically.
-func (s *Store) ListNetlogTags(ctx context.Context) ([]string, error) {
-	return s.listNetlogDistinctStrings(ctx, "syslogtag")
+// ListNetlogTags returns distinct syslog tags from netlog_meta_cache ordered
+// alphabetically, narrowed to those containing search when it is not empty.
+func (s *Store) ListNetlogTags(ctx context.Context, search string) ([]string, error) {
+	return s.listNetlogDistinctStrings(ctx, "syslogtag", search)
 }
 
 // ListNetlogFacilities returns distinct facility codes from netlog_facility_cache ordered numerically.
@@ -199,8 +203,8 @@ func (s *Store) ListNetlogFacilities(ctx context.Context) ([]int, error) {
 	return facilities, nil
 }
 
-func (s *Store) listNetlogDistinctStrings(ctx context.Context, column string) ([]string, error) {
-	return s.listMetaStrings(ctx, "netlog_meta_cache", column, allowedNetlogMetaColumns)
+func (s *Store) listNetlogDistinctStrings(ctx context.Context, column, search string) ([]string, error) {
+	return s.listMetaStrings(ctx, "netlog_meta_cache", column, search, allowedNetlogMetaColumns)
 }
 
 // GetNetlogVolume returns time-bucketed netlog event counts grouped by hostname.

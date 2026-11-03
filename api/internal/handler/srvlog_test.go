@@ -43,15 +43,15 @@ func (m *mockSrvlogStore) ListSrvlogsSince(_ context.Context, _ model.SrvlogFilt
 	return m.events, m.listErr
 }
 
-func (m *mockSrvlogStore) ListSrvlogHosts(_ context.Context) ([]string, error) {
+func (m *mockSrvlogStore) ListSrvlogHosts(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 
-func (m *mockSrvlogStore) ListSrvlogPrograms(_ context.Context) ([]string, error) {
+func (m *mockSrvlogStore) ListSrvlogPrograms(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 
-func (m *mockSrvlogStore) ListSrvlogTags(_ context.Context) ([]string, error) {
+func (m *mockSrvlogStore) ListSrvlogTags(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 

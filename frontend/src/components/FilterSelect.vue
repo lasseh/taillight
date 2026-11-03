@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { useClickOutside } from '@/composables/useClickOutside'
+import { useDebounceFn } from '@/composables/useDebounceFn'
 import type { FilterOption } from '@/types/srvlog'
 import { wildcardMatch } from '@/lib/wildcard'
 
@@ -9,9 +10,14 @@ const props = withDefaults(
     label: string
     options: FilterOption[]
     searchable?: boolean
+    // Looks typed text up on the server. The options passed in may be a
+    // capped list, so a value missing from them can still be found by name.
+    fetchOptions?: (q: string) => Promise<FilterOption[]>
   }>(),
   { searchable: false },
 )
+
+const SEARCH_DEBOUNCE_MS = 300
 
 const model = defineModel<string>({ required: true })
 
@@ -34,19 +40,58 @@ watch(open, (isOpen) => {
   }
 })
 
+// Server results and the text they answer; null while typed text is matched
+// against the loaded options only.
+const remote = ref<{ q: string; options: FilterOption[] } | null>(null)
+let searchSeq = 0
+
+// remoteQuery is the typed text to look up on the server: anything but a *
+// pattern, which stays a local match plus the free-text pattern row.
+function remoteQuery(): string {
+  const q = searchText.value.trim()
+  return props.fetchOptions && q && !q.includes('*') ? q : ''
+}
+
+// runRemoteSearch looks q up and returns the options, or null when the lookup
+// failed or the text has moved on; local matching then stays in place.
+async function runRemoteSearch(q: string): Promise<FilterOption[] | null> {
+  if (!props.fetchOptions) return null
+  const seq = ++searchSeq
+  try {
+    const options = await props.fetchOptions(q)
+    if (seq !== searchSeq || remoteQuery() !== q) return null
+    remote.value = { q, options }
+    return options
+  } catch {
+    return null
+  }
+}
+
+const searchRemote = useDebounceFn((q: string) => void runRemoteSearch(q), SEARCH_DEBOUNCE_MS)
+
 watch(searchText, () => {
   highlightIndex.value = -1
+  const q = remoteQuery()
+  if (q) {
+    searchRemote(q)
+  } else {
+    searchSeq++
+    remote.value = null
+  }
 })
 
 const hasWildcard = computed(() => searchText.value.includes('*'))
 
 const filteredOptions = computed(() => {
   if (!props.searchable || !searchText.value) return props.options
-  const q = searchText.value.toLowerCase()
+  // Server results replace the loaded options once they arrive, still
+  // narrowed by the text typed since, trimmed as the server query is.
+  const pool = remote.value?.options ?? props.options
+  const q = searchText.value.trim().toLowerCase()
   if (hasWildcard.value) {
-    return props.options.filter((o) => wildcardMatch(o.value, searchText.value))
+    return pool.filter((o) => wildcardMatch(o.value, searchText.value))
   }
-  return props.options.filter((o) => o.value.toLowerCase().includes(q))
+  return pool.filter((o) => o.value.toLowerCase().includes(q))
 })
 
 const selectedOption = computed(() => {
@@ -81,7 +126,7 @@ function scrollHighlightedIntoView() {
   })
 }
 
-function onSearchKeydown(e: KeyboardEvent) {
+async function onSearchKeydown(e: KeyboardEvent) {
   const total = filteredOptions.value.length
   // -1 = "all" row, 0..total-1 = filtered options
   if (e.key === 'ArrowDown') {
@@ -101,7 +146,11 @@ function onSearchKeydown(e: KeyboardEvent) {
       } else if (hasWildcard.value) {
         select(trimmed)
       } else {
-        const first = filteredOptions.value[0]
+        // Pick from the server's answer for this text, not from options
+        // that may not hold the value yet.
+        let first = filteredOptions.value[0]
+        const q = remoteQuery()
+        if (q && remote.value?.q !== q) first = (await runRemoteSearch(q))?.[0] ?? first
         if (first) select(first.value)
       }
     } else {

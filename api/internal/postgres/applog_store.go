@@ -170,35 +170,26 @@ func (s *Store) ListAppLogsSince(ctx context.Context, f model.AppLogFilter, sinc
 	return collectAppLogs(rows)
 }
 
-// ListServices returns distinct service names ordered alphabetically.
-func (s *Store) ListServices(ctx context.Context) ([]string, error) {
-	return s.listAppLogDistinctStrings(ctx, "service")
+// ListServices returns distinct service names ordered alphabetically,
+// narrowed to those containing search when it is not empty.
+func (s *Store) ListServices(ctx context.Context, search string) ([]string, error) {
+	return s.listAppLogDistinctStrings(ctx, "service", search)
 }
 
-// ListComponents returns distinct component names ordered alphabetically.
-func (s *Store) ListComponents(ctx context.Context) ([]string, error) {
-	return s.listAppLogDistinctStrings(ctx, "component")
+// ListComponents returns distinct component names ordered alphabetically,
+// narrowed to those containing search when it is not empty.
+func (s *Store) ListComponents(ctx context.Context, search string) ([]string, error) {
+	return s.listAppLogDistinctStrings(ctx, "component", search)
 }
 
-// ListAppLogHosts returns distinct host names ordered alphabetically.
-func (s *Store) ListAppLogHosts(ctx context.Context) ([]string, error) {
-	return s.listAppLogDistinctStrings(ctx, "host")
+// ListAppLogHosts returns distinct host names ordered alphabetically, narrowed
+// to those containing search when it is not empty.
+func (s *Store) ListAppLogHosts(ctx context.Context, search string) ([]string, error) {
+	return s.listAppLogDistinctStrings(ctx, "host", search)
 }
 
-func (s *Store) listAppLogDistinctStrings(ctx context.Context, column string) ([]string, error) {
-	if _, ok := allowedAppLogMetaColumns[column]; !ok {
-		return nil, fmt.Errorf("disallowed log meta column: %s", column)
-	}
-	rows, err := s.pool.Query(ctx, "SELECT value FROM applog_meta_cache WHERE column_name = $1 ORDER BY value LIMIT $2", column, metaLimit)
-	if err != nil {
-		return nil, fmt.Errorf("list %s: %w", column, err)
-	}
-
-	values, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return nil, fmt.Errorf("scan %s: %w", column, err)
-	}
-	return values, nil
+func (s *Store) listAppLogDistinctStrings(ctx context.Context, column, search string) ([]string, error) {
+	return s.listMetaStrings(ctx, "applog_meta_cache", column, search, allowedAppLogMetaColumns)
 }
 
 // GetAppLogVolume returns time-bucketed event counts grouped by service.
