@@ -7,7 +7,7 @@ import { severityBorderClass, severityColorClass } from '@/lib/constants'
 import { highlight } from '@/lib/highlighter'
 import { formatDateTime } from '@/lib/format'
 import { selectedRowsText } from '@/lib/copy'
-import { muteSimilarQuery } from '@/lib/mute-rules'
+import { canMuteSimilar, muteSimilarQuery } from '@/lib/mute-rules'
 import { useAuthStore } from '@/stores/auth'
 
 // Shared srvlog/netlog inline detail panel. The two feeds are identical except
@@ -27,6 +27,7 @@ const filterStore = props.filterStore
 
 const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.is_admin === true)
+const showMuteSimilar = computed(() => isAdmin.value && canMuteSimilar(props.event))
 
 interface Field {
   label: string
@@ -98,7 +99,7 @@ function applyFilter(field: Field) {
     <div class="absolute right-2 top-1.5 flex items-center gap-1">
       <!-- mute similar: opens the Mutes tab with a create form prefilled from this event -->
       <RouterLink
-        v-if="isAdmin"
+        v-if="showMuteSimilar"
         :to="{ name: 'notifications', query: muteSimilarQuery(props.feed, event) }"
         title="mute similar"
         aria-label="mute similar"
@@ -157,7 +158,7 @@ function applyFilter(field: Field) {
     <div
       v-if="event.muted_by != null"
       class="flex gap-2 py-0.5 text-sm"
-      :class="{ 'pr-16': isAdmin }"
+      :class="{ 'pr-16': showMuteSimilar }"
       :data-copytext="`muted: rule #${event.muted_by}`"
     >
       <span class="w-24 shrink-0" />
@@ -175,7 +176,7 @@ function applyFilter(field: Field) {
       v-for="(field, i) in fields"
       :key="field.key"
       class="flex gap-2 py-0.5 text-sm"
-      :class="{ 'pr-16': isAdmin && i === 0 }"
+      :class="{ 'pr-16': showMuteSimilar && i === 0 }"
       :data-copytext="rowCopyText(field)"
     >
       <span class="text-t-fg-dark w-24 shrink-0 text-right">{{ field.label }}</span>
