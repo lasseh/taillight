@@ -71,6 +71,8 @@ Each file entry can override `service`, `component`, and `host`. If omitted, the
 
 Each line is parsed as JSON first. If that fails, it's treated as plain text with `INFO` level and the current timestamp.
 
+A line longer than 1 MiB is cut to its first 1 MiB, logged as a warning, and shipped; reading continues with the next line. If reading stdin fails with an error other than end of input, the shipper stops and exits non-zero.
+
 For JSON lines, the following fields are extracted:
 
 | JSON field | Maps to |
