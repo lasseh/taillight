@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 func TestSeverityLabel(t *testing.T) {
@@ -430,6 +433,98 @@ func Test_containsFold(t *testing.T) {
 	}
 }
 
+// containsFoldPerRune is the per-rune scan containsFold used before its match
+// became linear, kept as the reference its results must equal. It tries a
+// match at every rune boundary of s, lowering one rune at a time.
+func containsFoldPerRune(s, substrLower string) bool {
+	if substrLower == "" {
+		return true
+	}
+	for start := range len(s) {
+		if s[start]&0xC0 == 0x80 {
+			continue // UTF-8 continuation byte: matches only start on rune boundaries
+		}
+		i, matched := start, true
+		for _, pr := range substrLower {
+			if i >= len(s) {
+				matched = false
+				break
+			}
+			sr, size := utf8.DecodeRuneInString(s[i:])
+			if unicode.ToLower(sr) != pr {
+				matched = false
+				break
+			}
+			i += size
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
+// TestContainsFold_SameResultsAsPerRuneScan proves the linear match finds the
+// same events as the per-rune scan it replaced, for uppercase, non-ASCII and
+// length-changing case mappings. search is lowered the way filters lower it.
+//
+// The one input where the two differ is left out: invalid UTF-8 whose match
+// would start on a stray continuation byte, against a search starting with
+// U+FFFD. The old scan never started there; strings.ToLower turns the byte
+// into U+FFFD, so the linear match does, as containsFold documents. Message
+// text read back from Postgres is always valid UTF-8.
+func TestContainsFold_SameResultsAsPerRuneScan(t *testing.T) {
+	tests := []struct {
+		name   string
+		s      string
+		search string
+		want   bool
+	}{
+		{"lowercase ascii", "bgp peer 10.0.0.2 state changed", "BGP peer", true},
+		{"uppercase ascii", "BGP PEER DOWN", "bgp Peer", true},
+		{"uppercase ascii absent", "INTERFACE XE-0/0/0 DOWN", "xe-0/0/1", false},
+		{"match at start", "ERROR: disk full", "error", true},
+		{"match at end", "error: DISK FULL", "full", true},
+		{"repeated prefix near miss", strings.Repeat("A", 600), strings.Repeat("a", 499) + "b", false},
+		{"repeated prefix match at end", strings.Repeat("A", 600) + "B", strings.Repeat("a", 499) + "b", true},
+		{"norwegian letters", "Grønn ØL på ÅSEN", "øl PÅ", true},
+		{"norwegian uppercase", "GRØNN", "grønn", true},
+		{"accent does not fold", "Grønn", "gronn", false},
+		{"cyrillic", "ОШИБКА диска", "ошибка", true},
+		{"greek", "ΟΔΥΣΣΕΥΣ", "οδυσσευσ", true},
+		{"greek final sigma does not fold", "ΣΊΣΥΦΟΣ", "σίσυφος", false},
+		{"dotted capital i shrinks", "İSTANBUL", "istanbul", true},
+		{"kelvin sign shrinks", "temp 300K reached", "300k", true},
+		{"kelvin sign in search", "temp 300k reached", "300K", true},
+		{"capital sharp s", "STRAẞE", "straße", true},
+		{"no case", "错误: 磁盘已满", "磁盘", true},
+		{"emoji", "deploy 🚀 DONE", "🚀 done", true},
+		{"invalid byte matches replacement", "bad \xff BYTE", "\xff byte", true},
+		{"invalid lead byte", "\xc3( OK", "\xc3( ok", true},
+		{"truncated rune", "\xf0\x9f\x98 X", "\xf0\x9f\x98 x", true},
+		{"literal replacement char", "x�Y", "�y", true},
+		{"empty search", "anything", "", true},
+		{"empty message", "", "bgp", false},
+		{"both empty", "", "", true},
+		{"search longer than message", "bgp", "bgp peer longer than message", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			needle := strings.ToLower(tt.search)
+			want := containsFoldPerRune(tt.s, needle)
+			if want != tt.want {
+				t.Fatalf("reference containsFoldPerRune(%q, %q) = %v, table says %v", tt.s, needle, want, tt.want)
+			}
+			if got := containsFold(tt.s, needle); got != want {
+				t.Errorf("containsFold(%q, %q) = %v, per-rune scan = %v", tt.s, needle, got, want)
+			}
+			if got := containsFold([]byte(tt.s), needle); got != want {
+				t.Errorf("containsFold([]byte(%q), %q) = %v, per-rune scan = %v", tt.s, needle, got, want)
+			}
+		})
+	}
+}
+
 // TestSrvlogFilter_Matches_SearchParsed proves case-insensitive search still
 // matches when the filter comes from ParseSrvlogFilter, i.e. via the
 // precomputed searchLower hot path used by SSE broadcast.
@@ -463,20 +558,41 @@ func TestNetlogFilter_Matches_Search(t *testing.T) {
 	}
 }
 
-// BenchmarkSrvlogFilter_Matches_Search guards the SSE broadcast hot path:
-// matching a parsed search filter must not allocate per call.
+// BenchmarkSrvlogFilter_Matches_Search tracks the SSE broadcast hot path, where
+// Matches runs once per subscriber. Matching is linear in the message length
+// for any search term, and lowers the message on each call: a message that
+// lowering changes (uppercase or non-ASCII letters) costs one allocation of
+// its size per match.
 func BenchmarkSrvlogFilter_Matches_Search(b *testing.B) {
-	r := &http.Request{URL: &url.URL{RawQuery: "search=BGP+Peer"}}
-	f, err := ParseSrvlogFilter(r)
-	if err != nil {
-		b.Fatalf("ParseSrvlogFilter() error = %v", err)
+	longNeedle := strings.Repeat("a", maxFilterStringLen-1) + "b"
+	tests := []struct {
+		name    string
+		search  string
+		message string
+		want    bool
+	}{
+		{"lowercase ascii", "BGP+Peer", "interface xe-0/0/0 flapped repeatedly before the bgp peer 10.0.0.2 state changed", true},
+		{"mixed case ascii", "BGP+Peer", "interface xe-0/0/0 flapped repeatedly before the BGP peer 10.0.0.2 state changed", true},
+		{"uppercase ascii", "BGP+Peer", "INTERFACE XE-0/0/0 FLAPPED REPEATEDLY BEFORE THE BGP PEER 10.0.0.2 STATE CHANGED", true},
+		{"non-ascii", "BGP+Peer", "Grensesnitt xe-0/0/0 på Østre ruter flagret før BGP-peer 10.0.0.2 endret tilstand: BGP peer nede", true},
+		{"64KiB lowercase near miss", longNeedle, strings.Repeat("a", 64<<10), false},
+		{"64KiB uppercase near miss", longNeedle, strings.Repeat("A", 64<<10), false},
 	}
-	e := SrvlogEvent{Message: "interface xe-0/0/0 flapped repeatedly before the BGP peer 10.0.0.2 state changed"}
-	b.ReportAllocs()
-	for b.Loop() {
-		if !f.Matches(e) {
-			b.Fatal("expected match")
-		}
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			r := &http.Request{URL: &url.URL{RawQuery: "search=" + tt.search}}
+			f, err := ParseSrvlogFilter(r)
+			if err != nil {
+				b.Fatalf("ParseSrvlogFilter() error = %v", err)
+			}
+			e := SrvlogEvent{Message: tt.message}
+			b.ReportAllocs()
+			for b.Loop() {
+				if f.Matches(e) != tt.want {
+					b.Fatalf("Matches() = %v, want %v", !tt.want, tt.want)
+				}
+			}
+		})
 	}
 }
 
