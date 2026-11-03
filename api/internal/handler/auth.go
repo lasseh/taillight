@@ -504,7 +504,7 @@ func (h *AuthHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Prevent privilege escalation: a caller may only grant scopes it
-		// already holds (an admin or admin-scoped key may grant anything).
+		// already holds (an admin may grant anything).
 		if !auth.HasGrant(callerScopes, user, s) {
 			writeError(w, http.StatusForbidden, "forbidden", fmt.Sprintf("cannot grant scope you do not hold: %s", s))
 			return
@@ -580,7 +580,9 @@ func (h *AuthHandler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "key not found")
 		return
 	}
-	if key.UserID.Bytes != user.ID.Bytes && !user.IsAdmin {
+	// Another user's key needs the caller's admin grant, which an API key
+	// holds only with the admin scope.
+	if key.UserID.Bytes != user.ID.Bytes && !auth.HasGrant(auth.ScopesFromContext(r.Context()), user, auth.ScopeAdmin) {
 		writeError(w, http.StatusForbidden, "forbidden", "cannot revoke another user's key")
 		return
 	}

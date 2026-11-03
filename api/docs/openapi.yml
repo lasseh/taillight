@@ -12,6 +12,9 @@ info:
 
     - `none` — public, no authentication.
     - `authenticated` — any valid session or API key (no specific scope).
+    - `session` — a session only; every API key gets 403.
+    - `session-or-admin` — any session, or an API key that holds the `admin`
+      grant (see `admin`); other API keys get 403.
     - `read` — all GET/stream/export endpoints. Only enforced when
       `auth_read_endpoints` is enabled; sessions always hold this scope,
       API keys need the `read` scope.
@@ -212,7 +215,7 @@ paths:
   /auth/me/email:
     patch:
       operationId: updateEmail
-      x-required-scope: authenticated
+      x-required-scope: session-or-admin
       tags: [Auth]
       summary: Update own email
       requestBody:
@@ -237,11 +240,13 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /auth/me/preferences:
     patch:
       operationId: updatePreferences
-      x-required-scope: authenticated
+      x-required-scope: session-or-admin
       tags: [Auth]
       summary: Update user preferences
       requestBody:
@@ -266,6 +271,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /auth/keys:
     get:
@@ -287,9 +294,12 @@ paths:
                       $ref: "#/components/schemas/APIKeyInfo"
     post:
       operationId: createKey
-      x-required-scope: authenticated
+      x-required-scope: session
       tags: [Auth]
       summary: Create API key
+      description: |
+        Sessions only; an API key cannot create keys. The new key belongs to
+        the session user and may hold only scopes that user holds.
       requestBody:
         required: true
         content:
@@ -311,13 +321,18 @@ paths:
                     $ref: "#/components/schemas/APIKeyInfo"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /auth/keys/{id}:
     delete:
       operationId: revokeKey
-      x-required-scope: authenticated
+      x-required-scope: session-or-admin
       tags: [Auth]
       summary: Revoke an API key
+      description: |
+        Revokes one of the caller's own keys. Revoking another user's key needs
+        the `admin` grant: an admin session, or an `admin` key owned by an admin.
       parameters:
         - $ref: "#/components/parameters/UUID"
       responses:
@@ -466,7 +481,7 @@ paths:
   /auth/sessions/revoke-all:
     post:
       operationId: logoutAll
-      x-required-scope: authenticated
+      x-required-scope: session-or-admin
       tags: [Auth]
       summary: Revoke all sessions for current user
       description: Logs out all sessions including the current one and clears the session cookie.
@@ -479,6 +494,8 @@ paths:
                 $ref: "#/components/schemas/StatusOK"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /auth/users/{id}/revoke-sessions:
     post:

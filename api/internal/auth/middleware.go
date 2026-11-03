@@ -156,6 +156,32 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireSession refuses requests authenticated by an API key with 403, so
+// only a logged-in user reaches the route.
+func RequireSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, viaKey := APIKeyIDFromContext(r.Context()); viaKey {
+			httputil.WriteError(w, http.StatusForbidden, "forbidden", "API keys cannot use this endpoint; sign in")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequireSessionOrAdminKey lets every session through and refuses, with 403,
+// an API key that does not hold the admin grant (see HasGrant). It guards the
+// account writes a read or ingest key has no use for.
+func RequireSessionOrAdminKey(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if _, viaKey := APIKeyIDFromContext(ctx); viaKey && !HasGrant(ScopesFromContext(ctx), UserFromContext(ctx), ScopeAdmin) {
+			httputil.WriteError(w, http.StatusForbidden, "forbidden", "missing required scope: admin")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // hasScope checks whether scopes contains the target scope or "admin".
 func hasScope(scopes []string, target string) bool {
 	for _, s := range scopes {

@@ -261,6 +261,58 @@ func TestRequireScope(t *testing.T) {
 	}
 }
 
+// TestSessionOnlyGates pins which API keys pass the account gates: minting
+// accepts sessions only, and account writes accept a session or a key that
+// holds the admin grant.
+func TestSessionOnlyGates(t *testing.T) {
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	admin := &model.User{Username: "admin", IsActive: true, IsAdmin: true}
+	regular := &model.User{Username: "regular", IsActive: true}
+
+	tests := []struct {
+		name         string
+		user         *model.User
+		keyScopes    []string // nil = session auth
+		wantSession  int      // RequireSession
+		wantAdminKey int      // RequireSessionOrAdminKey
+	}{
+		{"regular session", regular, nil, http.StatusOK, http.StatusOK},
+		{"admin session", admin, nil, http.StatusOK, http.StatusOK},
+		{"admin-owned admin key", admin, []string{"admin"}, http.StatusForbidden, http.StatusOK},
+		{"admin key of a non-admin owner", regular, []string{"admin"}, http.StatusForbidden, http.StatusForbidden},
+		{"admin-owned read key", admin, []string{"read"}, http.StatusForbidden, http.StatusForbidden},
+		{"admin-owned ingest key", admin, []string{"ingest"}, http.StatusForbidden, http.StatusForbidden},
+		{"admin-owned key with no scopes", admin, []string{}, http.StatusForbidden, http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := WithUser(context.Background(), tt.user)
+			if tt.keyScopes != nil {
+				ctx = WithScopes(ctx, tt.keyScopes)
+				ctx = WithAPIKeyID(ctx, pgtype.UUID{Bytes: [16]byte{7}, Valid: true})
+			}
+			for _, g := range []struct {
+				name string
+				mw   func(http.Handler) http.Handler
+				want int
+			}{
+				{"RequireSession", RequireSession, tt.wantSession},
+				{"RequireSessionOrAdminKey", RequireSessionOrAdminKey, tt.wantAdminKey},
+			} {
+				req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/", nil)
+				rec := httptest.NewRecorder()
+				g.mw(okHandler).ServeHTTP(rec, req)
+				if rec.Code != g.want {
+					t.Errorf("%s: got status %d, want %d", g.name, rec.Code, g.want)
+				}
+			}
+		})
+	}
+}
+
 func TestWithUserAndUserFromContext(t *testing.T) {
 	user := &model.User{Username: "ctx-user", IsActive: true}
 	ctx := WithUser(context.Background(), user)

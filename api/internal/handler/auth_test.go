@@ -731,18 +731,71 @@ func TestListKeys(t *testing.T) {
 
 func TestRevokeKey(t *testing.T) {
 	user := &model.User{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, Username: "testuser"}
+	admin := &model.User{ID: pgtype.UUID{Bytes: [16]byte{3}, Valid: true}, Username: "admin", IsAdmin: true}
 	ownedKey := model.APIKeyRow{
 		ID:     pgtype.UUID{Bytes: [16]byte{2}, Valid: true},
 		UserID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, // matches user
+	}
+	otherUsersKey := model.APIKeyRow{
+		ID:     pgtype.UUID{Bytes: [16]byte{2}, Valid: true},
+		UserID: pgtype.UUID{Bytes: [16]byte{99}, Valid: true},
 	}
 
 	tests := []struct {
 		name       string
 		user       *model.User
+		scopes     []string // caller's API key scopes; nil = session
 		keyID      string
 		store      *mockAuthStore
 		wantStatus int
 	}{
+		{
+			name:       "admin session revokes another user's key",
+			user:       admin,
+			keyID:      "00000001-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{keyByID: otherUsersKey},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "admin-owned admin key revokes another user's key",
+			user:       admin,
+			scopes:     []string{"admin"},
+			keyID:      "00000001-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{keyByID: otherUsersKey},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "admin-owned ingest key cannot revoke another user's key",
+			user:       admin,
+			scopes:     []string{"ingest"},
+			keyID:      "00000001-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{keyByID: otherUsersKey},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "admin-owned read key cannot revoke another user's key",
+			user:       admin,
+			scopes:     []string{"read"},
+			keyID:      "00000001-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{keyByID: otherUsersKey},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "admin-owned key with no scopes cannot revoke another user's key",
+			user:       admin,
+			scopes:     []string{},
+			keyID:      "00000001-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{keyByID: otherUsersKey},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "admin key of a non-admin owner cannot revoke another user's key",
+			user:       user,
+			scopes:     []string{"admin"},
+			keyID:      "00000001-0000-0000-0000-000000000000",
+			store:      &mockAuthStore{keyByID: otherUsersKey},
+			wantStatus: http.StatusForbidden,
+		},
 		{
 			name:       "success",
 			user:       user,
@@ -801,6 +854,10 @@ func TestRevokeKey(t *testing.T) {
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/keys/"+tt.keyID, nil)
 			if tt.user != nil {
 				req = req.WithContext(auth.WithUser(req.Context(), tt.user))
+			}
+			if tt.scopes != nil {
+				ctx := auth.WithScopes(req.Context(), tt.scopes)
+				req = req.WithContext(auth.WithAPIKeyID(ctx, pgtype.UUID{Bytes: [16]byte{7}, Valid: true}))
 			}
 			rec := httptest.NewRecorder()
 

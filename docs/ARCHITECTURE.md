@@ -134,7 +134,7 @@ The server uses `go-chi/chi/v5` as its router, configured in `setupRouter` (`cmd
 **Route groups by auth scope:**
 
 - **Unauthenticated** -- `GET /api/v1/config/features` (frontend feature flags), `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`
-- **Authenticated (session or key)** -- `/auth/me`, email/preference updates, API key CRUD, session revocation; user management additionally requires the `admin` scope
+- **Authenticated (session or key)** -- `GET /auth/me` and `GET /auth/keys` take any session or key. Minting a key (`POST /auth/keys`) takes a session only. Email/preference updates, key revocation and session revocation take a session or a key with the `admin` grant, so read and ingest keys get 403. Revoking another user's key also needs the `admin` grant. User management requires the `admin` scope.
 - **Read** -- All GET endpoints: netlog/srvlog/applog list/detail/stream/export/meta/stats/device, hosts overview, juniper lookup, rsyslog + taillight metrics, notification config, summary schedules, analysis reports/schedules. Optionally behind auth via `auth_read_endpoints` config.
 - **Ingest** -- `POST /api/v1/applog/ingest`. Requires API key with `ingest` scope.
 - **Admin** -- Write operations: notification channel/rule CRUD, summary schedule CRUD + trigger, analysis report create/delete, analysis schedule CRUD + run-now, Juniper reference XLSX upload. Requires the `admin` grant.
@@ -262,6 +262,8 @@ Authentication is handled by `internal/auth/middleware.go`:
 
 - `SessionOrAPIKey` -- Tries session cookie first, then Bearer token. Stores authenticated user (and scopes, for API keys) in context.
 - `RequireScope(scope)` -- Checks the grant. API keys hold a scope if it is listed or they hold `admin`. Session auth holds every non-admin scope. The `admin` scope additionally requires the user's current admin flag for sessions and API keys alike: a session is *not* a blanket admin grant, and an admin-scope key grants admin only while its owner is an admin. When a login clears a user's admin flag, the user's admin-scope keys are revoked in the same transaction.
+- `RequireSession` -- Refuses any API key with 403. Guards key minting, so no key can create a key that outlives it.
+- `RequireSessionOrAdminKey` -- Lets every session through and refuses an API key without the `admin` grant with 403. Guards the account writes (email, preferences, key revocation, revoke-all sessions).
 - `AllowAnonymous` -- Used when auth is disabled; stores a synthetic anonymous user.
 
 **LDAP (optional):** when `ldap.enabled` is set, login attempts first bind a service account, search for the user, bind as the user, and map the user's groups to a role via `ldap.group_role_map` (`admin` grants is_admin; a user in no mapped group is denied). That denial comes only after the user's password bind succeeds, so it also clears the admin flag of the user's LDAP row, revoking its admin-scope keys, and ends its sessions; a wrong password or unknown user changes nothing. LDAP users are synced into `users` with `auth_source='ldap'`; local bcrypt users keep working. An internal CA can be trusted via `ldap.ca_bundle` without disabling verification.
@@ -666,6 +668,8 @@ Taillight supports three authentication configurations:
 | `admin` | All write operations (notification CRUD, analysis writes, reference upload, user management) |
 
 API keys carry explicit scopes (`admin` implies the others). Session-based auth grants the non-admin scopes. Admin routes additionally require the user's `is_admin` flag, for sessions and for the owner of an admin-scope key.
+
+A read or ingest key reaches no account write: it cannot change its owner's email or preferences, revoke keys or end sessions. Keys are minted from a session only, for every scope.
 
 ### Client IP & Trusted Proxies
 

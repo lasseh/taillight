@@ -424,7 +424,7 @@ func GenerateAPIKey() (fullKey, hash, prefix string, err error) {
 
 The full key is shown once at creation time. The database stores only the SHA-256 hash and a 10-character display prefix for identification.
 
-API keys have scopes (`read`, `ingest`, `admin`), optional expiration, and can be revoked. `last_used_at` is touched asynchronously via the same touch worker.
+API keys have scopes (`read`, `ingest`, `admin`), optional expiration, and can be revoked. `last_used_at` is touched asynchronously via the same touch worker. Keys are minted through `POST /auth/keys` from a session only (`RequireSession`), or with the `taillight apikey` CLI; a key cannot mint another key, so revoking or expiring a key leaves no child key behind.
 
 ### LDAP authentication (optional)
 
@@ -476,7 +476,7 @@ func HasGrant(scopes []string, user *model.User, scope string) bool {
 }
 ```
 
-Neither credential is a blanket admin grant: admin routes require the `is_admin` flag of the session user or of the API key's owner, read from the users row on every request. An admin-scope key whose owner is not an admin keeps the `read` and `ingest` grants that `admin` implies. When a login clears `is_admin` (`UpsertLDAPUser`, `UpsertOIDCUser`), the user's admin-scope keys are revoked in the same transaction, so a later re-promotion does not bring them back. Routes are grouped by scope in `serve.go`: `read` for GET endpoints, `ingest` for the POST ingest endpoint, and `admin` for write operations.
+Neither credential is a blanket admin grant: admin routes require the `is_admin` flag of the session user or of the API key's owner, read from the users row on every request. An admin-scope key whose owner is not an admin keeps the `read` and `ingest` grants that `admin` implies. When a login clears `is_admin` (`UpsertLDAPUser`, `UpsertOIDCUser`), the user's admin-scope keys are revoked in the same transaction, so a later re-promotion does not bring them back. Routes are grouped by scope in `serve.go`: `read` for GET endpoints, `ingest` for the POST ingest endpoint, and `admin` for write operations. The self-service account writes (email, preferences, key revocation, revoke-all sessions) sit behind `RequireSessionOrAdminKey`, which lets every session through and requires the `admin` grant of an API key. `RevokeKey` also requires the caller's `admin` grant (`HasGrant`) to revoke another user's key.
 
 ---
 
