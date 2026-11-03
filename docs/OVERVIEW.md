@@ -284,7 +284,7 @@ Configuration is split across two files:
 
 ### `.env` -- per-deployment settings
 
-Passwords, ports, and feature toggles that change between environments. Docker Compose reads this file automatically and passes values as environment variables.
+Passwords, ports, and feature toggles that change between environments. Docker Compose reads this file automatically to fill in `docker-compose.yml`, which passes the API settings below to the API as environment variables.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -297,12 +297,13 @@ Passwords, ports, and feature toggles that change between environments. Docker C
 | `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `AUTH_ENABLED` | `true` | Enable authentication (sessions + API keys) |
 | `DEMO_MODE` | `false` | Read-only demo mode: all write endpoints return 403 |
-| `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = trust only the TCP peer. |
+| `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = use `real_ip_header` from `config.yml`; empty there too = trust only the TCP peer. |
+| `TRUSTED_PROXIES` | *(empty)* | Proxy CIDRs or bare IPs allowed to set `REAL_IP_HEADER`, separated by spaces (a comma-separated list stops startup), e.g. `172.18.0.0/16 127.0.0.1`. Set it whenever `REAL_IP_HEADER` is set. Empty = use `trusted_proxies` from `config.yml`; empty there too = the header is trusted from any peer. |
 | `API_URL` | *(empty)* | Frontend API URL (empty = same-origin proxy via nginx) |
 
 ### `api/config.yml` -- application tuning
 
-Settings that rarely change between environments. Viper priority: defaults -> `config.yml` -> environment variables. Environment variables always override file values. Defaults below are the built-in defaults that apply when a key is absent; see [`config.yml.example`](../api/config.yml.example) for an annotated reference.
+Settings that rarely change between environments. Viper priority: defaults -> `config.yml` -> environment variables. Environment variables override file values; an empty variable is ignored, so the file value stays in force. Defaults below are the built-in defaults that apply when a key is absent; see [`config.yml.example`](../api/config.yml.example) for an annotated reference.
 
 Boolean settings, in `.env` or `config.yml`, accept `true`, `false`, `1`, `0`, `t`, `f`, `TRUE`, `FALSE`, `True` and `False`. Any other value, such as `yes` or `on`, stops the API at startup.
 
@@ -319,7 +320,7 @@ Boolean settings, in `.env` or `config.yml`, accept `true`, `false`, `1`, `0`, `
 | Key | Default | Description |
 |-----|---------|-------------|
 | `real_ip_header` | `""` | Trusted single-IP header the reverse proxy overwrites (e.g. `X-Real-IP`). Empty = trust only the TCP peer. |
-| `trusted_proxies` | `[]` | CIDRs (or bare IPs) of proxies allowed to set `real_ip_header`. When set, the header is honored only for requests whose TCP peer is inside the list. Empty = header trusted from any peer. |
+| `trusted_proxies` | `[]` | CIDRs (or bare IPs) of proxies allowed to set `real_ip_header`. When set, the header is honored only for requests whose TCP peer is inside the list. Empty = header trusted from any peer. Set it whenever `real_ip_header` is set. |
 
 #### CORS
 

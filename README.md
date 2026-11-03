@@ -266,14 +266,15 @@ clients of this API — see that repo for installation, configuration, and usage
 | `FRONTEND_HOST_PORT` | `3000` | Host port for the web UI |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `AUTH_ENABLED` | `true` | Enable authentication |
-| `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = trust only the TCP peer. Set it behind nginx or clients are attributed to the proxy IP. |
+| `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = use `real_ip_header` from `api/config.yml`; empty there too = trust only the TCP peer. Set it behind nginx or clients are attributed to the proxy IP. |
+| `TRUSTED_PROXIES` | *(empty)* | Proxy CIDRs or bare IPs allowed to set `REAL_IP_HEADER`, separated by spaces (a comma-separated list stops startup), e.g. `172.18.0.0/16 127.0.0.1`. Set it whenever `REAL_IP_HEADER` is set. Empty = use `trusted_proxies` from `api/config.yml`; empty there too = the header is trusted from any peer. |
 | `API_URL` | *(empty)* | Frontend API URL (empty = same-origin) |
 
 ### `api/config.yml` — application tuning
 
 CORS origins, connection pool sizes, retention policies, notification engine, SMTP, AI analysis, and Netbox enrichment. See [`config.yml.example`](api/config.yml.example) for all options.
 
-Environment variables always override config file values (Viper priority: defaults → config.yml → env vars).
+Environment variables override config file values (Viper priority: defaults → config.yml → env vars). An empty variable is ignored, so the file value stays in force.
 
 Boolean settings, in `.env` or `config.yml`, accept `true`, `false`, `1`, `0`, `t`, `f`, `TRUE`, `FALSE`, `True` and `False`. Any other value, such as `yes` or `on`, stops the API at startup.
 

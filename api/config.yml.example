@@ -7,6 +7,8 @@
 # Viper priority: defaults → this file → environment variables.
 # Settings like DATABASE_URL, LISTEN_ADDR, LOG_LEVEL, AUTH_ENABLED are set
 # in .env / docker-compose.yml and always override values here.
+# REAL_IP_HEADER and TRUSTED_PROXIES in .env override real_ip_header and
+# trusted_proxies here only when they are not empty.
 #
 # Booleans accept true, false, 1, 0, t, f, TRUE, FALSE, True and False. Any
 # other value, such as yes or on, stops the API at startup.
@@ -75,7 +77,8 @@ real_ip_header: ""
 # list; any other peer resolves to its own address, so clients that reach the
 # API without going through the proxy cannot forge their IP. Empty = the
 # header is trusted from any peer (assumes the API is only reachable via the
-# proxy). Ignored when real_ip_header is empty.
+# proxy). Ignored when real_ip_header is empty. Set it whenever real_ip_header
+# is set: docker-compose publishes the API port on all interfaces.
 trusted_proxies:
   # - "172.18.0.0/16"  # docker compose network the proxy lives on
   # - "127.0.0.1"
