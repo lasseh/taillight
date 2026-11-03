@@ -30,9 +30,9 @@ type AnalysisReportStore interface {
 	ListReports(ctx context.Context, limit int) ([]model.AnalysisReportSummary, error)
 	GetReportBySlug(ctx context.Context, slug string) (model.AnalysisReport, error)
 	DeleteReport(ctx context.Context, id int64) error
-	ListAnalysisHosts(ctx context.Context, feed string) ([]string, error)
+	KnownAnalysisHosts(ctx context.Context, feed string, hosts []string) ([]string, error)
 	ListAnalysisHostEntries(ctx context.Context, feed string) ([]model.AnalysisHostEntry, error)
-	ListServices(ctx context.Context) ([]string, error)
+	KnownServices(ctx context.Context, services []string) ([]string, error)
 	ListAnalysisServiceEntries(ctx context.Context) ([]model.AnalysisServiceEntry, error)
 }
 
@@ -303,7 +303,7 @@ func (h *AnalysisHandler) validateScope(ctx context.Context, feed string, hosts,
 		if len(services) == 0 {
 			return "", "", nil
 		}
-		known, err := h.store.ListServices(ctx)
+		known, err := h.store.KnownServices(ctx, services)
 		if err != nil {
 			return "", "", err
 		}
@@ -318,7 +318,7 @@ func (h *AnalysisHandler) validateScope(ctx context.Context, feed string, hosts,
 	if len(hosts) == 0 {
 		return "", "", nil
 	}
-	known, err := h.store.ListAnalysisHosts(ctx, feed)
+	known, err := h.store.KnownAnalysisHosts(ctx, feed, hosts)
 	if err != nil {
 		return "", "", err
 	}

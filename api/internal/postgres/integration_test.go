@@ -1247,6 +1247,48 @@ func TestIntegration_GetEventClustersRanksByCount(t *testing.T) {
 	}
 }
 
+// TestIntegration_KnownScopeNamesPastMetaLimit checks the scope lookups see
+// every cached name: with more than metaLimit names sorting ahead of it, a
+// logged host or service is still known and a never-logged one is not.
+func TestIntegration_KnownScopeNamesPastMetaLimit(t *testing.T) {
+	pool := testPool(t)
+	caches := []string{"netlog_meta_cache", "srvlog_meta_cache", "applog_meta_cache"}
+	truncate(t, pool, caches...)
+	t.Cleanup(func() { truncate(t, pool, caches...) })
+	store := NewStore(pool)
+	ctx := context.Background()
+
+	for _, c := range []struct{ table, column string }{
+		{"netlog_meta_cache", "hostname"}, {"srvlog_meta_cache", "hostname"}, {"applog_meta_cache", "service"},
+	} {
+		//nolint:gosec // test-only table names, not user input
+		query := "INSERT INTO " + c.table + ` (column_name, value)
+			SELECT $1, 'a-' || lpad(g::text, 6, '0') FROM generate_series(1, $2::int) g
+			UNION ALL SELECT $1, 'zz-core-1'`
+		if _, err := pool.Exec(ctx, query, c.column, metaLimit+1); err != nil {
+			t.Fatalf("seed %s: %v", c.table, err)
+		}
+	}
+
+	want := []string{"zz-core-1"}
+	for _, feed := range syslogFeeds {
+		got, err := store.KnownAnalysisHosts(ctx, feed, []string{"zz-core-1", "never-logged"})
+		if err != nil {
+			t.Fatalf("KnownAnalysisHosts(%s): %v", feed, err)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("KnownAnalysisHosts(%s) = %v, want %v", feed, got, want)
+		}
+	}
+	got, err := store.KnownServices(ctx, []string{"zz-core-1", "never-logged"})
+	if err != nil {
+		t.Fatalf("KnownServices: %v", err)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("KnownServices = %v, want %v", got, want)
+	}
+}
+
 // TestIntegration_AnalysisQueriesHaveNoCTEScan is the regression guard for the
 // production outage: a CTE read more than once is materialized, which fences
 // the time predicate off from the scan and makes the query read every chunk in

@@ -791,27 +791,45 @@ func analysisAggregateSource(feed string) string {
 	}
 }
 
-// ListAnalysisHosts returns distinct hostnames from the meta caches for the
-// given feed, sorted alphabetically. Used by the analysis handler to validate
-// caller-supplied host scopes before enqueueing a report.
+// KnownAnalysisHosts returns the hosts in hosts that have logged on the given
+// feed, for the analysis handler to validate a caller-supplied host scope
+// before enqueueing a report. It tests each name against the whole meta
+// cache, not against the capped list the meta endpoints display.
 //
-// "srvlog" and "netlog" return their respective meta caches; anything else
+// "srvlog" and "netlog" read their respective meta caches; anything else
 // returns an empty slice without error so callers don't need to special-case
 // feed validation that already happened upstream.
-//
-// Delegates to the existing ListSrvlogHosts / ListNetlogHosts helpers, which
-// know the meta-cache schema is (column_name, value) rather than a bare
-// hostname column — writing the query inline here was the source of an
-// earlier "failed to validate host scope" 500.
-func (s *Store) ListAnalysisHosts(ctx context.Context, feed string) ([]string, error) {
+func (s *Store) KnownAnalysisHosts(ctx context.Context, feed string, hosts []string) ([]string, error) {
 	switch feed {
 	case feedSrvlog:
-		return s.ListSrvlogHosts(ctx)
+		return s.knownMetaValues(ctx, "srvlog_meta_cache", "hostname", hosts)
 	case feedNetlog:
-		return s.ListNetlogHosts(ctx)
+		return s.knownMetaValues(ctx, "netlog_meta_cache", "hostname", hosts)
 	default:
 		return nil, nil
 	}
+}
+
+// KnownServices returns the services in services that have logged on the
+// applog feed; the service-scope counterpart of KnownAnalysisHosts.
+func (s *Store) KnownServices(ctx context.Context, services []string) ([]string, error) {
+	return s.knownMetaValues(ctx, "applog_meta_cache", "service", services)
+}
+
+// knownMetaValues returns the values present in a *_meta_cache table for one
+// column. The lookup is served by the cache's (column_name, value) primary key.
+func (s *Store) knownMetaValues(ctx context.Context, cacheTable, column string, values []string) ([]string, error) {
+	//nolint:gosec // cacheTable is a hardcoded literal from callers, not user input
+	query := "SELECT value FROM " + cacheTable + " WHERE column_name = $1 AND value = ANY($2)"
+	rows, err := s.pool.Query(ctx, query, column, values)
+	if err != nil {
+		return nil, fmt.Errorf("known %s values: %w", column, err)
+	}
+	known, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("scan known %s: %w", column, err)
+	}
+	return known, nil
 }
 
 // ListAnalysisHostEntries returns hostname + last_seen rows for the analysis

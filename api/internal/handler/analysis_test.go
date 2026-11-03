@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,15 +14,27 @@ import (
 )
 
 // stubAnalysisStore satisfies AnalysisReportStore for the handler create-path
-// tests. Only ListAnalysisHosts and DeleteReport are exercised here; the read
+// tests. The Known* lookups and the picker lists are exercised here; the read
 // methods are not invoked on the create code path so they return zero values.
 type stubAnalysisStore struct {
 	knownHosts    map[string][]string // feed → host list
 	knownServices []string            // applog services
 }
 
-func (s *stubAnalysisStore) ListServices(context.Context) ([]string, error) {
-	return s.knownServices, nil
+// knownSubset returns the candidates present in known, as the store's
+// membership lookups do.
+func knownSubset(known, candidates []string) []string {
+	var out []string
+	for _, c := range candidates {
+		if slices.Contains(known, c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (s *stubAnalysisStore) KnownServices(_ context.Context, services []string) ([]string, error) {
+	return knownSubset(s.knownServices, services), nil
 }
 
 func (s *stubAnalysisStore) ListAnalysisServiceEntries(context.Context) ([]model.AnalysisServiceEntry, error) {
@@ -42,8 +55,8 @@ func (s *stubAnalysisStore) GetReportBySlug(context.Context, string) (model.Anal
 
 func (s *stubAnalysisStore) DeleteReport(context.Context, int64) error { return nil }
 
-func (s *stubAnalysisStore) ListAnalysisHosts(_ context.Context, feed string) ([]string, error) {
-	return s.knownHosts[feed], nil
+func (s *stubAnalysisStore) KnownAnalysisHosts(_ context.Context, feed string, hosts []string) ([]string, error) {
+	return knownSubset(s.knownHosts[feed], hosts), nil
 }
 
 func (s *stubAnalysisStore) ListAnalysisHostEntries(_ context.Context, feed string) ([]model.AnalysisHostEntry, error) {
