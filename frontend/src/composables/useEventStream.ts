@@ -23,7 +23,9 @@ export function createEventStream<T>(path: string, eventName: string) {
   let disconnectedSince: number | null = null
   const connected = ref(false)
   // Bumped each time we reconnect after an outage longer than
-  // RECONNECT_REFRESH_MS. Consumers watch this to trigger a history refresh.
+  // RECONNECT_REFRESH_MS, or when the server sends `resync` because its
+  // resume backfill did not reach the live stream. Consumers watch this to
+  // trigger a history refresh.
   const reconnectAfterGap = ref(0)
   const listeners = new Set<(event: T) => void>()
 
@@ -68,6 +70,14 @@ export function createEventStream<T>(path: string, eventName: string) {
 
     es.addEventListener('heartbeat', () => {
       lastEventAt = Date.now()
+    })
+
+    // The server ends every stream after a few minutes and the retry resumes
+    // with lastEventId. When more events were missed than the resume
+    // backfill replays, it sends `resync`: refresh history like after a long
+    // outage, or the missed events stay invisible.
+    es.addEventListener('resync', () => {
+      reconnectAfterGap.value++
     })
 
     es.onopen = () => {

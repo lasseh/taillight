@@ -2,8 +2,9 @@
 //
 // Tests for createEventStream's resilience logic (issue #37): jittered
 // exponential backoff capped at MAX_BACKOFF (30s), the reconnectAfterGap
-// counter gated on outages longer than RECONNECT_REFRESH_MS (30s), and the
-// heartbeat watchdog declaring disconnect past HEARTBEAT_TIMEOUT (35s).
+// counter gated on outages longer than RECONNECT_REFRESH_MS (30s) or bumped
+// by a server resync, and the heartbeat watchdog declaring disconnect past
+// HEARTBEAT_TIMEOUT (35s).
 // Uses a FakeEventSource stub, fake timers, and a stubbed Math.random.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createEventStream } from '@/composables/useEventStream'
@@ -151,6 +152,24 @@ describe('reconnectAfterGap', () => {
     last().fail()
     vi.advanceTimersByTime(1000)
     last().open()
+    expect(stream.reconnectAfterGap.value).toBe(1)
+  })
+
+  it('increments when the server sends resync after a short reconnect', () => {
+    stream = createEventStream('/api/v1/srvlog/stream', 'srvlog')
+    stream.start()
+    last().open()
+    last().emit('srvlog', { data: JSON.stringify({ id: 1 }), lastEventId: '42' })
+
+    // Server ends the stream; the retry resumes 1s later, under the 30s
+    // threshold, so only the server's resync can trigger the refresh.
+    last().fail()
+    vi.advanceTimersByTime(1000)
+    expect(last().url).toContain('lastEventId=42')
+    last().open()
+    expect(stream.reconnectAfterGap.value).toBe(0)
+
+    last().emit('resync', { data: '' })
     expect(stream.reconnectAfterGap.value).toBe(1)
   })
 })
