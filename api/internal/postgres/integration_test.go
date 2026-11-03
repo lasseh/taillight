@@ -1437,7 +1437,8 @@ func TestIntegration_RetentionPoliciesMatchIntent(t *testing.T) {
 
 // TestIntegration_SafeReportedAtFallsBackToNow covers the function the rsyslog
 // insert templates wrap the sender's timestamp in: a value Postgres cannot
-// store as timestamptz yields now() instead of an error.
+// store as timestamptz, or one outside UTC years 1 to 9998, yields now()
+// instead of an error.
 func TestIntegration_SafeReportedAtFallsBackToNow(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -1452,6 +1453,12 @@ func TestIntegration_SafeReportedAtFallsBackToNow(t *testing.T) {
 		{"year zero", "0000-01-01T00:00:00+00:00", true},
 		{"utc offset out of range", "2026-10-30T12:00:00+16:00", true},
 		{"empty", "", true},
+		{"last second of utc year 9998", "9998-12-31T23:59:59Z", false},
+		{"utc year 9998 at the largest offset", "9998-12-31T23:59:59+14:00", false},
+		{"utc year 9999", "9999-06-01T00:00:00+00:00", true},
+		{"utc year 10000 from a year 9999 local time", "9999-12-31T23:59:59-15:00", true},
+		{"first second of utc year 1", "0001-01-01T00:00:00Z", false},
+		{"before utc year 1 from a year 1 local time", "0001-01-01T00:00:00+01:00", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
