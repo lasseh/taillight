@@ -3,12 +3,20 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/lasseh/taillight/pkg/logshipper"
@@ -104,6 +112,136 @@ func TestBaseConfig_SkipVerifyDoesNotFollowRedirects(t *testing.T) {
 	}
 	if got := redirected.Load(); got != 0 {
 		t.Errorf("redirect target saw %d requests, want 0", got)
+	}
+}
+
+// recordingHandler keeps the message of every record it handles.
+type recordingHandler struct {
+	mu   sync.Mutex
+	msgs []string
+}
+
+func (h *recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *recordingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.msgs = append(h.msgs, r.Message)
+	return nil
+}
+
+func (h *recordingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *recordingHandler) WithGroup(string) slog.Handler      { return h }
+
+func (h *recordingHandler) messages() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.msgs)
+}
+
+func TestReadStdin_OversizedLineIsTruncatedAndShippingContinues(t *testing.T) {
+	in := strings.Repeat("x", 2<<20) + "\nnext\nlast without newline"
+	var h recordingHandler
+	var logs bytes.Buffer
+
+	err := readStdin(context.Background(), strings.NewReader(in), &h, false, slog.New(slog.NewTextHandler(&logs, nil)))
+	if err != nil {
+		t.Fatalf("readStdin: %v", err)
+	}
+
+	got := h.messages()
+	if len(got) != 3 {
+		t.Fatalf("shipped %d lines, want 3", len(got))
+	}
+	if got[0] != strings.Repeat("x", maxLineBytes) {
+		t.Errorf("first line shipped as %d bytes, want the first %d", len(got[0]), maxLineBytes)
+	}
+	if got[1] != "next" || got[2] != "last without newline" {
+		t.Errorf("later lines = %q, want next and the last line", got[1:])
+	}
+	if n := strings.Count(logs.String(), "line over max_bytes truncated"); n != 1 || !strings.Contains(logs.String(), "truncated_lines=1") {
+		t.Errorf("logged %d truncation warnings, want 1 counting 1 line: %s", n, logs.String())
+	}
+}
+
+func TestReadStdin_ReadError(t *testing.T) {
+	errRead := errors.New("device error")
+	var h recordingHandler
+
+	err := readStdin(context.Background(), io.MultiReader(strings.NewReader("first\n"), iotest.ErrReader(errRead)), &h, false, slog.New(slog.DiscardHandler))
+	if !errors.Is(err, errRead) {
+		t.Fatalf("readStdin = %v, want the read error", err)
+	}
+	if got := h.messages(); !slices.Equal(got, []string{"first"}) {
+		t.Errorf("shipped %q, want the line before the error", got)
+	}
+}
+
+// At shutdown stdin is closed under the reader; that read error is not a
+// failure.
+func TestReadStdin_ClosedAtShutdownIsNotAnError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var h recordingHandler
+
+	if err := readStdin(ctx, iotest.ErrReader(os.ErrClosed), &h, false, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatalf("readStdin = %v, want nil after cancellation", err)
+	}
+}
+
+// A stdin read that fails with anything but EOF ends the command with an
+// error, file tailers included, instead of leaving stdin unread.
+func TestRun_StdinReadErrorEndsTheCommand(t *testing.T) {
+	var posts atomic.Int64
+	sink := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		posts.Add(1)
+	}))
+	t.Cleanup(sink.Close)
+
+	dir := t.TempDir()
+	tailed := filepath.Join(dir, "app.log")
+	if err := os.WriteFile(tailed, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf("endpoint: %s\nservice: s\nhost: h\nflush_period: 10ms\nfiles:\n  - path: %s\n", sink.URL, tailed)
+	cfgPath := filepath.Join(dir, "config.yml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		r.Close() //nolint:errcheck // test teardown
+		w.Close() //nolint:errcheck // test teardown
+	})
+	origStdin, origConfig := os.Stdin, configPath
+	os.Stdin, configPath = r, cfgPath
+	t.Cleanup(func() { os.Stdin, configPath = origStdin, origConfig })
+
+	done := make(chan error, 1)
+	go func() { done <- run(nil, nil) }()
+
+	// Once a line has shipped, the command is reading stdin.
+	if _, err := w.WriteString("first\n"); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); posts.Load() == 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the first stdin line never shipped")
+		}
+	}
+	r.Close() //nolint:errcheck // makes the next read fail with an error other than EOF
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "reading stdin") {
+			t.Fatalf("run = %v, want the stdin read error", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run still running after stdin failed")
 	}
 }
 

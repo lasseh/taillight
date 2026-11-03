@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"strings"
 
@@ -93,9 +94,10 @@ func NewClient(cfg Config, logger *slog.Logger) *Client {
 // Returns ErrUserNotFound if the user does not exist (the caller may fall back
 // to local auth), ErrInvalidPassword if the user bind fails with bad
 // credentials, or ErrNotAuthorized if the user authenticated but belongs to no
-// mapped group.
-func (c *Client) Authenticate(_ context.Context, username, password string) (*Result, error) {
-	conn, err := c.dial()
+// mapped group. Directory I/O stops when ctx ends, with an error that is none
+// of these.
+func (c *Client) Authenticate(ctx context.Context, username, password string) (*Result, error) {
+	conn, err := c.dial(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("ldap connect: %w", err)
 	}
@@ -142,18 +144,24 @@ func (c *Client) Authenticate(_ context.Context, username, password string) (*Re
 	}, nil
 }
 
-// dial establishes a connection to the LDAP server.
-func (c *Client) dial() (*ldaplib.Conn, error) {
+// dial establishes a connection to the LDAP server. ctx's deadline bounds the
+// connect and, for ldaps, the TLS handshake. When ctx ends the connection is
+// closed: that is the only way to wake a Bind, Search or StartTLS waiting on
+// a server that has stopped answering.
+func (c *Client) dial(ctx context.Context) (*ldaplib.Conn, error) {
 	tlsCfg, err := c.tlsConfig()
 	if err != nil {
 		return nil, err
 	}
+	dialer := &net.Dialer{Timeout: ldaplib.DefaultTimeout}
+	dialer.Deadline, _ = ctx.Deadline()
 
 	if c.cfg.StartTLS {
-		conn, err := ldaplib.DialURL(c.cfg.URL)
+		conn, err := ldaplib.DialURL(c.cfg.URL, ldaplib.DialWithDialer(dialer))
 		if err != nil {
 			return nil, err
 		}
+		closeWhenDone(ctx, conn)
 		if err := conn.StartTLS(tlsCfg); err != nil {
 			conn.Close() //nolint:errcheck // best-effort cleanup on StartTLS failure
 			return nil, fmt.Errorf("starttls: %w", err)
@@ -161,7 +169,20 @@ func (c *Client) dial() (*ldaplib.Conn, error) {
 		return conn, nil
 	}
 
-	return ldaplib.DialURL(c.cfg.URL, ldaplib.DialWithTLSConfig(tlsCfg))
+	conn, err := ldaplib.DialURL(c.cfg.URL, ldaplib.DialWithTLSConfig(tlsCfg), ldaplib.DialWithDialer(dialer))
+	if err != nil {
+		return nil, err
+	}
+	closeWhenDone(ctx, conn)
+	return conn, nil
+}
+
+// closeWhenDone closes conn when ctx ends. Close is idempotent, so it is
+// harmless after the caller has closed conn itself.
+func closeWhenDone(ctx context.Context, conn *ldaplib.Conn) {
+	context.AfterFunc(ctx, func() {
+		conn.Close() //nolint:errcheck // the interrupted operation reports the failure
+	})
 }
 
 // tlsConfig builds the TLS config. When CABundle is set its certificates are

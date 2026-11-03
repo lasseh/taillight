@@ -31,9 +31,13 @@ func HashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
+// compareHashAndPassword is the bcrypt comparison behind every password
+// check, real or dummy; tests replace it to count comparisons.
+var compareHashAndPassword = bcrypt.CompareHashAndPassword
+
 // CheckPassword compares a plaintext password against a bcrypt hash.
 func CheckPassword(password, hash string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return compareHashAndPassword([]byte(hash), []byte(password))
 }
 
 // dummyHash is a pre-computed bcrypt hash used to prevent timing-based

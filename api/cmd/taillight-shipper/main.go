@@ -9,9 +9,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -70,6 +71,10 @@ func run(_ *cobra.Command, _ []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// A failed stdin read cancels ctx, so the file tailers stop too and the
+	// command exits with the error instead of leaving stdin unread.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	if cfg.TLSSkipVerify {
 		logger.Warn("TLS certificate verification disabled")
@@ -99,19 +104,24 @@ func run(_ *cobra.Command, _ []string) error {
 	fileHandlers := handlers
 
 	var wg sync.WaitGroup
+	var stdinErr error
 
 	// Stdin reader.
 	if piped {
+		stdin := os.Stdin
 		stdinHandler := handlers[0]
 		fileHandlers = handlers[1:]
 		wg.Add(1)
 		go func() {
 			<-ctx.Done()
-			_ = os.Stdin.Close()
+			_ = stdin.Close()
 		}()
 		go func() {
 			defer wg.Done()
-			readStdin(ctx, stdinHandler, tee)
+			if err := readStdin(ctx, stdin, stdinHandler, tee, logger); err != nil {
+				stdinErr = err
+				cancel()
+			}
 		}()
 		logger.Info("reading from stdin", "service", cfg.Service)
 	}
@@ -127,7 +137,7 @@ func run(_ *cobra.Command, _ []string) error {
 
 	wg.Wait()
 	shutdown(handlers, logger)
-	return nil
+	return stdinErr
 }
 
 // handlerSpec holds the per-handler fields: one spec for the stdin reader and
@@ -170,31 +180,41 @@ func newHandlers(base logshipper.Config, specs []handlerSpec, logger *slog.Logge
 	return handlers, nil
 }
 
-// readStdin scans lines from stdin until EOF or ctx cancellation.
-func readStdin(ctx context.Context, handler *logshipper.Handler, tee bool) {
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1 MB line buffer.
-
-	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		line := scanner.Text()
+// readStdin ships lines from r until EOF or ctx cancellation. It returns the
+// read error that ended it; EOF, and the close of stdin at shutdown, are not
+// errors.
+func readStdin(ctx context.Context, r io.Reader, handler slog.Handler, tee bool, logger *slog.Logger) error {
+	lr := newLineReader(r, logger.With("source", "stdin"))
+	ship := func(line string) {
 		if tee {
 			fmt.Println(line)
 		}
-
 		record := parseLine(line)
 		if err := handler.Handle(ctx, record); err != nil {
 			fmt.Fprintf(os.Stderr, "error: handle log entry: %v\n", err)
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: reading stdin: %v\n", err)
+	for {
+		line, err := lr.next()
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		switch {
+		case err == nil:
+			ship(line)
+		case errors.Is(err, io.EOF):
+			// A last line without a newline still ships.
+			if line := lr.take(); line != "" {
+				ship(line)
+			}
+			return nil
+		default:
+			return fmt.Errorf("reading stdin: %w", err)
+		}
 	}
 }
 

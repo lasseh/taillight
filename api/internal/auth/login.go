@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -26,6 +27,11 @@ const (
 func IsExternalSource(source string) bool {
 	return source == SourceLDAP || source == SourceOIDC
 }
+
+// directoryTimeout bounds one directory login. It sits well inside the login
+// route's 30s timeout, so when the directory stops answering, the fallback to
+// the local table still runs on a live request context. Tests shorten it.
+var directoryTimeout = 10 * time.Second
 
 // Login errors. Every password denial is a *DeniedError, which matches
 // ErrInvalidCredentials, so a caller can log the reason and send the client
@@ -83,7 +89,8 @@ func NewLogin(store LoginStore, dir ldap.Authenticator) *Login {
 
 // Password resolves a username and password: the LDAP directory first when
 // configured, then the local users table. A directory that does not know the
-// user, or that is unreachable, falls through to local login; a directory
+// user, that is unreachable, or that does not answer within directoryTimeout
+// falls through to local login; a directory
 // that rejects the password or the user's groups does not. It returns a
 // *DeniedError for a denial and any other error for an infrastructure
 // failure. logger receives the directory
@@ -100,6 +107,12 @@ func (l *Login) Password(ctx context.Context, logger *slog.Logger, username, pas
 		}
 	}
 	if !user.IsActive {
+		if ok {
+			// A directory login ran no bcrypt. Run the comparison the
+			// directory denials run, so a correct password for a disabled
+			// account takes as long as a wrong one.
+			DummyCheckPassword(password)
+		}
 		return model.User{}, denied("inactive account")
 	}
 	return user, nil
@@ -111,7 +124,9 @@ func (l *Login) directory(ctx context.Context, logger *slog.Logger, username, pa
 	if l.ldap == nil {
 		return model.User{}, false, nil
 	}
-	result, err := l.ldap.Authenticate(ctx, username, password)
+	dirCtx, cancel := context.WithTimeout(ctx, directoryTimeout)
+	result, err := l.ldap.Authenticate(dirCtx, username, password)
+	cancel()
 	switch {
 	case err == nil:
 		user, err := l.store.UpsertLDAPUser(ctx, result.Username, result.Email, result.IsAdmin)
@@ -122,6 +137,10 @@ func (l *Login) directory(ctx context.Context, logger *slog.Logger, username, pa
 	case errors.Is(err, ldap.ErrUserNotFound):
 		return model.User{}, false, nil
 	case errors.Is(err, ldap.ErrNotAuthorized):
+		// Both directory denials run the bcrypt work the local check runs,
+		// so response time matches an unknown username, and a correct
+		// password here takes as long as a wrong one.
+		DummyCheckPassword(password)
 		// The directory returns this only after the user's password bind
 		// succeeded, so the caller knows the password and the directory has
 		// withdrawn the user. ErrUserNotFound and ErrInvalidPassword need no
@@ -131,6 +150,7 @@ func (l *Login) directory(ctx context.Context, logger *slog.Logger, username, pa
 		}
 		return model.User{}, false, denied("LDAP user not in any authorized group")
 	case errors.Is(err, ldap.ErrInvalidPassword):
+		DummyCheckPassword(password)
 		return model.User{}, false, denied("LDAP wrong password")
 	default:
 		logger.Error("login: LDAP error, falling back to local auth", "err", err, "username", username)

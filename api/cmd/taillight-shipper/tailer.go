@@ -1,16 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 	"syscall"
 	"time"
-
-	"github.com/lasseh/taillight/pkg/logshipper"
 )
 
 const pollInterval = 250 * time.Millisecond
@@ -18,7 +15,7 @@ const pollInterval = 250 * time.Millisecond
 // tailFile follows path from the current end-of-file and sends each new
 // complete line through handler until ctx is cancelled. It detects log rotation
 // (file replacement or truncation) and reopens automatically.
-func tailFile(ctx context.Context, path string, handler *logshipper.Handler, logger *slog.Logger) {
+func tailFile(ctx context.Context, path string, handler slog.Handler, logger *slog.Logger) {
 	f, err := os.Open(path)
 	if err != nil {
 		logger.Error("cannot open file", "path", path, "error", err)
@@ -34,52 +31,46 @@ func tailFile(ctx context.Context, path string, handler *logshipper.Handler, log
 		return
 	}
 
-	reader := bufio.NewReader(f)
+	reader := newLineReader(f, logger.With("path", path))
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	inode := fileInode(f)
-	var partial string
 
 	for {
-		line, readErr := reader.ReadString('\n')
+		line, readErr := reader.next()
 		if readErr == nil {
-			// Complete line (ends with \n).
-			fullLine := partial + strings.TrimRight(line, "\n")
-			partial = ""
-			if fullLine == "" {
+			if line == "" {
 				continue
 			}
-			record := parseLine(fullLine)
+			record := parseLine(line)
 			if err := handler.Handle(ctx, record); err != nil {
 				logger.Warn("handle log entry failed", "path", path, "error", err)
 			}
 			continue
 		}
 
-		if readErr != io.EOF {
+		if !errors.Is(readErr, io.EOF) {
 			logger.Warn("read error", "path", path, "error", readErr)
 			return
 		}
 
-		// EOF — accumulate any partial data returned with the EOF.
-		partial += line
+		// EOF — the reader keeps any partial line until more data arrives.
 
 		// Check for file replacement or truncation.
 		if newF, newInode, rotated := checkRotation(path, f, inode, logger); rotated {
 			// Ship any buffered partial line from the old file.
-			if partial != "" {
+			if partial := reader.take(); partial != "" {
 				record := parseLine(partial)
 				if err := handler.Handle(ctx, record); err != nil {
 					logger.Warn("handle log entry failed", "path", path, "error", err)
 				}
-				partial = ""
 			}
 			if newF != nil {
 				f.Close() //nolint:errcheck // closing rotated-away file
 				f = newF
 			}
-			reader.Reset(f)
+			reader.reset(f)
 			inode = newInode
 			continue
 		}
