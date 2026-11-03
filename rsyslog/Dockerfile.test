@@ -1,12 +1,17 @@
 # Dockerfile.test
 FROM debian:trixie-slim
 
-RUN apt-get update && apt-get install -y \
+ENV DEBIAN_FRONTEND=noninteractive
+RUN echo 'dbconfig-common dbconfig-common/dbconfig-install boolean false' | debconf-set-selections && \
+    apt-get update && apt-get install -y --no-install-recommends \
     rsyslog \
+    rsyslog-pgsql \
     netcat-openbsd \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /etc/rsyslog.d/pgsql.conf
 
 COPY rsyslog.conf /etc/rsyslog.conf
+# test-filters.sh expects the repo layout (rsyslog.conf beside conf.d/).
+COPY rsyslog.conf /etc/rsyslog.d/rsyslog.conf
 COPY conf.d/ /etc/rsyslog.d/conf.d/
 COPY filters/ /etc/rsyslog.d/filters/
 COPY tests/ /etc/rsyslog.d/tests/
