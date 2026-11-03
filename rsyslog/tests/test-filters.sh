@@ -256,6 +256,18 @@ CONFEOF
     fi
 fi
 
+# Print one section of a ruleset in 20-ruleset.conf, from its "# --- <name>"
+# header to the next "# ---" header, so tests run the shipped drop rules
+# rather than a copy of them.
+ruleset_section() {
+    awk -v rs="$1" -v hdr="# --- $2" '
+        index($0, "ruleset(name=\"" rs "\"") { inrs = 1 }
+        inrs && index($0, hdr) { inblk = 1; next }
+        inblk && /# ---/ { exit }
+        inblk { print }
+    ' "$PROJECT_DIR/conf.d/20-ruleset.conf"
+}
+
 # --- Test 6: Header drop rules in both feed rulesets ---
 echo -n "Test 6: Oversized hostname dropped on both rulesets... "
 if [ "$HAVE_RSYSLOGD" = false ]; then
@@ -265,17 +277,6 @@ elif ! command -v nc >/dev/null 2>&1; then
     echo -e "${YELLOW}SKIP${NC} (nc not found)"
     (( skip += 1 ))
 else
-    # Print a ruleset's Phase 0.5 block from 20-ruleset.conf, so the test
-    # runs the shipped drop rules rather than a copy of them.
-    phase05() {
-        awk -v rs="$1" '
-            index($0, "ruleset(name=\"" rs "\"") { inrs = 1 }
-            inrs && /# --- Phase 0.5/ { inblk = 1; next }
-            inblk && /# ---/ { exit }
-            inblk { print }
-        ' "$PROJECT_DIR/conf.d/20-ruleset.conf"
-    }
-
     NET_PORT=15515
     SRV_PORT=15516
     cat > "$WORK_DIR/header.conf" <<CONFEOF
@@ -286,13 +287,13 @@ input(type="imudp" port="$NET_PORT" ruleset="test_network_devices")
 input(type="imudp" port="$SRV_PORT" ruleset="test_server_logs")
 
 ruleset(name="test_network_devices") {
-$(phase05 network_devices)
+$(ruleset_section network_devices "Phase 0.5")
     action(type="omfile" file="$WORK_DIR/header-network_devices.log"
         template="HeaderOutput" flushOnTXEnd="on")
 }
 
 ruleset(name="test_server_logs") {
-$(phase05 server_logs)
+$(ruleset_section server_logs "Phase 0.5")
     action(type="omfile" file="$WORK_DIR/header-server_logs.log"
         template="HeaderOutput" flushOnTXEnd="on")
 }
@@ -335,6 +336,91 @@ CONFEOF
             (( pass += 1 ))
         else
             echo -e "${RED}FAIL${NC} ($header_errors errors)"
+            (( fail += 1 ))
+        fi
+    fi
+fi
+
+# --- Test 7: Hostnames containing * in both feed rulesets ---
+echo -n "Test 7: Hostname containing * dropped on both rulesets... "
+if [ "$HAVE_RSYSLOGD" = false ]; then
+    echo -e "${YELLOW}SKIP${NC} (rsyslogd not found)"
+    (( skip += 1 ))
+elif ! command -v nc >/dev/null 2>&1; then
+    echo -e "${YELLOW}SKIP${NC} (nc not found)"
+    (( skip += 1 ))
+else
+    NET_PORT=15517
+    SRV_PORT=15518
+    # network_devices drops these after its critical capture, so its test
+    # ruleset runs the critical section too, with a stand-in output_critical.
+    cat > "$WORK_DIR/star.conf" <<CONFEOF
+global(maxMessageSize="64k")
+module(load="imudp")
+template(name="StarOutput" type="string" string="KEPT: %msg%\n")
+input(type="imudp" port="$NET_PORT" ruleset="test_network_devices")
+input(type="imudp" port="$SRV_PORT" ruleset="test_server_logs")
+
+ruleset(name="output_critical") {
+    action(type="omfile" file="$WORK_DIR/star-critical.log"
+        template="StarOutput" flushOnTXEnd="on")
+}
+
+ruleset(name="test_network_devices") {
+$(ruleset_section network_devices "Phase 0.5")
+$(ruleset_section network_devices "Critical severity logging")
+    action(type="omfile" file="$WORK_DIR/star-network_devices.log"
+        template="StarOutput" flushOnTXEnd="on")
+}
+
+ruleset(name="test_server_logs") {
+$(ruleset_section server_logs "Phase 0.5")
+    action(type="omfile" file="$WORK_DIR/star-server_logs.log"
+        template="StarOutput" flushOnTXEnd="on")
+}
+CONFEOF
+
+    $RSYSLOGD -n -f "$WORK_DIR/star.conf" -i "$WORK_DIR/rsyslog-star.pid" >/dev/null 2>&1 &
+    STAR_PID=$!
+    sleep 2
+
+    if ! kill -0 $STAR_PID 2>/dev/null; then
+        echo -e "${YELLOW}SKIP${NC} (rsyslogd failed to start -- may need root for UDP listener)"
+        (( skip += 1 ))
+    else
+        ts="2024-11-28T12:03:00.000Z"
+        for port in $NET_PORT $SRV_PORT; do
+            echo "<134>1 $ts *.* rpd 1 - - star-info" | nc -u -w1 127.0.0.1 $port 2>/dev/null || true
+            echo "<134>1 $ts rtr1 rpd 1 - - literal-info" | nc -u -w1 127.0.0.1 $port 2>/dev/null || true
+        done
+        echo "<130>1 $ts *.* rpd 1 - - star-crit" | nc -u -w1 127.0.0.1 $NET_PORT 2>/dev/null || true
+        sleep 2
+
+        kill $STAR_PID 2>/dev/null || true
+        wait $STAR_PID 2>/dev/null || true
+
+        star_errors=0
+        for rs in network_devices server_logs; do
+            out="$WORK_DIR/star-$rs.log"
+            if ! grep -q "literal-info" "$out" 2>/dev/null; then
+                echo -e "\n  ${RED}MISSING${NC}: $rs dropped a literal hostname (should be kept)"
+                (( star_errors += 1 ))
+            fi
+            if grep -q "star-" "$out" 2>/dev/null; then
+                echo -e "\n  ${RED}LEAK${NC}: $rs kept a hostname containing * (should be dropped)"
+                (( star_errors += 1 ))
+            fi
+        done
+        if ! grep -q "star-crit" "$WORK_DIR/star-critical.log" 2>/dev/null; then
+            echo -e "\n  ${RED}MISSING${NC}: network_devices dropped a hostname containing * before output_critical"
+            (( star_errors += 1 ))
+        fi
+
+        if [ $star_errors -eq 0 ]; then
+            echo -e "${GREEN}PASS${NC}"
+            (( pass += 1 ))
+        else
+            echo -e "${RED}FAIL${NC} ($star_errors errors)"
             (( fail += 1 ))
         fi
     fi
