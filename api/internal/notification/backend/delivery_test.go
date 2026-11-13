@@ -173,3 +173,34 @@ func TestNtfySend_TitleControlBytesRemoved(t *testing.T) {
 		})
 	}
 }
+
+// TestWebhookSend_TemplateErrorIsPayloadRejection verifies that a custom
+// template that fails on one event's fields is reported as a refused payload,
+// so it does not count toward the channel's breaker, and sends nothing.
+func TestWebhookSend_TemplateErrorIsPayloadRejection(t *testing.T) {
+	webhook := NewWebhook(discardLogger())
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	routeToServer(t, webhook.client, srv)
+
+	cfg := mustJSON(t, webhookConfig{URL: publicTestURL, Template: `{"m":"{{slice .SrvlogEvent.Message 0 50}}"}`})
+	payload := notification.Payload{
+		Kind:        notification.EventKindSrvlog,
+		EventCount:  1,
+		SrvlogEvent: &model.SrvlogEvent{Hostname: "router1", Severity: 3, Message: "short"},
+	}
+	res := webhook.Send(context.Background(), notification.Channel{Config: cfg}, payload)
+	if res.Success || res.Error == nil {
+		t.Fatal("template error reported as success")
+	}
+	if !errors.Is(res.Error, notification.ErrPayloadRejected) {
+		t.Errorf("errors.Is(%v, ErrPayloadRejected) = false, want true", res.Error)
+	}
+	if called {
+		t.Error("webhook sent a request after the template failed")
+	}
+}

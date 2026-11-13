@@ -3,9 +3,11 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
+	"net/textproto"
 	"os"
 	"strings"
 	"testing"
@@ -401,6 +403,77 @@ func TestSmtpAuth(t *testing.T) {
 			}
 			if !tt.wantNil && auth == nil {
 				t.Fatal("expected non-nil auth")
+			}
+		})
+	}
+}
+
+// fakeSMTP serves one SMTP conversation on a loopback listener, answering
+// every command with 250 (354 for DATA) and the end of the message with
+// dataReply. It returns the listener's port.
+func fakeSMTP(t *testing.T, dataReply string) int {
+	t.Helper()
+	lc := net.ListenConfig{}
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() {
+		ln.Close() //nolint:errcheck // Test listener cleanup.
+	})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close() //nolint:errcheck // Test connection cleanup.
+		tp := textproto.NewConn(conn)
+		tp.PrintfLine("220 fake ready") //nolint:errcheck // Test server.
+		for {
+			line, err := tp.ReadLine()
+			if err != nil {
+				return
+			}
+			switch cmd := strings.ToUpper(strings.SplitN(line, " ", 2)[0]); cmd {
+			case "DATA":
+				tp.PrintfLine("354 go ahead") //nolint:errcheck // Test server.
+				if _, err := tp.ReadDotLines(); err != nil {
+					return
+				}
+				tp.PrintfLine("%s", dataReply) //nolint:errcheck // Test server.
+			case "QUIT":
+				tp.PrintfLine("221 bye") //nolint:errcheck // Test server.
+				return
+			default:
+				tp.PrintfLine("250 ok") //nolint:errcheck // Test server.
+			}
+		}
+	}()
+	return ln.Addr().(*net.TCPAddr).Port
+}
+
+// A permanent refusal at the end of DATA is about the message, so it is
+// reported as a refused payload; a temporary one still counts as a failure.
+func TestSendSMTPDataReply(t *testing.T) {
+	tests := []struct {
+		reply    string
+		rejected bool
+	}{
+		{"554 5.7.1 message content rejected", true},
+		{"552 5.3.4 message too big", true},
+		{"451 4.3.0 try again later", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.reply[:3], func(t *testing.T) {
+			e := NewEmail(EmailGlobalConfig{Host: "127.0.0.1", Port: fakeSMTP(t, tt.reply), From: "from@example.com"}, discardLogger())
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err := e.sendSMTP(ctx, []string{"to@example.com"}, []byte("Subject: x\r\n\r\nbody\r\n"))
+			if err == nil {
+				t.Fatal("sendSMTP succeeded, want an error")
+			}
+			if got := errors.Is(err, notification.ErrPayloadRejected); got != tt.rejected {
+				t.Errorf("errors.Is(%v, ErrPayloadRejected) = %v, want %v", err, got, tt.rejected)
 			}
 		})
 	}

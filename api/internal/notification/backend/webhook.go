@@ -132,9 +132,11 @@ func (w *Webhook) Send(ctx context.Context, ch notification.Channel, payload not
 		return notification.SendResult{Error: fmt.Errorf("parse template: %w", err), Duration: time.Since(start)}
 	}
 
+	// A template that parses but fails on this event's fields is refusing
+	// the payload, not reporting a broken channel; other events still render.
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, payload); err != nil {
-		return notification.SendResult{Error: fmt.Errorf("execute template: %w", err), Duration: time.Since(start)}
+		return notification.SendResult{Error: fmt.Errorf("%w: execute template: %w", notification.ErrPayloadRejected, err), Duration: time.Since(start)}
 	}
 
 	if err := validateExternalURL(ctx, cfg.URL); err != nil {

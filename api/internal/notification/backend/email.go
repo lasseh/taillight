@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strings"
 	"text/template"
 	"time"
@@ -165,6 +167,12 @@ func (e *Email) sendSMTP(ctx context.Context, to []string, msg []byte) error {
 		return fmt.Errorf("write message: %w", err)
 	}
 	if err := w.Close(); err != nil {
+		// The server answers the end of DATA after reading the message, so
+		// a permanent refusal here is about this message's content.
+		var reply *textproto.Error
+		if errors.As(err, &reply) && reply.Code >= 500 && reply.Code < 600 {
+			return fmt.Errorf("%w: close DATA: %w", notification.ErrPayloadRejected, err)
+		}
 		return fmt.Errorf("close DATA: %w", err)
 	}
 
