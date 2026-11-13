@@ -72,7 +72,7 @@ Runs `tests/test-filters.sh` which validates:
 3. Test fixture file exists and has content
 4. All `include(file=...)` references resolve to real files
 5. Behavioral validation -- starts rsyslog, sends test messages, verifies correct messages are dropped/kept
-6. Header drop rules -- runs each feed ruleset's Phase 0.5 block and verifies a hostname over 255 bytes is dropped
+6. Header drop rules -- runs each feed ruleset's Phase 0.5 block and verifies a hostname or programname over 255 bytes is dropped
 7. Wildcard hostnames -- verifies both feed rulesets drop a hostname containing `*`, and that network_devices drops it only after `output_critical`
 
 ### Run tests in Docker

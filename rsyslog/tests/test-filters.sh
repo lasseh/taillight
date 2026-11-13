@@ -269,7 +269,7 @@ ruleset_section() {
 }
 
 # --- Test 6: Header drop rules in both feed rulesets ---
-echo -n "Test 6: Oversized hostname dropped on both rulesets... "
+echo -n "Test 6: Oversized hostname and programname dropped on both rulesets... "
 if [ "$HAVE_RSYSLOGD" = false ]; then
     echo -e "${YELLOW}SKIP${NC} (rsyslogd not found)"
     (( skip += 1 ))
@@ -312,6 +312,9 @@ CONFEOF
         for port in $NET_PORT $SRV_PORT; do
             echo "<13>1 2024-11-28T12:03:00.000Z ${host255} app 1 HOSTLEN - hostname-255" | nc -u -w1 127.0.0.1 $port 2>/dev/null || true
             echo "<13>1 2024-11-28T12:03:00.000Z ${host255}h app 1 HOSTLEN - hostname-256" | nc -u -w1 127.0.0.1 $port 2>/dev/null || true
+            # The same cap for programname, which an APP-NAME with no PROCID sets.
+            echo "<13>1 2024-11-28T12:03:00.000Z host ${host255} - APPLEN - appname-255" | nc -u -w1 127.0.0.1 $port 2>/dev/null || true
+            echo "<13>1 2024-11-28T12:03:00.000Z host ${host255}h - APPLEN - appname-256" | nc -u -w1 127.0.0.1 $port 2>/dev/null || true
         done
         sleep 2
 
@@ -327,6 +330,14 @@ CONFEOF
             fi
             if grep -q "hostname-256" "$out" 2>/dev/null; then
                 echo -e "\n  ${RED}LEAK${NC}: $rs kept a 256-byte hostname (should be dropped)"
+                (( header_errors += 1 ))
+            fi
+            if ! grep -q "appname-255" "$out" 2>/dev/null; then
+                echo -e "\n  ${RED}MISSING${NC}: $rs dropped a 255-byte programname (should be kept)"
+                (( header_errors += 1 ))
+            fi
+            if grep -q "appname-256" "$out" 2>/dev/null; then
+                echo -e "\n  ${RED}LEAK${NC}: $rs kept a 256-byte programname (should be dropped)"
                 (( header_errors += 1 ))
             fi
         done
