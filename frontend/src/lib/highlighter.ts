@@ -97,13 +97,15 @@ const PRISM_SANITIZE = { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] }
 
 // Prism.highlight runs on the main thread, and on crafted text some grammar
 // patterns cost far more than linear time. Text longer than this is shown as
-// escaped plaintext instead, which bounds what one message can cost.
-export const MAX_HIGHLIGHT_LEN = 2048
+// escaped plaintext instead, which bounds what one message can cost. The log
+// grammar's worst case grows with the cube of the length (about 2 ms at 512
+// characters, 85 ms at 2048), the json grammar's with the square.
+export const MAX_HIGHLIGHT_LEN = { log: 512, json: 2048 } as const
 
 const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' }
 
 function toHtml(text: string, lang: 'log' | 'json'): string {
-  if (text.length > MAX_HIGHLIGHT_LEN) return text.replace(/[&<>]/g, (c) => HTML_ESCAPES[c]!)
+  if (text.length > MAX_HIGHLIGHT_LEN[lang]) return text.replace(/[&<>]/g, (c) => HTML_ESCAPES[c]!)
   return DOMPurify.sanitize(Prism.highlight(text, Prism.languages[lang]!, lang), PRISM_SANITIZE)
 }
 
