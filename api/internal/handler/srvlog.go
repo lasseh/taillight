@@ -36,8 +36,8 @@ func (h *SrvlogHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_filter", err.Error())
 		return
 	}
-	if filter.Search != "" && filter.From == nil {
-		writeError(w, http.StatusBadRequest, "invalid_filter", searchNeedsFrom)
+	if msg := searchWindowError(filter.Search, filter.From, filter.To); msg != "" {
+		writeError(w, http.StatusBadRequest, "invalid_filter", msg)
 		return
 	}
 	hideMuted, err := model.ParseHideMuted(r)

@@ -2,15 +2,18 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
 
+// ReadLimitPerPrincipal caps the log read requests (lists, stats, exports)
+// one user runs at once, so one principal cannot hold most of the read pool's
+// connections. It is also the cap per anonymous client IP when that IP is the
+// real client's.
+const ReadLimitPerPrincipal = 4
+
 const (
-	// readLimitPerPrincipal caps the log read requests (lists, stats,
-	// exports) one principal runs at once, so one principal cannot hold most
-	// of the read pool's connections.
-	readLimitPerPrincipal = 4
 	// readLimitWait is how long a request over the cap waits for a slot.
 	// It stays under the SPA's 15s and the TUI's 10s client timeouts, so a
 	// burst of page-load requests queues instead of failing.
@@ -22,8 +25,9 @@ const (
 // SSE subscriptions are capped by, see sseClientKey). A request over the cap
 // waits for a slot, then gets 429.
 type ReadLimiter struct {
-	max  int
-	wait time.Duration
+	max     int // per authenticated user
+	anonMax int // per client IP of anonymous requests
+	wait    time.Duration
 
 	mu    sync.Mutex
 	slots map[string]*principalSlots
@@ -36,9 +40,18 @@ type principalSlots struct {
 	refs int
 }
 
-// NewReadLimiter returns a ReadLimiter with the default per-principal cap.
-func NewReadLimiter() *ReadLimiter {
-	return &ReadLimiter{max: readLimitPerPrincipal, wait: readLimitWait, slots: make(map[string]*principalSlots)}
+// NewReadLimiter returns a ReadLimiter with the default per-user cap and
+// anonMax as the cap per client IP of anonymous requests. When the client IP
+// may be a reverse proxy's (no real_ip_header), every anonymous user behind
+// that proxy shares one IP, so callers pass a cap that does not hold them to
+// one person's share.
+func NewReadLimiter(anonMax int) *ReadLimiter {
+	return &ReadLimiter{
+		max:     ReadLimitPerPrincipal,
+		anonMax: max(anonMax, 1),
+		wait:    readLimitWait,
+		slots:   make(map[string]*principalSlots),
+	}
 }
 
 // Middleware runs next once the request's principal has a free slot.
@@ -69,7 +82,11 @@ func (l *ReadLimiter) join(key string) *principalSlots {
 	defer l.mu.Unlock()
 	s := l.slots[key]
 	if s == nil {
-		s = &principalSlots{sem: make(chan struct{}, l.max)}
+		limit := l.max
+		if !strings.HasPrefix(key, "user:") {
+			limit = l.anonMax
+		}
+		s = &principalSlots{sem: make(chan struct{}, limit)}
 		l.slots[key] = s
 	}
 	s.refs++

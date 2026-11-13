@@ -103,4 +103,24 @@ describe('analysis scope picker server search', () => {
     expect(confirm).toHaveBeenCalledOnce()
     expect(chips(wrapper)).toEqual([])
   })
+
+  it('keeps a picked host whose lookup on the new feed fails', async () => {
+    listHosts.mockImplementation((feed: AnalysisFeed, search?: string) =>
+      feed === 'srvlog' && search
+        ? Promise.reject(new Error('429 too_many_requests'))
+        : hostsFor(feed, search),
+    )
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = await openPicker()
+    await hostInput(wrapper).setValue('zz-core-1')
+    await hostInput(wrapper).trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    const srvlog = wrapper.findAll('button').find((b) => b.text().includes('Srvlog'))!
+    await srvlog.trigger('click')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(chips(wrapper)).toEqual(['zz-core-1'])
+  })
 })

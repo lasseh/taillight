@@ -25,11 +25,11 @@ func userRequest(id byte) *http.Request {
 // One principal at its cap waits and then gets 429, while another principal
 // is served at once; a waiting request runs as soon as a slot frees.
 func TestReadLimiterCapsEachPrincipal(t *testing.T) {
-	l := NewReadLimiter()
+	l := NewReadLimiter(ReadLimitPerPrincipal)
 	l.wait = 100 * time.Millisecond
 
 	release := make(chan struct{})
-	started := make(chan struct{}, readLimitPerPrincipal+1)
+	started := make(chan struct{}, ReadLimitPerPrincipal+1)
 	h := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Hold") != "" {
 			started <- struct{}{}
@@ -40,14 +40,14 @@ func TestReadLimiterCapsEachPrincipal(t *testing.T) {
 
 	// Fill user 1's slots with held requests.
 	var held sync.WaitGroup
-	for range readLimitPerPrincipal {
+	for range ReadLimitPerPrincipal {
 		held.Go(func() {
 			req := userRequest(1)
 			req.Header.Set("X-Hold", "1")
 			h.ServeHTTP(httptest.NewRecorder(), req)
 		})
 	}
-	for range readLimitPerPrincipal {
+	for range ReadLimitPerPrincipal {
 		<-started
 	}
 
@@ -97,7 +97,7 @@ func TestReadLimiterCapsEachPrincipal(t *testing.T) {
 // A request whose client goes away while it waits for a slot leaves without
 // running the handler or writing a response.
 func TestReadLimiterWaitEndsWithRequest(t *testing.T) {
-	l := NewReadLimiter()
+	l := NewReadLimiter(ReadLimitPerPrincipal)
 	l.max = 0 // no free slot ever
 	req := userRequest(1)
 	ctx, cancel := context.WithCancel(req.Context())
@@ -111,4 +111,45 @@ func TestReadLimiterWaitEndsWithRequest(t *testing.T) {
 	if rec.Body.Len() != 0 {
 		t.Errorf("wrote %q after the client went away, want nothing", rec.Body.String())
 	}
+}
+
+// Anonymous requests from one client IP share the anonymous cap, which can
+// differ from the per-user cap.
+func TestReadLimiterAnonymousCap(t *testing.T) {
+	const anonMax = ReadLimitPerPrincipal + 2
+	l := NewReadLimiter(anonMax)
+	l.wait = 50 * time.Millisecond
+
+	release := make(chan struct{})
+	started := make(chan struct{}, anonMax)
+	h := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Hold") != "" {
+			started <- struct{}{}
+			<-release
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	anonRequest := func() *http.Request {
+		return httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/srvlog", nil)
+	}
+
+	var held sync.WaitGroup
+	for range anonMax {
+		held.Go(func() {
+			req := anonRequest()
+			req.Header.Set("X-Hold", "1")
+			h.ServeHTTP(httptest.NewRecorder(), req)
+		})
+	}
+	for range anonMax {
+		<-started
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, anonRequest())
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("anonymous client past %d in flight: status = %d, want 429", anonMax, rec.Code)
+	}
+	close(release)
+	held.Wait()
 }

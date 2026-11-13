@@ -32,7 +32,9 @@ func TestListSearchRequiresFrom(t *testing.T) {
 	}{
 		{"search without a window", "?search=zq", http.StatusBadRequest},
 		{"search with only to", "?search=zq&to=2026-11-03T00:00:00Z", http.StatusBadRequest},
-		{"search with from", "?search=zq&from=2026-11-02T00:00:00Z", http.StatusOK},
+		{"search with from", "?search=zq&from=2026-11-02T00:00:00Z&to=2026-11-03T00:00:00Z", http.StatusOK},
+		{"search over the span", "?search=zq&from=2026-10-01T00:00:00Z&to=2026-11-03T00:00:00Z", http.StatusBadRequest},
+		{"search from long ago", "?search=zq&from=1970-01-01T00:00:00Z", http.StatusBadRequest},
 		{"no search", "", http.StatusOK},
 	}
 	for _, f := range feeds {
@@ -51,8 +53,8 @@ func TestListSearchRequiresFrom(t *testing.T) {
 				if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 					t.Fatalf("decode: %v", err)
 				}
-				if body.Error.Code != "invalid_filter" || body.Error.Message != searchNeedsFrom {
-					t.Errorf("error = %+v, want invalid_filter %q", body.Error, searchNeedsFrom)
+				if body.Error.Code != "invalid_filter" {
+					t.Errorf("error = %+v, want invalid_filter", body.Error)
 				}
 			})
 		}
@@ -75,6 +77,8 @@ func TestSearchBackfillFrom(t *testing.T) {
 		{"search keeps the given from", "disk", &from, nil, &from},
 		{"search without a window ends now", "disk", nil, nil, &time.Time{}},
 		{"search with only to ends at to", "disk", nil, &to, new(to.Add(-sseSearchWindow))},
+		{"search from long ago is clamped", "disk", new(to.Add(-90 * 24 * time.Hour)), &to, new(to.Add(-maxSearchSpan))},
+		{"no search keeps a long window", "", new(to.Add(-90 * 24 * time.Hour)), &to, new(to.Add(-90 * 24 * time.Hour))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -162,7 +162,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Analysis (optional).
 	var analysis *analysisWiring
 	if cfg.Analysis.Enabled {
-		analysis = setupAnalysis(ctx, cfg, store, logger, notifEngine)
+		analysis = setupAnalysis(ctx, cfg, store, readStore, logger, notifEngine)
 	}
 
 	// LDAP authentication (optional).
@@ -474,12 +474,15 @@ func startBackgroundWorkers(
 type analysisWiring struct {
 	reports   *handler.AnalysisHandler
 	schedules *handler.AnalysisScheduleHandler
+	// readReports serves the report and scope-picker reads from the read
+	// pool, the way the log read routes are served.
+	readReports *handler.AnalysisHandler
 }
 
 // setupAnalysis initializes the LLM analysis subsystem: analyzer + queued
 // worker + DB-backed schedule scheduler + HTTP handlers. Returns nil when
 // analysis is disabled.
-func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store, logger *slog.Logger, notifEngine *notification.Engine) *analysisWiring {
+func setupAnalysis(ctx context.Context, cfg config.Config, store, readStore *postgres.Store, logger *slog.Logger, notifEngine *notification.Engine) *analysisWiring {
 	ollamaClient := ollama.New(cfg.Analysis.OllamaURL, cfg.Analysis.OllamaTimeout)
 	a := analyzer.New(store, ollamaClient, analyzer.Config{
 		Model:       cfg.Analysis.Model,
@@ -505,8 +508,9 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store *postgres.Store
 	go sched.Start(ctx)
 
 	return &analysisWiring{
-		reports:   handler.NewAnalysisHandler(store, w),
-		schedules: handler.NewAnalysisScheduleHandler(store, sched),
+		reports:     handler.NewAnalysisHandler(store, w),
+		schedules:   handler.NewAnalysisScheduleHandler(store, sched),
+		readReports: handler.NewAnalysisHandler(readStore, w),
 	}
 }
 
@@ -668,7 +672,14 @@ func setupRouter(
 	summaryHandler := handler.NewSummaryHandler(store, summaryScheduler)
 	muteRuleHandler := handler.NewMuteRuleHandler(store, mutes, time.Now)
 	exportHandler := handler.NewExportHandler(readStore, readStore, readStore)
-	readLimit := handler.NewReadLimiter()
+	// Without real_ip_header an anonymous client's IP may be the reverse
+	// proxy's, shared by every user behind it, so anonymous reads are then
+	// bounded only by the read pool.
+	anonReadLimit := handler.ReadLimitPerPrincipal
+	if cfg.RealIPHeader == "" {
+		anonReadLimit = int(cfg.DBReadMaxConns)
+	}
+	readLimit := handler.NewReadLimiter(anonReadLimit)
 	juniperRefHandler := handler.NewJuniperRefHandler(store)
 	configHandler := handler.NewConfigHandler(cfg.Analysis.Enabled, cfg.OIDC.Enabled)
 
@@ -840,11 +851,12 @@ func setupRouter(
 			if analysis != nil {
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.Timeout(30 * time.Second))
-					r.Get("/analysis/reports", analysis.reports.List)
-					r.Get("/analysis/reports/{slug}", analysis.reports.Get)
-					r.Get("/analysis/reports/{slug}/print", analysis.reports.Print)
-					r.Get("/analysis/hosts", analysis.reports.Hosts)
-					r.Get("/analysis/services", analysis.reports.Services)
+					r.Use(readLimit.Middleware)
+					r.Get("/analysis/reports", analysis.readReports.List)
+					r.Get("/analysis/reports/{slug}", analysis.readReports.Get)
+					r.Get("/analysis/reports/{slug}/print", analysis.readReports.Print)
+					r.Get("/analysis/hosts", analysis.readReports.Hosts)
+					r.Get("/analysis/services", analysis.readReports.Services)
 					r.Get("/analysis/schedules", analysis.schedules.List)
 					r.Get("/analysis/schedules/{id}", analysis.schedules.Get)
 				})

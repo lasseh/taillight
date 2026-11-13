@@ -78,6 +78,7 @@ func (h *NetlogSSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		// marked at dispatch, so a reconnecting client hides backfill the
 		// same way.
 		since: func(ctx context.Context, f model.NetlogFilter, sinceID int64, limit int) ([]model.NetlogEvent, error) {
+			f.From = searchBackfillFrom(f.Search, f.From, f.To)
 			events, err := h.store.ListNetlogsSince(ctx, f, sinceID, limit)
 			markNetlogs(h.mutes.Active(), events)
 			return events, err

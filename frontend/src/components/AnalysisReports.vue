@@ -158,19 +158,23 @@ watch(hostQuery, (text) => {
 })
 
 // missingNames returns the names that feed does not know. The loaded list is
-// capped, so a name it lacks is looked up before it counts as missing.
+// capped, so a name it lacks is looked up before it counts as missing. The
+// lookups run one at a time, since the server limits how many reads a user
+// runs at once, and a lookup that fails keeps its name: the server checks the
+// scope again when the report is created.
 async function missingNames(feed: AnalysisFeed, names: string[]): Promise<string[]> {
   const listed = new Set(availableHosts.value.map((h) => h.name))
-  const unlisted = names.filter((n) => !listed.has(n))
-  const found = await Promise.all(
-    unlisted.map((n) =>
-      fetchScope(feed, n).then(
-        (entries) => entries.some((h) => h.name === n),
-        () => false,
-      ),
-    ),
-  )
-  return unlisted.filter((_, i) => !found[i])
+  const missing: string[] = []
+  for (const n of names) {
+    if (listed.has(n)) continue
+    try {
+      const entries = await fetchScope(feed, n)
+      if (!entries.some((h) => h.name === n)) missing.push(n)
+    } catch {
+      // Unknown, not missing.
+    }
+  }
+  return missing
 }
 
 // Refetch the host list every time the feed changes. If the user has
