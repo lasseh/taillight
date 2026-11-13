@@ -69,7 +69,9 @@ type LoginStore interface {
 //
 //   - LDAP users are matched by username. A successful directory login takes
 //     over any existing row with that username, local or OIDC, and syncs its
-//     email and admin flag from the directory.
+//     email and admin flag from the directory. Taking over a row that was not
+//     already LDAP's ends its sessions and API keys and clears its local
+//     password and OIDC link, since its previous holder may be someone else.
 //   - A directory that refuses a user after its password bind (no mapped
 //     group) clears the admin flag and ends the sessions of that user's LDAP
 //     row. No other denial changes state, because those need no password.

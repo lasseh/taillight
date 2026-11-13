@@ -203,6 +203,12 @@ func (s *AuthStore) UpdatePassword(ctx context.Context, id [16]byte, passwordHas
 // On conflict the email, is_admin, and auth_source fields are updated, and an
 // is_admin change from true to false revokes the user's admin-scope API keys
 // in the same transaction.
+//
+// A directory login takes over a same-name row that is not already an LDAP
+// row, or that carries an OIDC link. The row's previous holder may be a
+// different person, so the takeover ends what they held: their sessions are
+// deleted, all their API keys are revoked, and the row's local password and
+// OIDC link are cleared, in the same transaction.
 // The is_active field is NOT touched — it remains under local admin control.
 func (s *AuthStore) UpsertLDAPUser(ctx context.Context, username, email string, isAdmin bool) (model.User, error) {
 	var u model.User
@@ -217,13 +223,23 @@ func (s *AuthStore) UpsertLDAPUser(ctx context.Context, username, email string, 
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after commit is a no-op.
 
-	var wasAdmin bool
+	var (
+		priorID  pgtype.UUID
+		wasAdmin bool
+		takeover bool
+	)
 	err = tx.QueryRow(ctx,
-		`SELECT is_admin FROM users WHERE LOWER(username) = LOWER($1) FOR UPDATE`,
+		`SELECT id, is_admin, auth_source <> 'ldap' OR oidc_issuer IS NOT NULL
+		 FROM users WHERE LOWER(username) = LOWER($1) FOR UPDATE`,
 		username,
-	).Scan(&wasAdmin)
+	).Scan(&priorID, &wasAdmin, &takeover)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, fmt.Errorf("lock ldap user: %w", err)
+	}
+	if takeover {
+		if err := endPriorAccess(ctx, tx, priorID); err != nil {
+			return model.User{}, err
+		}
 	}
 
 	err = tx.QueryRow(ctx,
@@ -234,6 +250,9 @@ func (s *AuthStore) UpsertLDAPUser(ctx context.Context, username, email string, 
 		     email = EXCLUDED.email,
 		     is_admin = EXCLUDED.is_admin,
 		     auth_source = 'ldap',
+		     password_hash = '',
+		     oidc_issuer = NULL,
+		     oidc_subject = NULL,
 		     updated_at = now()
 		 RETURNING id, username, email, password_hash, is_active, is_admin, auth_source, preferences, created_at, updated_at, last_login_at`,
 		username, emailArg, isAdmin,
@@ -291,6 +310,20 @@ func (s *AuthStore) RevokeLDAPUser(ctx context.Context, username string) error {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// endPriorAccess deletes the user's sessions and revokes all of its API keys
+// inside tx, for a row whose holder changes.
+func endPriorAccess(ctx context.Context, tx pgx.Tx, userID pgtype.UUID) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID); err != nil {
+		return fmt.Errorf("delete prior sessions: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
+		userID); err != nil {
+		return fmt.Errorf("revoke prior keys: %w", err)
 	}
 	return nil
 }
@@ -371,7 +404,8 @@ func (s *AuthStore) UpsertOIDCUser(ctx context.Context, issuer, subject, usernam
 
 // refreshOIDCUser updates email and is_admin on an existing OIDC identity and
 // revokes its admin-scope API keys when is_admin changes from true to false.
-// found is false when no user has the (issuer, subject) pair.
+// found is false when no OIDC-sourced user has the (issuer, subject) pair: a
+// row another source has taken over is not the identity's to refresh.
 func (s *AuthStore) refreshOIDCUser(ctx context.Context, issuer, subject string, emailArg *string, isAdmin bool) (u model.User, found bool, err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -381,7 +415,9 @@ func (s *AuthStore) refreshOIDCUser(ctx context.Context, issuer, subject string,
 
 	var wasAdmin bool
 	err = tx.QueryRow(ctx,
-		`SELECT is_admin FROM users WHERE oidc_issuer = $1 AND oidc_subject = $2 FOR UPDATE`,
+		`SELECT is_admin FROM users
+		 WHERE oidc_issuer = $1 AND oidc_subject = $2 AND auth_source = 'oidc'
+		 FOR UPDATE`,
 		issuer, subject,
 	).Scan(&wasAdmin)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -397,7 +433,7 @@ func (s *AuthStore) refreshOIDCUser(ctx context.Context, issuer, subject string,
 		     is_admin = $4,
 		     auth_source = 'oidc',
 		     updated_at = now()
-		 WHERE oidc_issuer = $1 AND oidc_subject = $2
+		 WHERE oidc_issuer = $1 AND oidc_subject = $2 AND auth_source = 'oidc'
 		 RETURNING id, username, email, password_hash, is_active, is_admin, auth_source, preferences, created_at, updated_at, last_login_at`,
 		issuer, subject, emailArg, isAdmin,
 	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.IsActive, &u.IsAdmin, &u.AuthSource, &u.Preferences, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt)

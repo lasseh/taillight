@@ -577,6 +577,175 @@ func TestIntegration_ExternalSessionClampMigration(t *testing.T) {
 	}
 }
 
+// TestIntegration_LDAPTakeoverEndsPriorAccess covers an LDAP login that takes
+// over a same-name row held by an OIDC or local account: the previous
+// holder's sessions and API keys stop working, the row loses its OIDC link
+// and local password, and the OIDC identity gets a row of its own on its next
+// login. A returning LDAP login on its own row keeps its session and keys.
+func TestIntegration_LDAPTakeoverEndsPriorAccess(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "sessions", "api_keys", "users")
+	authStore := NewAuthStore(pool)
+	defer authStore.Stop()
+	ctx := context.Background()
+	expires := time.Now().Add(time.Hour)
+	const issuer = "https://login.example.com"
+
+	keyRevoked := func(hash string) bool {
+		t.Helper()
+		var revoked bool
+		if err := pool.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM api_keys WHERE key_hash = $1`, hash).Scan(&revoked); err != nil {
+			t.Fatalf("read key %s: %v", hash, err)
+		}
+		return revoked
+	}
+	seed := func(u model.User, prefix string) {
+		t.Helper()
+		if err := authStore.CreateSession(ctx, prefix+"-session", u.ID.Bytes, expires, "127.0.0.1", "test"); err != nil {
+			t.Fatalf("CreateSession %s: %v", prefix, err)
+		}
+		if _, err := authStore.CreateAPIKey(ctx, u.ID.Bytes, prefix, prefix+"-key", "tl_x", []string{"read"}, nil); err != nil {
+			t.Fatalf("CreateAPIKey %s: %v", prefix, err)
+		}
+	}
+
+	// An OIDC account and a local account hold the names a directory user
+	// later logs in with.
+	oidcUser, err := authStore.UpsertOIDCUser(ctx, issuer, "sub-1", "bob", "", false)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser: %v", err)
+	}
+	seed(oidcUser, "oidc")
+	localUser, err := authStore.CreateUser(ctx, "carol", "password-hash", false)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	seed(localUser, "local")
+
+	for _, name := range []string{"bob", "carol"} {
+		u, err := authStore.UpsertLDAPUser(ctx, name, "", true)
+		if err != nil {
+			t.Fatalf("UpsertLDAPUser %s: %v", name, err)
+		}
+		if u.AuthSource != "ldap" || !u.IsAdmin || u.PasswordHash != "" {
+			t.Errorf("%s after takeover = %s admin=%v pw=%q, want ldap/true/empty", name, u.AuthSource, u.IsAdmin, u.PasswordHash)
+		}
+	}
+	for _, prefix := range []string{"oidc", "local"} {
+		if _, err := authStore.GetSession(ctx, prefix+"-session"); !errors.Is(err, pgx.ErrNoRows) {
+			t.Errorf("%s session after takeover: err = %v, want it deleted", prefix, err)
+		}
+		if !keyRevoked(prefix + "-key") {
+			t.Errorf("%s key after takeover: not revoked", prefix)
+		}
+	}
+	var linked bool
+	if err := pool.QueryRow(ctx, `SELECT oidc_issuer IS NOT NULL OR oidc_subject IS NOT NULL FROM users WHERE id = $1`, oidcUser.ID).Scan(&linked); err != nil {
+		t.Fatalf("read oidc link: %v", err)
+	}
+	if linked {
+		t.Error("taken-over row still has its OIDC link")
+	}
+
+	// The OIDC identity's next login gets a new row, not the directory admin's.
+	again, err := authStore.UpsertOIDCUser(ctx, issuer, "sub-1", "bob", "", false)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser after takeover: %v", err)
+	}
+	if again.ID.Bytes == oidcUser.ID.Bytes {
+		t.Error("OIDC login after takeover returned the taken-over row, want a row of its own")
+	}
+	bob, err := authStore.GetUserByID(ctx, oidcUser.ID.Bytes)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if bob.AuthSource != "ldap" || !bob.IsAdmin {
+		t.Errorf("directory row after OIDC login = %s admin=%v, want ldap/true", bob.AuthSource, bob.IsAdmin)
+	}
+
+	// A returning LDAP login on its own row is not a takeover.
+	seed(bob, "ldap")
+	if _, err := authStore.UpsertLDAPUser(ctx, "bob", "", true); err != nil {
+		t.Fatalf("UpsertLDAPUser (returning): %v", err)
+	}
+	if _, err := authStore.GetSession(ctx, "ldap-session"); err != nil {
+		t.Errorf("returning ldap session: %v, want it kept", err)
+	}
+	if keyRevoked("ldap-key") {
+		t.Error("returning ldap key revoked, want it kept")
+	}
+}
+
+// TestIntegration_LDAPTakeoverCleanupMigration runs migration 29 over a row
+// LDAP took over before the takeover ended prior access: its sessions and
+// keys end and its OIDC link is cleared. An OIDC row and an LDAP row with no
+// link are left alone.
+func TestIntegration_LDAPTakeoverCleanupMigration(t *testing.T) {
+	pool := testPool(t)
+	truncate(t, pool, "sessions", "api_keys", "users")
+	authStore := NewAuthStore(pool)
+	defer authStore.Stop()
+	ctx := context.Background()
+	expires := time.Now().Add(time.Hour)
+
+	taken, err := authStore.UpsertOIDCUser(ctx, "https://login.example.com", "sub-1", "bob", "", false)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser: %v", err)
+	}
+	// The state an LDAP login left before this change: source flipped, link kept.
+	if _, err := pool.Exec(ctx, `UPDATE users SET auth_source = 'ldap', is_admin = true WHERE id = $1`, taken.ID); err != nil {
+		t.Fatalf("simulate old takeover: %v", err)
+	}
+	oidcUser, err := authStore.UpsertOIDCUser(ctx, "https://login.example.com", "sub-2", "erin", "", false)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser: %v", err)
+	}
+	ldapUser, err := authStore.UpsertLDAPUser(ctx, "dana", "", false)
+	if err != nil {
+		t.Fatalf("UpsertLDAPUser: %v", err)
+	}
+	for _, u := range []struct {
+		prefix string
+		user   model.User
+	}{{"taken", taken}, {"oidc", oidcUser}, {"ldap", ldapUser}} {
+		if err := authStore.CreateSession(ctx, u.prefix+"-session", u.user.ID.Bytes, expires, "127.0.0.1", "test"); err != nil {
+			t.Fatalf("CreateSession %s: %v", u.prefix, err)
+		}
+		if _, err := authStore.CreateAPIKey(ctx, u.user.ID.Bytes, u.prefix, u.prefix+"-key", "tl_x", []string{"read"}, nil); err != nil {
+			t.Fatalf("CreateAPIKey %s: %v", u.prefix, err)
+		}
+	}
+
+	up, err := os.ReadFile("../../migrations/000029_ldap_takeover_cleanup.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	if _, err := pool.Exec(ctx, string(up)); err != nil {
+		t.Fatalf("run migration: %v", err)
+	}
+
+	for prefix, wantEnded := range map[string]bool{"taken": true, "oidc": false, "ldap": false} {
+		_, err := authStore.GetSession(ctx, prefix+"-session")
+		if ended := errors.Is(err, pgx.ErrNoRows); ended != wantEnded {
+			t.Errorf("%s session ended = %v (err %v), want %v", prefix, ended, err, wantEnded)
+		}
+		var revoked bool
+		if err := pool.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM api_keys WHERE key_hash = $1`, prefix+"-key").Scan(&revoked); err != nil {
+			t.Fatalf("read key %s: %v", prefix, err)
+		}
+		if revoked != wantEnded {
+			t.Errorf("%s key revoked = %v, want %v", prefix, revoked, wantEnded)
+		}
+	}
+	var linked int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE oidc_issuer IS NOT NULL`).Scan(&linked); err != nil {
+		t.Fatalf("count links: %v", err)
+	}
+	if linked != 1 {
+		t.Errorf("rows with an OIDC link = %d, want 1 (the OIDC row)", linked)
+	}
+}
+
 // TestIntegration_AnalysisScheduleNotifyChannels verifies the notify_channel_ids
 // BIGINT[] column round-trips through pgx as []int64 on both the schedule and
 // the report — the encode/scan path that compiles but can only be proven
