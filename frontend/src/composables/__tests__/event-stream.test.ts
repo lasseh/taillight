@@ -106,7 +106,7 @@ describe('backoff', () => {
     expect(FakeEventSource.instances.length).toBe(3)
   })
 
-  it('resets backoff after a successful reconnect', () => {
+  it('resets backoff once a reconnect has stayed up for 30s', () => {
     stream = createEventStream('/api/v1/srvlog/stream', 'srvlog')
     stream.start()
 
@@ -116,10 +116,30 @@ describe('backoff', () => {
     vi.advanceTimersByTime(2000) // backoff had grown to 2000
     expect(FakeEventSource.instances.length).toBe(3)
 
-    last().open() // successful connect resets backoff to INITIAL_BACKOFF
-    last().fail()
+    last().open()
+    for (let i = 0; i < 6; i++) {
+      vi.advanceTimersByTime(5000)
+      last().emit('heartbeat') // keep the watchdog quiet while it stays up
+    }
+    last().fail() // dropped after 30s up: retry at INITIAL_BACKOFF
     vi.advanceTimersByTime(1000)
     expect(FakeEventSource.instances.length).toBe(4)
+  })
+
+  it('keeps backing off when each reconnect drops at once', () => {
+    stream = createEventStream('/api/v1/srvlog/stream', 'srvlog')
+    stream.start()
+
+    last().fail()
+    vi.advanceTimersByTime(1000)
+    expect(FakeEventSource.instances.length).toBe(2)
+
+    last().open()
+    last().fail() // dropped right after opening: backoff keeps its 2000
+    vi.advanceTimersByTime(1999)
+    expect(FakeEventSource.instances.length).toBe(2)
+    vi.advanceTimersByTime(1)
+    expect(FakeEventSource.instances.length).toBe(3)
   })
 })
 

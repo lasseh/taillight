@@ -14,6 +14,7 @@ interface FakeStream {
   path: string
   name: string
   connected: Ref<boolean>
+  reconnectAfterGap: Ref<number>
   cb: ((e: unknown) => void) | null
   subscribe: ReturnType<typeof vi.fn>
   start: ReturnType<typeof vi.fn>
@@ -26,6 +27,7 @@ vi.mock('@/composables/useEventStream', () => ({
       path,
       name,
       connected: ref(false),
+      reconnectAfterGap: ref(0),
       cb: null,
       subscribe: vi.fn((cb: (e: unknown) => void) => {
         s.cb = cb
@@ -142,5 +144,23 @@ describe('device-log composables — shared live-tail logic', () => {
     expect(firstStream.stop).toHaveBeenCalled() // old stream torn down
     expect(last(streams).path).toBe('/api/v1/srvlog/stream?hostname=second')
     expect(lastParams(getSrvlogs).get('hostname')).toBe('second')
+  })
+
+  it('reloads history when the stream reports a gap', async () => {
+    getSrvlogs.mockResolvedValueOnce({ data: [{ id: 1 }] })
+    const { wrapper } = mountComposable(useDeviceLogs, 'r1')
+    await flushPromises()
+    const stream = last(streams)
+    const events = () => (wrapper.vm as unknown as { events: { id: number }[] }).events
+    expect(events().map((e) => e.id)).toEqual([1])
+
+    getSrvlogs.mockResolvedValueOnce({ data: [{ id: 9 }, { id: 8 }] })
+    stream.reconnectAfterGap.value++
+    await flushPromises()
+    expect(getSrvlogs).toHaveBeenCalledTimes(2)
+    expect(events().map((e) => e.id)).toEqual([9, 8])
+
+    stream.cb!({ id: 10 }) // live events flow again after the reload
+    expect(events().map((e) => e.id)).toEqual([10, 9, 8])
   })
 })

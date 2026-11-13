@@ -29,6 +29,7 @@ export function createDeviceLogStream<T extends { id: number }>(config: DeviceLo
     let stream: ReturnType<typeof createEventStream<T>> | null = null
     let unsubscribe: (() => void) | null = null
     let stopConnectedSync: (() => void) | null = null
+    let stopResyncWatch: (() => void) | null = null
     let abortController: AbortController | null = null
     let initialLoadComplete = false
     let loadVersion = 0
@@ -70,6 +71,8 @@ export function createDeviceLogStream<T extends { id: number }>(config: DeviceLo
       stream = null
       stopConnectedSync?.()
       stopConnectedSync = null
+      stopResyncWatch?.()
+      stopResyncWatch = null
       if (abortController) {
         abortController.abort()
         abortController = null
@@ -92,6 +95,19 @@ export function createDeviceLogStream<T extends { id: number }>(config: DeviceLo
         unsubscribe = stream.subscribe(addEvent)
         stopConnectedSync = watch(stream.connected, (v) => {
           connected.value = v
+        })
+        // After a long outage, or a resync from the server, the resumed
+        // stream does not cover every missed event: reload the page of
+        // history so the gap does not stay hidden.
+        stopResyncWatch = watch(stream.reconnectAfterGap, async () => {
+          if (abortController) abortController.abort()
+          const reload = ++loadVersion
+          initialLoadComplete = false
+          events.value = []
+          seenIds.clear()
+          await fetchInitial(host)
+          if (reload !== loadVersion) return
+          initialLoadComplete = true
         })
         stream.start()
 

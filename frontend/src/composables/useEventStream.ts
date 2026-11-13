@@ -8,6 +8,12 @@ const HEARTBEAT_TIMEOUT = 35000 // ~2x server heartbeat (15s)
 // consumers, since the server's SSE backfill is capped at 100 events and a
 // long outage leaves an invisible gap between backfill and live events.
 const RECONNECT_REFRESH_MS = 30000
+// A connection must stay open this long before a later drop retries at
+// INITIAL_BACKOFF again. The server ends every stream after a few minutes,
+// which reconnects at once; a stream the server drops sooner (for example a
+// tab too slow to keep up) keeps backing off instead of reconnecting every
+// second.
+const STABLE_CONNECTION_MS = 30000
 
 export function createEventStream<T>(path: string, eventName: string) {
   // Module-level singleton state.
@@ -17,6 +23,8 @@ export function createEventStream<T>(path: string, eventName: string) {
   let lastEventAt = 0
   let lastEventId = ''
   let backoff = INITIAL_BACKOFF
+  // When the current connection opened, or 0 while there is none.
+  let openedAt = 0
   let started = false
   // Earliest time the stream became unhealthy in the current outage. Captures
   // the start of the gap, not intermediate retries.
@@ -82,7 +90,7 @@ export function createEventStream<T>(path: string, eventName: string) {
 
     es.onopen = () => {
       connected.value = true
-      backoff = INITIAL_BACKOFF
+      openedAt = Date.now()
       lastEventAt = Date.now()
       if (disconnectedSince !== null) {
         if (Date.now() - disconnectedSince >= RECONNECT_REFRESH_MS) {
@@ -120,6 +128,10 @@ export function createEventStream<T>(path: string, eventName: string) {
 
   function scheduleRetry() {
     stopWatchdog()
+    if (openedAt !== 0 && Date.now() - openedAt >= STABLE_CONNECTION_MS) {
+      backoff = INITIAL_BACKOFF
+    }
+    openedAt = 0
     if (retryTimer) return
     retryTimer = setTimeout(() => {
       retryTimer = null
