@@ -43,7 +43,7 @@ func tailFile(ctx context.Context, path string, handler slog.Handler, logger *sl
 			if line == "" {
 				continue
 			}
-			record := parseLine(line)
+			record := lineRecord(line, reader.lastCut)
 			if err := handler.Handle(ctx, record); err != nil {
 				logger.Warn("handle log entry failed", "path", path, "error", err)
 			}
@@ -61,7 +61,7 @@ func tailFile(ctx context.Context, path string, handler slog.Handler, logger *sl
 		if newF, newInode, rotated := checkRotation(path, f, inode, logger); rotated {
 			// Ship any buffered partial line from the old file.
 			if partial := reader.take(); partial != "" {
-				record := parseLine(partial)
+				record := lineRecord(partial, reader.lastCut)
 				if err := handler.Handle(ctx, record); err != nil {
 					logger.Warn("handle log entry failed", "path", path, "error", err)
 				}

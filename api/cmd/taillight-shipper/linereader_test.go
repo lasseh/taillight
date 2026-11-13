@@ -42,6 +42,9 @@ func TestLineReader(t *testing.T) {
 					t.Fatalf("next: %v", err)
 				}
 				got = append(got, line)
+				if lr.lastCut != (len(line) == len(long) && tt.wantTruncated > 0) {
+					t.Errorf("line of %d bytes: lastCut = %v", len(line), lr.lastCut)
+				}
 			}
 			if rest := lr.take(); rest != tt.wantRest {
 				t.Errorf("rest = %d bytes, want %d", len(rest), len(tt.wantRest))

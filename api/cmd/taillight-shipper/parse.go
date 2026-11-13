@@ -19,6 +19,18 @@ func parseLine(line string) slog.Record {
 	return jsonRecord(m)
 }
 
+// lineRecord turns a line into a record. A truncated line is no longer the
+// JSON or text its writer sent, so instead of parsing it, it ships as a WARN
+// record with truncated=true: a cut ERROR line must not arrive as plain INFO.
+func lineRecord(line string, truncated bool) slog.Record {
+	if !truncated {
+		return parseLine(line)
+	}
+	r := slog.NewRecord(time.Now(), slog.LevelWarn, line, 0)
+	r.AddAttrs(slog.Bool("truncated", true))
+	return r
+}
+
 func plainRecord(line string) slog.Record {
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, line, 0)
 	return r

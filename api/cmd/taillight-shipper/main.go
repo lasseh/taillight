@@ -189,7 +189,7 @@ func readStdin(ctx context.Context, r io.Reader, handler slog.Handler, tee bool,
 		if tee {
 			fmt.Println(line)
 		}
-		record := parseLine(line)
+		record := lineRecord(line, lr.lastCut)
 		if err := handler.Handle(ctx, record); err != nil {
 			fmt.Fprintf(os.Stderr, "error: handle log entry: %v\n", err)
 		}

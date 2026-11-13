@@ -225,3 +225,35 @@ func TestPlainRecord(t *testing.T) {
 		t.Errorf("expected time near now, got %v", r.Time)
 	}
 }
+
+// A truncated line ships as WARN with truncated=true whatever it starts
+// with, so a cut ERROR record does not arrive as INFO.
+func TestLineRecord_Truncated(t *testing.T) {
+	cutJSON := `{"level":"ERROR","msg":"disk failed","detail":"xxxx`
+	for _, tt := range []struct {
+		name      string
+		truncated bool
+		wantLevel slog.Level
+		wantAttr  bool
+	}{
+		{"truncated", true, slog.LevelWarn, true},
+		{"not truncated", false, slog.LevelInfo, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := lineRecord(cutJSON, tt.truncated)
+			if r.Level != tt.wantLevel {
+				t.Errorf("level = %v, want %v", r.Level, tt.wantLevel)
+			}
+			var got bool
+			r.Attrs(func(a slog.Attr) bool {
+				if a.Key == "truncated" && a.Value.Bool() {
+					got = true
+				}
+				return true
+			})
+			if got != tt.wantAttr {
+				t.Errorf("truncated attr = %v, want %v", got, tt.wantAttr)
+			}
+		})
+	}
+}

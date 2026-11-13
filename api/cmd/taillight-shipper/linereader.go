@@ -23,6 +23,7 @@ type lineReader struct {
 	logger    *slog.Logger
 	line      []byte // the current line so far, at most maxLineBytes
 	cut       bool   // bytes of the current line were discarded
+	lastCut   bool   // the line last returned was truncated
 	truncated int    // lines returned truncated
 }
 
@@ -60,6 +61,7 @@ func (lr *lineReader) take() string {
 		lr.truncated++
 		lr.logger.Warn("line over max_bytes truncated", "max_bytes", maxLineBytes, "truncated_lines", lr.truncated)
 	}
+	lr.lastCut = lr.cut
 	lr.line, lr.cut = lr.line[:0], false
 	return line
 }
