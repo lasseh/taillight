@@ -172,6 +172,74 @@ func TestIntegration_MetaSearchAndPruneAfterFlood(t *testing.T) {
 	}
 }
 
+// TestIntegration_MetaSearchExactCaseFirst checks that a search lists the
+// value equal to it first, ahead of its case variants, so variants a sender
+// invents cannot push the real name past the list's cap.
+func TestIntegration_MetaSearchExactCaseFirst(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool)
+	ctx := context.Background()
+	names := []string{"zz-core-1", "ZZ-CORE-1", "Zz-Core-1"}
+
+	for _, f := range metaFeeds {
+		t.Run(f.name, func(t *testing.T) {
+			truncate(t, pool, f.events, f.cache)
+			t.Cleanup(func() { truncate(t, pool, f.events, f.cache) })
+			for _, n := range names {
+				if _, err := pool.Exec(ctx, f.insert, time.Now().UTC(), n); err != nil {
+					t.Fatalf("log %s: %v", n, err)
+				}
+			}
+			for name, list := range metaLists(store, f.name) {
+				for _, q := range names {
+					got, err := list(ctx, q)
+					if err != nil {
+						t.Fatalf("%s search %q: %v", name, q, err)
+					}
+					if len(got) != len(names) || got[0] != q {
+						t.Errorf("%s search %q = %v, want %d names starting with %q", name, q, got, len(names), q)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestIntegration_MetaPruneDropsUnstampedRows checks that the prune removes a
+// cached value with no last_seen_at, which no other rule would ever age out.
+func TestIntegration_MetaPruneDropsUnstampedRows(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool)
+	ctx := context.Background()
+	retention := RetentionConfig{SrvlogDays: 90, NetlogDays: 90, AppLogDays: 90}
+
+	for _, f := range metaFeeds {
+		t.Run(f.name, func(t *testing.T) {
+			truncate(t, pool, f.events, f.cache)
+			t.Cleanup(func() { truncate(t, pool, f.events, f.cache) })
+			if _, err := pool.Exec(ctx, f.insert, time.Now().UTC(), "zz-core-1"); err != nil {
+				t.Fatalf("log event: %v", err)
+			}
+			if _, err := pool.Exec(ctx, "INSERT INTO "+f.cache+" (column_name, value, last_seen_at) VALUES ($1, 'unstamped', NULL)", f.column); err != nil {
+				t.Fatalf("insert unstamped row: %v", err)
+			}
+			if _, err := store.PruneMetaCaches(ctx, retention); err != nil {
+				t.Fatalf("PruneMetaCaches: %v", err)
+			}
+			var unstamped, kept int
+			if err := pool.QueryRow(ctx, "SELECT count(*) FILTER (WHERE value = 'unstamped'), count(*) FILTER (WHERE value = 'zz-core-1') FROM "+f.cache).Scan(&unstamped, &kept); err != nil {
+				t.Fatalf("count rows: %v", err)
+			}
+			if unstamped != 0 {
+				t.Errorf("unstamped rows after prune = %d, want 0", unstamped)
+			}
+			if kept == 0 {
+				t.Error("prune removed a value seen just now")
+			}
+		})
+	}
+}
+
 // metaLastSeen reads one cached value's last_seen_at.
 func metaLastSeen(t *testing.T, pool *pgxpool.Pool, f metaFeed, value string) time.Time {
 	t.Helper()

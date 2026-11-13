@@ -112,8 +112,11 @@ func (s *Store) PruneMetaCaches(ctx context.Context, cfg RetentionConfig) (int64
 	var total int64
 	for _, c := range caches {
 		//nolint:gosec // table names and metaPruneSlack are hardcoded constants, not user input.
+		// A row with no last_seen_at was cached by the trigger that ran
+		// before migration 000028; it counts as stale, and logs back in on
+		// its next event.
 		query := "DELETE FROM " + c.table +
-			" WHERE last_seen_at < now() - make_interval(days => $1) - INTERVAL '" + metaPruneSlack + "'"
+			" WHERE last_seen_at IS NULL OR last_seen_at < now() - make_interval(days => $1) - INTERVAL '" + metaPruneSlack + "'"
 		tag, err := s.pool.Exec(ctx, query, c.days)
 		if err != nil {
 			return total, fmt.Errorf("prune %s: %w", c.table, err)
@@ -152,8 +155,9 @@ func (s *Store) listMetaStrings(ctx context.Context, cacheTable, column, search 
 
 // metaSearch returns the WHERE and ORDER BY parts that narrow a meta cache
 // query on col to the values containing search, case-insensitively. A value
-// equal to search, ignoring case, sorts first, so values that merely contain
-// the name cannot push it past the list's cap. args are the query's
+// equal to search sorts first, then values equal to it ignoring case, so
+// neither values that merely contain the name nor its case variants can push
+// it past the list's cap. args are the query's
 // arguments so far; they come back with the search arguments appended. An
 // empty search narrows nothing and orders by col.
 func metaSearch(col, search string, args []any) (where, order string, _ []any) {
@@ -162,7 +166,7 @@ func metaSearch(col, search string, args []any) (where, order string, _ []any) {
 	}
 	args = append(args, "%"+escapeLike(search)+"%", search)
 	where = fmt.Sprintf(" AND %s ILIKE $%d", col, len(args)-1)
-	order = fmt.Sprintf("lower(%s) = lower($%d) DESC, %s", col, len(args), col)
+	order = fmt.Sprintf("%[1]s = $%[2]d DESC, lower(%[1]s) = lower($%[2]d) DESC, %[1]s", col, len(args))
 	return where, order, args
 }
 
