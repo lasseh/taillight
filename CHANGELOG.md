@@ -20,6 +20,10 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 ### Added
 
+#### OpenTelemetry log export
+- `taillight serve` exports its own logs over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) is set, alongside the console and the optional self log shipper. Each record carries `service.name` (`taillight`, or `OTEL_SERVICE_NAME`), `service.version` and the source file, line and function of the call that logged it; the export honours `LOG_LEVEL`, and `OTEL_RESOURCE_ATTRIBUTES` adds resource attributes. Off when no endpoint is set or `OTEL_SDK_DISABLED=true`; buffered records are flushed on shutdown
+- `docker-compose.yml` passes `TAILLIGHT_VERSION` to the API image build as `VERSION` (default `dev`, as before), and the `OTEL_*` variables above to the `api` service
+
 #### Mute rules
 - Time-boxed mute rules for the netlog and srvlog feeds: a rule matches hostname (exact or `*` wildcard), program and/or message text the same way the feed filter does, carries a required reason and its creator, and expires after 24h by default, capped at 7 days. `GET /api/v1/mute-rules` (read scope) lists active rules plus those ended in the last 7 days; `POST`, `PATCH /{id}` (expire in a new duration, also revives an ended rule) and `DELETE /{id}` (unmute) need admin scope. Stored in the new `mute_rules` table (migration 000024); writes take effect immediately, and the in-memory set also reloads every 30s
 - Netlog and srvlog events matching an active rule carry `muted_by` (the rule id) on live SSE events, SSE backfill, list, detail and device responses; unmuted events are unchanged. Muted events are still stored, but skip notification engine rules (Slack, webhook, ntfy, email) and browser push. Scheduled summary digests and AI analysis still include them

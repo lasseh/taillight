@@ -268,6 +268,10 @@ clients of this API — see that repo for installation, configuration, and usage
 | `AUTH_ENABLED` | `false` | Enable authentication |
 | `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = trust only the TCP peer. Set it behind nginx or clients are attributed to the proxy IP. |
 | `API_URL` | *(empty)* | Frontend API URL (empty = same-origin) |
+| `TAILLIGHT_VERSION` | `dev` | Version baked into the API image at build time; reported by `taillight version` and as the OTLP `service.version`. Set it to the commit you build, e.g. `$(git rev-parse --short HEAD)`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | Export taillight's own logs over OTLP/HTTP to this collector (e.g. `http://172.17.0.1:4318`, a collector on the Docker host). Empty = off. Records carry `service.version` and the source file, line and function. |
+| `OTEL_SERVICE_NAME` | `taillight` | OTLP `service.name` |
+| `OTEL_RESOURCE_ATTRIBUTES` | *(empty)* | Extra OTLP resource attributes, e.g. `host.name=syslog-01,deployment.environment.name=prod`. Without `host.name` every container reports `taillight-api`. |
 
 ### `api/config.yml` — application tuning
 

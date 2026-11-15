@@ -40,9 +40,14 @@ import (
 	"github.com/lasseh/taillight/internal/ollama"
 	"github.com/lasseh/taillight/internal/postgres"
 	"github.com/lasseh/taillight/internal/scheduler"
+	"github.com/lasseh/taillight/internal/telemetry"
 	"github.com/lasseh/taillight/internal/worker"
 	"github.com/lasseh/taillight/pkg/logshipper"
 )
+
+// otelFlushTimeout bounds the final OTLP flush on exit, so an unreachable
+// collector cannot hold the process open.
+const otelFlushTimeout = 5 * time.Second
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -56,8 +61,19 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logger, shipper := setupLogger(cfg)
+	logger, shipper, otelLogs := setupLogger(cfg)
 	slog.SetDefault(logger)
+	if otelLogs != nil {
+		// Deferred first so it runs last: it flushes the shutdown phases' own
+		// logs, and records logged before an early error return.
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), otelFlushTimeout)
+			defer cancel()
+			if err := otelLogs.Shutdown(ctx); err != nil {
+				logger.Warn("otel logs shutdown error", "err", err)
+			}
+		}()
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -284,19 +300,20 @@ func setupNetbox(cfg config.Config, logger *slog.Logger) *netbox.Client {
 	return nbClient
 }
 
-// setupLogger creates the application logger with optional log shipping.
-func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler) {
+// setupLogger creates the application logger with optional log shipping and
+// optional OTLP export. Each is independent: one failing to start leaves the
+// other and the console in place.
+func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler, *telemetry.Logs) {
 	consoleHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
+	handlers := []slog.Handler{consoleHandler}
 
 	var shipper *logshipper.Handler
-	var logHandler slog.Handler = consoleHandler
 	if cfg.LogShipper.Enabled {
 		addr := cfg.ListenAddr
 		if strings.HasPrefix(addr, ":") {
 			addr = "localhost" + addr
 		}
-		var err error
-		shipper, err = logshipper.New(logshipper.Config{
+		s, err := logshipper.New(logshipper.Config{
 			Endpoint:    "http://" + addr + "/api/v1/applog/ingest",
 			APIKey:      logshipper.Secret(cfg.LogShipper.APIKey),
 			Service:     cfg.LogShipper.Service,
@@ -310,12 +327,27 @@ func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler) {
 		})
 		if err != nil {
 			slog.New(consoleHandler).Error("logshipper init failed", "error", err)
-			return slog.New(consoleHandler), nil
+		} else {
+			shipper = s
+			handlers = append(handlers, shipper)
 		}
-		logHandler = logshipper.MultiHandler(consoleHandler, shipper)
 	}
 
-	return slog.New(logHandler), shipper
+	var otelLogs *telemetry.Logs
+	if telemetry.Enabled(os.Getenv) {
+		l, err := telemetry.NewLogs(context.Background(), Version, cfg.LogLevel)
+		if err != nil {
+			slog.New(consoleHandler).Error("otel log export init failed", "error", err)
+		} else {
+			otelLogs = l
+			handlers = append(handlers, l.Handler)
+		}
+	}
+
+	if len(handlers) == 1 {
+		return slog.New(consoleHandler), shipper, otelLogs
+	}
+	return slog.New(logshipper.MultiHandler(handlers...)), shipper, otelLogs
 }
 
 // startBackgroundWorkers launches goroutines for notification bridging,
