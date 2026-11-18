@@ -32,10 +32,13 @@ func promptTooLong(err error) bool {
 		strings.Contains(statusErr.Body, "context")
 }
 
-// unauthorized reports whether err is a 401 from the backend.
-func unauthorized(err error) bool {
+// rejectedKey reports whether err is a 401 from a backend that takes a key.
+// Ollama's own API takes none, so a 401 there stays the backend error it was.
+func (a *Analyzer) rejectedKey(err error) bool {
 	var statusErr *ollama.StatusError
-	return errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusUnauthorized
+	return a.cfg.API != apiOllama &&
+		errors.As(err, &statusErr) &&
+		statusErr.StatusCode == http.StatusUnauthorized
 }
 
 // isEmptyData reports whether the gathered period has no current-window
@@ -170,7 +173,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 
 	if err := a.client.Ping(ctx); err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
-		if unauthorized(err) {
+		if a.rejectedKey(err) {
 			return Result{}, fmt.Errorf("%w: %w", ErrUnauthorized, err)
 		}
 		return Result{}, fmt.Errorf("%s not available: %w", a.cfg.API, err)
@@ -249,7 +252,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		if promptTooLong(err) {
 			return Result{}, fmt.Errorf("%w (num_ctx %d): %w", ErrContextExceeded, a.cfg.NumCtx, err)
 		}
-		if unauthorized(err) {
+		if a.rejectedKey(err) {
 			return Result{}, fmt.Errorf("%w: %w", ErrUnauthorized, err)
 		}
 		return Result{}, fmt.Errorf("%s chat: %w", a.cfg.API, err)

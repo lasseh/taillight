@@ -303,6 +303,33 @@ func TestRunOpenAIRejectedKey(t *testing.T) {
 	}
 }
 
+// TestRunOllama401IsNotARejectedKey covers the default backend behind
+// something that answers 401: Ollama's API takes no key, so the run fails as
+// the backend error it always was, not with advice about analysis.api_key.
+func TestRunOllama401IsNotARejectedKey(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/tags", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"models":[]}`))
+	})
+	mux.HandleFunc("/api/chat", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "authorization required", http.StatusUnauthorized)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	a := New(nonEmptyStore{}, ollama.New(srv.URL, 5*time.Second), Config{Model: "test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, err := a.Run(context.Background(), RunParams{Feed: feedSrvlog, Period: 24 * time.Hour, Mode: modeDaily})
+	if err == nil {
+		t.Fatal("Run: want error")
+	}
+	if errors.Is(err, ErrUnauthorized) {
+		t.Errorf("Run error = %v, want it not to be ErrUnauthorized", err)
+	}
+	if !strings.HasPrefix(err.Error(), "ollama chat: ollama returned status 401") {
+		t.Errorf("Run error = %q, want the ollama chat status error", err)
+	}
+}
+
 // TestRunOpenAIFailsOnEmptyReply covers a reply that finished with no content
 // (a reasoning model that spent the whole reply reasoning): the run fails
 // instead of storing an empty report.

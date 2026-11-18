@@ -48,11 +48,14 @@ type ChatClient interface {
 	Ping(ctx context.Context) error
 }
 
+// apiOllama is the Config.API of Ollama's own API, which takes no key.
+const apiOllama = "ollama"
+
 // Config holds analyzer configuration. Feed selection is per-run (passed to Run),
 // not configured globally.
 type Config struct {
 	// API names the backend in log lines and errors: "ollama" or "openai".
-	// Empty means "ollama".
+	// Empty means "ollama". A 401 is a rejected key on any API but Ollama's.
 	API         string
 	Model       string
 	Temperature float64
@@ -105,7 +108,7 @@ type Analyzer struct {
 // New creates a new Analyzer.
 func New(store Store, client ChatClient, cfg Config, logger *slog.Logger) *Analyzer {
 	if cfg.API == "" {
-		cfg.API = "ollama"
+		cfg.API = apiOllama
 	}
 	return &Analyzer{
 		store:  store,
