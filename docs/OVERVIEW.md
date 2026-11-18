@@ -477,9 +477,9 @@ Uses a local Ollama instance to produce ops briefings from netlog/srvlog data. C
 | `analysis.api_url` | `""` | Base URL of the OpenAI-compatible server, without `/v1`. Required with `api: openai` |
 | `analysis.api_key` | `""` | Bearer key for the OpenAI-compatible server. Required with `api: openai`; also read from `ANALYSIS_API_KEY` |
 | `analysis.ca_file` | `""` | PEM bundle trusted in addition to the system roots with `api: openai`, for a server certificate from an internal CA |
-| `analysis.model` | `"llama3"` | LLM model name |
+| `analysis.model` | `"gpt-oss:20b"` | LLM model name |
 | `analysis.temperature` | `0.3` | LLM temperature (lower = more deterministic) |
-| `analysis.num_ctx` | `8192` | Context window size in tokens |
+| `analysis.num_ctx` | `32768` | Context window size in tokens; must hold the prompt and the reply |
 | `analysis.prompts_dir` | `""` | Override the embedded prompt templates (dir path) |
 | `analysis.ollama_timeout` | `"2h"` | HTTP timeout for a single chat call, on either API |
 | `analysis.run_timeout` | `"4h"` | Overall timeout for one analysis run |
