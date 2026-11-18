@@ -40,9 +40,20 @@ type AppLogStore interface {
 	GetAppLogHygiene(ctx context.Context, scope model.AnalysisScope, since time.Time, dominantShare float64, dominantMinEvents int64, dominantLimit int) (model.AppLogHygiene, error)
 }
 
+// ChatClient is the model backend. *ollama.Client speaks Ollama's own API and
+// *openai.Client the OpenAI one; both take and return the ollama package's
+// chat types, and report a non-200 reply as an *ollama.StatusError.
+type ChatClient interface {
+	Chat(ctx context.Context, req ollama.ChatRequest) (ollama.ChatResponse, error)
+	Ping(ctx context.Context) error
+}
+
 // Config holds analyzer configuration. Feed selection is per-run (passed to Run),
 // not configured globally.
 type Config struct {
+	// API names the backend in log lines and errors: "ollama" or "openai".
+	// Empty means "ollama".
+	API         string
 	Model       string
 	Temperature float64
 	NumCtx      int
@@ -86,13 +97,16 @@ type Result struct {
 // Analyzer orchestrates data gathering, prompt building, and LLM inference.
 type Analyzer struct {
 	store  Store
-	client *ollama.Client
+	client ChatClient
 	cfg    Config
 	logger *slog.Logger
 }
 
 // New creates a new Analyzer.
-func New(store Store, client *ollama.Client, cfg Config, logger *slog.Logger) *Analyzer {
+func New(store Store, client ChatClient, cfg Config, logger *slog.Logger) *Analyzer {
+	if cfg.API == "" {
+		cfg.API = "ollama"
+	}
 	return &Analyzer{
 		store:  store,
 		client: client,

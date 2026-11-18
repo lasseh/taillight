@@ -1,7 +1,8 @@
 # `internal/analyzer` — AI log analysis pipeline
 
 Turns a window of syslog events into a structured markdown briefing using a
-local LLM (Ollama). One run = one report.
+local LLM (Ollama), or an OpenAI-compatible server when `analysis.api` is
+`openai`. One run = one report.
 
 The core idea: **we never hand raw log lines to the model.** Postgres does the
 heavy lifting first — grouping thousands of events into a few dozen ranked,
@@ -18,7 +19,7 @@ RunParams{Feed, Hosts, Services, Period, Mode}
         ▼
   Analyzer.Run                                       (run.go)
         │
-        ├─ client.Ping            Ollama reachable? fail fast if not
+        ├─ client.Ping            backend reachable (and key accepted)? fail fast if not
         │
         ├─ gather ───────────────► Postgres aggregates              (gather.go; applog.go for applog)
         │      • TopMsgIDs (≤25)        grouped by MSGID / msg_pattern
@@ -117,6 +118,23 @@ window — no second compression pass, no extra dependency.
   is discarded and the first reply kept. `num_ctx` has to hold the prompt and
   the reply, thinking tokens included.
 
+- **Two backends behind one interface** (`ChatClient`, `analyzer.go`).
+  `internal/ollama` speaks Ollama's own API; `internal/openai` speaks
+  `/v1/chat/completions` and `/v1/models` with a bearer key, for a gateway
+  such as LiteLLM. Both take and return the `ollama` package's chat types, so
+  `run.go` has one code path. The OpenAI client sends `model`, `messages`,
+  `temperature` and `stream: false`: no `num_ctx` (the server owns the context
+  size) and no `max_tokens` (the reply may use whatever the prompt leaves).
+  The two overflow failures carry over: a 400 naming the context is the
+  refused prompt, and `finish_reason: "length"` maps to `done_reason:
+  "length"`. `truncate` and `shift` have no counterpart and need none, since
+  an OpenAI-compatible server refuses an oversized prompt instead of cutting
+  it. Two failures are specific to this API: a finished reply with no content
+  (a reasoning model that spent the reply reasoning) fails the run with
+  `openai.ErrEmptyReply`, and a 401 fails it with `ErrUnauthorized`, which
+  names `analysis.api_key`. The key is never logged; it is also cut out of
+  the upstream error body kept for the server log.
+
 - **Hot-reloadable prompts** (`prompt.go`). System/user templates live in
   `prompts/<mode>/{system,user}.md`, embedded by default but overridable via
   `analysis.prompts_dir`. Files are re-read on every run, so prompt edits take
@@ -145,6 +163,23 @@ analysis:
   num_ctx: 32768           # context window (tokens); must hold prompt and reply
   prompts_dir: ""          # empty = embedded defaults; set to override + hot-reload
 ```
+
+For an OpenAI-compatible server instead of Ollama:
+
+```yaml
+analysis:
+  enabled: true
+  api: "openai"                        # default "ollama"
+  api_url: "https://llm.example.com"   # base URL, without /v1
+  api_key: ""                          # bearer key; or set ANALYSIS_API_KEY
+  ca_file: ""                          # PEM bundle for an internal CA, added to the system roots
+  model: "general"                     # model name or alias the server exposes
+  num_ctx: 32768                       # not sent; still what the error messages quote
+```
+
+Startup stops when `api` is `openai` and `api_url` or `api_key` is empty, when
+`ca_file` holds no readable certificate, and on any other `api` value.
+`ollama_timeout` bounds each chat request on either API.
 
 ## Boundaries
 

@@ -38,6 +38,7 @@ import (
 	"github.com/lasseh/taillight/internal/notification/backend"
 	oidcauth "github.com/lasseh/taillight/internal/oidc"
 	"github.com/lasseh/taillight/internal/ollama"
+	"github.com/lasseh/taillight/internal/openai"
 	"github.com/lasseh/taillight/internal/postgres"
 	"github.com/lasseh/taillight/internal/scheduler"
 	"github.com/lasseh/taillight/internal/worker"
@@ -162,7 +163,10 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Analysis (optional).
 	var analysis *analysisWiring
 	if cfg.Analysis.Enabled {
-		analysis = setupAnalysis(ctx, cfg, store, readStore, logger, notifEngine)
+		analysis, err = setupAnalysis(ctx, cfg, store, readStore, logger, notifEngine)
+		if err != nil {
+			return fmt.Errorf("analysis config: %w", err)
+		}
 	}
 
 	// LDAP authentication (optional).
@@ -480,11 +484,15 @@ type analysisWiring struct {
 }
 
 // setupAnalysis initializes the LLM analysis subsystem: analyzer + queued
-// worker + DB-backed schedule scheduler + HTTP handlers. Returns nil when
-// analysis is disabled.
-func setupAnalysis(ctx context.Context, cfg config.Config, store, readStore *postgres.Store, logger *slog.Logger, notifEngine *notification.Engine) *analysisWiring {
-	ollamaClient := ollama.New(cfg.Analysis.OllamaURL, cfg.Analysis.OllamaTimeout)
-	a := analyzer.New(store, ollamaClient, analyzer.Config{
+// worker + DB-backed schedule scheduler + HTTP handlers. It fails, before
+// anything is started, on a backend configuration that cannot work.
+func setupAnalysis(ctx context.Context, cfg config.Config, store, readStore *postgres.Store, logger *slog.Logger, notifEngine *notification.Engine) (*analysisWiring, error) {
+	client, err := newAnalysisClient(cfg.Analysis)
+	if err != nil {
+		return nil, err
+	}
+	a := analyzer.New(store, client, analyzer.Config{
+		API:         cfg.Analysis.API,
 		Model:       cfg.Analysis.Model,
 		Temperature: cfg.Analysis.Temperature,
 		NumCtx:      cfg.Analysis.NumCtx,
@@ -511,7 +519,28 @@ func setupAnalysis(ctx context.Context, cfg config.Config, store, readStore *pos
 		reports:     handler.NewAnalysisHandler(store, w),
 		schedules:   handler.NewAnalysisScheduleHandler(store, sched),
 		readReports: handler.NewAnalysisHandler(readStore, w),
+	}, nil
+}
+
+// newAnalysisClient builds the chat client for the backend analysis.api
+// names.
+func newAnalysisClient(cfg config.AnalysisConfig) (analyzer.ChatClient, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
+	if cfg.API != config.AnalysisAPIOpenAI {
+		return ollama.New(cfg.OllamaURL, cfg.OllamaTimeout), nil
+	}
+	client, err := openai.New(openai.Config{
+		BaseURL: cfg.APIURL,
+		APIKey:  cfg.APIKey,
+		CAFile:  cfg.CAFile,
+		Timeout: cfg.OllamaTimeout,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 // channelResolver loads a notification channel by id for completion dispatch.

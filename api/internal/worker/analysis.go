@@ -238,6 +238,8 @@ func sanitizeRunErr(err error) string {
 		return "analysis timeout"
 	case errors.Is(err, analyzer.ErrContextExceeded):
 		return "report does not fit the model context window; narrow the report or raise analysis.num_ctx"
+	case errors.Is(err, analyzer.ErrUnauthorized):
+		return analyzer.ErrUnauthorized.Error()
 	case errors.As(err, &statusErr):
 		return "analysis backend error"
 	case errors.As(err, &urlErr):

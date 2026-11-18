@@ -176,17 +176,28 @@ netbox:
 # /analysis page in the UI (or /api/v1/analysis/schedules) — no cron config here.
 analysis:
   enabled: false
+  api: "ollama"                 # Which API the model server speaks: "ollama" (Ollama's own API at ollama_url,
+                                # no key) or "openai" (an OpenAI-compatible server such as LiteLLM or vLLM,
+                                # at api_url, with a key).
   ollama_url: "http://localhost:11434"
-  model: "gpt-oss:20b"          # The model the prompts are tuned against. Also try: qwen3:32b, gpt-oss:120b
+  # With api: "openai":
+  # api_url: "https://llm.example.com"   # Base URL without /v1. Reports go to /v1/chat/completions.
+  # api_key: ""                          # Sent as "Authorization: Bearer <key>". Required.
+  #                                      # Prefer the ANALYSIS_API_KEY environment variable.
+  # ca_file: ""                          # PEM bundle trusted in addition to the system roots, for a server
+  #                                      # whose certificate comes from an internal CA.
+  model: "gpt-oss:20b"          # The model the prompts are tuned against. Also try: qwen3:32b, gpt-oss:120b.
+                                # With api: "openai" this is the model name or alias the server exposes.
   temperature: 0.3              # Low temperature for factual/deterministic output.
   num_ctx: 32768                # Context window size in tokens. Real daily prompts run 15-17k tokens —
                                 # values below that make Ollama silently truncate the data block.
+                                # Not sent with api: "openai": the server owns the context size.
   prompts_dir: ""               # Optional: dir holding system.md/user.md. Empty = use embedded defaults.
                                 # Files are reloaded on every analysis run — edits take effect without restart.
                                 # Layout: <mode>/ for netlog and srvlog, applog/<mode>/ for applog. A dir
                                 # without an applog/ subtree uses the embedded applog prompts.
-  ollama_timeout: "2h"          # Per-request HTTP timeout for Ollama chat calls. Bump for very large models
-                                # or weekly reports if you see "ollama chat" errors with no body.
+  ollama_timeout: "2h"          # Per-request HTTP timeout for chat calls, on either API. Bump for very large
+                                # models or weekly reports if you see "ollama chat" errors with no body.
   run_timeout: "4h"             # Wall-clock bound for a full analysis run (gather + prompt + chat + persist,
                                 # including any structure-validation retry). Should comfortably exceed
                                 # ollama_timeout — 2× is a safe floor since a retry can double the chat time.

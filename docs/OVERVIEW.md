@@ -90,6 +90,7 @@ All three feeds are always enabled — a feed you don't point logs at simply sta
 ### AI analysis (optional, default-off)
 
 - Netlog and srvlog analysis using a local Ollama LLM instance — no log data leaves the box
+- Or an OpenAI-compatible server (LiteLLM, vLLM) with an API key (`analysis.api: openai`)
 - Async report generation with permalink URLs, optional host scoping, and print/PDF export
 - Recurring schedules managed in the UI (stored in the database); completed reports can be emailed via notification channels
 - On-demand analysis trigger via the API
@@ -139,6 +140,7 @@ taillight/
 │   │   ├── netbox/                # Optional Netbox enrichment client
 │   │   ├── notification/          # Rule engine, suppressor, backends
 │   │   ├── ollama/                # Ollama LLM client
+│   │   ├── openai/                # OpenAI-compatible LLM client (analysis.api: openai)
 │   │   ├── postgres/              # Store (pgx queries), Listener (LISTEN/NOTIFY)
 │   │   ├── report/                # Shared analysis-report renderer (email + print)
 │   │   ├── scheduler/             # Summary + analysis schedulers (60s tick)
@@ -470,17 +472,23 @@ Uses a local Ollama instance to produce ops briefings from netlog/srvlog data. C
 | Key | Default | Description |
 |-----|---------|-------------|
 | `analysis.enabled` | `false` | Enable AI analysis |
-| `analysis.ollama_url` | `"http://localhost:11434"` | Ollama API URL |
+| `analysis.api` | `"ollama"` | API the model server speaks: `ollama` or `openai` (an OpenAI-compatible server such as LiteLLM or vLLM). Any other value stops startup |
+| `analysis.ollama_url` | `"http://localhost:11434"` | Ollama API URL. Used with `api: ollama` |
+| `analysis.api_url` | `""` | Base URL of the OpenAI-compatible server, without `/v1`. Required with `api: openai` |
+| `analysis.api_key` | `""` | Bearer key for the OpenAI-compatible server. Required with `api: openai`; also read from `ANALYSIS_API_KEY` |
+| `analysis.ca_file` | `""` | PEM bundle trusted in addition to the system roots with `api: openai`, for a server certificate from an internal CA |
 | `analysis.model` | `"llama3"` | LLM model name |
 | `analysis.temperature` | `0.3` | LLM temperature (lower = more deterministic) |
 | `analysis.num_ctx` | `8192` | Context window size in tokens |
 | `analysis.prompts_dir` | `""` | Override the embedded prompt templates (dir path) |
-| `analysis.ollama_timeout` | `"2h"` | HTTP timeout for a single Ollama call |
+| `analysis.ollama_timeout` | `"2h"` | HTTP timeout for a single chat call, on either API |
 | `analysis.run_timeout` | `"4h"` | Overall timeout for one analysis run |
+
+With `api: openai`, `model` is the name or alias the server exposes and `num_ctx` is not sent: the server owns the context size. A prompt the server refuses as too long, or a reply it cuts off (`finish_reason: "length"`), fails the run the same way as on Ollama. A 401 fails it with an error naming `analysis.api_key`.
 
 ### Environment variable overrides
 
-Any config key can be overridden by setting an environment variable. Viper maps nested keys using underscores: `retention.srvlog_days` becomes `RETENTION_SRVLOG_DAYS`, `netbox.token` becomes `NETBOX_TOKEN`. Secret keys (`LOGSHIPPER_API_KEY`, `LDAP_BIND_PASSWORD`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `NETBOX_TOKEN`) are explicitly env-bound so they work even without a config-file entry. The following are typically set in `.env` and should not be duplicated in `config.yml`:
+Any config key can be overridden by setting an environment variable. Viper maps nested keys using underscores: `retention.srvlog_days` becomes `RETENTION_SRVLOG_DAYS`, `netbox.token` becomes `NETBOX_TOKEN`. Secret keys (`LOGSHIPPER_API_KEY`, `LDAP_BIND_PASSWORD`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `NETBOX_TOKEN`, `ANALYSIS_API_KEY`) are explicitly env-bound so they work even without a config-file entry. The following are typically set in `.env` and should not be duplicated in `config.yml`:
 
 - `DATABASE_URL`
 - `LISTEN_ADDR`

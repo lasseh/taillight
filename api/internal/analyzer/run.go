@@ -17,14 +17,25 @@ import (
 // the reply together, do not fit analysis.num_ctx.
 var ErrContextExceeded = errors.New("report does not fit the model context window")
 
+// ErrUnauthorized is returned by Run when the backend answers 401: the key in
+// analysis.api_key is missing, wrong or revoked.
+var ErrUnauthorized = errors.New("analysis backend rejected the API key; check analysis.api_key")
+
 // promptTooLong reports whether err is that refusal: a 400 naming the context.
 // Ollama words it two ways, "exceeds the available context size" and "longer
-// than the context length".
+// than the context length"; an OpenAI-compatible server says "exceeds model's
+// maximum context length".
 func promptTooLong(err error) bool {
 	var statusErr *ollama.StatusError
 	return errors.As(err, &statusErr) &&
 		statusErr.StatusCode == http.StatusBadRequest &&
 		strings.Contains(statusErr.Body, "context")
+}
+
+// unauthorized reports whether err is a 401 from the backend.
+func unauthorized(err error) bool {
+	var statusErr *ollama.StatusError
+	return errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusUnauthorized
 }
 
 // isEmptyData reports whether the gathered period has no current-window
@@ -159,7 +170,10 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 
 	if err := a.client.Ping(ctx); err != nil {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()
-		return Result{}, fmt.Errorf("ollama not available: %w", err)
+		if unauthorized(err) {
+			return Result{}, fmt.Errorf("%w: %w", ErrUnauthorized, err)
+		}
+		return Result{}, fmt.Errorf("%s not available: %w", a.cfg.API, err)
 	}
 
 	var p prepared
@@ -202,7 +216,7 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 	// Log what's actually reaching the model. The data-signal counts let an
 	// operator tell "the prompt arrived empty" (gather returned nothing)
 	// from "the prompt had data and the model was lazy" without DB access.
-	a.logger.Info("sending prompt to ollama", append([]any{
+	a.logger.Info("sending prompt to "+a.cfg.API, append([]any{
 		"model", a.cfg.Model,
 		"prompt_mode", mode,
 		"system_bytes", len(p.system),
@@ -235,7 +249,10 @@ func (a *Analyzer) Run(ctx context.Context, params RunParams) (Result, error) {
 		if promptTooLong(err) {
 			return Result{}, fmt.Errorf("%w (num_ctx %d): %w", ErrContextExceeded, a.cfg.NumCtx, err)
 		}
-		return Result{}, fmt.Errorf("ollama chat: %w", err)
+		if unauthorized(err) {
+			return Result{}, fmt.Errorf("%w: %w", ErrUnauthorized, err)
+		}
+		return Result{}, fmt.Errorf("%s chat: %w", a.cfg.API, err)
 	}
 	if resp.DoneReason == ollama.DoneReasonLength {
 		metrics.AnalysisRunsTotal.WithLabelValues("failed").Inc()

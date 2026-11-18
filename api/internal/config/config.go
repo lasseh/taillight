@@ -135,16 +135,52 @@ type NetboxConfig struct {
 // or API rather than configuration.
 type AnalysisConfig struct {
 	Enabled       bool          // Enable analysis.
-	OllamaURL     string        // Ollama API URL.
+	API           string        // Backend API: AnalysisAPIOllama (default) or AnalysisAPIOpenAI.
+	OllamaURL     string        // Ollama API URL. Used when API is "ollama".
+	APIURL        string        // Base URL of the OpenAI-compatible server, without /v1. Required when API is "openai".
+	APIKey        string        // Bearer key for the OpenAI-compatible server. Required when API is "openai".
+	CAFile        string        // PEM bundle trusted in addition to the system roots when API is "openai". Empty = system roots only.
 	Model         string        // Model name.
 	Temperature   float64       // Sampling temperature.
-	NumCtx        int           // Context window size.
+	NumCtx        int           // Context window size. Not sent when API is "openai": the server owns it.
 	PromptsDir    string        // Optional directory holding system.md and user.md; empty = use embedded defaults.
-	OllamaTimeout time.Duration // Per-request HTTP timeout for Ollama chat calls. Default 2h.
+	OllamaTimeout time.Duration // Per-request HTTP timeout for chat calls, on either API. Default 2h.
 	RunTimeout    time.Duration // Wall-clock bound for a full analysis run (gather + prompt + chat + persist, including any validator retry). Default 4h. Should comfortably exceed OllamaTimeout to leave room for a structure-validation retry.
 	// Report-completion email recipients are configured per schedule
 	// (analysis_schedules.notify_emails), not here.
 	AppLog AppLogAnalysisConfig // Caps for applog runs; see analysis.applog.* in config.yml.example.
+}
+
+// The values analysis.api takes.
+const (
+	AnalysisAPIOllama = "ollama"
+	AnalysisAPIOpenAI = "openai"
+)
+
+// Validate returns an error when analysis is enabled with a backend that
+// cannot work, so it fails at startup instead of at the first report.
+func (c AnalysisConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	switch c.API {
+	case AnalysisAPIOllama:
+		return nil
+	case AnalysisAPIOpenAI:
+		missing := []string{}
+		if c.APIURL == "" {
+			missing = append(missing, "analysis.api_url")
+		}
+		if c.APIKey == "" {
+			missing = append(missing, "analysis.api_key")
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("analysis.api is %q but required settings are missing: %s", AnalysisAPIOpenAI, strings.Join(missing, ", "))
+		}
+		return nil
+	default:
+		return fmt.Errorf("analysis.api %q is not supported: use %q or %q", c.API, AnalysisAPIOllama, AnalysisAPIOpenAI)
+	}
 }
 
 // AppLogAnalysisConfig bounds how much applog data an analysis run feeds the
@@ -195,7 +231,11 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("logshipper.component", "server")
 	v.SetDefault("logshipper.min_level", "info")
 	v.SetDefault("analysis.enabled", false)
+	v.SetDefault("analysis.api", AnalysisAPIOllama)
 	v.SetDefault("analysis.ollama_url", "http://localhost:11434")
+	v.SetDefault("analysis.api_url", "")
+	v.SetDefault("analysis.api_key", "")
+	v.SetDefault("analysis.ca_file", "")
 	v.SetDefault("analysis.model", "gpt-oss:20b")
 	v.SetDefault("analysis.temperature", 0.3)
 	v.SetDefault("analysis.num_ctx", 32768)
@@ -289,6 +329,7 @@ func Load(configFile ...string) (Config, error) {
 		"smtp.username",
 		"smtp.password",
 		"netbox.token",
+		"analysis.api_key",
 	} {
 		if err := v.BindEnv(key); err != nil {
 			return Config{}, fmt.Errorf("bind env for %q: %w", key, err)
@@ -352,7 +393,11 @@ func Load(configFile ...string) (Config, error) {
 		},
 		Analysis: AnalysisConfig{
 			Enabled:       getBool("analysis.enabled"),
+			API:           v.GetString("analysis.api"),
 			OllamaURL:     v.GetString("analysis.ollama_url"),
+			APIURL:        v.GetString("analysis.api_url"),
+			APIKey:        v.GetString("analysis.api_key"),
+			CAFile:        v.GetString("analysis.ca_file"),
 			Model:         v.GetString("analysis.model"),
 			Temperature:   v.GetFloat64("analysis.temperature"),
 			NumCtx:        v.GetInt("analysis.num_ctx"),
