@@ -272,6 +272,17 @@ clients of this API — see that repo for installation, configuration, and usage
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | Export taillight's own logs over OTLP/HTTP to this collector (e.g. `http://172.17.0.1:4318`, a collector on the Docker host). Empty = off. Records carry `service.version` and the source file, line and function. |
 | `OTEL_SERVICE_NAME` | `taillight` | OTLP `service.name` |
 | `OTEL_RESOURCE_ATTRIBUTES` | *(empty)* | Extra OTLP resource attributes, e.g. `host.name=syslog-01,deployment.environment.name=prod`. Without `host.name` every container reports `taillight-api`. |
+| `OTLP_MIN_LEVEL` | `info` | Minimum level exported over OTLP (`debug`, `info`, `warn`, `error`), independent of `LOG_LEVEL` and the log shipper's `min_level` |
+
+What an exported record carries: the code location as `code.file.path`
+(module-relative in the image, e.g. `github.com/lasseh/taillight/cmd/taillight/serve.go`
+for `api/cmd/taillight/serve.go`), `code.line.number` and `code.function.name`.
+A top-level `error` attribute becomes `exception.type` and `exception.message`,
+with the full error string, and a slog group becomes one nested map attribute.
+A collector that redacts by attribute key sees only the top-level keys, so
+never log a credential, flat, in a group or inside an error. Export errors,
+such as an unreachable collector, are logged to the console at most once a
+minute.
 
 ### `api/config.yml` — application tuning
 

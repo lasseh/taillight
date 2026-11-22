@@ -73,6 +73,9 @@ services:
       # host.name is the container hostname (taillight-api) unless set here,
       # e.g. host.name=syslog-01,deployment.environment.name=prod.
       OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
+      # Minimum level exported over OTLP; empty leaves config.yml's
+      # otlp_min_level (default info).
+      OTLP_MIN_LEVEL: ${OTLP_MIN_LEVEL:-}
     volumes:
       - ./api/config.yml:/config.yml:ro
     networks:

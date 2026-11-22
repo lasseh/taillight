@@ -7,7 +7,10 @@ RUN cd api && go mod download
 COPY pkg/logshipper/ ./pkg/logshipper/
 COPY api/ ./api/
 ARG VERSION=dev
-RUN cd api && CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${VERSION}" -o /app ./cmd/taillight
+# -trimpath records source files by module path, not /src/api/..., so the code
+# location on exported logs (github.com/lasseh/taillight/... = api/...) maps to
+# the repo.
+RUN cd api && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" -o /app ./cmd/taillight
 
 FROM alpine:3.23
 RUN adduser -D -u 65532 nonroot

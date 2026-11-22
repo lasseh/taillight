@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
+	"time"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -42,10 +45,16 @@ type Logs struct {
 	provider *sdklog.LoggerProvider
 }
 
+// errorInterval is the most often a repeated SDK error, such as every batch
+// failing while the collector is down, is reported.
+const errorInterval = time.Minute
+
 // NewLogs builds the OTLP/HTTP log pipeline. version becomes service.version,
 // and level is the minimum level exported. Records carry the source location
-// of the call that logged them.
-func NewLogs(ctx context.Context, version string, level slog.Leveler) (*Logs, error) {
+// of the call that logged them. SDK errors, a failed export among them, go to
+// errs at most once per errorInterval; errs must not export over OTLP itself.
+func NewLogs(ctx context.Context, version string, level slog.Leveler, errs *slog.Logger) (*Logs, error) {
+	otel.SetErrorHandler(&errorHandler{logger: errs, interval: errorInterval, now: time.Now})
 	exp, err := otlploghttp.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("otlp log exporter: %w", err)
@@ -103,4 +112,34 @@ func (h *levelHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *levelHandler) WithGroup(name string) slog.Handler {
 	return &levelHandler{Handler: h.Handler.WithGroup(name), level: h.level}
+}
+
+// errorHandler reports OTel SDK errors through a logger instead of the SDK's
+// default, which prints each one to stderr with the log package: one raw line
+// per failed batch for as long as the collector is down.
+type errorHandler struct {
+	logger   *slog.Logger
+	interval time.Duration
+	now      func() time.Time
+
+	mu         sync.Mutex
+	last       time.Time
+	suppressed int
+}
+
+// Handle logs err unless one was logged less than interval ago, in which case
+// it is counted and the count goes out with the next one logged.
+func (h *errorHandler) Handle(err error) {
+	h.mu.Lock()
+	now := h.now()
+	if !h.last.IsZero() && now.Sub(h.last) < h.interval {
+		h.suppressed++
+		h.mu.Unlock()
+		return
+	}
+	suppressed := h.suppressed
+	h.last, h.suppressed = now, 0
+	h.mu.Unlock()
+
+	h.logger.Warn("otel sdk error", "error", err, "suppressed", suppressed)
 }

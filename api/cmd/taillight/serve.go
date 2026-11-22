@@ -335,7 +335,9 @@ func setupLogger(cfg config.Config) (*slog.Logger, *logshipper.Handler, *telemet
 
 	var otelLogs *telemetry.Logs
 	if telemetry.Enabled(os.Getenv) {
-		l, err := telemetry.NewLogs(context.Background(), Version, cfg.LogLevel)
+		// Export errors go to the console only: through the fan-out they
+		// would be exported again and fail again.
+		l, err := telemetry.NewLogs(context.Background(), Version, cfg.OTLPMinLevel, slog.New(consoleHandler))
 		if err != nil {
 			slog.New(consoleHandler).Error("otel log export init failed", "error", err)
 		} else {

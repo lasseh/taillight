@@ -2,10 +2,12 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -100,5 +102,35 @@ func TestLogsExportsSourceVersionAndLevel(t *testing.T) {
 	}
 	if version != "v1.2.3" {
 		t.Errorf("service.version = %q, want v1.2.3", version)
+	}
+}
+
+// A collector that is down fails every batch. The handler reports the first
+// failure, then at most one per interval with the count it held back.
+func TestErrorHandlerRateLimits(t *testing.T) {
+	var buf strings.Builder
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	h := &errorHandler{
+		logger:   slog.New(slog.NewTextHandler(&buf, nil)),
+		interval: time.Minute,
+		now:      func() time.Time { return now },
+	}
+
+	h.Handle(errors.New("connection refused"))
+	h.Handle(errors.New("connection refused"))
+	h.Handle(errors.New("connection refused"))
+	now = now.Add(time.Minute)
+	h.Handle(errors.New("connection refused"))
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("logged %d lines, want 2:\n%s", len(lines), buf.String())
+	}
+	if !strings.Contains(lines[0], "level=WARN") || !strings.Contains(lines[0], "connection refused") ||
+		!strings.Contains(lines[0], "suppressed=0") {
+		t.Errorf("first line = %q, want a WARN with the error and suppressed=0", lines[0])
+	}
+	if !strings.Contains(lines[1], "suppressed=2") {
+		t.Errorf("second line = %q, want suppressed=2", lines[1])
 	}
 }
