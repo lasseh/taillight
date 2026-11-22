@@ -47,6 +47,11 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
+      args:
+        # Reported by `taillight version` and as the OTLP service.version.
+        # Set it to the commit being built, e.g.
+        # TAILLIGHT_VERSION=$(git rev-parse --short HEAD).
+        VERSION: ${TAILLIGHT_VERSION:-dev}
     hostname: taillight-api
     logging:
       driver: json-file
@@ -63,6 +68,17 @@ services:
       # Empty leaves real_ip_header and trusted_proxies from config.yml in force.
       REAL_IP_HEADER: ${REAL_IP_HEADER:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # OTLP/HTTP log export, off while the endpoint is empty. The endpoint
+      # must be reachable from inside the container, e.g. a collector bound
+      # to the compose network's gateway address.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+      # host.name is the container hostname (taillight-api) unless set here,
+      # e.g. host.name=syslog-01,deployment.environment.name=prod.
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
+      # Minimum level exported over OTLP; empty leaves config.yml's
+      # otlp_min_level (default info).
+      OTLP_MIN_LEVEL: ${OTLP_MIN_LEVEL:-}
     volumes:
       - ./api/config.yml:/config.yml:ro
     networks:

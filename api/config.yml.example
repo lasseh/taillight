@@ -122,6 +122,11 @@ logshipper:
   min_level: "warn"      # Only ship warn and above to avoid feedback loops (debug, info, warn, error).
   # api_key: "changeme"  # Must match an entry in api_keys if auth is enabled.
 
+# Minimum level of the API's own logs exported over OTLP (debug, info, warn,
+# error). Export runs only when OTEL_EXPORTER_OTLP_ENDPOINT is set; the
+# OTLP_MIN_LEVEL environment variable overrides this.
+# otlp_min_level: "info"
+
 # Data retention periods (in days). Applied on startup as TimescaleDB retention policies.
 # Minimum 1 day. Defaults match the migration-level policies.
 retention:

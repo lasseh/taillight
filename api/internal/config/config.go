@@ -26,6 +26,7 @@ type Config struct {
 	ListenAddr             string
 	MetricsAddr            string // Separate metrics server address (empty = disabled).
 	LogLevel               slog.Level
+	OTLPMinLevel           slog.Level // Minimum level exported over OTLP when an endpoint is set (default: info).
 	DBMaxConns             int32
 	DBMinConns             int32
 	DBReadMaxConns         int32          // Size of the separate pool that serves log reads (lists, stats, exports, SSE backfill).
@@ -212,6 +213,7 @@ func Load(configFile ...string) (Config, error) {
 	v.SetDefault("database_url", "postgres://taillight:changeme@localhost:15432/taillight")
 	v.SetDefault("listen_addr", ":8080")
 	v.SetDefault("log_level", "info")
+	v.SetDefault("otlp_min_level", "info")
 	v.SetDefault("db_max_conns", 30)
 	v.SetDefault("db_min_conns", 2)
 	v.SetDefault("db_read_max_conns", 20)
@@ -366,6 +368,7 @@ func Load(configFile ...string) (Config, error) {
 		DatabaseURL:            v.GetString("database_url"),
 		ListenAddr:             v.GetString("listen_addr"),
 		LogLevel:               parseLogLevel(v.GetString("log_level")),
+		OTLPMinLevel:           parseLogLevel(v.GetString("otlp_min_level")),
 		DBMaxConns:             v.GetInt32("db_max_conns"),
 		DBMinConns:             v.GetInt32("db_min_conns"),
 		DBReadMaxConns:         v.GetInt32("db_read_max_conns"),

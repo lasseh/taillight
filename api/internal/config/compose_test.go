@@ -22,9 +22,10 @@ const (
 // .env.example itself.
 var envTableDocs = []string{"../../../README.md", "../../../docs/OVERVIEW.md"}
 
-// composeOnlyVars are documented .env variables that configure compose or
-// the frontend, not an API setting. POSTGRES_PASSWORD reaches the API only
-// inside DATABASE_URL.
+// composeOnlyVars are documented .env variables that configure compose, the
+// image build or the frontend, not an API setting. POSTGRES_PASSWORD reaches
+// the API only inside DATABASE_URL; TAILLIGHT_VERSION is the api build's
+// VERSION argument.
 var composeOnlyVars = map[string]bool{
 	"POSTGRES_PASSWORD":   true,
 	"POSTGRES_BIND":       true,
@@ -33,6 +34,7 @@ var composeOnlyVars = map[string]bool{
 	"RSYSLOG_NETLOG_PORT": true,
 	"RSYSLOG_SRVLOG_PORT": true,
 	"API_URL":             true,
+	"TAILLIGHT_VERSION":   true,
 }
 
 var (

@@ -270,6 +270,21 @@ clients of this API — see that repo for installation, configuration, and usage
 | `REAL_IP_HEADER` | *(empty)* | Trusted client-IP header set by your reverse proxy (e.g. `X-Real-IP`). Empty = use `real_ip_header` from `api/config.yml`; empty there too = trust only the TCP peer. Set it behind nginx, with `TRUSTED_PROXIES`, or clients are attributed to the proxy IP. |
 | `TRUSTED_PROXIES` | *(empty)* | Proxy CIDRs or bare IPs allowed to set `REAL_IP_HEADER`, separated by spaces (a comma-separated list stops startup), e.g. `172.18.0.0/16 127.0.0.1`. Empty = use `trusted_proxies` from `api/config.yml`. Required when `REAL_IP_HEADER` is set: if neither lists a proxy, the API stops at startup. |
 | `API_URL` | *(empty)* | Frontend API URL (empty = same-origin) |
+| `TAILLIGHT_VERSION` | `dev` | Version baked into the API image at build time; reported by `taillight version` and as the OTLP `service.version`. Set it to the commit you build, e.g. `$(git rev-parse --short HEAD)`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | Export taillight's own logs over OTLP/HTTP to this collector (e.g. `http://172.17.0.1:4318`, a collector on the Docker host). Empty = off. Records carry `service.version` and the source file, line and function. |
+| `OTEL_SERVICE_NAME` | `taillight` | OTLP `service.name` |
+| `OTEL_RESOURCE_ATTRIBUTES` | *(empty)* | Extra OTLP resource attributes, e.g. `host.name=syslog-01,deployment.environment.name=prod`. Without `host.name` every container reports `taillight-api`. |
+| `OTLP_MIN_LEVEL` | `info` | Minimum level exported over OTLP (`debug`, `info`, `warn`, `error`), independent of `LOG_LEVEL` and the log shipper's `min_level` |
+
+What an exported record carries: the code location as `code.file.path`
+(module-relative in the image, e.g. `github.com/lasseh/taillight/cmd/taillight/serve.go`
+for `api/cmd/taillight/serve.go`), `code.line.number` and `code.function.name`.
+A top-level `error` attribute becomes `exception.type` and `exception.message`,
+with the full error string, and a slog group becomes one nested map attribute.
+A collector that redacts by attribute key sees only the top-level keys, so
+never log a credential, flat, in a group or inside an error. Export errors,
+such as an unreachable collector, are logged to the console at most once a
+minute.
 
 ### `api/config.yml` — application tuning
 

@@ -54,6 +54,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LogLevel != slog.LevelInfo {
 		t.Errorf("LogLevel = %v, want %v", cfg.LogLevel, slog.LevelInfo)
 	}
+	if cfg.OTLPMinLevel != slog.LevelInfo {
+		t.Errorf("OTLPMinLevel = %v, want %v", cfg.OTLPMinLevel, slog.LevelInfo)
+	}
 	if cfg.DBMaxConns != 30 {
 		t.Errorf("DBMaxConns = %d, want %d", cfg.DBMaxConns, 30)
 	}
@@ -234,6 +237,7 @@ func TestLoadEnvRealIPHeaderNeedsTrustedProxies(t *testing.T) {
 func TestLoadEnvOverride(t *testing.T) {
 	t.Setenv("LISTEN_ADDR", ":9090")
 	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("OTLP_MIN_LEVEL", "warn")
 	t.Setenv("AUTH_ENABLED", "false")
 
 	cfg, err := Load()
@@ -246,6 +250,9 @@ func TestLoadEnvOverride(t *testing.T) {
 	}
 	if cfg.LogLevel != slog.LevelDebug {
 		t.Errorf("LogLevel = %v, want %v", cfg.LogLevel, slog.LevelDebug)
+	}
+	if cfg.OTLPMinLevel != slog.LevelWarn {
+		t.Errorf("OTLPMinLevel = %v, want %v", cfg.OTLPMinLevel, slog.LevelWarn)
 	}
 	if cfg.AuthEnabled {
 		t.Error("AuthEnabled should be false after env override")
