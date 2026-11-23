@@ -125,8 +125,6 @@ async function handleSubmit() {
       </template>
 
       <template v-else>
-        <p class="subtitle">Sign in to your account</p>
-
         <form @submit.prevent="handleSubmit" class="form" autocomplete="on">
           <div class="field">
             <label for="username" class="field-label">Username</label>
@@ -218,6 +216,7 @@ async function handleSubmit() {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  margin-top: 2rem;
 }
 
 .field {

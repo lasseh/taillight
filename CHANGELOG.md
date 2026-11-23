@@ -22,6 +22,7 @@ release moves its entries under a new `## [vX.Y.Z] - YYYY-MM-DD` heading.
 
 #### Login mark
 - The login page shows Taillight's mark, `//T//`, over the sign-in card as square cells in the `[Taillight]` heading's gradient (emergency to alert, read from the theme), with cars of light driving between the slashes' ends and the T. It shows in the "Cannot connect to server" state too, shrinks to the column on a phone, and stands still under `prefers-reduced-motion: reduce`
+- The sign-in card no longer shows the "Sign in to your account" line under `[Taillight]`
 
 #### OpenTelemetry log export
 - `taillight serve` exports its own logs over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) is set, alongside the console and the optional self log shipper. Each record carries `service.name` (`taillight`, or `OTEL_SERVICE_NAME`), `service.version` and the source file, line and function of the call that logged it; `otlp_min_level` / `OTLP_MIN_LEVEL` (default `info`) sets the lowest level exported, independent of `LOG_LEVEL` and the log shipper, and `OTEL_RESOURCE_ATTRIBUTES` adds resource attributes. Off when no endpoint is set or `OTEL_SDK_DISABLED=true`; buffered records are flushed on shutdown. Export errors go to the console at most once a minute, with a count of the ones held back, instead of one raw stderr line per failed batch
