@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/lib/api'
 import { config } from '@/lib/config'
 import { features } from '@/lib/features'
+import LogoMark from '@/components/logo/LogoMark.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -107,6 +108,7 @@ async function handleSubmit() {
 
 <template>
   <div class="login-page">
+    <LogoMark class="login-mark" />
     <div class="login-card">
       <h1 class="logo">
         <span class="bg-gradient-to-r from-sev-emerg to-sev-alert bg-clip-text text-transparent"
@@ -180,6 +182,10 @@ async function handleSubmit() {
   justify-content: center;
   background: var(--color-t-bg);
   padding: 1rem;
+}
+
+.login-mark {
+  margin-bottom: 28px;
 }
 
 .login-card {
